@@ -49,6 +49,8 @@
  * this tool's job of handing the rendered file back to the client.
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -230,7 +232,24 @@ async function main(): Promise<void> {
 
 // Only auto-start when this module is the process entrypoint (not when
 // imported by tests via `createServer`/`../tool-handlers.js` directly).
-const isMainModule = process.argv[1] === new URL(import.meta.url).pathname;
+//
+// Resolve symlinks on both sides before comparing: npm/npx always invoke
+// this file through the `node_modules/.bin/visual-runtime` bin symlink, so
+// `process.argv[1]` is the symlink path while `import.meta.url` is already
+// the fully-resolved real path — a naive string comparison never matches
+// under npx, silently skipping `main()` with no error and no output.
+function resolveMainModulePath(): string | undefined {
+  if (!process.argv[1]) {
+    return undefined;
+  }
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1];
+  }
+}
+
+const isMainModule = resolveMainModulePath() === fileURLToPath(import.meta.url);
 if (isMainModule) {
   main().catch((err) => {
     process.stderr.write(`visual-runtime: fatal error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);

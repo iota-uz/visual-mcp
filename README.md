@@ -44,12 +44,13 @@ Node.js >= 20.
 
 If you've cloned this repo and want the MCP server to auto-load in Claude
 Code sessions started from it, a `.mcp.json` pointing at the local build is
-already checked in:
+already checked in. It's named `visual-runtime-dev` (not `visual-runtime`) so
+it doesn't collide with a globally installed `visual-runtime` plugin/server:
 
 ```json
 {
   "mcpServers": {
-    "visual-runtime": {
+    "visual-runtime-dev": {
       "command": "node",
       "args": ["dist/server/index.js"]
     }

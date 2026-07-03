@@ -1,6 +1,6 @@
 {
   "name": "visual-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Visual Runtime MCP Server — sandboxed runtime for LLM agents to generate PNG/SVG/PDF/HTML visual artifacts via HTML+Tailwind v4, D2 diagrams, and ApexCharts.",
   "private": true,
   "type": "module",
