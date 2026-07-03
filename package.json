@@ -1,0 +1,37 @@
+{
+  "name": "visual-runtime",
+  "version": "0.1.0",
+  "description": "Visual Runtime MCP Server — sandboxed runtime for LLM agents to generate PNG/SVG/PDF/HTML visual artifacts via HTML+Tailwind v4, D2 diagrams, and ApexCharts.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server/index.js",
+  "bin": {
+    "visual-runtime": "./dist/server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node ./dist/server/index.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@tailwindcss/cli": "^4.3.2",
+    "@terrastruct/d2": "^0.1.33",
+    "apexcharts": "^4.5.0",
+    "playwright": "^1.52.0",
+    "sharp": "^0.34.1",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "pdf-lib": "^1.17.1",
+    "tsx": "^4.19.0"
+  }
+}

@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# session workspaces created at runtime (see PLAN.md section 7 / src/types.ts SESSIONS_ROOT)
+sessions/
+
+# logs
+npm-debug.log*
+*.log
+
+# OS
+.DS_Store
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# env
+.env
+.env.local
