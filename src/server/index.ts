@@ -50,6 +50,7 @@
  */
 
 import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -88,13 +89,17 @@ async function runTool(fn: () => Promise<CallToolResult> | CallToolResult): Prom
   }
 }
 
+const packageVersion: string = createRequire(import.meta.url)(
+  "../../package.json",
+).version;
+
 export function createServer(): { server: McpServer; sessions: SessionStore } {
   const sessions = new SessionStore();
   const ctx = { sessions };
 
   const server = new McpServer({
     name: "visual-runtime",
-    version: "0.1.0",
+    version: packageVersion,
   });
 
   server.registerTool(

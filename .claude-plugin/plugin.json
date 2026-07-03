@@ -1,7 +1,7 @@
 {
   "name": "visual-runtime",
   "displayName": "Visual Runtime",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sandboxed MCP server for generating PNG/SVG/PDF/HTML visual artifacts via HTML+Tailwind v4, D2 diagrams, and ApexCharts.",
   "author": {
     "name": "iota-uz",
@@ -13,7 +13,7 @@
     "visual-runtime": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "github:iota-uz/visual-mcp#v0.1.1"]
+      "args": ["-y", "github:iota-uz/visual-mcp#v0.1.2"]
     }
   }
 }
