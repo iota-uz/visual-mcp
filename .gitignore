@@ -8,6 +8,9 @@ dist/
 # session workspaces created at runtime (see PLAN.md section 7 / src/types.ts SESSIONS_ROOT)
 sessions/
 
+# scratch dir for local template previews
+tmp/
+
 # logs
 npm-debug.log*
 *.log

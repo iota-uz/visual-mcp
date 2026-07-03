@@ -12,6 +12,7 @@ import type { Template, TemplateKind } from "../types.js";
 import { architectureOverviewTemplate } from "./architecture-overview.js";
 import { sequenceFlowTemplate } from "./sequence-flow.js";
 import { mobileAppScreenTemplate } from "./mobile-app-screen.js";
+import { phoneFrameScreenTemplate } from "./phone-frame-screen.js";
 import { browserAppScreenTemplate } from "./browser-app-screen.js";
 import { dashboardOverviewTemplate } from "./dashboard-overview.js";
 import { onePageInfographicTemplate } from "./one-page-infographic.js";
@@ -26,6 +27,7 @@ export const TEMPLATES: readonly Template[] = [
   architectureOverviewTemplate,
   sequenceFlowTemplate,
   mobileAppScreenTemplate,
+  phoneFrameScreenTemplate,
   browserAppScreenTemplate,
   dashboardOverviewTemplate,
   onePageInfographicTemplate,
@@ -57,6 +59,7 @@ export {
   architectureOverviewTemplate,
   sequenceFlowTemplate,
   mobileAppScreenTemplate,
+  phoneFrameScreenTemplate,
   browserAppScreenTemplate,
   dashboardOverviewTemplate,
   onePageInfographicTemplate,

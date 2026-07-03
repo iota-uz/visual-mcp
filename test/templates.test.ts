@@ -21,7 +21,7 @@ const KNOWN_KINDS: TemplateKind[] = [
   "infographic",
 ];
 
-test("registry exposes exactly the 8 ids from TEMPLATE_IDS, in order", () => {
+test("registry exposes exactly the ids from TEMPLATE_IDS, in order", () => {
   const ids = TEMPLATES.map((t) => t.id);
   assert.deepEqual(ids, [...TEMPLATE_IDS]);
 });
@@ -81,6 +81,7 @@ test("sequence-flow uses D2's sequence_diagram shape", () => {
 test("HTML-based templates use Tailwind v4 import, not v3 config", () => {
   const htmlIds = [
     "mobile-app-screen",
+    "phone-frame-screen",
     "browser-app-screen",
     "dashboard-overview",
     "one-page-infographic",
@@ -134,7 +135,12 @@ test("listTemplates() with no kind returns all templates", () => {
 test("listTemplates(kind) filters correctly for each known kind", () => {
   const expectedByKind: Record<TemplateKind, string[]> = {
     diagram: ["architecture-overview", "sequence-flow"],
-    mockup: ["mobile-app-screen", "browser-app-screen", "dashboard-overview"],
+    mockup: [
+      "mobile-app-screen",
+      "phone-frame-screen",
+      "browser-app-screen",
+      "dashboard-overview",
+    ],
     infographic: ["one-page-infographic"],
     report: ["multipage-report"],
     chart: ["chart-report"],

@@ -137,6 +137,7 @@ export const TEMPLATE_IDS = [
   "architecture-overview",
   "sequence-flow",
   "mobile-app-screen",
+  "phone-frame-screen",
   "browser-app-screen",
   "dashboard-overview",
   "one-page-infographic",
