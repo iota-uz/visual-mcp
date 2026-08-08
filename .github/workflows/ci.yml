@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Keyed on package-lock.json, not a hand-parsed playwright version: the
+      # lockfile changes whenever the pinned playwright version does (see
+      # packages/runtime/package.json's exact, non-caret pin), so this stays
+      # correct without extracting the version in a separate step.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Lint / format check
+        run: npx biome ci .
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # A0.2's guarantee that the sandbox worker runs the real path-confinement
+      # function (not a hand-copied string) only holds if the built dist/
+      # actually contains it — this is where "must not be minified with name
+      # mangling" (see src/paths/index.ts) stops being a comment and becomes
+      # something that fails the build.
+      - name: Verify the sandbox path guard survives the build
+        run: |
+          node -e "
+            import('./packages/runtime/dist/sandbox/worker-source.js').then((m) => {
+              const ok =
+                /function normalizeCanvasPathStandalone\(/.test(m.WORKER_SOURCE) &&
+                /normalizeCanvasPathStandalone\(requestedPath, mode\)/.test(m.WORKER_SOURCE);
+              if (!ok) {
+                console.error('GUARD MISSING FROM DIST');
+                process.exit(1);
+              }
+              console.log('dist guard OK');
+            });
+          "
+
+      - name: Test
+        run: npm test
