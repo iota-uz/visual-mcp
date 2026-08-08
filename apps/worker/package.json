@@ -1,0 +1,25 @@
+{
+  "name": "@visual-canvas/worker",
+  "version": "0.1.0-dev",
+  "description": "Render worker (PLAN.md section 3, 5): Playwright/Chromium, D2, Tailwind CLI, run_code — everything Convex's own runtime can't run. Deployed separately (Railway); talks to Convex only via short-lived, credential-free per-canvas URLs.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.0",
+    "hono": "4.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
