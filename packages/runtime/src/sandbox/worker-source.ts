@@ -31,10 +31,15 @@
  *
  * Trade-off, stated honestly: the code below is unchecked by `tsc` (it's
  * just a string) and has no syntax highlighting. Keep it small and
- * boring. It intentionally duplicates a slimmed-down copy of
- * path-guard.ts's confinement rule (see resolveInWorkspace below) instead
- * of importing that module, for the same reason described above — it
- * would need to be loaded as a `.ts` module from inside the worker.
+ * boring.
+ *
+ * The path confinement rule is NOT duplicated here. It used to be — a
+ * hand-maintained copy with a "keep the two in sync" comment — but it is
+ * now interpolated from `CANVAS_PATH_GUARD_SOURCE`, which is
+ * `normalizeCanvasPathStandalone.toString()` from `src/paths/index.ts`.
+ * The worker therefore runs the identical function the host side
+ * validates with, and the two cannot drift. That is also why this module
+ * must not be minified with name mangling.
  *
  * SANDBOX SURFACE PROVIDED TO USER CODE (see also run-code.ts doc comment):
  *   - console.{log,info,warn,error}   -> captured into stdout/stderr strings
@@ -74,6 +79,8 @@
  * of this request.
  */
 
+import { CANVAS_PATH_GUARD_SOURCE } from "../paths/index.js";
+
 export const WORKER_SOURCE = `
 "use strict";
 const { parentPort, workerData } = require("node:worker_threads");
@@ -104,30 +111,14 @@ function sendResult(result) {
   parentPort.postMessage(result);
 }
 
-// Slimmed-down duplicate of path-guard.ts's resolveWorkspacePath — see
-// this file's header comment for why it is duplicated rather than
-// imported. Keep the two in sync when either changes.
+// Injected verbatim from src/paths/index.ts — literally the same function
+// object the host side validates with, stringified. Not a copy; see this
+// file's header comment and that module's.
+${CANVAS_PATH_GUARD_SOURCE}
+
 function resolveInWorkspace(requestedPath, mode) {
-  if (typeof requestedPath !== "string" || requestedPath.trim().length === 0) {
-    throw new Error("Path must be a non-empty string");
-  }
-  const relative = requestedPath.replace(/^[\\/\\\\]+/, "");
-  if (relative.length === 0) {
-    throw new Error("Path must not be the workspace root itself: " + requestedPath);
-  }
-  const resolved = nodePath.resolve(workspaceRoot, relative);
-  const rootWithSep = workspaceRoot + nodePath.sep;
-  if (resolved !== workspaceRoot && resolved.indexOf(rootWithSep) !== 0) {
-    throw new Error("Path escapes session workspace: " + requestedPath);
-  }
-  if (mode === "write") {
-    const relFromRoot = nodePath.relative(workspaceRoot, resolved);
-    const topDir = relFromRoot.split(nodePath.sep)[0];
-    if (topDir !== "src" && topDir !== "output") {
-      throw new Error("Writes are only allowed under /src or /output (got: " + requestedPath + ")");
-    }
-  }
-  return resolved;
+  var normalized = normalizeCanvasPathStandalone(requestedPath, mode);
+  return nodePath.resolve(workspaceRoot, normalized.relPath);
 }
 
 const scopedFs = {

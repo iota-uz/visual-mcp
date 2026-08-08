@@ -22,6 +22,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeCanvasPath } from "../../paths/index.js";
 import type {
   Artifact,
   ArtifactManifest,
@@ -254,24 +255,22 @@ function inferArtifactInfo(filePath: string): { type: ArtifactType; mime: string
  * an absolute filesystem path, rejecting anything that would escape the
  * session's `/output` directory (path traversal via "..", absolute paths
  * pointing elsewhere, or paths under /src, /assets, /templates, /cache).
+ *
+ * Validation is the shared `artifact`-mode normalizer; only the error type
+ * is local, because `export_artifact` reports traversal as
+ * {@link PathTraversalError} rather than the sandbox's error class.
  */
 function resolveOutputAbsolutePath(sessionId: string, requestedPath: string): string {
-  const sessionRoot = sessionRootDir(sessionId);
-  const outputRoot = sessionOutputDir(sessionId);
-  const relativeToSessionRoot = requestedPath.replace(/^[/\\]+/, "");
-  const absolute = path.resolve(sessionRoot, relativeToSessionRoot);
-  const relativeToOutputRoot = path.relative(outputRoot, absolute);
-
-  if (
-    relativeToOutputRoot.startsWith("..") ||
-    path.isAbsolute(relativeToOutputRoot)
-  ) {
+  let relPath: string;
+  try {
+    ({ relPath } = normalizeCanvasPath(requestedPath, "artifact"));
+  } catch {
     throw new PathTraversalError(
       `Path "${requestedPath}" is outside session "${sessionId}"'s /output directory`,
     );
   }
 
-  return absolute;
+  return path.resolve(sessionRootDir(sessionId), relPath);
 }
 
 /**
