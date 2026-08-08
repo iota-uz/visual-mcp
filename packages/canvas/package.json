@@ -1,0 +1,32 @@
+{
+  "name": "@visual-canvas/canvas",
+  "version": "0.2.0-dev",
+  "description": "Isomorphic canvas-document engine: types, layout, edge routing, rendering, and a browser viewport. Ported from the osago diagram (PLAN.md section 2).",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "viewer:dev": "vite dev dev"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vite": "^8.2.1"
+  }
+}

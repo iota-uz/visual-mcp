@@ -1,0 +1,570 @@
+/*
+ * Design tokens and chrome ported from the osago reference diagram
+ * (PLAN.md context / B1). Class names are the packages/canvas `vc-*`
+ * vocabulary, not the original file's `diagram-*` names, but the tokens,
+ * shadow ladder, ring-based selection, and viewport-painted infinite grid
+ * are carried over as-is.
+ */
+
+:root {
+  --vc-ink: #061b36;
+  --vc-ink-soft: #18314d;
+  --vc-paper: #f4f7fb;
+  --vc-white: #ffffff;
+  --vc-line: #dce4ed;
+  --vc-muted: #6b7e94;
+  --vc-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --vc-body: "Manrope", system-ui, sans-serif;
+  --vc-display: "Unbounded", var(--vc-body);
+
+  --vc-role-actors: #75879a;
+  --vc-role-primary: #2f6df6;
+  --vc-role-secondary: #2f9f6e;
+  --vc-role-automation: #5a8f7a;
+  --vc-role-exception: #d38f21;
+  --vc-role-support: #7a56b2;
+  --vc-role-system: #376db9;
+  --vc-role-external: #2f9f6e;
+
+  --vc-tone-live: #186b4a;
+  --vc-tone-partial: #8d6210;
+  --vc-tone-planned: #5a44a0;
+
+  --vc-edge-main: #235fae;
+  --vc-edge-secondary: #7d8ea3;
+  --vc-edge-sync: #7892ad;
+  --vc-edge-actor: #536b84;
+  --vc-edge-exception: #c98518;
+  --vc-edge-external: #278c61;
+}
+
+.vc-viewport {
+  --grid-size: 24px;
+  --grid-x: 0px;
+  --grid-y: 0px;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #f4f6f8;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.vc-viewport::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(117, 135, 154, 0.48) 1px, transparent 1.2px);
+  background-size: var(--grid-size) var(--grid-size);
+  background-position: var(--grid-x) var(--grid-y);
+}
+.vc-viewport.is-panning,
+.vc-viewport.is-pinching {
+  cursor: grabbing;
+}
+
+.vc-world {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* --- lanes --- */
+.vc-lanes {
+  position: absolute;
+  inset: 0;
+}
+.vc-lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border: 1px solid rgba(44, 66, 92, 0.1);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.4);
+}
+.vc-lane-label {
+  position: absolute;
+  left: 20px;
+  top: 16px;
+  color: var(--vc-muted);
+  font: 650 10px / 1 var(--vc-mono);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.vc-lane.vc-role-primary {
+  border-color: color-mix(in srgb, var(--vc-role-primary) 25%, transparent);
+}
+.vc-lane.vc-role-secondary {
+  border-color: color-mix(in srgb, var(--vc-role-secondary) 25%, transparent);
+}
+.vc-lane.vc-role-exception {
+  border-color: color-mix(in srgb, var(--vc-role-exception) 25%, transparent);
+}
+.vc-lane.vc-role-support {
+  border-color: color-mix(in srgb, var(--vc-role-support) 25%, transparent);
+}
+.vc-lane.vc-role-system {
+  border-color: color-mix(in srgb, var(--vc-role-system) 25%, transparent);
+}
+.vc-lane.vc-role-external {
+  border-color: color-mix(in srgb, var(--vc-role-external) 25%, transparent);
+}
+
+/* --- stages --- */
+.vc-stages {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.vc-stage {
+  position: absolute;
+  top: 0;
+  border-left: 1px dashed rgba(70, 91, 116, 0.18);
+}
+.vc-stage-header {
+  position: absolute;
+  left: 18px;
+  top: -30px;
+  display: flex;
+  flex-direction: column;
+}
+.vc-stage-label {
+  font: 650 12px / 1.2 var(--vc-body);
+  color: var(--vc-ink);
+}
+.vc-stage-summary {
+  margin-top: 2px;
+  font: 500 9px / 1.3 var(--vc-mono);
+  color: var(--vc-muted);
+}
+
+/* --- edges --- */
+.vc-edges {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.vc-edge path {
+  fill: none;
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+.vc-edge-main path {
+  stroke: var(--vc-edge-main);
+  stroke-width: 2.6;
+}
+.vc-edge-secondary path {
+  stroke: var(--vc-edge-secondary);
+}
+.vc-edge-sync path {
+  stroke: var(--vc-edge-sync);
+  stroke-dasharray: 7 7;
+}
+.vc-edge-actor path {
+  stroke: var(--vc-edge-actor);
+  stroke-width: 1.8;
+  stroke-dasharray: 4 5;
+}
+.vc-edge-exception path {
+  stroke: var(--vc-edge-exception);
+  stroke-dasharray: 8 7;
+}
+.vc-edge-external path {
+  stroke: var(--vc-edge-external);
+}
+.vc-edge-label {
+  fill: var(--vc-muted);
+  font: 600 9px var(--vc-mono);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: var(--vc-white);
+  stroke-width: 4px;
+}
+.vc-marker path {
+  fill: currentColor;
+}
+.vc-marker-main {
+  color: var(--vc-edge-main);
+}
+.vc-marker-secondary {
+  color: var(--vc-edge-secondary);
+}
+.vc-marker-sync {
+  color: var(--vc-edge-sync);
+}
+.vc-marker-actor {
+  color: var(--vc-edge-actor);
+}
+.vc-marker-exception {
+  color: var(--vc-edge-exception);
+}
+.vc-marker-external {
+  color: var(--vc-edge-external);
+}
+
+/* --- node cards --- */
+.vc-nodes {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+.vc-node {
+  position: absolute;
+  border-radius: 18px;
+  background: var(--vc-white);
+  border: 1px solid var(--vc-line);
+  box-shadow: 0 10px 30px rgba(20, 44, 72, 0.08);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    filter 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+.vc-node:hover {
+  filter: brightness(1.015);
+}
+.vc-node:focus-visible {
+  outline: 4px solid rgba(47, 109, 246, 0.34);
+  outline-offset: 5px;
+}
+.vc-node.selected {
+  z-index: 8;
+  box-shadow:
+    0 0 0 5px rgba(47, 109, 246, 0.18),
+    0 24px 60px rgba(19, 43, 71, 0.2);
+}
+.vc-node.dimmed {
+  opacity: 0.25;
+  filter: saturate(0.55);
+}
+.vc-node.vc-shape-decision {
+  border-radius: 12px;
+  transform: rotate(45deg);
+}
+.vc-node.vc-shape-decision .vc-caption {
+  transform: rotate(-45deg);
+  width: 141%;
+  height: 141%;
+  position: absolute;
+  left: -20.5%;
+  top: -20.5%;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.vc-caption {
+  height: 47px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--vc-line);
+  background: var(--vc-white);
+}
+.vc-caption-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 650 10px / 1.2 var(--vc-body);
+  color: var(--vc-ink);
+}
+.vc-caption-subtitle {
+  margin-top: 2px;
+  color: var(--vc-muted);
+  font: 500 7px / 1 var(--vc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.vc-caption-tag {
+  flex: none;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: #eef2f6;
+  color: #687b90;
+  font: 650 7px / 1 var(--vc-mono);
+}
+.vc-badge {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font: 700 6.5px / 1 var(--vc-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.vc-badge.vc-tone-live {
+  background: #e8f6ef;
+  border-color: #a9dcc4;
+  color: var(--vc-tone-live);
+}
+.vc-badge.vc-tone-partial {
+  background: #fff5e2;
+  border-color: #e8cb92;
+  color: var(--vc-tone-partial);
+}
+.vc-badge.vc-tone-planned {
+  background: #f0edfb;
+  border-color: #c5b8ea;
+  color: var(--vc-tone-planned);
+}
+
+.vc-content {
+  height: calc(100% - 47px);
+  overflow: auto;
+}
+.vc-content-text {
+  padding: 10px 12px;
+  font: 400 11px / 1.4 var(--vc-body);
+  color: var(--vc-ink-soft);
+  white-space: pre-wrap;
+}
+.vc-content-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.vc-frame-chrome {
+  height: 22px;
+  background: #f1f3f6;
+  border-bottom: 1px solid var(--vc-line);
+}
+.vc-frame-phone .vc-frame-chrome {
+  height: 18px;
+  border-radius: 12px 12px 0 0;
+}
+.vc-frame .vc-content-html {
+  height: calc(100% - 22px);
+}
+
+/* --- legend --- */
+.vc-legend {
+  position: absolute;
+  z-index: 20;
+  left: 18px;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--vc-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 45px rgba(18, 42, 70, 0.12);
+  backdrop-filter: blur(18px);
+  pointer-events: none;
+}
+.vc-legend-title {
+  font: 650 8px / 1 var(--vc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vc-muted);
+}
+.vc-legend-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.vc-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #67798d;
+  font: 550 8px / 1 var(--vc-mono);
+}
+.vc-legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vc-muted);
+}
+.vc-legend-item.vc-role-primary .vc-legend-swatch {
+  background: var(--vc-role-primary);
+}
+.vc-legend-item.vc-role-secondary .vc-legend-swatch {
+  background: var(--vc-role-secondary);
+}
+.vc-legend-item.vc-role-exception .vc-legend-swatch {
+  background: var(--vc-role-exception);
+}
+.vc-legend-item.vc-role-support .vc-legend-swatch {
+  background: var(--vc-role-support);
+}
+.vc-legend-item.vc-role-system .vc-legend-swatch {
+  background: var(--vc-role-system);
+}
+.vc-legend-item.vc-role-external .vc-legend-swatch {
+  background: var(--vc-role-external);
+}
+.vc-legend-item.vc-tone-live .vc-legend-swatch {
+  background: var(--vc-tone-live);
+}
+.vc-legend-item.vc-tone-partial .vc-legend-swatch {
+  background: var(--vc-tone-partial);
+}
+.vc-legend-item.vc-tone-planned .vc-legend-swatch {
+  background: var(--vc-tone-planned);
+}
+
+/* --- inspector --- */
+.vc-inspector {
+  position: absolute;
+  z-index: 25;
+  left: 18px;
+  bottom: 18px;
+  width: 320px;
+  padding: 18px 20px 19px;
+  border: 1px solid var(--vc-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 18px 50px rgba(18, 42, 70, 0.14);
+  backdrop-filter: blur(18px);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+.vc-inspector.visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.vc-inspector-close {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  appearance: none;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--vc-muted);
+  cursor: pointer;
+}
+.vc-inspector-eyebrow {
+  display: block;
+  color: var(--vc-role-primary);
+  font: 650 8px / 1 var(--vc-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.vc-inspector-title {
+  margin: 6px 0 8px;
+  font: 700 16px / 1.25 var(--vc-body);
+  color: var(--vc-ink);
+}
+.vc-inspector-copy {
+  margin: 0;
+  font: 400 11px / 1.5 var(--vc-body);
+  color: var(--vc-ink-soft);
+}
+.vc-inspector-points div {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf0f3;
+  color: #42566d;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.vc-inspector-points b {
+  color: #7f8ea0;
+  font: 600 8px / 1.4 var(--vc-mono);
+}
+
+/* --- minimap --- */
+.vc-minimap {
+  position: absolute;
+  z-index: 20;
+  right: 18px;
+  bottom: 18px;
+  width: 220px;
+  height: 90px;
+  overflow: hidden;
+  border: 1px solid var(--vc-line);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 35px rgba(18, 42, 70, 0.12);
+  cursor: crosshair;
+}
+.vc-minimap-node {
+  position: absolute;
+  border-radius: 2px;
+  background: #96a9bc;
+}
+.vc-minimap-viewport {
+  position: absolute;
+  border: 1.5px solid #1d5daa;
+  border-radius: 4px;
+  background: rgba(47, 109, 246, 0.08);
+  pointer-events: none;
+}
+
+/* --- LOD layer: hidden by default, swapped in below LOD_THRESHOLD via one class toggle --- */
+.vc-lod-layer {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+.vc-viewport.is-lod .vc-lod-layer {
+  display: block;
+}
+.vc-viewport.is-lod .vc-nodes,
+.vc-viewport.is-lod .vc-lanes,
+.vc-viewport.is-lod .vc-edge-label {
+  display: none;
+}
+.vc-viewport.is-lod .vc-edges {
+  opacity: 0.12;
+}
+.vc-lod-card {
+  position: absolute;
+  width: 340px;
+  height: 220px;
+  box-sizing: border-box;
+  border-radius: 24px;
+  background: var(--vc-white);
+  border: 3px solid var(--vc-line);
+  box-shadow: 0 26px 70px rgba(19, 43, 71, 0.12);
+  padding: 24px;
+  pointer-events: auto;
+}
+.vc-lod-title {
+  font: 750 24px / 1.1 var(--vc-display);
+  letter-spacing: -0.02em;
+  color: var(--vc-ink);
+}
+.vc-lod-summary {
+  margin-top: 12px;
+  font: 400 13px / 1.4 var(--vc-body);
+  color: var(--vc-ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vc-node,
+  .vc-inspector {
+    transition-duration: 0s;
+  }
+}
