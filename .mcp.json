@@ -2,7 +2,7 @@
   "mcpServers": {
     "visual-runtime-dev": {
       "command": "node",
-      "args": ["dist/server/index.js"]
+      "args": ["packages/runtime/dist/server/index.js"]
     }
   }
 }
