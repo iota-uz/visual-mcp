@@ -30,7 +30,13 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { Session } from "../types.js";
 
-const WORKSPACE_SUBDIRS = ["src", "output", "assets", "templates", "cache"] as const;
+/**
+ * Exported (not just module-private) so `../storage/workspace.ts`'s
+ * `hydrate()` — the mkdtemp-based workspace builder used by the render
+ * worker — creates the identical directory shape without a second,
+ * independently-maintained copy of this list.
+ */
+export const WORKSPACE_SUBDIRS = ["src", "output", "assets", "templates", "cache"] as const;
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
