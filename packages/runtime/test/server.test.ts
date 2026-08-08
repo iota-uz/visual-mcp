@@ -19,19 +19,17 @@
  * list artifacts, and export the final PDF.
  */
 
-import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { after, test } from "node:test";
 import { PDFDocument } from "pdf-lib";
-
-import { removeSessionWorkspace, SandboxPathError } from "../src/sandbox/index.js";
-import { PathTraversalError, ArtifactNotFoundError } from "../src/render/artifact-store/index.js";
+import { ArtifactNotFoundError, PathTraversalError } from "../src/render/artifact-store/index.js";
 import { D2RenderError, disposeD2Renderer } from "../src/render/diagrams/index.js";
-
-import * as handlers from "../src/server/tool-handlers.js";
-import { SessionStore, UnknownSessionError } from "../src/server/session-store.js";
+import { removeSessionWorkspace, SandboxPathError } from "../src/sandbox/index.js";
 import { createServer } from "../src/server/index.js";
+import { SessionStore, UnknownSessionError } from "../src/server/session-store.js";
+import * as handlers from "../src/server/tool-handlers.js";
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const PDF_MAGIC = Buffer.from("%PDF-");
@@ -218,7 +216,10 @@ test("create_visual_session seeds /src from the requested template kind", async 
   createdSessionIds.push(output.session_id);
 
   const srcFiles = fs.readdirSync(path.join(output.workspace, "src"));
-  assert.ok(srcFiles.some((f) => f.endsWith(".d2")), "diagram template should seed a .d2 file");
+  assert.ok(
+    srcFiles.some((f) => f.endsWith(".d2")),
+    "diagram template should seed a .d2 file",
+  );
 
   const apexAsset = path.join(output.workspace, "assets", "js", "apexcharts.min.js");
   assert.ok(fs.existsSync(apexAsset), "ApexCharts bundle should be vendored at session creation");
@@ -254,14 +255,35 @@ test("run_code / write_file / render_file / list_artifacts / export_artifact rej
   const ctx = freshCtx();
   const bogus = "sess_does-not-exist";
 
-  await assert.rejects(() => handlers.runCode({ session_id: bogus, code: "1+1" }, ctx), UnknownSessionError);
-  assert.throws(() => handlers.writeFile({ session_id: bogus, path: "/src/a.txt", content: "x" }, ctx), UnknownSessionError);
   await assert.rejects(
-    () => handlers.renderFile({ session_id: bogus, entrypoint: "/src/a.html", output_path: "/output/a.png", format: "png" }, ctx),
+    () => handlers.runCode({ session_id: bogus, code: "1+1" }, ctx),
     UnknownSessionError,
   );
-  await assert.rejects(() => handlers.listArtifacts({ session_id: bogus }, ctx), UnknownSessionError);
-  await assert.rejects(() => handlers.exportArtifact({ session_id: bogus, path: "/output/a.png" }, ctx), UnknownSessionError);
+  assert.throws(
+    () => handlers.writeFile({ session_id: bogus, path: "/src/a.txt", content: "x" }, ctx),
+    UnknownSessionError,
+  );
+  await assert.rejects(
+    () =>
+      handlers.renderFile(
+        {
+          session_id: bogus,
+          entrypoint: "/src/a.html",
+          output_path: "/output/a.png",
+          format: "png",
+        },
+        ctx,
+      ),
+    UnknownSessionError,
+  );
+  await assert.rejects(
+    () => handlers.listArtifacts({ session_id: bogus }, ctx),
+    UnknownSessionError,
+  );
+  await assert.rejects(
+    () => handlers.exportArtifact({ session_id: bogus, path: "/output/a.png" }, ctx),
+    UnknownSessionError,
+  );
 });
 
 test("write_file rejects writes outside /src and /output with SandboxPathError", async () => {
@@ -290,11 +312,19 @@ test("render_file rejects output_path outside /output and /cache with SandboxPat
 test("render_file surfaces D2RenderError for invalid D2 source", async () => {
   const ctx = freshCtx();
   const { session_id } = await newSession(ctx);
-  handlers.writeFile({ session_id, path: "/src/broken.d2", content: "this is: not: valid: d2: {{{" }, ctx);
+  handlers.writeFile(
+    { session_id, path: "/src/broken.d2", content: "this is: not: valid: d2: {{{" },
+    ctx,
+  );
   await assert.rejects(
     () =>
       handlers.renderFile(
-        { session_id, entrypoint: "/src/broken.d2", output_path: "/output/broken.svg", format: "svg" },
+        {
+          session_id,
+          entrypoint: "/src/broken.d2",
+          output_path: "/output/broken.svg",
+          format: "svg",
+        },
         ctx,
       ),
     D2RenderError,

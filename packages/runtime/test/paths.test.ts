@@ -1,11 +1,11 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
 import {
-  normalizeCanvasPath,
-  toDisplayPath,
-  SandboxPathError,
   CANVAS_PATH_GUARD_SOURCE,
+  normalizeCanvasPath,
+  SandboxPathError,
+  toDisplayPath,
 } from "../src/paths/index.js";
 import { WORKER_SOURCE } from "../src/sandbox/worker-source.js";
 
@@ -41,7 +41,8 @@ test("rejects traversal that climbs above the workspace root", () => {
     assert.throws(
       () => normalizeCanvasPath(bad, "read"),
       (err: unknown) =>
-        err instanceof SandboxPathError && /escapes session workspace|workspace root itself/.test(err.message),
+        err instanceof SandboxPathError &&
+        /escapes session workspace|workspace root itself/.test(err.message),
       `expected ${bad} to be rejected`,
     );
   }

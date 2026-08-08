@@ -10,13 +10,9 @@
  * renderer in an `after()` hook so `node --test` can exit cleanly.
  */
 
-import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import {
-  renderD2ToSvg,
-  disposeD2Renderer,
-  D2RenderError,
-} from "../src/render/diagrams/index.js";
+import { after, test } from "node:test";
+import { D2RenderError, disposeD2Renderer, renderD2ToSvg } from "../src/render/diagrams/index.js";
 
 // Exact example D2 snippet from PLAN.md section 3.2.
 const PLAN_EXAMPLE_D2 = `Web App -> API Gateway: HTTPS
@@ -41,10 +37,7 @@ test("renderD2ToSvg renders the PLAN.md 3.2 example to a valid, non-trivial SVG"
 
   // Non-trivial size: a 4-node/4-edge diagram should render to a
   // substantial SVG document, not an empty shell.
-  assert.ok(
-    svg.length > 1000,
-    `expected a non-trivial SVG, got ${svg.length} chars`,
-  );
+  assert.ok(svg.length > 1000, `expected a non-trivial SVG, got ${svg.length} chars`);
 
   // Well-formedness: balanced <svg>...</svg>, and every opened tag we can
   // see has a matching close (spot-check via a simple tag balance count
@@ -55,17 +48,8 @@ test("renderD2ToSvg renders the PLAN.md 3.2 example to a valid, non-trivial SVG"
   assert.ok(closeTags.length > 0, "should contain closing tags");
 
   // The diagram's node and edge labels should be present in the output.
-  for (const label of [
-    "Web App",
-    "API Gateway",
-    "CRM Core",
-    "Postgres",
-    "Redis",
-  ]) {
-    assert.ok(
-      svg.includes(label),
-      `expected rendered SVG to contain label "${label}"`,
-    );
+  for (const label of ["Web App", "API Gateway", "CRM Core", "Postgres", "Redis"]) {
+    assert.ok(svg.includes(label), `expected rendered SVG to contain label "${label}"`);
   }
 });
 
@@ -112,6 +96,12 @@ test("renderD2ToSvg handles concurrent calls without hanging or crossing results
   // Cross-contamination check: each result should not contain the other's
   // unique labels (guards against the D2.js resolver race — see module
   // header note in src/render/diagrams/index.ts).
-  assert.ok(!svgAB.includes(">Z<"), "Alpha/Beta diagram should not contain the other diagram's Z node");
-  assert.ok(!svgXYZ.includes("Beta"), "X/Y/Z diagram should not contain the other diagram's Beta node");
+  assert.ok(
+    !svgAB.includes(">Z<"),
+    "Alpha/Beta diagram should not contain the other diagram's Z node",
+  );
+  assert.ok(
+    !svgXYZ.includes("Beta"),
+    "X/Y/Z diagram should not contain the other diagram's Beta node",
+  );
 });

@@ -46,13 +46,13 @@ const exampleCode = `<!doctype html>
         <div class="rounded-2xl bg-brand text-white p-5">
           <p class="text-xs uppercase tracking-wide opacity-80">Active plan</p>
           <p class="mt-1 text-2xl font-bold">Comprehensive Auto</p>
-          <p class="mt-3 text-sm opacity-90">Next payment: Aug 14 &middot; \$84.00</p>
+          <p class="mt-3 text-sm opacity-90">Next payment: Aug 14 &middot; $84.00</p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div class="rounded-xl bg-brand-soft p-4">
             <p class="text-xs text-slate-500">Coverage</p>
-            <p class="mt-1 text-lg font-bold text-slate-950">\$50,000</p>
+            <p class="mt-1 text-lg font-bold text-slate-950">$50,000</p>
           </div>
           <div class="rounded-xl bg-brand-soft p-4">
             <p class="text-xs text-slate-500">Claims filed</p>
@@ -68,7 +68,7 @@ const exampleCode = `<!doctype html>
                 <p class="text-sm font-medium text-slate-900">Payment received</p>
                 <p class="text-xs text-slate-500">Jul 14, 2026</p>
               </div>
-              <span class="text-sm font-semibold text-emerald-600">+\$84.00</span>
+              <span class="text-sm font-semibold text-emerald-600">+$84.00</span>
             </li>
             <li class="flex items-center justify-between px-4 py-3">
               <div>

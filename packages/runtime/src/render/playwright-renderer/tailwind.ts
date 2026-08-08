@@ -29,12 +29,12 @@
  * output CSS.
  */
 
-import { createRequire } from "node:module";
-import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import * as path from "node:path";
+import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,10 +62,7 @@ function resolveTailwindCliBin(): string {
  * per PLAN.md section 2.4, failed builds are meant to be surfaced as
  * feedback (there is no separate class-name validator in v0.1).
  */
-export async function buildTailwindCss(
-  rawCss: string,
-  scanDir: string,
-): Promise<string> {
+export async function buildTailwindCss(rawCss: string, scanDir: string): Promise<string> {
   const cliBin = resolveTailwindCliBin();
   const id = randomUUID();
   const inputPath = path.join(scanDir, `.tw-input-${id}.css`);

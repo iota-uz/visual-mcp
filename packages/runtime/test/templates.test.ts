@@ -4,22 +4,12 @@
  * list_templates({ kind? }) tool contract.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  TEMPLATES,
-  listTemplates,
-  getTemplate,
-} from "../src/templates/index.js";
+import { test } from "node:test";
+import { getTemplate, listTemplates, TEMPLATES } from "../src/templates/index.js";
 import { TEMPLATE_IDS, type TemplateKind } from "../src/types.js";
 
-const KNOWN_KINDS: TemplateKind[] = [
-  "diagram",
-  "mockup",
-  "report",
-  "chart",
-  "infographic",
-];
+const KNOWN_KINDS: TemplateKind[] = ["diagram", "mockup", "report", "chart", "infographic"];
 
 test("registry exposes exactly the ids from TEMPLATE_IDS, in order", () => {
   const ids = TEMPLATES.map((t) => t.id);
@@ -40,10 +30,7 @@ test("every template conforms to the Template shape (PLAN.md section 10)", () =>
     );
 
     assert.equal(typeof template.description, "string");
-    assert.ok(
-      template.description.length > 0,
-      `description must be non-empty for ${template.id}`,
-    );
+    assert.ok(template.description.length > 0, `description must be non-empty for ${template.id}`);
 
     assert.equal(typeof template.expectedInputs, "object");
     assert.notEqual(template.expectedInputs, null);
@@ -135,12 +122,7 @@ test("listTemplates() with no kind returns all templates", () => {
 test("listTemplates(kind) filters correctly for each known kind", () => {
   const expectedByKind: Record<TemplateKind, string[]> = {
     diagram: ["architecture-overview", "sequence-flow"],
-    mockup: [
-      "mobile-app-screen",
-      "phone-frame-screen",
-      "browser-app-screen",
-      "dashboard-overview",
-    ],
+    mockup: ["mobile-app-screen", "phone-frame-screen", "browser-app-screen", "dashboard-overview"],
     infographic: ["one-page-infographic"],
     report: ["multipage-report"],
     chart: ["chart-report"],

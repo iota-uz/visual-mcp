@@ -6,17 +6,17 @@
  * `node --import tsx --test test/**\/*.test.ts` (see package.json "test").
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { test } from "node:test";
 import {
-  generateSessionId,
   createSessionWorkspace,
+  generateSessionId,
   removeSessionWorkspace,
-  writeFile,
   runCode,
   SandboxPathError,
+  writeFile,
 } from "../src/sandbox/index.js";
 import type { Session } from "../src/types.js";
 
@@ -47,7 +47,10 @@ test("write_file allows writes under /src and /output", () => {
     const srcResult = writeFile(session, "/src/main.ts", "console.log(1);");
     assert.equal(srcResult.path, "/src/main.ts");
     assert.equal(srcResult.bytes_written, Buffer.byteLength("console.log(1);"));
-    assert.equal(fs.readFileSync(path.join(session.workspace, "src/main.ts"), "utf8"), "console.log(1);");
+    assert.equal(
+      fs.readFileSync(path.join(session.workspace, "src/main.ts"), "utf8"),
+      "console.log(1);",
+    );
 
     const outResult = writeFile(session, "output/report.html", "<html></html>");
     assert.equal(outResult.path, "/output/report.html");
@@ -71,14 +74,8 @@ test("write_file rejects writes outside /src and /output (templates, assets, cac
 test("write_file rejects path traversal escaping the workspace", () => {
   const { session, cleanup } = freshSession();
   try {
-    assert.throws(
-      () => writeFile(session, "/src/../../../etc/passwd", "pwned"),
-      SandboxPathError,
-    );
-    assert.throws(
-      () => writeFile(session, "../outside.txt", "pwned"),
-      SandboxPathError,
-    );
+    assert.throws(() => writeFile(session, "/src/../../../etc/passwd", "pwned"), SandboxPathError);
+    assert.throws(() => writeFile(session, "../outside.txt", "pwned"), SandboxPathError);
   } finally {
     cleanup();
   }
@@ -101,7 +98,7 @@ test("run_code transpiles and executes TypeScript", async () => {
   try {
     const result = await runCode(
       session,
-      'const x: number = 40; const y: number = 2; console.log(x + y);',
+      "const x: number = 40; const y: number = 2; console.log(x + y);",
     );
     assert.equal(result.success, true);
     assert.match(result.stdout, /42/);
@@ -130,10 +127,7 @@ test("run_code can write files via the scoped fs into /src and /output", async (
 test("run_code's scoped fs blocks path-traversal writes outside the workspace", async () => {
   const { session, cleanup } = freshSession();
   try {
-    const result = await runCode(
-      session,
-      'fs.writeFileSync("/../../escaped.txt", "pwned");',
-    );
+    const result = await runCode(session, 'fs.writeFileSync("/../../escaped.txt", "pwned");');
     assert.equal(result.success, false);
     assert.match(result.error ?? "", /escapes session workspace/);
     assert.equal(fs.existsSync(path.join(session.workspace, "..", "escaped.txt")), false);
@@ -145,10 +139,7 @@ test("run_code's scoped fs blocks path-traversal writes outside the workspace", 
 test("run_code's scoped fs blocks writes outside /src and /output", async () => {
   const { session, cleanup } = freshSession();
   try {
-    const result = await runCode(
-      session,
-      'fs.writeFileSync("/cache/x.txt", "nope");',
-    );
+    const result = await runCode(session, 'fs.writeFileSync("/cache/x.txt", "nope");');
     assert.equal(result.success, false);
     assert.match(result.error ?? "", /only allowed under \/src or \/output/);
   } finally {
@@ -159,7 +150,14 @@ test("run_code's scoped fs blocks writes outside /src and /output", async () => 
 test("run_code still blocks shell access: child_process/worker_threads/vm are not requireable", async () => {
   const { session, cleanup } = freshSession();
   try {
-    for (const mod of ["node:child_process", "child_process", "node:worker_threads", "worker_threads", "node:vm", "vm"]) {
+    for (const mod of [
+      "node:child_process",
+      "child_process",
+      "node:worker_threads",
+      "worker_threads",
+      "node:vm",
+      "vm",
+    ]) {
       const result = await runCode(session, `require(${JSON.stringify(mod)});`);
       assert.equal(result.success, false, `expected require(${mod}) to be blocked`);
       assert.match(result.error ?? "", /not allowed in sandbox/);
@@ -172,14 +170,25 @@ test("run_code still blocks shell access: child_process/worker_threads/vm are no
 test("run_code allows network access: http/https/net/dns/tls are requireable, fetch/WebSocket globals present", async () => {
   const { session, cleanup } = freshSession();
   try {
-    for (const mod of ["node:http", "http", "node:https", "https", "node:net", "net", "node:dns", "dns", "node:tls", "tls"]) {
+    for (const mod of [
+      "node:http",
+      "http",
+      "node:https",
+      "https",
+      "node:net",
+      "net",
+      "node:dns",
+      "dns",
+      "node:tls",
+      "tls",
+    ]) {
       const result = await runCode(session, `require(${JSON.stringify(mod)}); console.log("ok");`);
       assert.equal(result.success, true, `expected require(${mod}) to be allowed: ${result.error}`);
     }
 
     const globalsResult = await runCode(
       session,
-      'console.log(typeof fetch, typeof WebSocket, typeof process);',
+      "console.log(typeof fetch, typeof WebSocket, typeof process);",
     );
     assert.equal(globalsResult.success, true, globalsResult.error);
     // process remains absent — network sandboxing removal is unrelated to the
@@ -223,11 +232,9 @@ test("run_code enforces a timeout on hanging async code", async () => {
   const { session, cleanup } = freshSession();
   try {
     const start = Date.now();
-    const result = await runCode(
-      session,
-      "(async () => { await new Promise(() => {}); })();",
-      { timeoutMs: 300 },
-    );
+    const result = await runCode(session, "(async () => { await new Promise(() => {}); })();", {
+      timeoutMs: 300,
+    });
     const elapsed = Date.now() - start;
     assert.equal(result.success, false);
     assert.match(result.error ?? "", /timed out/i);

@@ -5,16 +5,16 @@
  * the established pattern).
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { THEME_NAMES } from "../src/types.js";
-import type { Theme } from "../src/types.js";
+import { test } from "node:test";
 import {
-  getTheme,
-  listThemes,
   compileThemeToTailwindV4,
+  getTheme,
   isThemeName,
+  listThemes,
 } from "../src/render/themes/index.js";
+import type { Theme } from "../src/types.js";
+import { THEME_NAMES } from "../src/types.js";
 
 const HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
 
@@ -109,9 +109,7 @@ test("isThemeName narrows valid vs invalid theme name strings", () => {
 
 test("themes are visually distinct (no two share primary+background)", () => {
   const themes = listThemes();
-  const signatures = themes.map(
-    (t) => `${t.colors.background}|${t.colors.primary}`,
-  );
+  const signatures = themes.map((t) => `${t.colors.background}|${t.colors.primary}`);
   assert.equal(new Set(signatures).size, signatures.length);
 });
 
@@ -126,8 +124,7 @@ test("dark-terminal is actually dark (dark background, light foreground)", () =>
     return r + g + b;
   };
   assert.ok(
-    toLuminanceProxy(theme.colors.background) <
-      toLuminanceProxy(theme.colors.foreground),
+    toLuminanceProxy(theme.colors.background) < toLuminanceProxy(theme.colors.foreground),
     "dark-terminal background should be darker than its foreground",
   );
 });
@@ -188,9 +185,7 @@ test("compileThemeToTailwindV4 emits a --color-chart-N var for every chartPalett
     const theme = getTheme(name)!;
     const css = compileThemeToTailwindV4(theme);
     theme.chartPalette.forEach((color, i) => {
-      const re = new RegExp(
-        `--color-chart-${i + 1}:\\s*${color.replace("#", "#")};`,
-      );
+      const re = new RegExp(`--color-chart-${i + 1}:\\s*${color.replace("#", "#")};`);
       assert.match(css, re, `missing --color-chart-${i + 1} for ${name}`);
     });
   }
@@ -201,10 +196,7 @@ test("compileThemeToTailwindV4 output is well-formed enough to embed in a <style
   const css = compileThemeToTailwindV4(theme);
   const html = `<style>@import "tailwindcss";\n${css}</style>`;
   // no unescaped closing </style> from theme content, and braces balance
-  assert.equal(
-    (css.match(/\{/g) ?? []).length,
-    (css.match(/\}/g) ?? []).length,
-  );
+  assert.equal((css.match(/\{/g) ?? []).length, (css.match(/\}/g) ?? []).length);
   assert.ok(!css.includes("</style>"));
   assert.ok(html.includes('@import "tailwindcss";'));
 });

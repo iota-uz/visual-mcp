@@ -103,9 +103,7 @@ export async function installLocalResourceRouting(
     const requestedPath = decodeURIComponent(url.pathname);
     const looksAlreadyInWorkspace =
       requestedPath === root || requestedPath.startsWith(root + path.sep);
-    const candidate = looksAlreadyInWorkspace
-      ? requestedPath
-      : path.join(root, requestedPath);
+    const candidate = looksAlreadyInWorkspace ? requestedPath : path.join(root, requestedPath);
     const resolved = path.resolve(candidate);
 
     const withinWorkspace = resolved === root || resolved.startsWith(root + path.sep);

@@ -5,16 +5,15 @@
  * `SESSIONS_ROOT` for the render worker.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, mkdir, writeFile, utimes, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
+import { test } from "node:test";
+import { SandboxPathError } from "../src/paths/index.js";
 import { DiskCanvasStorage } from "../src/storage/disk.js";
 import { CanvasStorageNotFoundError } from "../src/storage/types.js";
-import { hydrate, collectOutputs } from "../src/storage/workspace.js";
-import { SandboxPathError } from "../src/paths/index.js";
+import { collectOutputs, hydrate } from "../src/storage/workspace.js";
 
 async function makeStorageRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "visual-mcp-storage-test-"));
@@ -26,7 +25,12 @@ async function makeStorageRoot(): Promise<string> {
 
 test("putFile then getFile round-trips the exact bytes", async () => {
   const storage = new DiskCanvasStorage(await makeStorageRoot());
-  await storage.putFile("canvas_1", "/output/report.pdf", Buffer.from("pdf-bytes"), "application/pdf");
+  await storage.putFile(
+    "canvas_1",
+    "/output/report.pdf",
+    Buffer.from("pdf-bytes"),
+    "application/pdf",
+  );
 
   const stream = await storage.getFile("canvas_1", "/output/report.pdf");
   const chunks: Buffer[] = [];
@@ -63,9 +67,10 @@ test("putFile rejects a traversal canvasId, so it cannot write outside rootDir",
 
 test("downloadUrl rejects a storageId that decodes to a traversal canvasId", async () => {
   const storage = new DiskCanvasStorage(await makeStorageRoot());
-  const forgedStorageId = Buffer.from(JSON.stringify(["../../evil", "output/a.txt"]), "utf8").toString(
-    "base64url",
-  );
+  const forgedStorageId = Buffer.from(
+    JSON.stringify(["../../evil", "output/a.txt"]),
+    "utf8",
+  ).toString("base64url");
   await assert.rejects(() => storage.downloadUrl(forgedStorageId), CanvasStorageNotFoundError);
 });
 
@@ -76,7 +81,10 @@ test("deleteCanvas removes everything stored for that canvas only", async () => 
 
   await storage.deleteCanvas("canvas_1");
 
-  await assert.rejects(() => storage.getFile("canvas_1", "/output/a.txt"), CanvasStorageNotFoundError);
+  await assert.rejects(
+    () => storage.getFile("canvas_1", "/output/a.txt"),
+    CanvasStorageNotFoundError,
+  );
   const stream = await storage.getFile("canvas_2", "/output/b.txt");
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);

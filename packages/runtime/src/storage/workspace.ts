@@ -16,8 +16,8 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { normalizeCanvasPath, toDisplayPath } from "../paths/index.js";
-import { WORKSPACE_SUBDIRS } from "../sandbox/workspace.js";
 import { ensureApexChartsAsset } from "../render/charts/index.js";
+import { WORKSPACE_SUBDIRS } from "../sandbox/workspace.js";
 
 /** One input file to seed into a hydrated workspace. */
 export interface SignedFile {

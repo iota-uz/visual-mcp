@@ -14,23 +14,19 @@
  * step to find the `tailwindcss` package at all.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
 import { PDFDocument } from "pdf-lib";
-
+import { chromium } from "playwright";
+import { findTailwindStyleBlock, injectBuiltCss } from "../src/render/playwright-renderer/html.js";
 import {
-  renderFile,
   buildTailwindCss,
   installLocalResourceRouting,
+  renderFile,
 } from "../src/render/playwright-renderer/index.js";
-import {
-  findTailwindStyleBlock,
-  injectBuiltCss,
-} from "../src/render/playwright-renderer/html.js";
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 

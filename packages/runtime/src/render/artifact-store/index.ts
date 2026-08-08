@@ -94,9 +94,7 @@ function withLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function readManifestFromDisk(
-  sessionId: string,
-): Promise<ArtifactManifest | null> {
+async function readManifestFromDisk(sessionId: string): Promise<ArtifactManifest | null> {
   try {
     const raw = await fs.readFile(manifestFilePath(sessionId), "utf8");
     return JSON.parse(raw) as ArtifactManifest;
@@ -106,16 +104,9 @@ async function readManifestFromDisk(
   }
 }
 
-async function writeManifestToDisk(
-  sessionId: string,
-  manifest: ArtifactManifest,
-): Promise<void> {
+async function writeManifestToDisk(sessionId: string, manifest: ArtifactManifest): Promise<void> {
   await fs.mkdir(sessionOutputDir(sessionId), { recursive: true });
-  await fs.writeFile(
-    manifestFilePath(sessionId),
-    JSON.stringify(manifest, null, 2) + "\n",
-    "utf8",
-  );
+  await fs.writeFile(manifestFilePath(sessionId), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 function normalizeArtifactPath(p: string): string {
@@ -160,8 +151,7 @@ export async function registerArtifact(
     };
 
     const isFirstEver = manifest.artifacts.length === 0;
-    const resolvedRole: ArtifactRole =
-      role ?? (isFirstEver ? "primary" : "supporting");
+    const resolvedRole: ArtifactRole = role ?? (isFirstEver ? "primary" : "supporting");
 
     const artifact: Artifact = {
       path: normalizedPath,
@@ -169,9 +159,7 @@ export async function registerArtifact(
       role: resolvedRole,
     };
 
-    const existingIdx = manifest.artifacts.findIndex(
-      (a) => a.path === normalizedPath,
-    );
+    const existingIdx = manifest.artifacts.findIndex((a) => a.path === normalizedPath);
     if (existingIdx >= 0) {
       manifest.artifacts[existingIdx] = artifact;
     } else {
@@ -191,8 +179,7 @@ export async function registerArtifact(
     // role: 'primary' artifact" always holds — including when a caller
     // demotes the current primary by re-registering it with a different
     // explicit role.
-    manifest.primary =
-      manifest.artifacts.find((a) => a.role === "primary")?.path ?? null;
+    manifest.primary = manifest.artifacts.find((a) => a.role === "primary")?.path ?? null;
 
     await writeManifestToDisk(sessionId, manifest);
   });
@@ -225,9 +212,7 @@ export async function getManifest(sessionId: string): Promise<ArtifactManifest> 
  * `ArtifactManifest` shape, so this is just `getManifest` under its
  * tool-facing name.
  */
-export async function listArtifacts(
-  sessionId: string,
-): Promise<ListArtifactsOutput> {
+export async function listArtifacts(sessionId: string): Promise<ListArtifactsOutput> {
   return getManifest(sessionId);
 }
 
@@ -290,7 +275,7 @@ export async function exportArtifact(
 ): Promise<ExportArtifactOutput> {
   const absolutePath = resolveOutputAbsolutePath(sessionId, requestedPath);
 
-  let stat;
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
     stat = await fs.stat(absolutePath);
   } catch (err) {

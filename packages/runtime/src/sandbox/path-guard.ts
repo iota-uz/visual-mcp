@@ -11,11 +11,11 @@
  */
 
 import path from "node:path";
-import { normalizeCanvasPath, SandboxPathError } from "../paths/index.js";
 import type { PathAccessMode } from "../paths/index.js";
+import { normalizeCanvasPath, SandboxPathError } from "../paths/index.js";
 
-export { SandboxPathError } from "../paths/index.js";
 export type { PathAccessMode } from "../paths/index.js";
+export { SandboxPathError } from "../paths/index.js";
 
 /**
  * Resolves `requestedPath` against `workspaceRoot`, enforcing confinement.
@@ -53,5 +53,5 @@ export function resolveWorkspacePath(
  */
 export function toWorkspaceDisplayPath(workspaceRoot: string, absolutePath: string): string {
   const rel = path.relative(path.resolve(workspaceRoot), absolutePath);
-  return "/" + rel.split(path.sep).join("/");
+  return `/${rel.split(path.sep).join("/")}`;
 }

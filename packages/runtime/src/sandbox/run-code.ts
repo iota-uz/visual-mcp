@@ -65,10 +65,10 @@
  * 3.3), not direct `require()` from `run_code`.
  */
 
-import { Worker } from "node:worker_threads";
 import { createRequire } from "node:module";
+import { Worker } from "node:worker_threads";
 import ts from "typescript";
-import type { Session, RunCodeOutput } from "../types.js";
+import type { RunCodeOutput, Session } from "../types.js";
 import { WORKER_SOURCE } from "./worker-source.js";
 
 export interface RunCodeOptions {

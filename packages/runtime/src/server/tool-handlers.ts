@@ -18,7 +18,25 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import {
+  exportArtifact as artifactStoreExport,
+  listArtifacts as artifactStoreList,
+  getManifest,
+  registerArtifact,
+} from "../render/artifact-store/index.js";
+import { ensureApexChartsAsset } from "../render/charts/index.js";
 
+import { renderD2ToSvg } from "../render/diagrams/index.js";
+import { renderFile as renderFileWithPlaywright } from "../render/playwright-renderer/index.js";
+import {
+  createSessionWorkspace,
+  generateSessionId,
+  resolveWorkspacePath,
+  runCode as sandboxRunCode,
+  writeFile as sandboxWriteFile,
+  toWorkspaceDisplayPath,
+} from "../sandbox/index.js";
+import { getTemplate, listTemplates as templateRegistryList } from "../templates/index.js";
 import type {
   Artifact,
   ArtifactType,
@@ -40,29 +58,8 @@ import type {
   WriteFileInput,
   WriteFileOutput,
 } from "../types.js";
-
-import {
-  createSessionWorkspace,
-  generateSessionId,
-  resolveWorkspacePath,
-  runCode as sandboxRunCode,
-  toWorkspaceDisplayPath,
-  writeFile as sandboxWriteFile,
-} from "../sandbox/index.js";
-
-import { renderD2ToSvg } from "../render/diagrams/index.js";
-import { ensureApexChartsAsset } from "../render/charts/index.js";
-import { renderFile as renderFileWithPlaywright } from "../render/playwright-renderer/index.js";
-import {
-  exportArtifact as artifactStoreExport,
-  getManifest,
-  listArtifacts as artifactStoreList,
-  registerArtifact,
-} from "../render/artifact-store/index.js";
-import { getTemplate, listTemplates as templateRegistryList } from "../templates/index.js";
-
-import { SessionStore } from "./session-store.js";
 import { resolveRenderOutputPath } from "./render-output-path.js";
+import type { SessionStore } from "./session-store.js";
 
 export interface ToolContext {
   sessions: SessionStore;

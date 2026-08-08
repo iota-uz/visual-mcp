@@ -19,9 +19,9 @@
  * for that sibling module — do not rename it without updating that contract.
  */
 
-import { createRequire } from "node:module";
 import { constants as fsConstants } from "node:fs";
 import { access, copyFile, mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 /** Relative path (from a session workspace root) where the bundle lives. */
@@ -54,9 +54,7 @@ function resolveApexChartsSourcePath(): string {
  *   `cache/` per PLAN.md section 7).
  * @returns The absolute path to the vendored bundle on disk.
  */
-export async function ensureApexChartsAsset(
-  workspaceDir: string,
-): Promise<string> {
+export async function ensureApexChartsAsset(workspaceDir: string): Promise<string> {
   const sourcePath = resolveApexChartsSourcePath();
   const destPath = path.join(workspaceDir, ASSET_RELATIVE_PATH);
 
@@ -89,9 +87,7 @@ export const APEXCHARTS_ASSET_RELATIVE_PATH = ASSET_RELATIVE_PATH;
  * given workspace (without copying it). Useful for callers that want to
  * skip a redundant copy on a known-warm workspace.
  */
-export async function hasApexChartsAsset(
-  workspaceDir: string,
-): Promise<boolean> {
+export async function hasApexChartsAsset(workspaceDir: string): Promise<boolean> {
   const destPath = path.join(workspaceDir, ASSET_RELATIVE_PATH);
   try {
     await access(destPath, fsConstants.F_OK);

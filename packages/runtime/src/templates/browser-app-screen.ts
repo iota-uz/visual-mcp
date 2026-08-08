@@ -92,7 +92,7 @@ const exampleCode = `<!doctype html>
                 <td class="py-4">
                   <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">In review</span>
                 </td>
-                <td class="py-4 text-right font-semibold text-slate-900">\$3,200</td>
+                <td class="py-4 text-right font-semibold text-slate-900">$3,200</td>
               </tr>
               <tr>
                 <td class="py-4 font-medium text-slate-900">#A-1038</td>
@@ -102,7 +102,7 @@ const exampleCode = `<!doctype html>
                 <td class="py-4">
                   <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Approved</span>
                 </td>
-                <td class="py-4 text-right font-semibold text-slate-900">\$12,450</td>
+                <td class="py-4 text-right font-semibold text-slate-900">$12,450</td>
               </tr>
               <tr>
                 <td class="py-4 font-medium text-slate-900">#A-1031</td>
@@ -112,7 +112,7 @@ const exampleCode = `<!doctype html>
                 <td class="py-4">
                   <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">Closed</span>
                 </td>
-                <td class="py-4 text-right font-semibold text-slate-900">\$780</td>
+                <td class="py-4 text-right font-semibold text-slate-900">$780</td>
               </tr>
             </tbody>
           </table>

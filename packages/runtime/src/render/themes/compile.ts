@@ -109,5 +109,5 @@ export function compileThemeToTailwindV4(theme: Theme): string {
 
   lines.push(`}`);
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }

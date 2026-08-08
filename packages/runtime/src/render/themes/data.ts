@@ -29,8 +29,7 @@ const cleanSaas: Theme = {
     border: "#e2e8f0",
   },
   typography: {
-    fontSans:
-      "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontSans: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     fontMono: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
   },
   radius: {
@@ -85,8 +84,7 @@ const minimalDocs: Theme = {
     border: "#e7e5e4",
   },
   typography: {
-    fontSans:
-      "'Charter', 'Iowan Old Style', Georgia, 'Times New Roman', serif",
+    fontSans: "'Charter', 'Iowan Old Style', Georgia, 'Times New Roman', serif",
     fontMono: "'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace",
   },
   radius: {
@@ -141,8 +139,7 @@ const darkTerminal: Theme = {
     border: "#21262d",
   },
   typography: {
-    fontSans:
-      "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, monospace",
+    fontSans: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, monospace",
     fontMono: "'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, monospace",
   },
   radius: {

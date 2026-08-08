@@ -30,11 +30,7 @@ export function resolveRenderOutputPath(
   workspaceRoot: string,
   requestedPath: string,
 ): ResolvedRenderOutputPath {
-  const { relPath, topDir } = normalizeCanvasPath(
-    requestedPath,
-    "render-output",
-    "output_path",
-  );
+  const { relPath, topDir } = normalizeCanvasPath(requestedPath, "render-output", "output_path");
 
   return {
     absolutePath: path.resolve(workspaceRoot, relPath),

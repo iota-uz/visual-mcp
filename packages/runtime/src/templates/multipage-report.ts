@@ -93,7 +93,7 @@ export const multipageReportTemplate: Template = {
     "Multi-page PDF report using print-CSS `break-after: page` sections: " +
     "a cover page, an architecture page with a placeholder for an inlined " +
     "D2-rendered SVG, and a charts page with an inline ApexCharts config. " +
-    "Render once via render_file({ format: \"pdf\" }) (PLAN.md section 15).",
+    'Render once via render_file({ format: "pdf" }) (PLAN.md section 15).',
   expectedInputs: {
     coverEyebrow: "string",
     coverTitle: "string",

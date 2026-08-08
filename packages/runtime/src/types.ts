@@ -116,12 +116,7 @@ export type ThemeName = (typeof THEME_NAMES)[number];
  * Template contract (PLAN.md section 10)
  * ---------------------------------------------------------------------- */
 
-export type TemplateKind =
-  | "diagram"
-  | "mockup"
-  | "report"
-  | "chart"
-  | "infographic";
+export type TemplateKind = "diagram" | "mockup" | "report" | "chart" | "infographic";
 
 export interface Template {
   id: string;
@@ -163,9 +158,7 @@ export const CreateVisualSessionInputSchema = z.object({
   runtime: z.literal("node"),
   template: SessionTemplateNameSchema.optional(),
 });
-export type CreateVisualSessionInput = z.infer<
-  typeof CreateVisualSessionInputSchema
->;
+export type CreateVisualSessionInput = z.infer<typeof CreateVisualSessionInputSchema>;
 
 export interface CreateVisualSessionOutput {
   session_id: string;
@@ -300,9 +293,7 @@ export interface ExportArtifactOutput {
  * ---------------------------------------------------------------------- */
 
 export const ListTemplatesInputSchema = z.object({
-  kind: z
-    .enum(["mockup", "diagram", "report", "infographic", "chart"])
-    .optional(),
+  kind: z.enum(["mockup", "diagram", "report", "infographic", "chart"]).optional(),
 });
 export type ListTemplatesInput = z.infer<typeof ListTemplatesInputSchema>;
 

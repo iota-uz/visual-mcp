@@ -10,21 +10,21 @@
  * runs don't accumulate fixtures.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
+import { test } from "node:test";
 import {
-  registerArtifact,
+  ArtifactNotFoundError,
+  exportArtifact,
   getManifest,
   listArtifacts,
-  exportArtifact,
-  sessionRootDir,
-  sessionOutputDir,
-  REPO_ROOT,
   PathTraversalError,
-  ArtifactNotFoundError,
+  REPO_ROOT,
+  registerArtifact,
+  sessionOutputDir,
+  sessionRootDir,
 } from "../src/render/artifact-store/index.js";
 
 function freshSessionId(label: string): string {
@@ -71,9 +71,7 @@ test("registerArtifact: subsequent artifacts default to supporting, primary unch
     assert.equal(manifest.primary, "/output/report.pdf");
     assert.equal(manifest.artifacts.length, 3);
 
-    const roles = Object.fromEntries(
-      manifest.artifacts.map((a) => [a.path, a.role]),
-    );
+    const roles = Object.fromEntries(manifest.artifacts.map((a) => [a.path, a.role]));
     assert.equal(roles["/output/report.pdf"], "primary");
     assert.equal(roles["/output/architecture.png"], "supporting");
     assert.equal(roles["/output/source.zip"], "supporting");
@@ -86,19 +84,12 @@ test("registerArtifact: explicit primary demotes the previous primary to support
   const sessionId = freshSessionId("reassign-primary");
   try {
     await registerArtifact(sessionId, "/output/report.pdf", "pdf");
-    await registerArtifact(
-      sessionId,
-      "/output/architecture.png",
-      "image",
-      "primary",
-    );
+    await registerArtifact(sessionId, "/output/architecture.png", "image", "primary");
 
     const manifest = await getManifest(sessionId);
     assert.equal(manifest.primary, "/output/architecture.png");
 
-    const roles = Object.fromEntries(
-      manifest.artifacts.map((a) => [a.path, a.role]),
-    );
+    const roles = Object.fromEntries(manifest.artifacts.map((a) => [a.path, a.role]));
     assert.equal(roles["/output/report.pdf"], "supporting");
     assert.equal(roles["/output/architecture.png"], "primary");
 
@@ -148,10 +139,7 @@ test("registerArtifact persists manifest.json matching PLAN.md section 12 shape"
     await registerArtifact(sessionId, "/output/report.pdf", "pdf");
     await registerArtifact(sessionId, "/output/architecture.png", "image");
 
-    const manifestPath = path.join(
-      sessionOutputDir(sessionId),
-      "manifest.json",
-    );
+    const manifestPath = path.join(sessionOutputDir(sessionId), "manifest.json");
     const raw = await fs.readFile(manifestPath, "utf8");
     const parsed = JSON.parse(raw);
 
@@ -265,10 +253,7 @@ test("exportArtifact rejects a path-traversal attempt outside /output", async ()
       () => exportArtifact(sessionId, "/output/../src/secret.ts"),
       PathTraversalError,
     );
-    await assert.rejects(
-      () => exportArtifact(sessionId, "/src/secret.ts"),
-      PathTraversalError,
-    );
+    await assert.rejects(() => exportArtifact(sessionId, "/src/secret.ts"), PathTraversalError);
     await assert.rejects(
       () => exportArtifact(sessionId, "../../../etc/passwd"),
       PathTraversalError,

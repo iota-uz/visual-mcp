@@ -8,11 +8,11 @@
  * renderer's own integration tests, not here.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 import {
   APEXCHARTS_ASSET_HTML_SRC,
   APEXCHARTS_ASSET_RELATIVE_PATH,
@@ -28,17 +28,9 @@ test("ensureApexChartsAsset vendors the bundle at the fixed contract path", asyn
   const workspaceDir = await makeTempWorkspace();
   try {
     const destPath = await ensureApexChartsAsset(workspaceDir);
-    const expectedPath = path.join(
-      workspaceDir,
-      "assets",
-      "js",
-      "apexcharts.min.js",
-    );
+    const expectedPath = path.join(workspaceDir, "assets", "js", "apexcharts.min.js");
     assert.equal(destPath, expectedPath);
-    assert.equal(
-      APEXCHARTS_ASSET_RELATIVE_PATH,
-      path.join("assets", "js", "apexcharts.min.js"),
-    );
+    assert.equal(APEXCHARTS_ASSET_RELATIVE_PATH, path.join("assets", "js", "apexcharts.min.js"));
     assert.equal(APEXCHARTS_ASSET_HTML_SRC, "/assets/js/apexcharts.min.js");
 
     const stats = await stat(destPath);

@@ -7,12 +7,12 @@
  * let `node --test` load `.ts` files directly.
  */
 
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
   CreateVisualSessionInputSchema,
-  RenderFileInputSchema,
   ListTemplatesInputSchema,
+  RenderFileInputSchema,
 } from "../src/types.js";
 
 test("CreateVisualSessionInputSchema accepts a minimal valid input", () => {
@@ -21,9 +21,7 @@ test("CreateVisualSessionInputSchema accepts a minimal valid input", () => {
 });
 
 test("CreateVisualSessionInputSchema rejects an invalid runtime", () => {
-  assert.throws(() =>
-    CreateVisualSessionInputSchema.parse({ runtime: "python" }),
-  );
+  assert.throws(() => CreateVisualSessionInputSchema.parse({ runtime: "python" }));
 });
 
 test("RenderFileInputSchema accepts pdf options per PLAN.md section 6.4", () => {

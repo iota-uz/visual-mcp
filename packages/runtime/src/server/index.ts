@@ -55,7 +55,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-
+import { disposeD2Renderer } from "../render/diagrams/index.js";
 import {
   CreateVisualSessionInputSchema,
   ExportArtifactInputSchema,
@@ -65,15 +65,15 @@ import {
   RunCodeInputSchema,
   WriteFileInputSchema,
 } from "../types.js";
-
-import { disposeD2Renderer } from "../render/diagrams/index.js";
-import { SessionStore } from "./session-store.js";
 import { toToolErrorResult } from "./errors.js";
+import { SessionStore } from "./session-store.js";
 import * as handlers from "./tool-handlers.js";
 
 /** Text-ish MIME types get an inline `text` resource field; everything else gets base64 `blob`. */
 function isTextMime(mimeType: string): boolean {
-  return mimeType.startsWith("text/") || mimeType === "image/svg+xml" || mimeType === "application/json";
+  return (
+    mimeType.startsWith("text/") || mimeType === "image/svg+xml" || mimeType === "application/json"
+  );
 }
 
 function jsonResult(value: unknown): CallToolResult {
@@ -81,7 +81,9 @@ function jsonResult(value: unknown): CallToolResult {
 }
 
 /** Runs a tool handler, converting any thrown error into an `isError` tool result instead of throwing. */
-async function runTool(fn: () => Promise<CallToolResult> | CallToolResult): Promise<CallToolResult> {
+async function runTool(
+  fn: () => Promise<CallToolResult> | CallToolResult,
+): Promise<CallToolResult> {
   try {
     return await fn();
   } catch (err) {
@@ -89,9 +91,7 @@ async function runTool(fn: () => Promise<CallToolResult> | CallToolResult): Prom
   }
 }
 
-const packageVersion: string = createRequire(import.meta.url)(
-  "../../package.json",
-).version;
+const packageVersion: string = createRequire(import.meta.url)("../../package.json").version;
 
 export function createServer(): { server: McpServer; sessions: SessionStore } {
   const sessions = new SessionStore();
@@ -112,7 +112,8 @@ export function createServer(): { server: McpServer; sessions: SessionStore } {
         "template of the given kind.",
       inputSchema: CreateVisualSessionInputSchema.shape,
     },
-    async (input) => runTool(async () => jsonResult(await handlers.createVisualSession(input, ctx))),
+    async (input) =>
+      runTool(async () => jsonResult(await handlers.createVisualSession(input, ctx))),
   );
 
   server.registerTool(
@@ -257,7 +258,9 @@ function resolveMainModulePath(): string | undefined {
 const isMainModule = resolveMainModulePath() === fileURLToPath(import.meta.url);
 if (isMainModule) {
   main().catch((err) => {
-    process.stderr.write(`visual-runtime: fatal error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    process.stderr.write(
+      `visual-runtime: fatal error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+    );
     process.exit(1);
   });
 }

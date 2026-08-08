@@ -48,8 +48,8 @@
  *   own test suite) must call `disposeD2Renderer()` explicitly.
  */
 
-import { D2 } from "@terrastruct/d2";
 import type { RenderOptions } from "@terrastruct/d2";
+import { D2 } from "@terrastruct/d2";
 
 /**
  * Error thrown by {@link renderD2ToSvg} when D2 source fails to compile or
@@ -163,7 +163,7 @@ export async function renderD2ToSvg(
   const d2 = getSharedD2();
 
   const svg = await runExclusive(async () => {
-    let diagram;
+    let diagram: Awaited<ReturnType<typeof d2.compile>>["diagram"];
     let renderOptions: RenderOptions;
     try {
       // NOTE: `@terrastruct/d2`'s .d.ts for the `compile(input: string,
@@ -182,10 +182,7 @@ export async function renderD2ToSvg(
       diagram = compileResult.diagram;
       renderOptions = compileResult.renderOptions;
     } catch (err) {
-      throw new D2RenderError(
-        `Failed to compile D2 source: ${formatD2Error(err)}`,
-        { cause: err },
-      );
+      throw new D2RenderError(`Failed to compile D2 source: ${formatD2Error(err)}`, { cause: err });
     }
 
     try {
@@ -226,13 +223,9 @@ export async function renderD2ToSvg(
   // explicitly opts into the XML declaration it should still contain a
   // well-formed `<svg` document just not as the very first bytes.
   const expectsInlineSvg = renderOverrides.noXMLTag !== false;
-  const isWellFormedSvg = expectsInlineSvg
-    ? svg.trim().startsWith("<svg")
-    : svg.includes("<svg");
+  const isWellFormedSvg = expectsInlineSvg ? svg.trim().startsWith("<svg") : svg.includes("<svg");
   if (!svg || !isWellFormedSvg) {
-    throw new D2RenderError(
-      "D2 renderer returned an unexpected (non-SVG) result.",
-    );
+    throw new D2RenderError("D2 renderer returned an unexpected (non-SVG) result.");
   }
 
   return svg;
@@ -259,8 +252,7 @@ export async function disposeD2Renderer(): Promise<void> {
   if (!instance) {
     return;
   }
-  const worker = (instance as unknown as { worker?: { terminate(): Promise<number> } })
-    .worker;
+  const worker = (instance as unknown as { worker?: { terminate(): Promise<number> } }).worker;
   if (worker && typeof worker.terminate === "function") {
     await worker.terminate();
   }

@@ -76,8 +76,7 @@ export const architectureOverviewTemplate: Template = {
     nodes: [
       {
         name: "string — node label, e.g. 'API Gateway'",
-        shape:
-          "string — D2 shape keyword, e.g. 'rectangle' | 'cylinder' | 'queue'",
+        shape: "string — D2 shape keyword, e.g. 'rectangle' | 'cylinder' | 'queue'",
       },
     ],
     edges: [

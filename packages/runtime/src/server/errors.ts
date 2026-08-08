@@ -20,9 +20,9 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { SandboxPathError } from "../sandbox/index.js";
-import { PathTraversalError, ArtifactNotFoundError } from "../render/artifact-store/index.js";
+import { ArtifactNotFoundError, PathTraversalError } from "../render/artifact-store/index.js";
 import { D2RenderError } from "../render/diagrams/index.js";
+import { SandboxPathError } from "../sandbox/index.js";
 import { UnknownSessionError } from "./session-store.js";
 
 function labelFor(err: unknown): string {

@@ -89,10 +89,10 @@ function normalizeCanvasPathStandalone(
   };
 
   if (typeof requestedPath !== "string" || requestedPath.trim().length === 0) {
-    throw new Error(label + " must be a non-empty string");
+    throw new Error(`${label} must be a non-empty string`);
   }
   if (requestedPath.indexOf("\0") !== -1) {
-    throw new Error(label + " must not contain a NUL byte");
+    throw new Error(`${label} must not contain a NUL byte`);
   }
 
   const segments: string[] = [];
@@ -106,31 +106,31 @@ function normalizeCanvasPathStandalone(
     // A `..` that would climb above the workspace root is an escape
     // attempt, not something to clamp to the root.
     if (segments.length === 0) {
-      throw new Error(label + " escapes session workspace: " + requestedPath);
+      throw new Error(`${label} escapes session workspace: ${requestedPath}`);
     }
     segments.pop();
   }
 
   if (segments.length === 0) {
-    throw new Error(label + " must not be the workspace root itself: " + requestedPath);
+    throw new Error(`${label} must not be the workspace root itself: ${requestedPath}`);
   }
 
   const topDir = segments[0] as string;
   const allowed = allowedByMode[mode];
   if (allowed === undefined) {
-    throw new Error("Unknown path access mode: " + mode);
+    throw new Error(`Unknown path access mode: ${mode}`);
   }
   if (allowed && allowed.indexOf(topDir) === -1) {
-    const pretty = allowed.map((d) => "/" + d).join(" or ");
+    const pretty = allowed.map((d) => `/${d}`).join(" or ");
     throw new Error(
       mode === "write"
-        ? "Writes are only allowed under " + pretty + " (got: " + requestedPath + ")"
-        : label + " must be under " + pretty + " (got: " + requestedPath + ")",
+        ? `Writes are only allowed under ${pretty} (got: ${requestedPath})`
+        : `${label} must be under ${pretty} (got: ${requestedPath})`,
     );
   }
 
   const relPath = segments.join("/");
-  return { relPath: relPath, displayPath: "/" + relPath, topDir: topDir };
+  return { relPath: relPath, displayPath: `/${relPath}`, topDir: topDir };
 }
 
 /**

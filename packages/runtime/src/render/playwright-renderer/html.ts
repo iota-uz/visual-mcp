@@ -25,6 +25,7 @@ export interface TailwindStyleBlock {
 export function findTailwindStyleBlock(html: string): TailwindStyleBlock | null {
   STYLE_BLOCK_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic exec() loop
   while ((match = STYLE_BLOCK_RE.exec(html)) !== null) {
     const rawCss = match[2] ?? "";
     if (TAILWIND_IMPORT_RE.test(rawCss)) {
@@ -35,11 +36,7 @@ export function findTailwindStyleBlock(html: string): TailwindStyleBlock | null 
 }
 
 /** Replaces `block`'s original `<style>` tag contents with `builtCss`. */
-export function injectBuiltCss(
-  html: string,
-  block: TailwindStyleBlock,
-  builtCss: string,
-): string {
+export function injectBuiltCss(html: string, block: TailwindStyleBlock, builtCss: string): string {
   const replacement = `<style>\n${builtCss}\n</style>`;
   return html.replace(block.fullMatch, () => replacement);
 }

@@ -31,17 +31,17 @@
  * route around it.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import sharp from "sharp";
 
 import type { PdfOptions, RenderFormat, ViewportOptions } from "../../types.js";
-import { buildTailwindCss } from "./tailwind.js";
 import { findTailwindStyleBlock, injectBuiltCss } from "./html.js";
 import { inferWorkspaceRoot, installLocalResourceRouting } from "./routing.js";
+import { buildTailwindCss } from "./tailwind.js";
 
 export { inferWorkspaceRoot, installLocalResourceRouting } from "./routing.js";
 export { buildTailwindCss } from "./tailwind.js";

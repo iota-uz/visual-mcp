@@ -49,7 +49,7 @@ const exampleCode = `<!doctype html>
         </div>
         <div class="rounded-2xl bg-white p-5 shadow-sm">
           <p class="text-sm text-slate-500">Monthly revenue</p>
-          <p class="mt-2 text-3xl font-bold text-slate-950">\$482,300</p>
+          <p class="mt-2 text-3xl font-bold text-slate-950">$482,300</p>
           <p class="mt-1 text-sm font-medium text-emerald-600">+8.9% vs last month</p>
         </div>
       </section>

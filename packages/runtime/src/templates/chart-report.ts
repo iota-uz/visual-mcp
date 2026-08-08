@@ -48,7 +48,7 @@ const exampleCode = `<!doctype html>
         </div>
         <div class="col-span-2 rounded-2xl bg-white p-6 shadow-sm flex flex-col justify-center">
           <p class="text-sm text-slate-500">Total revenue</p>
-          <p class="mt-1 text-4xl font-bold text-slate-950">\$482,300</p>
+          <p class="mt-1 text-4xl font-bold text-slate-950">$482,300</p>
           <p class="mt-2 text-sm font-medium text-emerald-600">+8.9% quarter over quarter</p>
         </div>
       </section>

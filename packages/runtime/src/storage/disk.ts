@@ -26,10 +26,10 @@
  * callers against this implementation write via `putFile` instead.
  */
 
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { Readable } from "node:stream";
-import { randomUUID } from "node:crypto";
 import { normalizeCanvasPath } from "../paths/index.js";
 import type { CanvasStorage, StoredObject } from "./types.js";
 import { CanvasStorageNotFoundError } from "./types.js";
@@ -110,9 +110,7 @@ export class DiskCanvasStorage implements CanvasStorage {
       return Readable.from(buf);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new CanvasStorageNotFoundError(
-          `No object at "${relPath}" for canvas "${canvasId}"`,
-        );
+        throw new CanvasStorageNotFoundError(`No object at "${relPath}" for canvas "${canvasId}"`);
       }
       throw err;
     }
