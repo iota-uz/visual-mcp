@@ -9,8 +9,8 @@
  * Usage: node scripts/mint-mcp-token.mjs <email> <name> [token-name]
  */
 
-import { randomBytes, createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
