@@ -88,3 +88,35 @@ export const createMine = mutation({
     return createWorkspace(ctx, { ...args, createdBy: userId });
   },
 });
+
+// Small helper for the canvas viewer's "back to workspace" link, which only
+// has the workspace's Convex id (from the canvas doc), not its slug.
+export const getById = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return null;
+    return { workspace_id: workspace._id, slug: workspace.slug, name: workspace.name };
+  },
+});
+
+// Resolves `/w/:wsSlug` (PLAN.md Part 1 section 1's route table uses the
+// slug, not the Convex id, in the URL).
+export const getBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique();
+    if (!workspace || workspace.archivedAt !== undefined) return null;
+    return {
+      workspace_id: workspace._id,
+      slug: workspace.slug,
+      name: workspace.name,
+      description: workspace.description,
+    };
+  },
+});

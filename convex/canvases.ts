@@ -181,13 +181,28 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
   const canvas = await ctx.db.get(canvasId);
   if (!canvas) return null;
   let docStorageId: Id<"_storage"> | undefined;
+  let entryStorageId: Id<"_storage"> | undefined;
   let version: number | undefined;
   if (canvas.currentVersionId) {
     const currentVersion = await ctx.db.get(canvas.currentVersionId);
     docStorageId = currentVersion?.docStorageId;
+    entryStorageId = currentVersion?.entryStorageId;
     version = currentVersion?.version;
   }
-  return { ...toSummary(canvas), doc_storage_id: docStorageId, version };
+  // Signed, time-limited URLs — cheap to mint per query, never stored.
+  // `doc_url` feeds the SPA's client-side canvas viewer (kind="canvas");
+  // `entry_url` is the primary artifact for html/image/pdf kinds.
+  const docUrl = docStorageId ? await ctx.storage.getUrl(docStorageId) : null;
+  const entryUrl = entryStorageId ? await ctx.storage.getUrl(entryStorageId) : null;
+  const thumbnailUrl = canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null;
+  return {
+    ...toSummary(canvas),
+    doc_storage_id: docStorageId,
+    doc_url: docUrl,
+    entry_url: entryUrl,
+    thumbnail_url: thumbnailUrl,
+    version,
+  };
 }
 
 async function publishCanvas(

@@ -40,8 +40,8 @@ version, never destroys the old one.
 
 | Route | Host | Auth | Purpose | Status |
 |---|---|---|---|---|
-| `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ⏳ |
-| `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ⏳ |
+| `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
+| `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
 | `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ⏳ |
 
@@ -161,12 +161,16 @@ packages/canvas/    ✅ §2 engine, isomorphic
 convex/             ✅ schema, queries, mutations, actions, http.ts, mcp/tools.ts,
                      auth.config.ts + lib/auth.ts (native Google OIDC, see §7)
 apps/worker/        ✅ Hono + Playwright + D2 + Tailwind + run_code, POST /render, /exec
-apps/web/           ⏳ not yet created — Vite + React SPA
+apps/web/           ✅ Vite + React SPA — routes, Google sign-in, canvas viewer, publish
+                     toggle, token UI (see §1/§6/§7 status notes for what's stubbed)
 ```
 
-React is justified once the SPA exists — Convex's client is React-first and reactive queries are
-the win. The canvas viewer stays framework-free in `packages/canvas` and will be mounted by a
-thin React wrapper. Worker Dockerfile targets
+React was the right call once the SPA existed — Convex's client is React-first and reactive
+queries are the win. The canvas viewer stays framework-free in `packages/canvas` and is mounted
+by a thin React wrapper (`apps/web/src/routes/Canvas.tsx`'s `CanvasViewport`, which fetches the
+stored `CanvasDoc` client-side via a signed `ctx.storage.getUrl()` and calls `layoutCanvas` +
+`mountViewport` directly — no server round-trip through the worker for the interactive view;
+the worker is still what produces PNG/PDF/thumbnail exports). Worker Dockerfile targets
 `mcr.microsoft.com/playwright:v1.62.1-noble` (Node 24 — see the CI Node-version note in Part 2's
 sandbox section).
 
@@ -427,7 +431,7 @@ and a place headers are controllable. **Not yet implemented** — tracked under 
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
 | **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
-| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA on Netlify (workspaces, canvas grid with live-updating thumbnails, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP | 🚧 partial — auth backend + public function layer (§7) is ✅; `apps/web` itself, `/s/:slug`, and the real OAuth client ID are ⏳ |
+| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, and `apps/web` itself are ✅ (`npm run build`/`typecheck` green); the real Google OAuth client ID, live-updating thumbnails (blocked on §2/§8's thumbnail capture), `/s/:slug`, and the actual Netlify deploy are ⏳ |
 
 ### Track B — canvas engine
 
@@ -439,7 +443,7 @@ and a place headers are controllable. **Not yet implemented** — tracked under 
 
 | M | Ships | Status |
 |---|---|---|
-| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer and thumbnail capture are ⏳, blocked on A2's `apps/web` existing at all |
+| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is still ⏳ |
 | **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | ⏳ not started |
 
 ---

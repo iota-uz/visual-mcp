@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../../convex/_generated/**/*.ts", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

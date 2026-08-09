@@ -1,0 +1,31 @@
+{
+  "name": "@visual-canvas/web",
+  "version": "0.1.0-dev",
+  "description": "SPA (PLAN.md Part 1 section 1): workspaces, canvas gallery, viewer, MCP token settings. Talks to Convex directly via convex/react; deployed static to Netlify.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@react-oauth/google": "^0.13.5",
+    "@visual-canvas/canvas": "*",
+    "convex": "1.43.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^5.8.0",
+    "vite": "^8.2.1"
+  }
+}
