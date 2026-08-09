@@ -1,84 +1,82 @@
-# Visual Runtime MCP Server
+# Visual Canvas
 
-Sandboxed MCP server that lets an LLM agent generate visual artifacts —
-dashboards, diagrams, reports, mobile/browser mockups — as PNG, SVG, PDF, or
-HTML, using HTML+Tailwind v4, [D2](https://d2lang.com) diagrams, and
-ApexCharts. See [PLAN.md](./PLAN.md) for the full spec.
+A hosted service for **@iota.uz**: Claude authors canvases and artifacts —
+diagrams, dashboards, reports, mobile/browser mockups, multipage PDFs — over
+a **remote MCP endpoint**, using HTML+Tailwind v4, [D2](https://d2lang.com)
+diagrams, and ApexCharts. Humans browse, view, and share the results by URL.
 
-## Install
+This used to be a local, single-user, stdio-only MCP server you ran with
+`npx`. That path is **removed, not deprecated-but-present** — see
+[PLAN.md](./PLAN.md) for the full architecture and what changed.
 
-### Claude Code plugin (recommended)
-
-```
-/plugin marketplace add iota-uz/visual-mcp
-/plugin install visual-runtime@visual-mcp
-```
-
-### Claude Code (MCP server only, no plugin)
+## Connect Claude to it
 
 ```
-claude mcp add visual-runtime -- npx -y github:iota-uz/visual-mcp
+claude mcp add --transport http visual-canvas https://<your-deployment>.convex.site/mcp \
+  --header "Authorization: Bearer vct_..."
 ```
 
-### Claude Desktop / other MCP clients
+You need a bearer token first. The `/settings/tokens` web UI for minting and
+revoking them is still in progress (Track A2 in [PLAN.md](./PLAN.md)); until
+it ships, mint one from a checkout of this repo:
 
-Add to your MCP client's config (e.g. `claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "visual-runtime": {
-      "command": "npx",
-      "args": ["-y", "github:iota-uz/visual-mcp"]
-    }
-  }
-}
+```
+node scripts/mint-mcp-token.mjs <your-email> "<your name>" [token-name]
 ```
 
-The first run installs dependencies, builds the TypeScript sources, and
-downloads a headless Chromium build for Playwright — this can take a minute
-or two. Subsequent runs reuse npm's cache and start immediately. Requires
-Node.js >= 20.
+This generates the token locally, hashes it, and registers only the hash
+with Convex via `npx convex run tokens:bootstrap` — the plaintext token is
+printed once, to your terminal only. Tokens expire after 90 days.
 
-### Working on this repo directly
+Once connected, Claude has these tools:
 
-If you've cloned this repo and want the MCP server to auto-load in Claude
-Code sessions started from it, a `.mcp.json` pointing at the local build is
-already checked in. It's named `visual-runtime-dev` (not `visual-runtime`) so
-it doesn't collide with a globally installed `visual-runtime` plugin/server:
+| Tool | Purpose |
+| --- | --- |
+| `create_workspace` / `list_workspaces` | Create/list top-level workspaces ("OSAGO", "Billing", ...) |
+| `create_canvas` / `list_canvases` | Create/list canvases inside a workspace |
+| `put_canvas_doc` / `get_canvas` | Write/read a canvas's declarative document (lanes, stages, nodes, edges — see PLAN.md §2) |
+| `publish_canvas` | Toggle a canvas between private (any signed-in @iota.uz user) and public (unguessable share link) |
+| `write_file` | Write a source file (HTML, D2, ...) into a canvas's `/src` or `/output` |
+| `run_code` | Execute JS/TS in a resource-limited sandbox (worker-thread isolated, no shell access) |
+| `render_file` | Render an HTML or `.d2` entrypoint to PNG/SVG/PDF/HTML |
+| `list_artifacts` / `export_artifact` | List/fetch a canvas's rendered artifacts |
+| `list_templates` | List the built-in starter templates |
 
-```json
-{
-  "mcpServers": {
-    "visual-runtime-dev": {
-      "command": "node",
-      "args": ["dist/server/index.js"]
-    }
-  }
-}
+## Architecture
+
+Convex (data, file storage, auth, the `/mcp` and `/s/:slug` HTTP endpoints)
+plus a Railway-hosted render worker (Playwright/Chromium, D2, Tailwind CLI,
+`run_code` — everything Convex's own sandbox can't run) plus a Vite+React SPA
+on Netlify for the human-facing gallery/viewer. Full design, current
+milestone status, and accepted risks: [PLAN.md](./PLAN.md).
+
+## Repo layout
+
 ```
-
-Run `npm install` once (this also builds `dist/` and installs the Chromium
-browser via `prepare`/`postinstall`), then reload/start Claude Code from the
-repo root.
+packages/runtime/   render pipeline (Playwright, D2, ApexCharts, Tailwind
+                     build, the JS/TS sandbox), templates, themes — the
+                     part of the original local runtime that survived
+packages/canvas/    the canvas-document engine (types, layout, edge
+                     routing, render, browser viewport) — isomorphic
+convex/             schema, queries/mutations/actions, /mcp and /s/:slug
+apps/worker/        Hono render worker: POST /render, /exec (Railway)
+apps/web/           Vite + React SPA (in progress — not yet created)
+```
 
 ## Development
 
 ```
-npm install     # installs deps, builds dist/, installs Chromium
-npm run build   # rebuild after changes
-npm test        # run the test suite
-npm run typecheck
+npm install
+npm run build --workspaces --if-present
+npm run typecheck --workspaces --if-present
+npm run test --workspaces --if-present
+npm run lint      # biome
 ```
 
-## Tools
+Requires Node.js >= 22 (the render worker's sandbox uses globals only
+available from Node 22 on, and the production worker image ships Node 24).
 
-| Tool | Purpose |
-| --- | --- |
-| `create_visual_session` | Create an isolated session workspace (`/src`, `/output`, `/assets`, `/templates`, `/cache`) |
-| `list_templates` | List the built-in starter templates (dashboard, architecture diagram, chart report, mobile/browser mockups, multipage report, etc.) |
-| `write_file` | Write source files (HTML, D2, CSS, JS) into a session's `/src` or `/output` |
-| `run_code` | Execute JS/TS in a resource-limited sandbox (worker-thread isolated; no shell access) |
-| `render_file` | Render an HTML or `.d2` entrypoint to PNG/SVG/PDF/HTML |
-| `list_artifacts` | List a session's rendered artifacts with their manifest (primary/supporting/debug roles) |
-| `export_artifact` | Fetch a rendered artifact's bytes/text |
+Convex functions live under `convex/`; **read
+`convex/_generated/ai/guidelines.md` first** before touching anything there
+— see this repo's `CLAUDE.md`. Run `npx convex dev` (or `npm run convex:dev`)
+to push schema/function changes to your dev deployment while iterating.
