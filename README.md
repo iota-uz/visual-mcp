@@ -62,7 +62,8 @@ packages/canvas/    the canvas-document engine (types, layout, edge
                      routing, render, browser viewport) — isomorphic
 convex/             schema, queries/mutations/actions, /mcp and /s/:slug
 apps/worker/        Hono render worker: POST /render, /exec (Railway)
-apps/web/           Vite + React SPA (in progress — not yet created)
+apps/web/           Vite + React SPA (workspaces, canvas gallery, viewer,
+                     MCP token settings) — builds static, deploys to Netlify
 ```
 
 ## Development
@@ -82,3 +83,34 @@ Convex functions live under `convex/`; **read
 `convex/_generated/ai/guidelines.md` first** before touching anything there
 — see this repo's `CLAUDE.md`. Run `npx convex dev` (or `npm run convex:dev`)
 to push schema/function changes to your dev deployment while iterating.
+
+## Deploying the SPA (needs credentials this repo's automation doesn't have)
+
+`apps/web/` builds clean and is deploy-ready, but two pieces need a human
+with the right access — an unattended session can't create either:
+
+1. **Google OAuth client ID** (5 min, needs Google Cloud Console access on
+   the `iota.uz` org): console.cloud.google.com → APIs & Services →
+   Credentials → Create OAuth client ID → Web application. Add the deployed
+   SPA origin (see step 3) to Authorized JavaScript origins. Then:
+   ```
+   npx convex env set GOOGLE_OAUTH_CLIENT_ID <client-id>.apps.googleusercontent.com
+   ```
+   and set the same value as `VITE_GOOGLE_CLIENT_ID` in `apps/web/.env` (or
+   your Netlify build env — see `apps/web/.env.example`).
+2. **Build**, pointing at the real Convex deployment:
+   ```
+   cd apps/web && VITE_CONVEX_URL=<your-deployment>.convex.cloud npm run build
+   ```
+3. **Deploy `apps/web/dist` to Netlify** — either `netlify login && netlify deploy --prod --dir=dist`
+   (needs a Netlify account with access to this org/site), or drag-and-drop
+   `dist` at app.netlify.com/drop for a one-off. Netlify's auto-generated
+   subdomain is fine for v1; a custom domain (e.g. `canvas.iota.uz`) needs
+   separate DNS access.
+
+Once both are done, `/settings/tokens`, the live-updating gallery, the
+canvas viewer's pan/zoom/inspector/`#node=` deep links, and public/private
+`/s/:slug` sign-in-gated flows all become browser-testable end to end —
+today they're covered by scripted tests only (`convex/users.test.ts`'s
+forged-claim `hd`/`email_verified` cases) plus live MCP-driven checks
+against the dev deployment, documented in PLAN.md §9/§11.
