@@ -1,45 +1,37 @@
 /**
- * Tests for src/sandbox: session workspace lifecycle, write_file
- * confinement, and run_code's resource-limited execution.
+ * Tests for src/sandbox: write_file confinement and run_code's
+ * resource-limited execution, against an ad-hoc workspace directory (the
+ * same shape apps/worker/src/exec.ts builds around a hydrated temp dir —
+ * the local stdio server's session-directory lifecycle that used to back
+ * this is gone, see workspace.ts).
  *
  * Test runner: node:test / node:assert, run via
- * `node --import tsx --test test/**\/*.test.ts` (see package.json "test").
+ * `node --import tsx --test test/*.test.ts` (see package.json "test").
  */
 
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import {
-  createSessionWorkspace,
-  generateSessionId,
-  removeSessionWorkspace,
-  runCode,
-  SandboxPathError,
-  writeFile,
-} from "../src/sandbox/index.js";
+import { runCode, SandboxPathError, writeFile } from "../src/sandbox/index.js";
+import { WORKSPACE_SUBDIRS } from "../src/sandbox/workspace.js";
 import type { Session } from "../src/types.js";
 
-/** Creates a fresh session workspace for a test and returns it + a cleanup fn. */
+/** Creates a fresh throwaway workspace directory for a test and returns it + a cleanup fn. */
 function freshSession(): { session: Session; cleanup: () => void } {
-  const id = generateSessionId();
-  const session = createSessionWorkspace(id);
-  return { session, cleanup: () => removeSessionWorkspace(id) };
-}
-
-test("createSessionWorkspace creates the full PLAN.md section 7 directory layout", () => {
-  const { session, cleanup } = freshSession();
-  try {
-    for (const sub of ["src", "output", "assets", "templates", "cache"]) {
-      const stat = fs.statSync(path.join(session.workspace, sub));
-      assert.ok(stat.isDirectory(), `${sub} should be a directory`);
-    }
-    assert.equal(session.session_id.startsWith("sess_"), true);
-    assert.ok(new Date(session.created_at).toString() !== "Invalid Date");
-  } finally {
-    cleanup();
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "vc-sandbox-test-"));
+  for (const sub of WORKSPACE_SUBDIRS) {
+    fs.mkdirSync(path.join(workspace, sub), { recursive: true });
   }
-});
+  const session: Session = {
+    session_id: `sess_${randomUUID()}`,
+    workspace,
+    created_at: new Date().toISOString(),
+  };
+  return { session, cleanup: () => fs.rmSync(workspace, { recursive: true, force: true }) };
+}
 
 test("write_file allows writes under /src and /output", () => {
   const { session, cleanup } = freshSession();

@@ -1,40 +1,22 @@
 /**
- * Node.js sandbox runner — public API (PLAN.md section 9).
+ * Node.js sandbox runner — public API (PLAN.md Part 2 section 9).
  *
- * Owns the session workspace lifecycle, `write_file` semantics, and
- * `run_code` execution. See workspace.ts, write-file.ts and run-code.ts
- * for the implementation and design notes; this file just re-exports the
- * stable surface other modules (notably the future src/server MCP tool
- * handlers) should call.
+ * `write_file` semantics and `run_code` execution. See write-file.ts and
+ * run-code.ts for the implementation and design notes; this file just
+ * re-exports the stable surface other modules should call. The session
+ * workspace lifecycle that used to live here was removed along with the
+ * local stdio server — callers now build a `Session`-shaped `{session_id,
+ * workspace, created_at}` object themselves against a hydrated worker
+ * temp dir (see apps/worker/src/exec.ts).
  *
  * Public API summary for integrators:
  *
- *   generateSessionId(): string
- *   createSessionWorkspace(sessionId: string, template?: string): Session
- *   getSessionWorkspaceDir(sessionId: string): string
- *   sessionWorkspaceExists(sessionId: string): boolean
- *   removeSessionWorkspace(sessionId: string): void
  *   writeFile(session: Session, path: string, content: string): WriteFileOutput
  *   runCode(session: Session, code: string, options?: RunCodeOptions): Promise<RunCodeOutput>
- *
- * Note: `writeFile`/`runCode` take a `Session` object (as created by
- * `createSessionWorkspace`), not a bare `session_id`. Session-id ->
- * Session bookkeeping (e.g. an in-memory Map for the lifetime of the MCP
- * server process) is intentionally left to src/server, which is best
- * positioned to own request-level session lookup/validation (e.g.
- * "unknown session_id" errors) for all 7 tools, not just these two.
  */
 
 export type { PathAccessMode } from "./path-guard.js";
 export { resolveWorkspacePath, SandboxPathError, toWorkspaceDisplayPath } from "./path-guard.js";
 export type { RunCodeOptions } from "./run-code.js";
 export { runCode } from "./run-code.js";
-export {
-  createSessionWorkspace,
-  generateSessionId,
-  getSessionWorkspaceDir,
-  removeSessionWorkspace,
-  SESSIONS_ROOT,
-  sessionWorkspaceExists,
-} from "./workspace.js";
 export { writeFile } from "./write-file.js";
