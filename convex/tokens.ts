@@ -42,6 +42,40 @@ export const touchLastUsed = internalMutation({
   },
 });
 
+// Revocation is real because it's the only thing that clears verify()'s
+// `row.revokedAt !== undefined` check — there's no separate "active" flag
+// to keep in sync.
+export const revoke = internalMutation({
+  args: { tokenId: v.id("mcpTokens"), userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const token = await ctx.db.get(args.tokenId);
+    if (!token || token.userId !== args.userId) {
+      throw new Error(`Unknown token: ${args.tokenId}`);
+    }
+    if (token.revokedAt === undefined) {
+      await ctx.db.patch(args.tokenId, { revokedAt: Date.now() });
+    }
+  },
+});
+
+export const listForUser = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    return rows.map((row) => ({
+      tokenId: row._id,
+      name: row.name,
+      prefix: row.prefix,
+      expiresAt: row.expiresAt,
+      lastUsedAt: row.lastUsedAt,
+      revokedAt: row.revokedAt,
+    }));
+  },
+});
+
 // Pre-A2 bootstrap: there is no real Google OAuth yet, so a seeded token's
 // owner gets a synthetic `googleSub` keyed off email. A2's Convex Auth
 // wiring will need to link this row to the real Google `sub` claim — a

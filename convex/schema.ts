@@ -33,7 +33,9 @@ export default defineSchema({
     expiresAt: v.number(),
     lastUsedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
-  }).index("by_tokenHash", ["tokenHash"]),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_userId", ["userId"]),
 
   workspaces: defineTable({
     slug: v.string(),
