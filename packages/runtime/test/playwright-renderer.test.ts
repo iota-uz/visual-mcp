@@ -6,16 +6,22 @@
  * Each test builds its own throwaway fixture directory and cleans it up
  * afterwards. Fixture dirs are created *inside the repo* (under
  * `sessions/.test-tmp/`, matching the real session-workspace convention —
- * "sessions/<session_id>/..." relative to repo root, PLAN.md section 7)
- * rather than under the OS temp dir: Tailwind v4's `@import "tailwindcss"`
- * resolution walks up node_modules starting from the input CSS file's own
- * directory (bundler-style resolution), so the fixture must live somewhere
- * that has this repo's node_modules in its ancestry for the Tailwind build
- * step to find the `tailwindcss` package at all.
+ * "sessions/<session_id>/..." relative to repo root, PLAN.md section 7).
+ * This used to matter for a real reason (Tailwind's `@import "tailwindcss"`
+ * resolution walking up node_modules from the input CSS file's own
+ * directory needed the repo's node_modules in its ancestry) — that
+ * dependency masked a production bug (see `buildTailwindCss`'s
+ * `ensureTailwindResolvable`: `apps/worker`'s real `hydrate()` workspaces
+ * live under `os.tmpdir()`, with no such ancestry, so every test here
+ * passed while the real render path silently failed). The dedicated
+ * "resolves against a bare OS-tmp directory" test below is the regression
+ * test for that; this suite still nests fixtures under the repo for
+ * convenience, not because it's required anymore.
  */
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -247,6 +253,21 @@ test("buildTailwindCss compiles real utility classes referenced by a scanned HTM
     );
     assert.match(built, /bg-slate-100/);
     assert.match(built, /text-brand/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildTailwindCss resolves 'tailwindcss' against a bare OS-tmp directory, no repo ancestry", async () => {
+  // Regression test: apps/worker's real hydrate() workspaces are exactly
+  // this shape (os.tmpdir()-rooted, no node_modules anywhere above them) —
+  // this used to throw "Can't resolve 'tailwindcss'" before
+  // ensureTailwindResolvable existed.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "vc-tw-bare-"));
+  try {
+    await fs.writeFile(path.join(dir, "page.html"), `<div class="p-4"></div>`, "utf8");
+    const built = await buildTailwindCss('@import "tailwindcss";', dir);
+    assert.match(built, /\.p-4/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
