@@ -400,6 +400,50 @@ export const getArtifact = internalQuery({
   },
 });
 
+// Backs the anonymous `/s/:slug[/*]` httpAction (PLAN.md Part 1 section 8) —
+// the only place `visibility` actually gates access (every other read in
+// this file is org-wide per decision #4). Returns null for both an unknown
+// slug and a since-unpublished one — `publish`/`publishCanvas` clears
+// `publicSlug` on unpublish, so those two cases already collapse to "no row
+// matches the index" without any extra check here, which is what keeps this
+// from leaking "it exists but is private" to an anonymous caller.
+export const resolvePublicArtifact = internalQuery({
+  args: { publicSlug: v.string(), relPath: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db
+      .query("canvases")
+      .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
+      .unique();
+    if (canvas?.visibility !== "public") return null;
+
+    let row: Doc<"artifacts"> | null;
+    if (args.relPath) {
+      row = await ctx.db
+        .query("artifacts")
+        .withIndex("by_canvas_relPath", (q) =>
+          q.eq("canvasId", canvas._id).eq("relPath", args.relPath as string),
+        )
+        .unique();
+    } else {
+      const primaryRows = await ctx.db
+        .query("artifacts")
+        .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+        .filter((q) => q.eq(q.field("role"), "primary"))
+        .take(1);
+      row = primaryRows[0] ?? null;
+    }
+    if (!row) return null;
+
+    return {
+      relPath: row.relPath,
+      type: row.type,
+      mimeType: row.mimeType,
+      size: row.size,
+      storageId: row.storageId,
+    };
+  },
+});
+
 export const listFilesForCanvas = internalQuery({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, args) => {

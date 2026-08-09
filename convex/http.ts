@@ -96,4 +96,80 @@ http.route({
   }),
 });
 
+// Stay under the httpAction response cap (20 MiB) with margin for headers —
+// PLAN.md Part 1 section 8: above this, PNG/PDF redirect to a direct
+// *.convex.cloud storage URL instead of streaming through this action.
+const PUBLIC_ARTIFACT_INLINE_LIMIT = 18 * 1024 * 1024;
+
+// Deliberately allows the Tailwind CDN and Google Fonts (PLAN.md Part 1
+// section 8/10.2): the reference osago artifact this product exists to host
+// loads both, and a stricter default-deny would render it unstyled.
+// `frame-ancestors` widens to the SPA's own origin once SPA_ORIGIN is set
+// (post Netlify deploy) — until then this equals "no embedding at all",
+// which is the safe default, not a broken one.
+function publicArtifactCsp(): string {
+  const spaOrigin = process.env.SPA_ORIGIN;
+  const frameAncestors = spaOrigin ? `'self' ${spaOrigin}` : "'self'";
+  return [
+    "default-src 'none'",
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'none'",
+    `frame-ancestors ${frameAncestors}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+}
+
+// `GET /s/:slug` and `/s/:slug/*` — anonymous, cookieless artifact serving
+// (PLAN.md Part 1 section 8). Convex's httpRouter has no named-param
+// syntax (see convex/server's RouteSpec: only exact `path` or
+// `pathPrefix`), so the slug/relPath split happens by hand below.
+http.route({
+  pathPrefix: "/s/",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const segments = url.pathname
+      .slice("/s/".length)
+      .split("/")
+      .filter((s) => s.length > 0);
+    const slug = segments[0];
+    if (!slug) return new Response("Not found", { status: 404 });
+    const relPath = segments.length > 1 ? `/${segments.slice(1).join("/")}` : undefined;
+
+    const artifact = await ctx.runQuery(internal.canvases.resolvePublicArtifact, {
+      publicSlug: slug,
+      relPath,
+    });
+    if (!artifact) return new Response("Not found", { status: 404 });
+
+    const headers = new Headers({
+      "content-security-policy": publicArtifactCsp(),
+      "x-content-type-options": "nosniff",
+      "cache-control": "public, max-age=60",
+    });
+
+    // An SVG is an active document — never served inline on a shared origin.
+    if (artifact.type === "svg") {
+      const filename = artifact.relPath.split("/").pop() ?? "artifact.svg";
+      headers.set("content-disposition", `attachment; filename="${filename}"`);
+    }
+
+    const oversized = artifact.size > PUBLIC_ARTIFACT_INLINE_LIMIT;
+    if (oversized && (artifact.type === "image" || artifact.type === "pdf")) {
+      const directUrl = await ctx.storage.getUrl(artifact.storageId);
+      if (!directUrl) return new Response("Not found", { status: 404 });
+      return Response.redirect(directUrl, 302);
+    }
+
+    const blob = await ctx.storage.get(artifact.storageId);
+    if (!blob) return new Response("Not found", { status: 404 });
+    headers.set("content-type", artifact.mimeType);
+    return new Response(blob, { status: 200, headers });
+  }),
+});
+
 export default http;

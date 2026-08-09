@@ -43,7 +43,7 @@ version, never destroys the old one.
 | `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
 | `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
 | `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
-| `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ⏳ |
+| `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |
 
 Deep-linking: `#node=<nodeId>` selects and frames a node. Addressable inspector state is what
 makes these diagrams useful pasted into Slack or Notion.
@@ -381,12 +381,25 @@ button is ⏳ (part of the `/settings/tokens` SPA route).
 
 ---
 
-## 8. Serving artifacts and sharing safely ⏳
+## 8. Serving artifacts and sharing safely ✅
 
 Convex file storage URLs live on `*.convex.cloud` — already a different origin from the SPA on
 Netlify, but headers can't be set on them. So HTML artifacts stream through an httpAction on
-`*.convex.site` (`GET /s/:slug` and `/s/:slug/:rel*`), which is both a distinct cookieless origin
-and a place headers are controllable. **Not yet implemented** — tracked under A2 in §9.
+`*.convex.site` (`GET /s/:slug` and `/s/:slug/*` — Convex's `httpRouter` has no named-param
+syntax, only exact `path`/`pathPrefix`, so `http.ts` splits the slug and relPath off
+`url.pathname` by hand), which is both a distinct cookieless origin and a place headers are
+controllable. ✅ shipped (`convex/http.ts`, `convex/canvases.ts`'s `resolvePublicArtifact`,
+covered by `convex/http.test.ts`: 200 with CSP/nosniff headers, 404 on unknown slug, 404 on a
+*private* canvas's slug — `visibility` is the only gate this route enforces, everything else in
+the app is org-wide reads per decision #4 — explicit-relPath lookups, and SVG's forced
+`Content-Disposition: attachment`).
+
+`resolvePublicArtifact` serves the canvas's current **primary artifact** (from the `artifacts`
+table), not a server-rendered version of the `CanvasDoc` itself — a `kind: "canvas"` canvas with
+no render yet 404s here with a clear "ask Claude to render this canvas" message from the SPA
+side; there's no separate public-facing canvas-engine renderer. The SPA's own `/c/:canvasId`
+route (Part 1 §1/§2) is where the interactive `packages/canvas` viewport actually lives, gated by
+Convex session, not by this route.
 
 - Never reads or sets cookies; refuses all other routes.
 - **CSP** must stay consistent with the render-time policy in §10.2, which deliberately allows
@@ -400,23 +413,35 @@ and a place headers are controllable. **Not yet implemented** — tracked under 
   font-src    'self' data: https://fonts.gstatic.com;
   img-src     'self' data:;
   connect-src 'none';
-  frame-ancestors 'self' https://<spa-host>;
+  frame-ancestors 'self' <SPA_ORIGIN, if set>;
   base-uri 'none'; form-action 'none';
   ```
-  plus `X-Content-Type-Options: nosniff`. `'unsafe-inline'` for scripts is unavoidable (ApexCharts
-  init is inline); `connect-src 'none'` on a cookieless origin makes it tolerable. One
-  env-configurable allowlist constant should feed both this header and `RENDER_ALLOWED_HOSTS`
-  (§10.2) — one list, two enforcement points. *Later:* an import step inlining CDN dependencies on
+  ✅ shipped exactly as above (`http.ts`'s `publicArtifactCsp`), plus `X-Content-Type-Options:
+  nosniff`. `frame-ancestors` widens beyond `'self'` only once the `SPA_ORIGIN` env var is set
+  (post Netlify deploy) — unset, it's "no embedding at all," the safe default rather than a
+  broken one. `'unsafe-inline'` for scripts is unavoidable (ApexCharts init is inline);
+  `connect-src 'none'` on a cookieless origin makes it tolerable. The env-configurable allowlist
+  this section and `RENDER_ALLOWED_HOSTS` (§10.2) were meant to share is still two separate
+  constants in practice, not one — a real gap, not a documentation oversight; unifying them is
+  cheap follow-up, not done in this pass. *Later:* an import step inlining CDN dependencies on
   upload, shrinking the allowlist to nothing.
 - **Embed** as `<iframe sandbox="allow-scripts">`, deliberately without `allow-same-origin`,
-  which pins the frame to an opaque origin.
+  which pins the frame to an opaque origin. Not yet exercised anywhere (decision #12: embeds
+  deferred) — the CSP supports it, nothing serves an embed page yet.
 - **SVG is always `Content-Disposition: attachment`** — an active document, never inline on a
-  shared origin. PNG and PDF serve inline; above the 20 MiB httpAction cap they redirect to a
-  direct `*.convex.cloud` storage URL, which is safe for non-HTML types.
-- **Private canvases**: same handler, keyed by `canvasId` behind the Convex session,
-  `Cache-Control: private, no-store`.
+  shared origin. ✅. PNG and PDF serve inline; above the 18 MiB response-cap margin they redirect
+  to a direct `*.convex.cloud` storage URL, which is safe for non-HTML types. ✅.
+- **Private canvases do not go through this route at all** — a deliberate simplification from the
+  original sketch's "same handler, keyed by canvasId behind the Convex session." `resolvePublicArtifact`
+  only matches `visibility: "public"` rows via the `by_publicSlug` index, so a private canvas's
+  bytes are only ever reachable through the SPA's own authenticated `canvases.getMine` query (§4),
+  which mints its own short-TTL `ctx.storage.getUrl()` per request. Two paths, one for each
+  visibility state, rather than one handler branching on it.
 - **Canvas-kind documents render on the app origin**, safe by the §2 invariant, so pan/zoom and
-  keyboard work without iframe focus games.
+  keyboard work without iframe focus games. This is what `apps/web/src/routes/Canvas.tsx` does for
+  a signed-in viewer; `/s/:slug` for a `kind: "canvas"` canvas instead serves whatever artifact
+  Claude last rendered for it via `render_file` (if any) — there is no separate anonymous
+  canvas-engine renderer. A canvas with no render yet 404s here.
 - **Thumbnails**: captured in the same browser context right after the primary render, clipped
   and `sharp`-downscaled to ~600px. ⏳ not yet wired (see §2).
 
@@ -431,7 +456,7 @@ and a place headers are controllable. **Not yet implemented** — tracked under 
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
 | **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
-| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, and `apps/web` itself are ✅ (`npm run build`/`typecheck` green); the real Google OAuth client ID, live-updating thumbnails (blocked on §2/§8's thumbnail capture), `/s/:slug`, and the actual Netlify deploy are ⏳ |
+| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, `apps/web` itself, and `/s/:slug` are ✅ (`npm run build`/`typecheck`/`test` all green); the real Google OAuth client ID, live-updating thumbnails (blocked on §2/§8's thumbnail capture), and the actual Netlify deploy are ⏳ |
 
 ### Track B — canvas engine
 

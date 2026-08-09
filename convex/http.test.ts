@@ -265,3 +265,139 @@ describe("/mcp put_canvas_doc", () => {
     expect(parsed.version).toBe(1);
   });
 });
+
+describe("GET /s/:slug", () => {
+  async function seedPublicCanvasWithArtifact(
+    t: ReturnType<typeof convexTest>,
+    overrides: {
+      visibility?: "private" | "public";
+      publicSlug?: string;
+      artifactType?: "pdf" | "image" | "svg" | "source";
+      artifactMime?: string;
+      relPath?: string;
+      role?: "primary" | "supporting";
+      body?: string;
+    } = {},
+  ) {
+    return t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        googleSub: "bootstrap:owner@iota.uz",
+        email: "owner@iota.uz",
+        name: "Owner",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "ws",
+        name: "WS",
+        createdBy: userId,
+      });
+      const canvasId = await ctx.db.insert("canvases", {
+        workspaceId,
+        slug: "canvas",
+        title: "Public Canvas",
+        kind: "html",
+        visibility: overrides.visibility ?? "public",
+        publicSlug: overrides.publicSlug ?? "pub-slug-123",
+        createdBy: userId,
+        updatedAt: 0,
+      });
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy: userId,
+      });
+      const storageId = await ctx.storage.store(
+        new Blob([overrides.body ?? "<h1>hi</h1>"], {
+          type: overrides.artifactMime ?? "text/html",
+        }),
+      );
+      await ctx.db.insert("artifacts", {
+        canvasId,
+        versionId,
+        relPath: overrides.relPath ?? "/output/index.html",
+        type: overrides.artifactType ?? "source",
+        role: overrides.role ?? "primary",
+        mimeType: overrides.artifactMime ?? "text/html",
+        size: (overrides.body ?? "<h1>hi</h1>").length,
+        storageId,
+      });
+      return { canvasId, storageId };
+    });
+  }
+
+  test("serves the primary artifact with CSP + nosniff headers, no auth required", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t);
+
+    const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<h1>hi</h1>");
+    expect(res.headers.get("content-type")).toBe("text/html");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toMatch(/default-src 'none'/);
+    expect(csp).toMatch(/script-src[^;]*cdn\.tailwindcss\.com/);
+  });
+
+  test("404s for an unknown slug", async () => {
+    const t = convexTest(schema, modules);
+    const res = await t.fetch("/s/does-not-exist", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
+  test("404s for a private canvas's slug — visibility is the only gate on this route", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t, { visibility: "private" });
+    const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
+  test("serves an explicit relPath under the slug instead of the primary artifact", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t);
+    await t.run(async (ctx) => {
+      const canvas = await ctx.db
+        .query("canvases")
+        .withIndex("by_publicSlug", (q) => q.eq("publicSlug", "pub-slug-123"))
+        .unique();
+      if (!canvas) throw new Error("seed canvas missing");
+      const versionId = await ctx.db
+        .query("canvasVersions")
+        .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvas._id))
+        .first()
+        .then((v) => v?._id);
+      if (!versionId) throw new Error("seed version missing");
+      const storageId = await ctx.storage.store(new Blob(["extra"], { type: "text/plain" }));
+      await ctx.db.insert("artifacts", {
+        canvasId: canvas._id,
+        versionId,
+        relPath: "/output/extra.txt",
+        type: "source",
+        role: "supporting",
+        mimeType: "text/plain",
+        size: 5,
+        storageId,
+      });
+    });
+
+    const res = await t.fetch("/s/pub-slug-123/output/extra.txt", { method: "GET" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("extra");
+  });
+
+  test("SVG is served as an attachment, never inline", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t, {
+      artifactType: "svg",
+      artifactMime: "image/svg+xml",
+      relPath: "/output/diagram.svg",
+      body: "<svg></svg>",
+    });
+
+    const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
+    expect(res.headers.get("content-disposition")).toMatch(/diagram\.svg/);
+  });
+});
