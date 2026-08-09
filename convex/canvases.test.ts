@@ -241,6 +241,83 @@ describe("canvases.rotateMySlug", () => {
   });
 });
 
+describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search index)", () => {
+  async function seedCanvasDocCanvas(t: ReturnType<typeof convexTest>) {
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Onboarding Flow",
+      kind: "canvas",
+      createdBy,
+    });
+    return { canvasId, createdBy };
+  }
+
+  test("re-putting a doc deletes the previous version's canvasNodes, not just adds new ones", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvasDocCanvas(t);
+    const docStorageId = await seedStorage(t, "{}");
+
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      createdBy,
+      nodes: [{ nodeId: "n1", title: "Sign In Screen", searchText: "sign in screen auth" }],
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      createdBy,
+      nodes: [{ nodeId: "n1", title: "Sign In Screen v2", searchText: "sign in screen auth v2" }],
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("canvasNodes").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toBe("Sign In Screen v2");
+  });
+
+  test("searchNodes finds a node by its searchText and resolves the parent canvas", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvasDocCanvas(t);
+    const docStorageId = await seedStorage(t, "{}");
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      createdBy,
+      nodes: [
+        {
+          nodeId: "checkout",
+          title: "Checkout",
+          eyebrow: "Payments",
+          searchText: "checkout payments europrotocol",
+        },
+      ],
+    });
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    const results = await asMember.query(api.canvases.searchNodes, { query: "europrotocol" });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      canvasId,
+      canvasTitle: "Onboarding Flow",
+      nodeId: "checkout",
+      nodeTitle: "Checkout",
+      nodeEyebrow: "Payments",
+    });
+  });
+
+  test("searchNodes returns nothing for a blank query and rejects an unauthenticated caller", async () => {
+    const t = convexTest(schema, modules);
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    expect(await asMember.query(api.canvases.searchNodes, { query: "   " })).toEqual([]);
+    await expect(t.query(api.canvases.searchNodes, { query: "anything" })).rejects.toThrow(
+      /not signed in/i,
+    );
+  });
+});
+
 describe("artifact primary/supporting role inference", () => {
   async function seedCanvas(t: ReturnType<typeof convexTest>) {
     const createdBy = await seedUser(t);

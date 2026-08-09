@@ -373,6 +373,42 @@ export const rotateMySlug = mutation({
   },
 });
 
+// Cross-workspace search over canvas-kind node titles/eyebrows/inspector
+// copy (PLAN.md section 4/9), backed by canvasNodes.search_text. Org-wide
+// like the rest of the signed-in read surface (decision #4) — no canvasId
+// filter, so a query can find the right canvas as well as the right node
+// inside it. Only ever holds current-version rows (putDoc deletes the
+// previous version's), so there's no per-node duplicate-across-history noise.
+export const searchNodes = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const trimmed = args.query.trim();
+    if (!trimmed) return [];
+
+    const rows = await ctx.db
+      .query("canvasNodes")
+      .withSearchIndex("search_text", (q) => q.search("searchText", trimmed))
+      .take(20);
+
+    const results = await Promise.all(
+      rows.map(async (row) => {
+        const canvas = await ctx.db.get(row.canvasId);
+        if (!canvas) return null;
+        return {
+          canvasId: row.canvasId,
+          canvasTitle: canvas.title,
+          workspaceId: canvas.workspaceId,
+          nodeId: row.nodeId,
+          nodeTitle: row.title,
+          nodeEyebrow: row.eyebrow,
+        };
+      }),
+    );
+    return results.filter((r): r is NonNullable<typeof r> => r !== null);
+  },
+});
+
 export const putDoc = internalMutation({
   args: {
     canvasId: v.id("canvases"),
@@ -398,6 +434,22 @@ export const putDoc = internalMutation({
       .order("desc")
       .first();
     const version = (last?.version ?? 0) + 1;
+
+    // canvasNodes exists only to back the search index and `?node=` lookups
+    // against the *current* doc, unlike canvasVersions/artifacts (whose
+    // history is deliberately kept forever). Deleting the previous version's
+    // rows here keeps it that way — otherwise every put_canvas_doc leaves
+    // its old nodes behind, and search would return one stale duplicate per
+    // past edit for every node that survived unchanged.
+    if (last) {
+      const staleNodes = await ctx.db
+        .query("canvasNodes")
+        .withIndex("by_version", (q) => q.eq("versionId", last._id))
+        .collect();
+      for (const node of staleNodes) {
+        await ctx.db.delete(node._id);
+      }
+    }
 
     const versionId = await ctx.db.insert("canvasVersions", {
       canvasId: args.canvasId,

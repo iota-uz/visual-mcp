@@ -87,6 +87,16 @@ body {
   margin-top: 16px;
 }
 
+.node-search {
+  margin-bottom: 24px;
+}
+
+.node-search input {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 12px;
+}
+
 .token-table {
   width: 100%;
   border-collapse: collapse;
