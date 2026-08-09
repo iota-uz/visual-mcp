@@ -16,9 +16,11 @@ claude mcp add --transport http visual-canvas https://<your-deployment>.convex.s
   --header "Authorization: Bearer vct_..."
 ```
 
-You need a bearer token first. The `/settings/tokens` web UI for minting and
-revoking them is still in progress (Track A2 in [PLAN.md](./PLAN.md)); until
-it ships, mint one from a checkout of this repo:
+You need a bearer token first. Once the SPA is deployed and you can sign in
+with a Google account on `iota.uz`, `/settings/tokens` mints and revokes
+tokens for you — it needs a real Google OAuth client ID configured on both
+the Convex deployment and the SPA build (see PLAN.md §7), which isn't wired
+up yet. Until then, mint one from a checkout of this repo:
 
 ```
 node scripts/mint-mcp-token.mjs <your-email> "<your name>" [token-name]
