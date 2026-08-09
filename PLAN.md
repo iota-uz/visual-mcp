@@ -469,7 +469,7 @@ Convex session, not by this route.
 | M | Ships | Status |
 |---|---|---|
 | **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is still ⏳ |
-| **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | ⏳ not started |
+| **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) now enforces the 250MB-per-canvas soft cap via `assertWithinQuota`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. All 4 UI items (slug rotation, `#node=`, search, version history) plus template gallery/theme integration/CDN-inlining are ⏳ not started |
 
 ---
 
@@ -507,18 +507,27 @@ Recorded because they were consciously chosen.
   of `<script>`/`on*` in node HTML; forged-claim rejection for `hd` and `email_verified` (✅,
   `convex/users.test.ts` — missing `hd`, wrong `hd`, `email_verified: false`, happy path, all via
   `convex-test`'s `t.withIdentity()`); visibility enforcement on the anonymous `/s/:slug` path
-  (private → denied for anon, ⏳, blocked on §8); token expiry and revocation (✅,
-  `convex/tokens.test.ts`); `normalizeCanvasPath` traversal cases (✅, ported from the four guards
-  it replaced).
+  (✅, `convex/http.test.ts` — private canvas 404s, not a leaked-but-denied response; unpublish
+  revokes the old slug; explicit `relPath` lookup; SVG forced `Content-Disposition: attachment`);
+  token expiry and revocation (✅, `convex/tokens.test.ts`); `normalizeCanvasPath` traversal cases
+  (✅, ported from the four guards it replaced); per-canvas storage quota and cache-TTL sweep (✅,
+  `convex/canvases.test.ts` — quota rejection, same-relPath re-render not double-counted, quota
+  scoped per canvas not per workspace, TTL sweep deletes stale `/cache/` rows and blobs while
+  leaving fresh `/cache/` and any-age `/output/` alone).
 - **Golden render**: PNG of the fixture canvas against a committed baseline. ⏳
-- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 163
-  tests total across the workspace as of the last green CI run); the 1 MiB document ceiling on
-  `canvasVersions`/`canvasNodes` is enforced structurally by storing the doc in file storage, not
-  inline.
-- **Manual end-to-end after A2**: `claude mcp add --transport http …`, then in a fresh Claude
-  session — create workspace → push canvas doc → publish → open the public URL logged out → pan,
-  zoom, click a node, confirm inspector and `#node=` deep link. Confirm the gallery updates live
-  in a second browser window while Claude pushes. Not yet runnable end-to-end — blocked on A2.
+- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 47
+  tests; 181 tests total across the whole workspace as of the last local `npm test` run); the
+  1 MiB document ceiling on `canvasVersions`/`canvasNodes` is enforced structurally by storing
+  the doc in file storage, not inline.
+- **Manual end-to-end**: ✅ run live against the dev deployment (`giddy-retriever-468`) —
+  `create_workspace` → `create_canvas` → `write_file` → `render_file` (real Railway worker
+  round-trip) → `publish_canvas` → anonymous `GET /s/:slug` returned the correct bytes, CSP, and
+  `nosniff` header; unpublish 404'd the same URL; re-publish minted a fresh slug, confirming the
+  old one is really dead. `put_canvas_doc`/`get_canvas` round-tripped a `CanvasDoc` and a node
+  `on*=` handler was rejected loudly, not stripped. `packages/canvas`'s own dev viewer (pan/zoom
+  not auth-gated) confirmed selection, inspector, and the `ViewportController` API live in
+  Chrome. Not yet covered: signed-in SPA flows (blocked on a real Google OAuth client ID) and the
+  gallery's live-update-across-tabs behavior — both require the pending Netlify deploy.
 
 ---
 
@@ -529,9 +538,11 @@ Recorded because they were consciously chosen.
 2. **Domains** — resolved as decision #13: Netlify's auto-generated subdomain is acceptable;
    `*.convex.site` is used as-is. Revisit only if a real need for `canvas.iota.uz` shows up.
 3. **Embeds** — resolved as decision #12: deferred, no `/embed/:slug` route in v1.
-4. **Retention & quotas** — decided, not yet implemented (tracked in C2/§9): a per-canvas 250MB
-   soft storage quota and a `/cache` TTL Convex cron (24h) with a clear MCP tool-error message on
-   quota rejection, not a silent drop.
+4. **Retention & quotas** — ✅ shipped (tracked in C2/§9): a per-canvas 250MB soft storage quota
+   (`convex/canvases.ts`'s `assertWithinQuota`, enforced on every render/exec/write) and a
+   `/cache` TTL Convex cron (24h, `convex/crons.ts` → `canvases.sweepCacheTtl`) that deletes
+   stale `/cache/` artifacts and their storage blobs. Quota rejection surfaces as a clear MCP
+   tool error, not a silent drop.
 5. **Token lifetime** — resolved as decision #10: 90 days, shipped.
 6. **UI language** — resolved as decision #11: English only.
 

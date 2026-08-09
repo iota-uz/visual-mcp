@@ -9,6 +9,7 @@
  */
 
 import type * as canvases from "../canvases.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as lib_artifactInfo from "../lib/artifactInfo.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -30,6 +31,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   canvases: typeof canvases;
+  crons: typeof crons;
   http: typeof http;
   "lib/artifactInfo": typeof lib_artifactInfo;
   "lib/auth": typeof lib_auth;

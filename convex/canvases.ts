@@ -28,6 +28,69 @@ async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Pr
   return (last?.version ?? 0) + 1;
 }
 
+// PLAN.md section 9/12.4: "an agent in a loop can produce hundreds of
+// full-page PNGs" — a soft per-canvas cap on the two tables that actually
+// grow with render/exec output (`artifacts`, `canvasFiles`). `canvasVersions`
+// doc/css blobs are excluded: they're bounded by CanvasDoc's own practical
+// size (well under Convex's 1 MiB *document* limit even as a file-storage
+// blob) and aren't the growth vector the plan calls out.
+const CANVAS_STORAGE_QUOTA_BYTES = 250 * 1024 * 1024;
+
+// `.collect()` (not `.take()`) is deliberate: a quota total computed from a
+// truncated window would silently under-count and let a canvas grow past
+// its cap. The 250MB cap itself keeps this scan bounded in practice — a
+// single-org internal tool (decision #8) with per-canvas rows in the tens
+// to low hundreds, not the "future scale" case the no-`.collect()` rule
+// guards against.
+async function canvasStorageBytes(ctx: QueryCtx, canvasId: Id<"canvases">): Promise<number> {
+  const [artifactRows, fileRows] = await Promise.all([
+    ctx.db
+      .query("artifacts")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
+      .collect(),
+    ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
+      .collect(),
+  ]);
+  return (
+    artifactRows.reduce((sum, r) => sum + r.size, 0) + fileRows.reduce((sum, r) => sum + r.size, 0)
+  );
+}
+
+/**
+ * Throws a clear, MCP-tool-surfaced error (caught by ../mcp/tools.ts's
+ * `runTool`) when writing `incomingBytes` would push a canvas over its soft
+ * cap. `replacing` excludes the row being overwritten from the "used" total
+ * first — re-rendering the same `output_path` must not double-count against
+ * the quota it's about to replace.
+ */
+async function assertWithinQuota(
+  ctx: MutationCtx,
+  canvasId: Id<"canvases">,
+  incomingBytes: number,
+  replacing?: { table: "artifacts" | "canvasFiles"; relPath: string },
+): Promise<void> {
+  let used = await canvasStorageBytes(ctx, canvasId);
+  if (replacing) {
+    const existing = await ctx.db
+      .query(replacing.table)
+      .withIndex("by_canvas_relPath", (q) =>
+        q.eq("canvasId", canvasId).eq("relPath", replacing.relPath),
+      )
+      .unique();
+    if (existing) used -= existing.size;
+  }
+  if (used + incomingBytes > CANVAS_STORAGE_QUOTA_BYTES) {
+    const usedMb = (used / (1024 * 1024)).toFixed(1);
+    const capMb = (CANVAS_STORAGE_QUOTA_BYTES / (1024 * 1024)).toFixed(0);
+    throw new Error(
+      `Canvas storage quota exceeded: ${usedMb}MB used of ${capMb}MB soft cap. ` +
+        "Remove old /output or /cache files, or start a new canvas.",
+    );
+  }
+}
+
 /**
  * Records one artifact for a canvas, mirroring
  * packages/runtime/src/render/artifact-store's `registerArtifact` role
@@ -57,6 +120,11 @@ async function upsertArtifact(
     storageId: Id<"_storage">;
   },
 ): Promise<{ relPath: string; role: "primary" | "supporting" }> {
+  await assertWithinQuota(ctx, canvasId, entry.size, {
+    table: "artifacts",
+    relPath: entry.relPath,
+  });
+
   const existingRow = await ctx.db
     .query("artifacts")
     .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId).eq("relPath", entry.relPath))
@@ -342,6 +410,11 @@ export const upsertFile = internalMutation({
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
 
+    await assertWithinQuota(ctx, args.canvasId, args.size, {
+      table: "canvasFiles",
+      relPath: args.relPath,
+    });
+
     const existing = await ctx.db
       .query("canvasFiles")
       .withIndex("by_canvas_relPath", (q) =>
@@ -557,5 +630,33 @@ export const logRender = internalMutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("renders", args);
+  },
+});
+
+// PLAN.md section 4/9/12.4: "/cache renders stay out of `artifacts`, as
+// today" describes intent, not current storage — render_file/run_code
+// record every output, /cache/ ones included, as a normal `artifacts` row
+// (see upsertArtifact above). This sweep is what actually makes /cache/
+// paths ephemeral: anything under that prefix older than the TTL is deleted,
+// storage blob and all. Scheduled from ./crons.ts. A single-org internal
+// tool with no admin panel (decision #8) is small enough that a full
+// `artifacts` table scan is the right tradeoff over adding a dedicated
+// TTL/prefix index purely to serve one cron.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export const sweepCacheTtl = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - CACHE_TTL_MS;
+    const rows = await ctx.db.query("artifacts").collect();
+    let deleted = 0;
+    for (const row of rows) {
+      if (row.relPath.startsWith("/cache/") && row._creationTime < cutoff) {
+        await ctx.storage.delete(row.storageId);
+        await ctx.db.delete(row._id);
+        deleted += 1;
+      }
+    }
+    return { scanned: rows.length, deleted };
   },
 });
