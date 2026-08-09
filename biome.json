@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/sessions", "!**/*.d.ts"]
+    "includes": ["**", "!**/dist", "!**/sessions", "!**/*.d.ts", "!convex/_generated"]
   },
   "formatter": {
     "enabled": true,
