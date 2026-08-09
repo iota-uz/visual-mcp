@@ -63,6 +63,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
+    .index("by_workspace_slug", ["workspaceId", "slug"])
     .index("by_publicSlug", ["publicSlug"]),
 
   canvasVersions: defineTable({
