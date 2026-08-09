@@ -11,9 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Matches the worker's actual production runtime (mcr.microsoft.com/
+      # playwright:v1.62.1-noble ships Node 24), not just the package.json
+      # engines floor. run_code's sandbox exposes a global WebSocket to
+      # sandboxed code (packages/runtime/src/sandbox/worker-source.ts) —
+      # a Node 22+ global — so testing under an older Node here would pass
+      # locally on a dev machine's newer Node while silently never having
+      # run against what CI claimed to cover.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
