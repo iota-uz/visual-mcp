@@ -27,7 +27,14 @@ async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Pr
  * demotes the current primary (not exposed to callers here — render_file
  * and run_code never pass an explicit role, matching the stdio tool's
  * behavior). Re-registering an existing relPath overwrites that row rather
- * than duplicating it.
+ * than duplicating it — and, unlike the reference implementation's literal
+ * "any artifacts already exist" check, re-registering the relPath that is
+ * *currently* primary keeps it primary: the hosted product re-renders the
+ * same output path across a canvas's whole lifetime (version history is a
+ * first-class feature here, unlike the one-shot stdio sessions the
+ * reference module was built for), so treating every re-render as "not the
+ * first artifact ever" would silently vacate the "exactly one primary
+ * artifact" invariant on the second render of any canvas.
  */
 async function upsertArtifact(
   ctx: MutationCtx,
@@ -41,11 +48,21 @@ async function upsertArtifact(
     storageId: Id<"_storage">;
   },
 ): Promise<{ relPath: string; role: "primary" | "supporting" }> {
-  const anyExisting = await ctx.db
+  const existingRow = await ctx.db
     .query("artifacts")
-    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
-    .take(1);
-  const role: "primary" | "supporting" = anyExisting.length === 0 ? "primary" : "supporting";
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId).eq("relPath", entry.relPath))
+    .unique();
+
+  let role: "primary" | "supporting";
+  if (existingRow?.role === "primary") {
+    role = "primary";
+  } else {
+    const anyExisting = await ctx.db
+      .query("artifacts")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
+      .take(1);
+    role = anyExisting.length === 0 ? "primary" : "supporting";
+  }
 
   if (role === "primary") {
     const currentPrimary = await ctx.db
@@ -54,14 +71,11 @@ async function upsertArtifact(
       .filter((q) => q.eq(q.field("role"), "primary"))
       .take(10);
     for (const row of currentPrimary) {
-      await ctx.db.patch(row._id, { role: "supporting" });
+      if (row.relPath !== entry.relPath) {
+        await ctx.db.patch(row._id, { role: "supporting" });
+      }
     }
   }
-
-  const existingRow = await ctx.db
-    .query("artifacts")
-    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId).eq("relPath", entry.relPath))
-    .unique();
 
   if (existingRow) {
     await ctx.db.patch(existingRow._id, {
