@@ -59,6 +59,93 @@ async function startMockCompileCssWorker(css = ".compiled-test-class{color:red}"
   };
 }
 
+// Stands in for apps/worker's real /compile-css + /render (put_canvas_doc's
+// auto-render, PLAN.md section 9 C1). Unlike the real worker, this never
+// actually PUTs bytes to the signed upload URL — convex-test's
+// `generateUploadUrl()` returns a non-fetchable placeholder
+// (`https://some-deployment.convex.cloud/...`, see its `storageGenerateUploadUrl`
+// syscall stub), so there is no real endpoint to upload to in this harness.
+// Instead the caller pre-stores blobs directly via `t.run` + `ctx.storage.store`
+// (a real, working syscall) and this mock's canned `/render` response
+// references those already-real storageIds — `callWorker`/`extractStorageId`
+// see exactly the response shape the real worker would send, and every
+// storageId `attachCanvasRender` receives is genuinely resolvable.
+async function startMockRenderWorker(opts: {
+  renderStorageId: string;
+  thumbnailStorageId?: string;
+  renderSize?: number;
+  css?: string;
+}) {
+  const token = "test-worker-token";
+  const requests: { compileCss: Array<{ htmlFragments: string[] }>; render: unknown[] } = {
+    compileCss: [],
+    render: [],
+  };
+  const server: Server = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (req.method === "POST" && req.url === "/compile-css") {
+        requests.compileCss.push(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ css: opts.css ?? "" }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/render") {
+        requests.render.push(body);
+        const mimeType =
+          body.format === "pdf"
+            ? "application/pdf"
+            : body.format === "svg"
+              ? "image/svg+xml"
+              : "image/png";
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            relPath: body.outputPath,
+            size: opts.renderSize ?? 123,
+            mimeType,
+            uploadStatus: 200,
+            uploadBody: { storageId: opts.renderStorageId },
+            thumbnail: opts.thumbnailStorageId
+              ? { uploadStatus: 200, uploadBody: { storageId: opts.thumbnailStorageId } }
+              : undefined,
+          }),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+
+  const originalUrl = process.env.WORKER_URL;
+  const originalToken = process.env.WORKER_TOKEN;
+  process.env.WORKER_URL = `http://127.0.0.1:${port}`;
+  process.env.WORKER_TOKEN = token;
+
+  return {
+    requests,
+    close: async () => {
+      await new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+      if (originalUrl === undefined) delete process.env.WORKER_URL;
+      else process.env.WORKER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.WORKER_TOKEN;
+      else process.env.WORKER_TOKEN = originalToken;
+    },
+  };
+}
+
 const MCP_HEADERS = {
   "content-type": "application/json",
   accept: "application/json, text/event-stream",
@@ -276,7 +363,7 @@ describe("/mcp create_canvas template seeding", () => {
     expect(result.content[0]?.text ?? "").toMatch(/Unknown template id/);
   });
 
-  test("rejects a template on a kind=\"canvas\" canvas — no /src concept there", async () => {
+  test('rejects a template on a kind="canvas" canvas — no /src concept there', async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
     const workspace_id = await createWorkspace(t, token);
@@ -461,6 +548,225 @@ describe("/mcp put_canvas_doc", () => {
       expect(canvas?.css_url).toBeNull();
     } finally {
       await worker.close();
+    }
+  });
+});
+
+describe("/mcp put_canvas_doc auto-render (PLAN.md section 9 C1)", () => {
+  async function seedCanvas(t: ReturnType<typeof convexTest>, token: string) {
+    const ws = await callTool(t, token, "create_workspace", { name: "Render WS" });
+    const wsResult = ws.result as { content: Array<{ text: string }> };
+    const { workspace_id } = JSON.parse(wsResult.content[0]?.text ?? "{}");
+
+    const canvas = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "Render Canvas",
+      kind: "canvas",
+    });
+    const canvasResult = canvas.result as { content: Array<{ text: string }> };
+    const { canvas_id } = JSON.parse(canvasResult.content[0]?.text ?? "{}");
+    return canvas_id as string;
+  }
+
+  const doc = {
+    version: 1,
+    title: "Render Test",
+    lanes: [{ id: "l1", label: "Lane", role: "primary", height: 200 }],
+    stages: [{ id: "s1", index: 0, label: "Stage" }],
+    nodes: [
+      {
+        id: "n1",
+        lane: "l1",
+        stage: "s1",
+        shape: "note",
+        caption: { title: "Node" },
+        content: { type: "html", html: '<div class="card">hi</div>' },
+      },
+    ],
+    edges: [],
+  };
+
+  test("successful render attaches a supporting artifact + thumbnail to the version put_canvas_doc created, no new version", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const canvasId = await seedCanvas(t, token);
+
+    const [pngStorageId, thumbStorageId] = await t.run(async (ctx) => {
+      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
+      const thumb = await ctx.storage.store(new Blob(["thumb-bytes"], { type: "image/png" }));
+      return [png, thumb];
+    });
+
+    const worker = await startMockRenderWorker({
+      renderStorageId: pngStorageId,
+      thumbnailStorageId: thumbStorageId,
+    });
+    try {
+      const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
+      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+      expect(parsed.version).toBe(1);
+      expect(parsed.render_error).toBeUndefined();
+
+      expect(worker.requests.render).toHaveLength(1);
+      expect(worker.requests.render[0]).toMatchObject({
+        entrypoint: "/src/__canvas.html",
+        outputPath: "/output/canvas.png",
+        format: "png",
+      });
+
+      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(artifacts).toEqual([
+        { path: "/output/canvas.png", type: "image", role: "supporting" },
+      ]);
+
+      const canvas = await t.query(internal.canvases.get, { canvasId: canvasId as Id<"canvases"> });
+      expect(canvas?.thumbnail_url).toBeTruthy();
+
+      const files = await t.query(internal.canvases.listFilesForCanvas, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(files.map((f) => f.relPath)).toContain("/src/__canvas.html");
+
+      const versionCount = await t.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("canvasVersions")
+              .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvasId as Id<"canvases">))
+              .collect()
+          ).length,
+      );
+      expect(versionCount).toBe(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("worker's /render step failing: put still succeeds, render_error reported, no artifact/thumbnail", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const canvasId = await seedCanvas(t, token);
+
+    // startMockCompileCssWorker only implements /compile-css and 404s
+    // everything else, so /compile-css (and thus the doc put itself)
+    // succeeds, and renderCanvasThumbnail's own /render call is what fails —
+    // exercising the "doc already committed, auto-render fails independently"
+    // case the render_error contract exists for.
+    const worker = await startMockCompileCssWorker();
+
+    const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
+    await worker.close();
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+    expect(parsed.version).toBe(1);
+    expect(parsed.render_error).toMatch(/\/render/i);
+
+    const canvas = await t.query(internal.canvases.get, { canvasId: canvasId as Id<"canvases"> });
+    expect(canvas?.doc_url).toBeTruthy();
+    expect(canvas?.thumbnail_url).toBeNull();
+
+    const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
+      canvasId: canvasId as Id<"canvases">,
+    });
+    expect(artifacts).toEqual([]);
+  });
+
+  test("attach failure (quota exceeded) cleans up the uploaded blobs instead of orphaning them", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const canvasId = await seedCanvas(t, token);
+
+    const [pngStorageId, thumbStorageId] = await t.run(async (ctx) => {
+      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
+      const thumb = await ctx.storage.store(new Blob(["thumb-bytes"], { type: "image/png" }));
+      return [png, thumb];
+    });
+
+    // A reported size beyond the 250MB soft cap makes attachCanvasRender's
+    // reserveCanvasStorage reject, even though the referenced blobs
+    // themselves are tiny — the mock controls `size` independently of the
+    // real blob bytes, same as apps/worker's real response would report the
+    // PNG's actual size regardless of what's in the pre-stored fixture.
+    const worker = await startMockRenderWorker({
+      renderStorageId: pngStorageId,
+      thumbnailStorageId: thumbStorageId,
+      renderSize: 300 * 1024 * 1024,
+    });
+    try {
+      const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
+      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+      expect(parsed.version).toBe(1);
+      expect(parsed.render_error).toMatch(/quota/i);
+
+      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(artifacts).toEqual([]);
+
+      const [pngStillThere, thumbStillThere] = await t.run(async (ctx) => [
+        await ctx.storage.get(pngStorageId),
+        await ctx.storage.get(thumbStorageId),
+      ]);
+      expect(pngStillThere).toBeNull();
+      expect(thumbStillThere).toBeNull();
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("render_file against the auto-persisted /src/__canvas.html works afterward (PDF export 'for free')", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const canvasId = await seedCanvas(t, token);
+
+    const [pngStorageId, pdfStorageId] = await t.run(async (ctx) => {
+      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
+      const pdf = await ctx.storage.store(new Blob(["pdf-bytes"], { type: "application/pdf" }));
+      return [png, pdf];
+    });
+
+    const putWorker = await startMockRenderWorker({ renderStorageId: pngStorageId });
+    try {
+      const putResponse = await callTool(t, token, "put_canvas_doc", {
+        canvas_id: canvasId,
+        doc,
+      });
+      expect((putResponse.result as { isError?: boolean }).isError).toBeFalsy();
+      expect(putWorker.requests.render).toHaveLength(1);
+    } finally {
+      await putWorker.close();
+    }
+
+    // A distinct mock/storageId for the second call, so its artifact row is
+    // independently verifiable from the auto-render's.
+    const pdfWorker = await startMockRenderWorker({ renderStorageId: pdfStorageId });
+    try {
+      const renderResponse = await callTool(t, token, "render_file", {
+        canvas_id: canvasId,
+        entrypoint: "/src/__canvas.html",
+        output_path: "/output/canvas.pdf",
+        format: "pdf",
+      });
+      const result = renderResponse.result as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+      expect(result.isError).toBeFalsy();
+      expect(pdfWorker.requests.render).toHaveLength(1);
+
+      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(artifacts.map((a) => a.path)).toContain("/output/canvas.pdf");
+    } finally {
+      await pdfWorker.close();
     }
   });
 });

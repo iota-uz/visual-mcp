@@ -113,6 +113,14 @@ async function upsertArtifact(
     size: number;
     storageId: Id<"_storage">;
   },
+  opts?: {
+    // attachCanvasRender's only caller: kind="canvas"'s primary content is
+    // the doc itself (PLAN.md section 2), never a PNG snapshot of it, so its
+    // auto-render must never become "primary" even when it's the first
+    // artifact this canvas has ever produced — the inference below would
+    // otherwise get this wrong for exactly that case.
+    forceRole?: "supporting";
+  },
 ): Promise<{ relPath: string; role: "primary" | "supporting" }> {
   await reserveCanvasStorage(ctx, canvasId, entry.size);
 
@@ -122,7 +130,9 @@ async function upsertArtifact(
     .unique();
 
   let role: "primary" | "supporting";
-  if (existingRow?.role === "primary") {
+  if (opts?.forceRole === "supporting") {
+    role = "supporting";
+  } else if (existingRow?.role === "primary") {
     role = "primary";
   } else {
     const anyExisting = await ctx.db
@@ -167,6 +177,43 @@ async function upsertArtifact(
     });
   }
   return { relPath: entry.relPath, role };
+}
+
+/** Deletes the canvas's superseded thumbnail (if any) and replaces it — capping storage at one small blob per canvas regardless of render count. */
+async function setCanvasThumbnail(
+  ctx: MutationCtx,
+  canvasId: Id<"canvases">,
+  thumbnailStorageId: Id<"_storage">,
+): Promise<void> {
+  const current = await ctx.db.get(canvasId);
+  if (current?.thumbnailId) {
+    await ctx.storage.delete(current.thumbnailId);
+  }
+  await ctx.db.patch(canvasId, { thumbnailId: thumbnailStorageId });
+}
+
+/**
+ * recordRender's (render_file) thumbnail policy: the gallery shows one
+ * thumbnail per canvas, for its *primary* artifact — a thumbnail from
+ * re-rendering a supporting/debug output path doesn't belong on the canvas,
+ * so it's discarded immediately rather than left as an orphaned blob.
+ * attachCanvasRender (put_canvas_doc's auto-render) does NOT use this: its
+ * artifact is always "supporting" by design (see upsertArtifact's
+ * forceRole), but its thumbnail is still exactly what the doc currently
+ * looks like and should always be attached — see its own call to
+ * setCanvasThumbnail directly.
+ */
+async function attachThumbnailIfPrimary(
+  ctx: MutationCtx,
+  canvasId: Id<"canvases">,
+  role: "primary" | "supporting",
+  thumbnailStorageId: Id<"_storage">,
+): Promise<void> {
+  if (role === "primary") {
+    await setCanvasThumbnail(ctx, canvasId, thumbnailStorageId);
+  } else {
+    await ctx.storage.delete(thumbnailStorageId);
+  }
 }
 
 function toSummary(c: Doc<"canvases">) {
@@ -513,6 +560,60 @@ export const putDoc = internalMutation({
   },
 });
 
+/**
+ * Attaches a server-side render's PNG + thumbnail to a version put_canvas_doc
+ * already created (PLAN.md section 9 C1: "server-side render -> thumbnail +
+ * PNG/PDF export... come for free"). Deliberately does NOT insert a new
+ * canvasVersions row or touch currentVersionId — unlike recordRender (which
+ * backs render_file, an explicit user action producing its own version), this
+ * is a best-effort side-render of a doc version that already exists; giving
+ * it its own version would leave that version with no docStorageId and break
+ * the SPA viewer (getCanvas resolves doc_url from the *current* version).
+ * The produced artifact is "supporting", not "primary" — kind="canvas"'s
+ * primary content is the doc itself, not a PNG snapshot of it, and
+ * `/s/:slug` (which serves the primary artifact) is not wired for
+ * kind="canvas" canvases yet (a separate, documented gap).
+ */
+export const attachCanvasRender = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    relPath: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    storageId: v.id("_storage"),
+    thumbnailStorageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+
+    const artifact = await upsertArtifact(
+      ctx,
+      args.canvasId,
+      args.versionId,
+      {
+        relPath: args.relPath,
+        type: "image",
+        mimeType: args.mimeType,
+        size: args.size,
+        storageId: args.storageId,
+      },
+      { forceRole: "supporting" },
+    );
+
+    // Unlike recordRender's thumbnail policy (attachThumbnailIfPrimary,
+    // gated on role === "primary"), this thumbnail is always attached: it's
+    // exactly what the doc currently looks like, regardless of the PNG
+    // artifact's (always "supporting") role.
+    if (args.thumbnailStorageId) {
+      await setCanvasThumbnail(ctx, args.canvasId, args.thumbnailStorageId);
+    }
+
+    return { artifact };
+  },
+});
+
 export const upsertFile = internalMutation({
   args: {
     canvasId: v.id("canvases"),
@@ -685,19 +786,7 @@ export const recordRender = internalMutation({
     });
 
     if (args.thumbnailStorageId) {
-      // The gallery shows one thumbnail per canvas, for its primary
-      // artifact — a thumbnail from re-rendering a supporting/debug output
-      // path doesn't belong on the canvas, so it's discarded immediately
-      // rather than left as an orphaned blob.
-      if (artifact.role === "primary") {
-        const current = await ctx.db.get(args.canvasId);
-        if (current?.thumbnailId) {
-          await ctx.storage.delete(current.thumbnailId);
-        }
-        await ctx.db.patch(args.canvasId, { thumbnailId: args.thumbnailStorageId });
-      } else {
-        await ctx.storage.delete(args.thumbnailStorageId);
-      }
+      await attachThumbnailIfPrimary(ctx, args.canvasId, artifact.role, args.thumbnailStorageId);
     }
 
     return { version, artifact };

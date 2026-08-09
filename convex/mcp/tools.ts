@@ -28,6 +28,10 @@
  */
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { renderCanvas } from "@visual-canvas/canvas/render.js";
+import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
+import type { CanvasDoc } from "@visual-canvas/canvas/types.js";
 import { CanvasDocSchema } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath, SandboxPathError } from "@visual-canvas/runtime/paths/index.js";
 import {
@@ -84,6 +88,110 @@ async function resolveCanvasSources(
   return resolved.filter((s): s is { relPath: string; getUrl: string } => s !== null);
 }
 
+/**
+ * Best-effort server-side render of a just-put CanvasDoc into a PNG +
+ * thumbnail (PLAN.md section 9 C1: "server-side render -> thumbnail +
+ * PNG/PDF export... come for free"). Assembles a full static HTML page
+ * (packages/canvas's renderCanvas() world content + theme.css + the doc's
+ * compiled node CSS) and persists it as a real canvasFile at
+ * /src/__canvas.html — which also means `render_file(entrypoint:
+ * "/src/__canvas.html", format: "pdf")` works for free afterward, with zero
+ * new worker code.
+ *
+ * Returns an error string on failure instead of throwing: the doc itself has
+ * already been committed by the time this runs, so a render failure (worker
+ * down, quota exceeded, etc.) must not fail the put_canvas_doc call — it's
+ * surfaced to the caller as `render_error` alongside the successful version.
+ */
+async function renderCanvasThumbnail(
+  ctx: ActionCtx,
+  canvasId: Id<"canvases">,
+  versionId: Id<"canvasVersions">,
+  doc: CanvasDoc,
+  compiledCss: string,
+): Promise<string | undefined> {
+  try {
+    const { html } = renderCanvas(layoutCanvas(doc));
+    const page =
+      '<!doctype html><html><head><meta charset="utf-8" />' +
+      `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
+      `<style>${compiledCss}</style></head><body>${html}</body></html>`;
+
+    const bytes = new TextEncoder().encode(page);
+    const htmlStorageId = await ctx.storage.store(new Blob([bytes], { type: "text/html" }));
+    try {
+      await ctx.runMutation(internal.canvases.upsertFile, {
+        canvasId,
+        relPath: "/src/__canvas.html",
+        storageId: htmlStorageId,
+        size: bytes.byteLength,
+        contentHash: await sha256Hex(page),
+      });
+    } catch (err) {
+      await ctx.storage.delete(htmlStorageId);
+      throw err;
+    }
+
+    const config = getWorkerConfig();
+    const sources = await resolveCanvasSources(ctx, canvasId);
+    const putUrl = await ctx.storage.generateUploadUrl();
+    const thumbnailPutUrl = await ctx.storage.generateUploadUrl();
+
+    const result = await callWorker<{
+      relPath: string;
+      size: number;
+      mimeType: string;
+      uploadStatus: number;
+      uploadBody: unknown;
+      thumbnail?: { uploadStatus: number; uploadBody: unknown };
+    }>(config, "/render", {
+      sources,
+      entrypoint: "/src/__canvas.html",
+      outputPath: "/output/canvas.png",
+      format: "png",
+      upload: { putUrl },
+      thumbnailUpload: { putUrl: thumbnailPutUrl },
+    });
+
+    let storageId: Id<"_storage">;
+    try {
+      storageId = extractStorageId(result.uploadBody) as Id<"_storage">;
+    } catch (extractErr) {
+      throw new Error(
+        `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
+      );
+    }
+    let thumbnailStorageId: Id<"_storage"> | undefined;
+    if (result.thumbnail) {
+      try {
+        thumbnailStorageId = extractStorageId(result.thumbnail.uploadBody) as Id<"_storage">;
+      } catch {
+        thumbnailStorageId = undefined;
+      }
+    }
+
+    try {
+      await ctx.runMutation(internal.canvases.attachCanvasRender, {
+        canvasId,
+        versionId,
+        relPath: result.relPath,
+        mimeType: result.mimeType,
+        size: result.size,
+        storageId,
+        thumbnailStorageId,
+      });
+    } catch (err) {
+      await ctx.storage.delete(storageId);
+      if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
+      throw err;
+    }
+
+    return undefined;
+  } catch (err) {
+    return describeError(err);
+  }
+}
+
 export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
   server.registerTool(
     "create_workspace",
@@ -127,7 +235,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         'Creates a canvas inside a workspace. kind="canvas" is authored via put_canvas_doc; ' +
         'kind="html"/"image"/"pdf" are authored via write_file + render_file. `template` ' +
         "(a list_templates id) seeds /src with that template's source, so a render_file call " +
-        "on it works immediately — only valid for kind=\"html\"/\"image\"/\"pdf\".",
+        'on it works immediately — only valid for kind="html"/"image"/"pdf".',
       inputSchema: z.object({
         workspace_id: z.string(),
         title: z.string().min(1),
@@ -166,7 +274,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         let seededPath: string | undefined;
         if (template) {
-          const filename = template.kind === "diagram" ? `${template.id}.d2` : `${template.id}.html`;
+          const filename =
+            template.kind === "diagram" ? `${template.id}.d2` : `${template.id}.html`;
           seededPath = `/src/${filename}`;
           const { mime } = inferArtifactInfo(seededPath);
           const bytes = new TextEncoder().encode(template.exampleCode);
@@ -236,7 +345,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Validates a CanvasDoc (PLAN.md section 2) and stores it as a new version of a canvas. " +
         "Node HTML content must be static (no <script>, on*=, javascript:, <iframe>, <object>) " +
-        "and is rejected loudly, not silently stripped.",
+        "and is rejected loudly, not silently stripped. Also triggers a best-effort server-side " +
+        "render (thumbnail + /output/canvas.png); a render failure is reported as `render_error` " +
+        "but never fails the put itself. The assembled page is saved to /src/__canvas.html, so " +
+        'render_file(entrypoint: "/src/__canvas.html", format: "pdf") works afterward too.',
       inputSchema: z.object({
         canvas_id: z.string(),
         doc: z.unknown(),
@@ -273,19 +385,22 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           .map((node) => (node.content?.type === "html" ? node.content.html : null))
           .filter((html): html is string => html !== null);
         let cssStorageId: Id<"_storage"> | undefined;
+        let compiledCss = "";
         if (htmlFragments.length > 0) {
           const config = getWorkerConfig();
           const { css } = await callWorker<{ css: string }>(config, "/compile-css", {
             htmlFragments,
           });
+          compiledCss = css;
           cssStorageId = await ctx.storage.store(new Blob([css], { type: "text/css" }));
         }
 
         const docStorageId = await ctx.storage.store(
           new Blob([JSON.stringify(doc)], { type: "application/json" }),
         );
+        let result: { versionId: Id<"canvasVersions">; version: number };
         try {
-          const result = await ctx.runMutation(internal.canvases.putDoc, {
+          result = await ctx.runMutation(internal.canvases.putDoc, {
             canvasId,
             docStorageId,
             cssStorageId,
@@ -293,12 +408,24 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             createdBy: principal.userId,
             nodes,
           });
-          return jsonResult({ canvas_id: canvasId, version: result.version });
         } catch (err) {
           await ctx.storage.delete(docStorageId);
           if (cssStorageId) await ctx.storage.delete(cssStorageId);
           throw err;
         }
+
+        const renderError = await renderCanvasThumbnail(
+          ctx,
+          canvasId,
+          result.versionId,
+          doc,
+          compiledCss,
+        );
+        return jsonResult({
+          canvas_id: canvasId,
+          version: result.version,
+          ...(renderError ? { render_error: renderError } : {}),
+        });
       }),
   );
 

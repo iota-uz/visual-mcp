@@ -14,7 +14,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/theme.css dist/theme.css",
+    "build": "tsc -p tsconfig.json && cp src/theme.css dist/theme.css && node scripts/build-theme-css-module.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
