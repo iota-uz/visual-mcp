@@ -11,12 +11,15 @@
 import type * as canvases from "../canvases.js";
 import type * as http from "../http.js";
 import type * as lib_artifactInfo from "../lib/artifactInfo.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bytes from "../lib/bytes.js";
 import type * as lib_hash from "../lib/hash.js";
 import type * as lib_slug from "../lib/slug.js";
+import type * as lib_tokenFormat from "../lib/tokenFormat.js";
 import type * as lib_worker from "../lib/worker.js";
 import type * as mcp_tools from "../mcp/tools.js";
 import type * as tokens from "../tokens.js";
+import type * as users from "../users.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -29,12 +32,15 @@ declare const fullApi: ApiFromModules<{
   canvases: typeof canvases;
   http: typeof http;
   "lib/artifactInfo": typeof lib_artifactInfo;
+  "lib/auth": typeof lib_auth;
   "lib/bytes": typeof lib_bytes;
   "lib/hash": typeof lib_hash;
   "lib/slug": typeof lib_slug;
+  "lib/tokenFormat": typeof lib_tokenFormat;
   "lib/worker": typeof lib_worker;
   "mcp/tools": typeof mcp_tools;
   tokens: typeof tokens;
+  users: typeof users;
   workspaces: typeof workspaces;
 }>;
 

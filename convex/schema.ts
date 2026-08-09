@@ -21,7 +21,9 @@ export default defineSchema({
     name: v.string(),
     pictureUrl: v.optional(v.string()),
     lastSeenAt: v.number(),
-  }).index("by_googleSub", ["googleSub"]),
+  })
+    .index("by_googleSub", ["googleSub"])
+    .index("by_email", ["email"]),
 
   // Static bearer tokens (PLAN.md section 7) — never store the plaintext,
   // only its sha256 hash plus an 8-char display prefix for the tokens UI.

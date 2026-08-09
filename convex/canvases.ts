@@ -1,7 +1,16 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  mutation,
+  type QueryCtx,
+  query,
+} from "./_generated/server";
+import { requireIotaIdentity } from "./lib/auth";
 import { slugify } from "./lib/slug";
+import { randomPublicSlug } from "./lib/tokenFormat";
 
 const ArtifactTypeValidator = v.union(
   v.literal("pdf"),
@@ -159,32 +168,60 @@ export const create = internalMutation({
   },
 });
 
+async function listCanvases(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+  const rows = await ctx.db
+    .query("canvases")
+    .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(200);
+  return rows.map(toSummary);
+}
+
+async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
+  const canvas = await ctx.db.get(canvasId);
+  if (!canvas) return null;
+  let docStorageId: Id<"_storage"> | undefined;
+  let version: number | undefined;
+  if (canvas.currentVersionId) {
+    const currentVersion = await ctx.db.get(canvas.currentVersionId);
+    docStorageId = currentVersion?.docStorageId;
+    version = currentVersion?.version;
+  }
+  return { ...toSummary(canvas), doc_storage_id: docStorageId, version };
+}
+
+async function publishCanvas(
+  ctx: MutationCtx,
+  args: {
+    canvasId: Id<"canvases">;
+    visibility: "private" | "public";
+    newPublicSlug?: string;
+  },
+) {
+  const canvas = await ctx.db.get(args.canvasId);
+  if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+
+  if (args.visibility === "private") {
+    await ctx.db.patch(args.canvasId, { visibility: "private", publicSlug: undefined });
+    return { visibility: "private" as const, publicSlug: undefined };
+  }
+
+  const publicSlug = canvas.publicSlug ?? args.newPublicSlug;
+  if (!publicSlug) {
+    throw new Error("newPublicSlug is required the first time a canvas is published");
+  }
+  await ctx.db.patch(args.canvasId, { visibility: "public", publicSlug });
+  return { visibility: "public" as const, publicSlug };
+}
+
 export const list = internalQuery({
   args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("canvases")
-      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(200);
-    return rows.map(toSummary);
-  },
+  handler: async (ctx, args) => listCanvases(ctx, args.workspaceId),
 });
 
 export const get = internalQuery({
   args: { canvasId: v.id("canvases") },
-  handler: async (ctx, args) => {
-    const canvas = await ctx.db.get(args.canvasId);
-    if (!canvas) return null;
-    let docStorageId: Id<"_storage"> | undefined;
-    let version: number | undefined;
-    if (canvas.currentVersionId) {
-      const currentVersion = await ctx.db.get(canvas.currentVersionId);
-      docStorageId = currentVersion?.docStorageId;
-      version = currentVersion?.version;
-    }
-    return { ...toSummary(canvas), doc_storage_id: docStorageId, version };
-  },
+  handler: async (ctx, args) => getCanvas(ctx, args.canvasId),
 });
 
 export const publish = internalMutation({
@@ -196,21 +233,42 @@ export const publish = internalMutation({
     // canvas already has one.
     newPublicSlug: v.optional(v.string()),
   },
+  handler: async (ctx, args) => publishCanvas(ctx, args),
+});
+
+// --- Public, SPA-facing (PLAN.md Part 1 section 1's `/w/:wsSlug`, `/c/:canvasId`) ---
+// Reads are org-wide (decision #4: private = visible to all @iota.uz, and
+// there's no ACL layer to further restrict who among them can see what) —
+// these do not filter by `visibility`, unlike the anonymous `/s/:slug` path
+// (PLAN.md Part 1 section 8), which is the only place `visibility` actually
+// gates access.
+
+export const listForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const canvas = await ctx.db.get(args.canvasId);
-    if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+    await requireIotaIdentity(ctx);
+    return listCanvases(ctx, args.workspaceId);
+  },
+});
 
-    if (args.visibility === "private") {
-      await ctx.db.patch(args.canvasId, { visibility: "private", publicSlug: undefined });
-      return { visibility: "private" as const, publicSlug: undefined };
-    }
+export const getMine = query({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    return getCanvas(ctx, args.canvasId);
+  },
+});
 
-    const publicSlug = canvas.publicSlug ?? args.newPublicSlug;
-    if (!publicSlug) {
-      throw new Error("newPublicSlug is required the first time a canvas is published");
-    }
-    await ctx.db.patch(args.canvasId, { visibility: "public", publicSlug });
-    return { visibility: "public" as const, publicSlug };
+export const publishMine = mutation({
+  args: {
+    canvasId: v.id("canvases"),
+    visibility: v.union(v.literal("private"), v.literal("public")),
+  },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    // Minted here (not passed in by the client) so a signed-in user cannot
+    // choose their own public slug.
+    return publishCanvas(ctx, { ...args, newPublicSlug: randomPublicSlug() });
   },
 });
 

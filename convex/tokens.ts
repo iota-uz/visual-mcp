@@ -9,7 +9,12 @@
 
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { getOrCreateUserId, requireIotaIdentity } from "./lib/auth";
+import { sha256Hex } from "./lib/hash";
+import { randomMcpToken, tokenDisplayPrefix } from "./lib/tokenFormat";
+
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const verify = internalQuery({
   // `now` is passed in rather than read via Date.now() — queries must not
@@ -117,5 +122,72 @@ export const bootstrap = internalMutation({
     });
 
     return { userId, tokenId };
+  },
+});
+
+// --- Public, SPA-facing (PLAN.md Part 1 section 7's `/settings/tokens`) ---
+// Every function below derives the caller's user id from their verified
+// Convex session identity — never from a client-supplied argument.
+
+export const listMine = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await requireIotaIdentity(ctx);
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_googleSub", (q) => q.eq("googleSub", identity.subject))
+      .unique();
+    if (!user) return [];
+    const rows = await ctx.db
+      .query("mcpTokens")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .collect();
+    return rows.map((row) => ({
+      tokenId: row._id,
+      name: row.name,
+      prefix: row.prefix,
+      expiresAt: row.expiresAt,
+      lastUsedAt: row.lastUsedAt,
+      revokedAt: row.revokedAt,
+    }));
+  },
+});
+
+// Returns the plaintext token exactly once — the caller must display and
+// discard it; only the hash is ever persisted or returned again.
+export const mintMine = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const userId = await getOrCreateUserId(ctx, identity);
+
+    const token = randomMcpToken();
+    const tokenHash = await sha256Hex(token);
+    const expiresAt = Date.now() + NINETY_DAYS_MS;
+    const tokenId = await ctx.db.insert("mcpTokens", {
+      userId,
+      name: args.name,
+      prefix: tokenDisplayPrefix(token),
+      tokenHash,
+      expiresAt,
+    });
+
+    return { tokenId, token, expiresAt };
+  },
+});
+
+export const revokeMine = mutation({
+  args: { tokenId: v.id("mcpTokens") },
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const userId = await getOrCreateUserId(ctx, identity);
+
+    const token = await ctx.db.get(args.tokenId);
+    if (!token || token.userId !== userId) {
+      throw new Error(`Unknown token: ${args.tokenId}`);
+    }
+    if (token.revokedAt === undefined) {
+      await ctx.db.patch(args.tokenId, { revokedAt: Date.now() });
+    }
   },
 });
