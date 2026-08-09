@@ -69,6 +69,18 @@ body {
   color: inherit;
 }
 
+.canvas-card-thumbnail {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #f3f3f5;
+}
+
+.canvas-card-thumbnail-empty {
+  border: 1px dashed #dcdce1;
+}
+
 .inline-form {
   display: flex;
   gap: 8px;

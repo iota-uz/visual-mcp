@@ -40,8 +40,10 @@ async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Pr
 // The counter only grows on writes below and only shrinks when a blob is
 // actually deleted (sweepCacheTtl) — it tracks live storage, not a
 // recomputation of current pointers. `canvasVersions` doc/css blobs
-// (put_canvas_doc) are deliberately excluded: one blob per call, not the
-// unbounded-loop growth vector this cap targets.
+// (put_canvas_doc) and canvas thumbnails are deliberately excluded: one
+// blob per call for docs, and thumbnails are capped at one small blob per
+// canvas by construction (recordRender always deletes the superseded one) —
+// neither is the unbounded-loop growth vector this cap targets.
 const CANVAS_STORAGE_QUOTA_BYTES = 250 * 1024 * 1024;
 
 /**
@@ -231,7 +233,15 @@ async function listCanvases(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
     .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
     .order("desc")
     .take(200);
-  return rows.map(toSummary);
+  // Signed, time-limited URLs, resolved per row — this is what lights up
+  // the gallery grid (PLAN.md section 8: "gallery with live-updating
+  // thumbnails"), not just the single-canvas viewer's thumbnail_url.
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...toSummary(row),
+      thumbnail_url: row.thumbnailId ? await ctx.storage.getUrl(row.thumbnailId) : null,
+    })),
+  );
 }
 
 async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
@@ -530,6 +540,12 @@ export const recordRender = internalMutation({
     mimeType: v.string(),
     size: v.number(),
     storageId: v.id("_storage"),
+    // Only ever set for format="png" renders (apps/worker/src/render.ts).
+    // Excluded from the storage quota (like putDoc's blobs) — unlike
+    // artifacts/canvasFiles, a thumbnail is never kept for version history,
+    // so it can't accumulate: the superseded one is always deleted below,
+    // capping this at one small blob per canvas regardless of render count.
+    thumbnailStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const canvas = await ctx.db.get(args.canvasId);
@@ -551,6 +567,23 @@ export const recordRender = internalMutation({
       size: args.size,
       storageId: args.storageId,
     });
+
+    if (args.thumbnailStorageId) {
+      // The gallery shows one thumbnail per canvas, for its primary
+      // artifact — a thumbnail from re-rendering a supporting/debug output
+      // path doesn't belong on the canvas, so it's discarded immediately
+      // rather than left as an orphaned blob.
+      if (artifact.role === "primary") {
+        const current = await ctx.db.get(args.canvasId);
+        if (current?.thumbnailId) {
+          await ctx.storage.delete(current.thumbnailId);
+        }
+        await ctx.db.patch(args.canvasId, { thumbnailId: args.thumbnailStorageId });
+      } else {
+        await ctx.storage.delete(args.thumbnailStorageId);
+      }
+    }
+
     return { version, artifact };
   },
 });

@@ -19,7 +19,15 @@ export async function uploadFile(
   absolutePath: string,
   contentType: string,
 ): Promise<UploadResult> {
-  const bytes = await readFile(absolutePath);
+  return uploadBytes(putUrl, await readFile(absolutePath), contentType);
+}
+
+/** Same contract as `uploadFile`, for bytes that were never written to disk (e.g. a thumbnail). */
+export async function uploadBytes(
+  putUrl: string,
+  bytes: Buffer | Uint8Array,
+  contentType: string,
+): Promise<UploadResult> {
   const res = await fetch(putUrl, {
     method: "POST",
     headers: { "content-type": contentType },

@@ -271,6 +271,134 @@ describe("artifact primary/supporting role inference", () => {
   });
 });
 
+describe("recordRender thumbnail handling (PLAN.md section 8)", () => {
+  async function seedCanvas(t: ReturnType<typeof convexTest>) {
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Thumbnail Target",
+      kind: "html",
+      createdBy,
+    });
+    return { canvasId, createdBy };
+  }
+
+  test("a primary render's thumbnail is set on the canvas", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvas(t);
+    const storageId = await seedStorage(t, "full-size");
+    const thumbnailStorageId = await seedStorage(t, "thumb");
+
+    await t.mutation(internal.canvases.recordRender, {
+      canvasId,
+      createdBy,
+      relPath: "/output/a.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 10,
+      storageId,
+      thumbnailStorageId,
+    });
+
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.thumbnailId).toBe(thumbnailStorageId);
+  });
+
+  test("a superseded thumbnail is deleted, not left as an orphaned blob", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvas(t);
+    const storageId1 = await seedStorage(t, "full-size-1");
+    const thumb1 = await seedStorage(t, "thumb-1");
+    const storageId2 = await seedStorage(t, "full-size-2");
+    const thumb2 = await seedStorage(t, "thumb-2");
+
+    await t.mutation(internal.canvases.recordRender, {
+      canvasId,
+      createdBy,
+      relPath: "/output/a.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 10,
+      storageId: storageId1,
+      thumbnailStorageId: thumb1,
+    });
+    await t.mutation(internal.canvases.recordRender, {
+      canvasId,
+      createdBy,
+      relPath: "/output/a.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 10,
+      storageId: storageId2,
+      thumbnailStorageId: thumb2,
+    });
+
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.thumbnailId).toBe(thumb2);
+    expect(await t.run((ctx) => ctx.storage.get(thumb1))).toBeNull();
+  });
+
+  test("a thumbnail from a supporting (non-primary) render is discarded, not wired to the canvas", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvas(t);
+    const primaryStorageId = await seedStorage(t, "primary");
+
+    await t.mutation(internal.canvases.recordRender, {
+      canvasId,
+      createdBy,
+      relPath: "/output/primary.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 10,
+      storageId: primaryStorageId,
+    });
+
+    const supportingStorageId = await seedStorage(t, "supporting");
+    const supportingThumb = await seedStorage(t, "supporting-thumb");
+    await t.mutation(internal.canvases.recordRender, {
+      canvasId,
+      createdBy,
+      relPath: "/output/other.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 10,
+      storageId: supportingStorageId,
+      thumbnailStorageId: supportingThumb,
+    });
+
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.thumbnailId).toBeUndefined();
+    expect(await t.run((ctx) => ctx.storage.get(supportingThumb))).toBeNull();
+  });
+
+  test("thumbnails are excluded from the storage quota counter", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvas(t);
+    const storageId = await seedStorage(t, "full-size");
+    const thumbnailStorageId = await seedStorage(t, "thumb");
+
+    // recordRender's args carry a `size` for the primary artifact only —
+    // there is no thumbnail size argument, so the counter has nothing to
+    // add for it regardless of the thumbnail blob's actual byte length.
+    await expect(
+      t.mutation(internal.canvases.recordRender, {
+        canvasId,
+        createdBy,
+        relPath: "/output/a.png",
+        type: "image",
+        mimeType: "image/png",
+        size: 10,
+        storageId,
+        thumbnailStorageId,
+      }),
+    ).resolves.toBeTruthy();
+
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.storageBytesUsed).toBe(10);
+  });
+});
+
 describe("per-canvas storage quota (PLAN.md section 9/12.4: 250MB soft cap)", () => {
   const MB = 1024 * 1024;
 

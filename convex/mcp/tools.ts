@@ -425,6 +425,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const config = getWorkerConfig();
         const sources = await resolveCanvasSources(ctx, canvasId);
         const putUrl = await ctx.storage.generateUploadUrl();
+        // Thumbnails are only produced for format="png" — see
+        // apps/worker/src/render.ts's RenderResult["thumbnail"] comment.
+        const thumbnailPutUrl =
+          input.format === "png" ? await ctx.storage.generateUploadUrl() : undefined;
         const started = Date.now();
 
         try {
@@ -434,6 +438,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             mimeType: string;
             uploadStatus: number;
             uploadBody: unknown;
+            thumbnail?: { uploadStatus: number; uploadBody: unknown };
           }>(config, "/render", {
             sources,
             entrypoint: input.entrypoint,
@@ -442,6 +447,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             viewport: input.viewport,
             pdf: input.pdf,
             upload: { putUrl },
+            thumbnailUpload: thumbnailPutUrl ? { putUrl: thumbnailPutUrl } : undefined,
           });
 
           const { type } = inferArtifactInfo(result.relPath);
@@ -453,6 +459,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
             );
           }
+          // A thumbnail upload failure shouldn't fail the whole render — the
+          // primary artifact is what matters; the gallery just falls back to
+          // no thumbnail for this canvas until the next successful png render.
+          let thumbnailStorageId: Id<"_storage"> | undefined;
+          if (result.thumbnail) {
+            try {
+              thumbnailStorageId = extractStorageId(result.thumbnail.uploadBody) as Id<"_storage">;
+            } catch {
+              thumbnailStorageId = undefined;
+            }
+          }
           const recordRenderOrCleanup = async () => {
             try {
               return await ctx.runMutation(internal.canvases.recordRender, {
@@ -463,9 +480,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 mimeType: result.mimeType,
                 size: result.size,
                 storageId,
+                thumbnailStorageId,
               });
             } catch (err) {
               await ctx.storage.delete(storageId);
+              if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
               throw err;
             }
           };

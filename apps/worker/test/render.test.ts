@@ -56,6 +56,63 @@ test("handleRender: HTML -> PNG uploads the rendered bytes", async () => {
   }
 });
 
+test("handleRender: png + thumbnailUpload also uploads a downscaled thumbnail", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [
+        {
+          relPath: "/src/index.html",
+          getUrl: dataUrl("text/html", "<html><body><h1>hi</h1></body></html>"),
+        },
+      ],
+      entrypoint: "/src/index.html",
+      outputPath: "/output/report.png",
+      format: "png",
+      viewport: { width: 1200, height: 800 },
+      upload: { putUrl: uploadServer.putUrl("out.png") },
+      thumbnailUpload: { putUrl: uploadServer.putUrl("thumb.png") },
+    });
+
+    assert.ok(result.thumbnail, "expected a thumbnail to be produced");
+    assert.equal(result.thumbnail?.uploadStatus, 200);
+    assert.equal(uploadServer.uploads.length, 2);
+    const thumbBytes = uploadServer.uploads[1]?.bytes;
+    // PNG magic bytes
+    assert.deepEqual(thumbBytes?.subarray(0, 4), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    assert.ok(
+      (thumbBytes?.length ?? Number.POSITIVE_INFINITY) <
+        (uploadServer.uploads[0]?.bytes.length ?? 0),
+      "thumbnail should be smaller than the full-size render",
+    );
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleRender: no thumbnailUpload means no thumbnail, even for png", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [
+        {
+          relPath: "/src/index.html",
+          getUrl: dataUrl("text/html", "<html><body><h1>hi</h1></body></html>"),
+        },
+      ],
+      entrypoint: "/src/index.html",
+      outputPath: "/output/report.png",
+      format: "png",
+      upload: { putUrl: uploadServer.putUrl("out.png") },
+    });
+
+    assert.equal(result.thumbnail, undefined);
+    assert.equal(uploadServer.uploads.length, 1);
+  } finally {
+    await uploadServer.close();
+  }
+});
+
 test("handleRender: D2 -> SVG uses the D2 renderer, not Playwright", async () => {
   const uploadServer = await startTestUploadServer();
   try {
@@ -71,6 +128,25 @@ test("handleRender: D2 -> SVG uses the D2 renderer, not Playwright", async () =>
     assert.ok(result.size > 0);
     const uploaded = uploadServer.uploads[0]?.bytes.toString("utf8") ?? "";
     assert.ok(uploaded.includes("<svg"), "uploaded bytes should be SVG markup");
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleRender: thumbnailUpload is ignored for non-png formats", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [{ relPath: "/src/diagram.d2", getUrl: dataUrl("text/plain", "a -> b") }],
+      entrypoint: "/src/diagram.d2",
+      outputPath: "/output/diagram.svg",
+      format: "svg",
+      upload: { putUrl: uploadServer.putUrl("out.svg") },
+      thumbnailUpload: { putUrl: uploadServer.putUrl("thumb.png") },
+    });
+
+    assert.equal(result.thumbnail, undefined);
+    assert.equal(uploadServer.uploads.length, 1);
   } finally {
     await uploadServer.close();
   }

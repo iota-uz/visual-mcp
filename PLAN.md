@@ -124,9 +124,12 @@ shipped:
 | `theme.css` | the ported design system (tokens, shadow ladder, role palettes, caption bar, arrow markers) |
 
 `render.ts` in Node with `viewport.ts` omitted emits a static HTML page, so it feeds the existing
-Playwright renderer and thumbnails/PNG/PDF export come for free — **thumbnail capture itself is
-not yet wired** (⏳, tracked in §9's C1/C2 rows; `canvases.thumbnailId` exists in the schema but
-nothing populates it yet).
+Playwright renderer and thumbnails/PNG/PDF export come for free — **thumbnail capture for
+kind="canvas" canvases specifically is still ⏳**: `put_canvas_doc` never triggers a render at
+all (the SPA views the doc client-side, no worker round-trip), so there is no PNG to thumbnail
+yet for that kind. What *is* ✅ (see §9's A2/C1/C2 rows): `render_file`'s format="png" path — the
+one every html/image/pdf-kind canvas actually uses — now captures a downscaled thumbnail
+alongside the primary render and wires it to `canvases.thumbnailId`.
 
 ---
 
@@ -458,7 +461,7 @@ Convex session, not by this route.
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
 | **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
-| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, `apps/web` itself, and `/s/:slug` are ✅ (`npm run build`/`typecheck`/`test` all green, verified live against the dev deployment — see §11); `apps/web` is deploy-ready (`public/_redirects` added for client-side routing, builds clean against the real `VITE_CONVEX_URL`) but the actual Netlify publish step is ⏳ — it needs either a human's Netlify login or an explicit go-ahead to drag-and-drop `apps/web/dist` at app.netlify.com/drop, neither of which an unattended session can do on its own. The real Google OAuth client ID and live-updating thumbnails (blocked on §2/§8's thumbnail capture) are also ⏳ |
+| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, `apps/web` itself, and `/s/:slug` are ✅ (`npm run build`/`typecheck`/`test` all green, verified live against the dev deployment — see §11); `apps/web` is deploy-ready (`public/_redirects` added for client-side routing, builds clean against the real `VITE_CONVEX_URL`) but the actual Netlify publish step is ⏳ — it needs either a human's Netlify login or an explicit go-ahead to drag-and-drop `apps/web/dist` at app.netlify.com/drop, neither of which an unattended session can do on its own. The real Google OAuth client ID is also ⏳. Live-updating thumbnails are ✅ at the data layer (`listForWorkspace`/`list_canvases` resolve `thumbnail_url` per row, `WorkspacePage` renders it in the gallery grid) and live-verified end-to-end against the deployed Railway worker (render → downscaled thumbnail upload → `canvases.thumbnailId` → resolved URL) — only the actual signed-in-browser rendering of that grid is ⏳, blocked on the same OAuth client ID as the rest of the SPA |
 
 ### Track B — canvas engine
 
@@ -470,7 +473,7 @@ Convex session, not by this route.
 
 | M | Ships | Status |
 |---|---|---|
-| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is still ⏳ |
+| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is ✅ for `render_file`'s format="png" path (every html/image/pdf-kind canvas) but still ⏳ specifically for kind="canvas", since `put_canvas_doc` never triggers a render to have a thumbnail of in the first place |
 | **C2** Polish | public slug rotation UI, `?node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) enforces the 250MB-per-canvas soft cap via `reserveCanvasStorage`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. The quota is a running counter (`canvases.storageBytesUsed`), not a scan of current `artifacts`/`canvasFiles` rows — a scan-based total silently undercounts once version history is accounted for (re-rendering the same `output_path` keeps the superseded blob alive forever per decision #1's "never destroys the old one"), which would have let the exact "agent loop re-rendering the same path" scenario the cap targets bypass it entirely; caught in review before merge, fixed, regression-tested (`convex/canvases.test.ts`). `write_file`/`render_file`/`run_code` also now delete the just-stored blob if the follow-up mutation rejects (e.g. quota), so a rejected write doesn't leak storage. `?node=` deep-linking is also already implemented (`apps/web/src/routes/Canvas.tsx` reads it on mount via `controller.selectNode` and writes it on selection via `useSearchParams`) — it just hasn't been live-browser-verified, same as the rest of signed-in SPA flows (⏳ blocked on the real Google OAuth client ID, `/c/:canvasId` sits behind the same `AuthGate` as `/settings/tokens`), and has no automated test (`apps/web` has no test suite yet). The 3 remaining UI items genuinely have no code yet — slug rotation, search, version history — plus template gallery/theme integration/CDN-inlining, all ⏳ not started |
 
 ---
@@ -519,10 +522,16 @@ Recorded because they were consciously chosen.
   opposite and was itself proof the first cut of this quota didn't measure real usage), quota
   scoped per canvas not per workspace, TTL sweep deletes stale `/cache/` rows and blobs while
   leaving fresh `/cache/` and any-age `/output/` alone and releases exactly the deleted bytes from
-  the running counter).
+  the running counter); thumbnail capture and replacement (✅, `convex/canvases.test.ts` — a
+  primary render's thumbnail is wired to the canvas, a superseded thumbnail is actually deleted
+  (`ctx.storage.get` returns null afterward) rather than orphaned, a thumbnail from a
+  supporting/non-primary render is discarded rather than wired, thumbnails don't count against
+  the storage quota) plus `apps/worker/test/render.test.ts` (a png render with a
+  `thumbnailUpload` produces and uploads a smaller, downscaled PNG; no thumbnail is produced
+  without one, or for non-png formats even if one is provided).
 - **Golden render**: PNG of the fixture canvas against a committed baseline. ⏳
-- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 48
-  tests; 182 tests total across the whole workspace as of the last local `npm test` run); the
+- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 52
+  tests; 189 tests total across the whole workspace as of the last local `npm test` run); the
   1 MiB document ceiling on `canvasVersions`/`canvasNodes` is enforced structurally by storing
   the doc in file storage, not inline.
 - **Manual end-to-end**: ✅ run live against the dev deployment (`giddy-retriever-468`) —
@@ -532,8 +541,13 @@ Recorded because they were consciously chosen.
   old one is really dead. `put_canvas_doc`/`get_canvas` round-tripped a `CanvasDoc` and a node
   `on*=` handler was rejected loudly, not stripped. `packages/canvas`'s own dev viewer (pan/zoom
   not auth-gated) confirmed selection, inspector, and the `ViewportController` API live in
-  Chrome. Not yet covered: signed-in SPA flows (blocked on a real Google OAuth client ID) and the
-  gallery's live-update-across-tabs behavior — both require the pending Netlify deploy.
+  Chrome. Thumbnail capture verified live end-to-end after redeploying the Railway worker: a
+  `render_file(format="png")` call produced and uploaded a correctly-downscaled thumbnail
+  (600px-capped, aspect preserved), `get_canvas`/`list_canvases` both resolved a working
+  `thumbnail_url`, and re-rendering the primary path confirmed the superseded thumbnail blob was
+  actually deleted (404 on refetch), not leaked. Not yet covered: signed-in SPA flows (blocked on
+  a real Google OAuth client ID) and the gallery's live-update-across-tabs behavior — both
+  require the pending Netlify deploy.
 
 ---
 

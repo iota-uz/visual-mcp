@@ -43,6 +43,11 @@ export const RenderRequestSchema = z.object({
   viewport: ViewportOptionsSchema.optional(),
   pdf: PdfOptionsSchema.optional(),
   upload: SignedUploadSchema,
+  // Only consulted for format "png" — a thumbnail is a downscale of the
+  // full-size PNG we already have in hand (PLAN.md section 8: "near-zero
+  // marginal cost, no second Chromium launch"), so there's nothing to
+  // capture for svg/pdf/html outputs yet.
+  thumbnailUpload: SignedUploadSchema.optional(),
 });
 export type RenderRequest = z.infer<typeof RenderRequestSchema>;
 

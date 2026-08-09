@@ -36,6 +36,11 @@ export function WorkspacePage() {
         {canvases?.map((c) => (
           <li key={c.canvas_id}>
             <Link to={`/c/${c.canvas_id}`} className="canvas-card">
+              {c.thumbnail_url ? (
+                <img src={c.thumbnail_url} alt="" className="canvas-card-thumbnail" />
+              ) : (
+                <div className="canvas-card-thumbnail canvas-card-thumbnail-empty" />
+              )}
               <strong>{c.title}</strong>
               <span className="muted">
                 {c.kind} · {c.visibility}

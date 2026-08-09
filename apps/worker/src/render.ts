@@ -5,8 +5,9 @@ import { renderFile as renderFileWithPlaywright } from "@visual-canvas/runtime/r
 import { resolveWorkspacePath } from "@visual-canvas/runtime/sandbox/path-guard.js";
 import { resolveRenderOutputPath } from "@visual-canvas/runtime/server/render-output-path.js";
 import { hydrate } from "@visual-canvas/runtime/storage/workspace.js";
+import sharp from "sharp";
 import type { RenderRequest } from "./schemas.js";
-import { uploadFile } from "./upload.js";
+import { uploadBytes, uploadFile } from "./upload.js";
 
 const MIME_BY_FORMAT: Record<RenderRequest["format"], string> = {
   png: "image/png",
@@ -25,7 +26,10 @@ export interface RenderResult {
   mimeType: string;
   uploadStatus: number;
   uploadBody: unknown;
+  thumbnail?: { uploadStatus: number; uploadBody: unknown };
 }
+
+const THUMBNAIL_MAX_DIMENSION = 600;
 
 /**
  * Mirrors packages/runtime's `render_file` tool handler (D2->SVG vs.
@@ -60,12 +64,25 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
     const mimeType = MIME_BY_FORMAT[req.format];
     const upload = await uploadFile(req.upload.putUrl, absOutput, mimeType);
 
+    let thumbnail: RenderResult["thumbnail"];
+    if (req.format === "png" && req.thumbnailUpload) {
+      // Downscaling the PNG we already produced, not a second Chromium
+      // screenshot — zero extra browser cost (PLAN.md section 8).
+      const thumbBytes = await sharp(absOutput)
+        .resize({ width: THUMBNAIL_MAX_DIMENSION, height: THUMBNAIL_MAX_DIMENSION, fit: "inside" })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+      const thumbUpload = await uploadBytes(req.thumbnailUpload.putUrl, thumbBytes, "image/png");
+      thumbnail = { uploadStatus: thumbUpload.status, uploadBody: thumbUpload.body };
+    }
+
     return {
       relPath: req.outputPath,
       size: stats.size,
       mimeType,
       uploadStatus: upload.status,
       uploadBody: upload.body,
+      thumbnail,
     };
   } finally {
     await ws.dispose();
