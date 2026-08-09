@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "visual-runtime-dev": {
-      "command": "node",
-      "args": ["packages/runtime/dist/server/index.js"]
-    }
-  }
-}
