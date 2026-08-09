@@ -211,6 +211,104 @@ describe("/mcp bearer-auth gate", () => {
   });
 });
 
+describe("/mcp create_canvas template seeding", () => {
+  async function createWorkspace(t: ReturnType<typeof convexTest>, token: string): Promise<string> {
+    const ws = await callTool(t, token, "create_workspace", { name: "Template WS" });
+    const wsResult = ws.result as { content: Array<{ text: string }> };
+    return JSON.parse(wsResult.content[0]?.text ?? "{}").workspace_id as string;
+  }
+
+  test("seeds /src with the named template's source, reachable immediately", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const workspace_id = await createWorkspace(t, token);
+
+    const response = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "From Template",
+      kind: "html",
+      template: "browser-app-screen",
+    });
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+    expect(parsed.seeded_path).toBe("/src/browser-app-screen.html");
+
+    const files = await t.run((ctx) =>
+      ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", parsed.canvas_id))
+        .collect(),
+    );
+    expect(files).toHaveLength(1);
+    expect(files[0]?.relPath).toBe("/src/browser-app-screen.html");
+  });
+
+  test("a diagram-kind template is seeded as .d2, not .html", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const workspace_id = await createWorkspace(t, token);
+
+    const response = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "From D2 Template",
+      kind: "html",
+      template: "architecture-overview",
+    });
+    const result = response.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+    expect(parsed.seeded_path).toBe("/src/architecture-overview.d2");
+  });
+
+  test("rejects an unknown template id loudly", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const workspace_id = await createWorkspace(t, token);
+
+    const response = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "Bad Template",
+      kind: "html",
+      template: "does-not-exist",
+    });
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text ?? "").toMatch(/Unknown template id/);
+  });
+
+  test("rejects a template on a kind=\"canvas\" canvas — no /src concept there", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const workspace_id = await createWorkspace(t, token);
+
+    const response = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "Canvas Kind",
+      kind: "canvas",
+      template: "browser-app-screen",
+    });
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text ?? "").toMatch(/put_canvas_doc/);
+  });
+
+  test("no template param means no seeding, no error", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const workspace_id = await createWorkspace(t, token);
+
+    const response = await callTool(t, token, "create_canvas", {
+      workspace_id,
+      title: "No Template",
+      kind: "html",
+    });
+    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+    expect(result.isError).toBeFalsy();
+    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+    expect(parsed.seeded_path).toBeUndefined();
+  });
+});
+
 describe("/mcp put_canvas_doc", () => {
   async function seedCanvas(t: ReturnType<typeof convexTest>, token: string) {
     const ws = await callTool(t, token, "create_workspace", { name: "Test WS" });

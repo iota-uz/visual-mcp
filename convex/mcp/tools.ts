@@ -30,7 +30,10 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { CanvasDocSchema } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath, SandboxPathError } from "@visual-canvas/runtime/paths/index.js";
-import { listTemplates as templateRegistryList } from "@visual-canvas/runtime/templates/index.js";
+import {
+  getTemplate,
+  listTemplates as templateRegistryList,
+} from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -122,17 +125,36 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       description:
         'Creates a canvas inside a workspace. kind="canvas" is authored via put_canvas_doc; ' +
-        'kind="html"/"image"/"pdf" are authored via write_file (render_file is not available yet).',
+        'kind="html"/"image"/"pdf" are authored via write_file + render_file. `template` ' +
+        "(a list_templates id) seeds /src with that template's source, so a render_file call " +
+        "on it works immediately — only valid for kind=\"html\"/\"image\"/\"pdf\".",
       inputSchema: z.object({
         workspace_id: z.string(),
         title: z.string().min(1),
         kind: z.enum(["canvas", "html", "image", "pdf"]),
         slug: z.string().min(1).optional(),
         theme: z.string().optional(),
+        template: z.string().optional(),
       }),
     },
     async (input) =>
       runTool(async () => {
+        if (input.template && input.kind === "canvas") {
+          throw new Error(
+            'template seeding is only for kind="html"/"image"/"pdf" canvases — ' +
+              'kind="canvas" canvases are authored via put_canvas_doc, which has no /src file',
+          );
+        }
+        let template: ReturnType<typeof getTemplate> | undefined;
+        if (input.template) {
+          template = getTemplate(input.template);
+          if (!template) {
+            throw new Error(
+              `Unknown template id: ${input.template}. Use list_templates to see available ids.`,
+            );
+          }
+        }
+
         const result = await ctx.runMutation(internal.canvases.create, {
           workspaceId: input.workspace_id as Id<"workspaces">,
           title: input.title,
@@ -141,7 +163,33 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           theme: input.theme,
           createdBy: principal.userId,
         });
-        return jsonResult({ canvas_id: result.canvasId, slug: result.slug });
+
+        let seededPath: string | undefined;
+        if (template) {
+          const filename = template.kind === "diagram" ? `${template.id}.d2` : `${template.id}.html`;
+          seededPath = `/src/${filename}`;
+          const { mime } = inferArtifactInfo(seededPath);
+          const bytes = new TextEncoder().encode(template.exampleCode);
+          const storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
+          try {
+            await ctx.runMutation(internal.canvases.upsertFile, {
+              canvasId: result.canvasId,
+              relPath: seededPath,
+              storageId,
+              size: bytes.byteLength,
+              contentHash: await sha256Hex(template.exampleCode),
+            });
+          } catch (err) {
+            await ctx.storage.delete(storageId);
+            throw err;
+          }
+        }
+
+        return jsonResult({
+          canvas_id: result.canvasId,
+          slug: result.slug,
+          seeded_path: seededPath,
+        });
       }),
   );
 
