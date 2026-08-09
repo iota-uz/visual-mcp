@@ -35,11 +35,16 @@ jobs:
       - name: Lint / format check
         run: npx biome ci .
 
-      - name: Typecheck
-        run: npm run typecheck
-
+      # Build before typecheck: apps/worker imports @visual-canvas/runtime/* via
+      # that package's `exports` map, which points at dist/* — those declaration
+      # files don't exist until packages/runtime has been built. Typechecking
+      # first (against a fresh checkout with no dist/ anywhere) fails with
+      # spurious "cannot find module" errors that a stale local dist/ hides.
       - name: Build
         run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
 
       # A0.2's guarantee that the sandbox worker runs the real path-confinement
       # function (not a hand-copied string) only holds if the built dist/
