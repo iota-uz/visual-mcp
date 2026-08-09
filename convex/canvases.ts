@@ -354,6 +354,25 @@ export const publishMine = mutation({
   },
 });
 
+// Replaces the old published slug with a fresh one in a single atomic patch
+// (no unpublish -> publish round trip, which would leave a window where the
+// canvas resolves as private). The old slug stops resolving the instant this
+// commits, since `resolvePublicArtifact` looks up by exact `publicSlug`.
+export const rotateMySlug = mutation({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+    if (canvas.visibility !== "public") {
+      throw new Error("Canvas must be public before its share link can be rotated");
+    }
+    const publicSlug = randomPublicSlug();
+    await ctx.db.patch(args.canvasId, { publicSlug });
+    return { publicSlug };
+  },
+});
+
 export const putDoc = internalMutation({
   args: {
     canvasId: v.id("canvases"),

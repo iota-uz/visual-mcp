@@ -64,6 +64,7 @@ function PublishControl({
   publicSlug: string | undefined;
 }) {
   const publish = useMutation(api.canvases.publishMine);
+  const rotateSlug = useMutation(api.canvases.rotateMySlug);
   const [busy, setBusy] = useState(false);
 
   async function toggle() {
@@ -78,13 +79,27 @@ function PublishControl({
     }
   }
 
+  async function rotate() {
+    setBusy(true);
+    try {
+      await rotateSlug({ canvasId });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="publish-control">
       <button type="button" onClick={toggle} disabled={busy}>
         {visibility === "public" ? "Make private" : "Publish"}
       </button>
       {visibility === "public" && publicSlug && (
-        <span className="muted"> shared at /s/{publicSlug}</span>
+        <>
+          <span className="muted"> shared at /s/{publicSlug}</span>
+          <button type="button" onClick={rotate} disabled={busy}>
+            Rotate link
+          </button>
+        </>
       )}
     </div>
   );

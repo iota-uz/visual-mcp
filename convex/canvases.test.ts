@@ -1,11 +1,20 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+const VALID_IDENTITY = {
+  subject: "google-sub-123",
+  issuer: "https://accounts.google.com",
+  email: "person@iota.uz",
+  emailVerified: true,
+  name: "Person",
+  hd: "iota.uz",
+};
 
 async function seedUser(t: ReturnType<typeof convexTest>): Promise<Id<"users">> {
   return t.run((ctx) =>
@@ -157,6 +166,78 @@ describe("canvases.publish", () => {
 
     const canvas = await t.run((ctx) => ctx.db.get(canvasId));
     expect(canvas?.publicSlug).toBe("new-slug");
+  });
+});
+
+describe("canvases.rotateMySlug", () => {
+  async function seedCanvas(t: ReturnType<typeof convexTest>) {
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Share Me",
+      kind: "html",
+      createdBy,
+    });
+    return canvasId;
+  }
+
+  test("mints a new slug atomically, no unpublish step needed", async () => {
+    const t = convexTest(schema, modules);
+    const canvasId = await seedCanvas(t);
+    await t.mutation(internal.canvases.publish, {
+      canvasId,
+      visibility: "public",
+      newPublicSlug: "old-slug",
+    });
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    const { publicSlug } = await asMember.mutation(api.canvases.rotateMySlug, { canvasId });
+
+    expect(publicSlug).not.toBe("old-slug");
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.visibility).toBe("public");
+    expect(canvas?.publicSlug).toBe(publicSlug);
+  });
+
+  test("the old slug stops resolving once rotated", async () => {
+    const t = convexTest(schema, modules);
+    const canvasId = await seedCanvas(t);
+    await t.mutation(internal.canvases.publish, {
+      canvasId,
+      visibility: "public",
+      newPublicSlug: "old-slug",
+    });
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    await asMember.mutation(api.canvases.rotateMySlug, { canvasId });
+
+    const byOldSlug = await t.query(internal.canvases.resolvePublicArtifact, {
+      publicSlug: "old-slug",
+    });
+    expect(byOldSlug).toBeNull();
+  });
+
+  test("rejects rotating a private canvas", async () => {
+    const t = convexTest(schema, modules);
+    const canvasId = await seedCanvas(t);
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    await expect(asMember.mutation(api.canvases.rotateMySlug, { canvasId })).rejects.toThrow(
+      /must be public/,
+    );
+  });
+
+  test("rejects an unauthenticated caller", async () => {
+    const t = convexTest(schema, modules);
+    const canvasId = await seedCanvas(t);
+    await t.mutation(internal.canvases.publish, {
+      canvasId,
+      visibility: "public",
+      newPublicSlug: "old-slug",
+    });
+    await expect(t.mutation(api.canvases.rotateMySlug, { canvasId })).rejects.toThrow(
+      /not signed in/i,
+    );
   });
 });
 
