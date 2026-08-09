@@ -59,3 +59,13 @@ export const ExecRequestSchema = z.object({
   uploads: z.array(SignedUploadSchema),
 });
 export type ExecRequest = z.infer<typeof ExecRequestSchema>;
+
+// Canvas-node HTML (PLAN.md section 2) has no single entrypoint file for
+// renderFile's own inline Tailwind step to work against, so put_canvas_doc
+// sends every content.type==='html' node's raw HTML directly (small text,
+// no signed sources needed) and gets back one compiled stylesheet covering
+// all of them.
+export const CompileCssRequestSchema = z.object({
+  htmlFragments: z.array(z.string()),
+});
+export type CompileCssRequest = z.infer<typeof CompileCssRequestSchema>;

@@ -216,17 +216,41 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .join(" "),
         }));
 
+        // PLAN.md section 2: the osago-style mockups are Tailwind-classed
+        // and rely on the CDN JIT runtime, which can't run on the app
+        // origin. Compiling upfront (before anything is stored) means a
+        // Tailwind build failure rejects the whole put loudly, same as the
+        // unsafe-HTML check above — not a partially-applied doc.
+        const htmlFragments = doc.nodes
+          .map((node) => (node.content?.type === "html" ? node.content.html : null))
+          .filter((html): html is string => html !== null);
+        let cssStorageId: Id<"_storage"> | undefined;
+        if (htmlFragments.length > 0) {
+          const config = getWorkerConfig();
+          const { css } = await callWorker<{ css: string }>(config, "/compile-css", {
+            htmlFragments,
+          });
+          cssStorageId = await ctx.storage.store(new Blob([css], { type: "text/css" }));
+        }
+
         const docStorageId = await ctx.storage.store(
           new Blob([JSON.stringify(doc)], { type: "application/json" }),
         );
-        const result = await ctx.runMutation(internal.canvases.putDoc, {
-          canvasId,
-          docStorageId,
-          note: input.note,
-          createdBy: principal.userId,
-          nodes,
-        });
-        return jsonResult({ canvas_id: canvasId, version: result.version });
+        try {
+          const result = await ctx.runMutation(internal.canvases.putDoc, {
+            canvasId,
+            docStorageId,
+            cssStorageId,
+            note: input.note,
+            createdBy: principal.userId,
+            nodes,
+          });
+          return jsonResult({ canvas_id: canvasId, version: result.version });
+        } catch (err) {
+          await ctx.storage.delete(docStorageId);
+          if (cssStorageId) await ctx.storage.delete(cssStorageId);
+          throw err;
+        }
       }),
   );
 

@@ -8,11 +8,10 @@
  * pre-signed URLs the caller supplied — the worker itself never holds a
  * Convex credential (PLAN.md section 3's accepted-risk mitigation #3).
  *
- * `/compile-css` is NOT implemented here: `renderFile` already invokes
- * packages/runtime's Tailwind pipeline internally for any HTML entrypoint
- * with a `@import "tailwindcss"` block, so a dedicated endpoint is only
- * needed for canvas-node HTML with no single entrypoint file — that's C1
- * scope (PLAN.md section 9), once `put_canvas_doc` exists to call it.
+ * `/compile-css` (PLAN.md section 2) covers what `/render`'s inline
+ * Tailwind step doesn't: canvas-node HTML has no single entrypoint file to
+ * run that step against, since a CanvasDoc's nodes are HTML fragments in a
+ * JSON payload, not files on disk — see ./compile-css.ts.
  *
  * Every route but /healthz requires `Authorization: Bearer <WORKER_TOKEN>`
  * (PLAN.md section 3 / accepted risk #3) — the worker is reachable over the
@@ -21,9 +20,10 @@
  */
 
 import { Hono, type MiddlewareHandler } from "hono";
+import { handleCompileCss } from "./compile-css.js";
 import { handleExec } from "./exec.js";
 import { handleRender } from "./render.js";
-import { ExecRequestSchema, RenderRequestSchema } from "./schemas.js";
+import { CompileCssRequestSchema, ExecRequestSchema, RenderRequestSchema } from "./schemas.js";
 
 export const app = new Hono();
 
@@ -44,6 +44,7 @@ const requireWorkerToken: MiddlewareHandler = async (c, next) => {
 
 app.use("/render", requireWorkerToken);
 app.use("/exec", requireWorkerToken);
+app.use("/compile-css", requireWorkerToken);
 
 app.post("/render", async (c) => {
   const parsed = RenderRequestSchema.safeParse(await c.req.json());
@@ -65,6 +66,19 @@ app.post("/exec", async (c) => {
   }
   try {
     const result = await handleExec(parsed.data);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});
+
+app.post("/compile-css", async (c) => {
+  const parsed = CompileCssRequestSchema.safeParse(await c.req.json());
+  if (!parsed.success) {
+    return c.json({ error: "invalid request", issues: parsed.error.issues }, 400);
+  }
+  try {
+    const result = await handleCompileCss(parsed.data);
     return c.json(result);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);

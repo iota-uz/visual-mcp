@@ -249,24 +249,30 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
   if (!canvas) return null;
   let docStorageId: Id<"_storage"> | undefined;
   let entryStorageId: Id<"_storage"> | undefined;
+  let cssStorageId: Id<"_storage"> | undefined;
   let version: number | undefined;
   if (canvas.currentVersionId) {
     const currentVersion = await ctx.db.get(canvas.currentVersionId);
     docStorageId = currentVersion?.docStorageId;
     entryStorageId = currentVersion?.entryStorageId;
+    cssStorageId = currentVersion?.cssStorageId;
     version = currentVersion?.version;
   }
   // Signed, time-limited URLs — cheap to mint per query, never stored.
   // `doc_url` feeds the SPA's client-side canvas viewer (kind="canvas");
-  // `entry_url` is the primary artifact for html/image/pdf kinds.
+  // `entry_url` is the primary artifact for html/image/pdf kinds; `css_url`
+  // is the compiled Tailwind stylesheet for the doc's HTML nodes (PLAN.md
+  // section 2), null when the doc has no content.type='html' nodes.
   const docUrl = docStorageId ? await ctx.storage.getUrl(docStorageId) : null;
   const entryUrl = entryStorageId ? await ctx.storage.getUrl(entryStorageId) : null;
+  const cssUrl = cssStorageId ? await ctx.storage.getUrl(cssStorageId) : null;
   const thumbnailUrl = canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null;
   return {
     ...toSummary(canvas),
     doc_storage_id: docStorageId,
     doc_url: docUrl,
     entry_url: entryUrl,
+    css_url: cssUrl,
     thumbnail_url: thumbnailUrl,
     version,
   };
@@ -446,6 +452,11 @@ export const putDoc = internalMutation({
   args: {
     canvasId: v.id("canvases"),
     docStorageId: v.id("_storage"),
+    // Compiled Tailwind CSS for the doc's HTML nodes (PLAN.md section 2),
+    // produced by the worker's /compile-css and stored by the caller before
+    // this mutation runs — omitted when the doc has no content.type='html'
+    // nodes, since there's nothing to compile.
+    cssStorageId: v.optional(v.id("_storage")),
     note: v.optional(v.string()),
     createdBy: v.id("users"),
     nodes: v.array(
@@ -490,6 +501,7 @@ export const putDoc = internalMutation({
       note: args.note,
       createdBy: args.createdBy,
       docStorageId: args.docStorageId,
+      cssStorageId: args.cssStorageId,
     });
 
     for (const node of args.nodes) {

@@ -51,6 +51,22 @@ test("/exec without a bearer token is rejected", async () => {
   assert.equal(res.status, 401);
 });
 
+test("/compile-css without a bearer token is rejected", async () => {
+  const res = await app.request("/compile-css", { method: "POST", body: "{}" });
+  assert.equal(res.status, 401);
+});
+
+test("/compile-css with a valid token and empty fragments returns 200 with empty css", async () => {
+  const res = await app.request("/compile-css", {
+    method: "POST",
+    headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+    body: JSON.stringify({ htmlFragments: [] }),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { css: string };
+  assert.equal(body.css, "");
+});
+
 test("misconfigured worker (no WORKER_TOKEN set) fails closed with 500, not open", async () => {
   delete process.env.WORKER_TOKEN;
   try {

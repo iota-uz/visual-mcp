@@ -1,4 +1,6 @@
 /// <reference types="vite/client" />
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { internal } from "./_generated/api";
@@ -7,6 +9,55 @@ import { sha256Hex } from "./lib/hash";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+// A minimal stand-in for apps/worker's real /compile-css (PLAN.md section
+// 2) — mirrors apps/worker/test/test-upload-server.ts's approach of a real
+// loopback HTTP server rather than mocking `fetch` itself, since
+// convex/lib/worker.ts's `callWorker` is exercised as real production code
+// here, same as everywhere else in this file.
+async function startMockCompileCssWorker(css = ".compiled-test-class{color:red}") {
+  const token = "test-worker-token";
+  const requests: Array<{ htmlFragments: string[] }> = [];
+  const server: Server = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/compile-css") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+      return;
+    }
+    if (req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ css }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+
+  const originalUrl = process.env.WORKER_URL;
+  const originalToken = process.env.WORKER_TOKEN;
+  process.env.WORKER_URL = `http://127.0.0.1:${port}`;
+  process.env.WORKER_TOKEN = token;
+
+  return {
+    requests,
+    close: async () => {
+      await new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+      if (originalUrl === undefined) delete process.env.WORKER_URL;
+      else process.env.WORKER_URL = originalUrl;
+      if (originalToken === undefined) delete process.env.WORKER_TOKEN;
+      else process.env.WORKER_TOKEN = originalToken;
+    },
+  };
+}
 
 const MCP_HEADERS = {
   "content-type": "application/json",
@@ -240,29 +291,79 @@ describe("/mcp put_canvas_doc", () => {
     expect(result.isError).toBe(true);
   });
 
-  test("accepts a well-formed doc with only static HTML/CSS/SVG", async () => {
-    const t = convexTest(schema, modules);
-    const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
+  test("accepts a well-formed doc with only static HTML/CSS/SVG, compiling its Tailwind CSS", async () => {
+    const worker = await startMockCompileCssWorker();
+    try {
+      const t = convexTest(schema, modules);
+      const { token } = await seedUserWithToken(t);
+      const canvasId = await seedCanvas(t, token);
 
-    const safeDoc = {
-      ...baseDoc,
-      nodes: [
-        {
-          ...baseDoc.nodes[0],
-          content: { type: "html", html: '<div class="card"><svg><rect/></svg></div>' },
-        },
-      ],
-    };
+      const safeDoc = {
+        ...baseDoc,
+        nodes: [
+          {
+            ...baseDoc.nodes[0],
+            content: { type: "html", html: '<div class="card"><svg><rect/></svg></div>' },
+          },
+        ],
+      };
 
-    const response = await callTool(t, token, "put_canvas_doc", {
-      canvas_id: canvasId,
-      doc: safeDoc,
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBeFalsy();
-    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-    expect(parsed.version).toBe(1);
+      const response = await callTool(t, token, "put_canvas_doc", {
+        canvas_id: canvasId,
+        doc: safeDoc,
+      });
+      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
+      expect(parsed.version).toBe(1);
+
+      // The worker actually got called with this node's HTML, and the
+      // canvas ends up with a real css_url pointing at what it returned
+      // (PLAN.md section 2's "no CDN script runs on the app origin").
+      expect(worker.requests).toHaveLength(1);
+      expect(worker.requests[0]?.htmlFragments).toEqual([
+        '<div class="card"><svg><rect/></svg></div>',
+      ]);
+      const canvas = await t.query(internal.canvases.get, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(canvas?.css_url).toBeTruthy();
+      const cssText = await t.run(async (ctx) => {
+        const c = await ctx.db.get(canvasId as Id<"canvases">);
+        if (!c?.currentVersionId) return null;
+        const version = await ctx.db.get(c.currentVersionId);
+        if (!version?.cssStorageId) return null;
+        const blob = await ctx.storage.get(version.cssStorageId);
+        return blob ? blob.text() : null;
+      });
+      expect(cssText).toBe(".compiled-test-class{color:red}");
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("a doc with no HTML-content nodes never calls the worker, no css_url", async () => {
+    const worker = await startMockCompileCssWorker();
+    try {
+      const t = convexTest(schema, modules);
+      const { token } = await seedUserWithToken(t);
+      const canvasId = await seedCanvas(t, token);
+
+      const response = await callTool(t, token, "put_canvas_doc", {
+        canvas_id: canvasId,
+        doc: baseDoc,
+      });
+      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(worker.requests).toHaveLength(0);
+
+      const canvas = await t.query(internal.canvases.get, {
+        canvasId: canvasId as Id<"canvases">,
+      });
+      expect(canvas?.css_url).toBeNull();
+    } finally {
+      await worker.close();
+    }
   });
 });
 

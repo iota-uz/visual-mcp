@@ -167,6 +167,39 @@ export function CanvasPage() {
     };
   }, [canvas]);
 
+  // Compiled Tailwind CSS for the doc's HTML nodes (PLAN.md section 2) —
+  // injected as a page-level <style> tag before the viewport mounts, so
+  // Tailwind-classed node mockups aren't unstyled on first paint. `cssReady`
+  // starts false so mounting waits for either the fetch to land or for
+  // there being nothing to fetch, rather than racing it.
+  const [cssReady, setCssReady] = useState(false);
+  useEffect(() => {
+    setCssReady(false);
+    if (!canvas?.css_url) {
+      setCssReady(true);
+      return;
+    }
+    let cancelled = false;
+    let styleEl: HTMLStyleElement | null = null;
+    fetch(canvas.css_url)
+      .then((res) => res.text())
+      .then((css) => {
+        if (cancelled) return;
+        styleEl = document.createElement("style");
+        styleEl.setAttribute("data-vc-node-css", "");
+        styleEl.textContent = css;
+        document.head.appendChild(styleEl);
+        setCssReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setCssReady(true);
+      });
+    return () => {
+      cancelled = true;
+      styleEl?.remove();
+    };
+  }, [canvas?.css_url]);
+
   const workspace = useQuery(
     api.workspaces.getById,
     canvas ? { workspaceId: canvas.workspace_id } : "skip",
@@ -194,7 +227,7 @@ export function CanvasPage() {
         <>
           {docError && <p className="error-text">{docError}</p>}
           {!doc && !docError && <p>Loading canvas…</p>}
-          {doc && <CanvasViewport doc={doc} />}
+          {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
         canvas.kind === "image" ? (
