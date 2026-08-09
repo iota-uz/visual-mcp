@@ -1,7 +1,91 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { slugify } from "./lib/slug";
+
+const ArtifactTypeValidator = v.union(
+  v.literal("pdf"),
+  v.literal("image"),
+  v.literal("svg"),
+  v.literal("source"),
+);
+
+async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Promise<number> {
+  const last = await ctx.db
+    .query("canvasVersions")
+    .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvasId))
+    .order("desc")
+    .first();
+  return (last?.version ?? 0) + 1;
+}
+
+/**
+ * Records one artifact for a canvas, mirroring
+ * packages/runtime/src/render/artifact-store's `registerArtifact` role
+ * inference: the first artifact a canvas ever produces becomes "primary";
+ * every artifact after that becomes "supporting" unless it explicitly
+ * demotes the current primary (not exposed to callers here — render_file
+ * and run_code never pass an explicit role, matching the stdio tool's
+ * behavior). Re-registering an existing relPath overwrites that row rather
+ * than duplicating it.
+ */
+async function upsertArtifact(
+  ctx: MutationCtx,
+  canvasId: Id<"canvases">,
+  versionId: Id<"canvasVersions">,
+  entry: {
+    relPath: string;
+    type: "pdf" | "image" | "svg" | "source";
+    mimeType: string;
+    size: number;
+    storageId: Id<"_storage">;
+  },
+): Promise<{ relPath: string; role: "primary" | "supporting" }> {
+  const anyExisting = await ctx.db
+    .query("artifacts")
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
+    .take(1);
+  const role: "primary" | "supporting" = anyExisting.length === 0 ? "primary" : "supporting";
+
+  if (role === "primary") {
+    const currentPrimary = await ctx.db
+      .query("artifacts")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
+      .filter((q) => q.eq(q.field("role"), "primary"))
+      .take(10);
+    for (const row of currentPrimary) {
+      await ctx.db.patch(row._id, { role: "supporting" });
+    }
+  }
+
+  const existingRow = await ctx.db
+    .query("artifacts")
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId).eq("relPath", entry.relPath))
+    .unique();
+
+  if (existingRow) {
+    await ctx.db.patch(existingRow._id, {
+      versionId,
+      type: entry.type,
+      role,
+      mimeType: entry.mimeType,
+      size: entry.size,
+      storageId: entry.storageId,
+    });
+  } else {
+    await ctx.db.insert("artifacts", {
+      canvasId,
+      versionId,
+      relPath: entry.relPath,
+      type: entry.type,
+      role,
+      mimeType: entry.mimeType,
+      size: entry.size,
+      storageId: entry.storageId,
+    });
+  }
+  return { relPath: entry.relPath, role };
+}
 
 function toSummary(c: Doc<"canvases">) {
   return {
@@ -226,5 +310,121 @@ export const getArtifact = internalQuery({
       size: row.size,
       storageId: row.storageId,
     };
+  },
+});
+
+export const listFilesForCanvas = internalQuery({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    return rows.map((f) => ({ relPath: f.relPath, storageId: f.storageId }));
+  },
+});
+
+/**
+ * Records a render_file result: a new canvasVersions row (entryStorageId —
+ * "kind=canvas" uses docStorageId instead, per PLAN.md section 4) plus the
+ * produced artifact, atomically. "Claude re-rendering creates a new
+ * version, never destroys the old one" (PLAN.md section 1) applies to every
+ * canvas kind, not just kind="canvas".
+ */
+export const recordRender = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    createdBy: v.id("users"),
+    relPath: v.string(),
+    type: ArtifactTypeValidator,
+    mimeType: v.string(),
+    size: v.number(),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+
+    const version = await nextVersionNumber(ctx, args.canvasId);
+    const versionId = await ctx.db.insert("canvasVersions", {
+      canvasId: args.canvasId,
+      version,
+      createdBy: args.createdBy,
+      entryStorageId: args.storageId,
+    });
+    await ctx.db.patch(args.canvasId, { currentVersionId: versionId, updatedAt: Date.now() });
+
+    const artifact = await upsertArtifact(ctx, args.canvasId, versionId, {
+      relPath: args.relPath,
+      type: args.type,
+      mimeType: args.mimeType,
+      size: args.size,
+      storageId: args.storageId,
+    });
+    return { version, artifact };
+  },
+});
+
+/**
+ * Records run_code's produced /output files as one new version (see
+ * recordRender's comment) plus one artifact row per file. No-ops (creates
+ * no version) when run_code produced nothing to upload — a pure-compute
+ * call shouldn't bump the canvas's version history.
+ */
+export const recordExecArtifacts = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    createdBy: v.id("users"),
+    artifacts: v.array(
+      v.object({
+        relPath: v.string(),
+        type: ArtifactTypeValidator,
+        mimeType: v.string(),
+        size: v.number(),
+        storageId: v.id("_storage"),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    if (args.artifacts.length === 0) {
+      return {
+        version: null,
+        artifacts: [] as { relPath: string; role: "primary" | "supporting" }[],
+      };
+    }
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+
+    const version = await nextVersionNumber(ctx, args.canvasId);
+    const first = args.artifacts[0];
+    if (!first) throw new Error("unreachable: length checked above");
+    const versionId = await ctx.db.insert("canvasVersions", {
+      canvasId: args.canvasId,
+      version,
+      createdBy: args.createdBy,
+      entryStorageId: first.storageId,
+    });
+    await ctx.db.patch(args.canvasId, { currentVersionId: versionId, updatedAt: Date.now() });
+
+    const recorded: { relPath: string; role: "primary" | "supporting" }[] = [];
+    for (const entry of args.artifacts) {
+      recorded.push(await upsertArtifact(ctx, args.canvasId, versionId, entry));
+    }
+    return { version, artifacts: recorded };
+  },
+});
+
+export const logRender = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    entrypoint: v.string(),
+    format: v.union(v.literal("png"), v.literal("svg"), v.literal("pdf"), v.literal("html")),
+    status: v.union(v.literal("success"), v.literal("error")),
+    durationMs: v.optional(v.number()),
+    errorText: v.optional(v.string()),
+    createdBy: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("renders", args);
   },
 });

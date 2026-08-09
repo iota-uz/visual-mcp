@@ -14,11 +14,19 @@ export interface TestUploadServer {
   close(): Promise<void>;
 }
 
-/** A minimal stand-in for Convex's pre-signed upload URLs: PUT -> {storageId}. */
+/** A minimal stand-in for Convex's pre-signed upload URLs: POST -> {storageId}. */
 export async function startTestUploadServer(): Promise<TestUploadServer> {
   const uploads: RecordedUpload[] = [];
 
   const server: Server = createServer((req, res) => {
+    // Real Convex upload URLs only accept POST (StorageWriter.generateUploadUrl's
+    // doc comment) — enforcing that here is what would have caught the
+    // PUT-vs-POST bug in upload.ts before it ever reached a real deployment.
+    if (req.method !== "POST") {
+      res.writeHead(405, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `expected POST, got ${req.method}` }));
+      return;
+    }
     const chunks: Buffer[] = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {

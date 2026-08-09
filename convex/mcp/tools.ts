@@ -12,15 +12,19 @@
  * objects — each only knows how to `.parse()` values built for its own
  * major version's runtime.
  *
- * Scope cut for this pass (see PLAN.md section 9 milestone A1): render_file
- * and run_code are NOT wired here — both need the render worker deployed
- * somewhere reachable (Railway), which hasn't happened yet. Wiring them
- * against an unreachable worker would be untestable dead code, so they're
- * left out entirely rather than stubbed. list_templates is registered but,
- * unlike PLAN.md section 6's "only auth-free tool" note, still sits behind
- * this endpoint's bearer gate for now — exempting one tool from that gate
- * would require inspecting the JSON-RPC body before authenticating, which
- * is a real change to the request-handling flow, not a small one.
+ * render_file and run_code delegate to the render worker (apps/worker, now
+ * deployed on Railway) via getWorkerConfig/callWorker (../lib/worker.ts) —
+ * the worker holds no Convex credential, only the short-lived signed
+ * source/upload URLs each call passes it (PLAN.md section 3). A render
+ * always creates a new canvasVersions row, even for non-"canvas" kinds
+ * (PLAN.md section 1: "Claude re-rendering creates a new version, never
+ * destroys the old one") — see canvases.ts's recordRender/recordExecArtifacts.
+ *
+ * list_templates is registered but, unlike PLAN.md section 6's "only
+ * auth-free tool" note, still sits behind this endpoint's bearer gate for
+ * now — exempting one tool from that gate would require inspecting the
+ * JSON-RPC body before authenticating, which is a real change to the
+ * request-handling flow, not a small one.
  */
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
@@ -34,6 +38,7 @@ import type { ActionCtx } from "../_generated/server";
 import { inferArtifactInfo, isTextMime } from "../lib/artifactInfo";
 import { bytesToBase64 } from "../lib/bytes";
 import { sha256Hex } from "../lib/hash";
+import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
 
 export interface McpPrincipal {
   userId: Id<"users">;
@@ -59,6 +64,21 @@ async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResul
   } catch (err) {
     return { content: [{ type: "text", text: describeError(err) }], isError: true };
   }
+}
+
+/** Signed download URLs for every file a canvas has (render_file/run_code's `sources`). */
+async function resolveCanvasSources(
+  ctx: ActionCtx,
+  canvasId: Id<"canvases">,
+): Promise<Array<{ relPath: string; getUrl: string }>> {
+  const files = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
+  const resolved = await Promise.all(
+    files.map(async (f) => {
+      const getUrl = await ctx.storage.getUrl(f.storageId);
+      return getUrl ? { relPath: f.relPath, getUrl } : null;
+    }),
+  );
+  return resolved.filter((s): s is { relPath: string; getUrl: string } => s !== null);
 }
 
 export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
@@ -267,6 +287,190 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           contentHash: await sha256Hex(input.content),
         });
         return jsonResult({ path: normalized.displayPath, bytes_written: bytes.byteLength });
+      }),
+  );
+
+  server.registerTool(
+    "run_code",
+    {
+      description:
+        "Executes JS/TS code in a sandboxed Node.js worker against a canvas's /src, /output, " +
+        "/cache, /assets files. Files the code writes under /output are collected as new artifacts.",
+      inputSchema: z.object({
+        canvas_id: z.string(),
+        code: z.string(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const canvasId = input.canvas_id as Id<"canvases">;
+        const config = getWorkerConfig();
+        const sources = await resolveCanvasSources(ctx, canvasId);
+
+        // run_code can produce an unpredictable number of /output files;
+        // this pool size is an interim cap (apps/worker/src/schemas.ts's
+        // own documented simplification) — outputs beyond it come back
+        // reported with uploaded:false, never silently dropped.
+        const UPLOAD_POOL_SIZE = 10;
+        const uploads = await Promise.all(
+          Array.from({ length: UPLOAD_POOL_SIZE }, () => ctx.storage.generateUploadUrl()),
+        );
+
+        const result = await callWorker<{
+          success: boolean;
+          stdout: string;
+          stderr: string;
+          error?: string;
+          artifacts: Array<{
+            relPath: string;
+            size: number;
+            uploaded: boolean;
+            uploadStatus?: number;
+            uploadBody?: unknown;
+          }>;
+        }>(config, "/exec", {
+          sources,
+          code: input.code,
+          uploads: uploads.map((putUrl) => ({ putUrl })),
+        });
+
+        const uploaded = result.artifacts.filter((a) => a.uploaded);
+        if (uploaded.length > 0) {
+          await ctx.runMutation(internal.canvases.recordExecArtifacts, {
+            canvasId,
+            createdBy: principal.userId,
+            artifacts: uploaded.map((a) => {
+              const info = inferArtifactInfo(a.relPath);
+              return {
+                relPath: a.relPath,
+                type: info.type,
+                mimeType: info.mime,
+                size: a.size,
+                storageId: extractStorageId(a.uploadBody) as Id<"_storage">,
+              };
+            }),
+          });
+        }
+
+        return jsonResult({
+          success: result.success,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          error: result.error,
+          artifacts: result.artifacts.map((a) => ({
+            path: a.relPath,
+            size: a.size,
+            uploaded: a.uploaded,
+          })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "render_file",
+    {
+      description:
+        "Renders a canvas source file (HTML or D2) to PNG/SVG/PDF/HTML under /output or /cache. " +
+        ".d2 entrypoints with format 'svg' render via the D2 compiler; everything else renders " +
+        "via headless Chromium.",
+      inputSchema: z.object({
+        canvas_id: z.string(),
+        entrypoint: z.string(),
+        output_path: z.string(),
+        format: z.enum(["png", "svg", "pdf", "html"]),
+        viewport: z
+          .object({
+            width: z.number().int().positive(),
+            height: z.number().int().positive(),
+            deviceScaleFactor: z.number().positive().optional(),
+          })
+          .optional(),
+        pdf: z
+          .object({
+            format: z.enum(["A4", "A3", "Letter"]).optional(),
+            orientation: z.enum(["portrait", "landscape"]).optional(),
+            printBackground: z.boolean().optional(),
+            displayHeaderFooter: z.boolean().optional(),
+            headerTemplate: z.string().optional(),
+            footerTemplate: z.string().optional(),
+            margin: z
+              .object({
+                top: z.string().optional(),
+                right: z.string().optional(),
+                bottom: z.string().optional(),
+                left: z.string().optional(),
+              })
+              .optional(),
+          })
+          .optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const canvasId = input.canvas_id as Id<"canvases">;
+        const config = getWorkerConfig();
+        const sources = await resolveCanvasSources(ctx, canvasId);
+        const putUrl = await ctx.storage.generateUploadUrl();
+        const started = Date.now();
+
+        try {
+          const result = await callWorker<{
+            relPath: string;
+            size: number;
+            mimeType: string;
+            uploadStatus: number;
+            uploadBody: unknown;
+          }>(config, "/render", {
+            sources,
+            entrypoint: input.entrypoint,
+            outputPath: input.output_path,
+            format: input.format,
+            viewport: input.viewport,
+            pdf: input.pdf,
+            upload: { putUrl },
+          });
+
+          const { type } = inferArtifactInfo(result.relPath);
+          let storageId: Id<"_storage">;
+          try {
+            storageId = extractStorageId(result.uploadBody) as Id<"_storage">;
+          } catch (extractErr) {
+            throw new Error(
+              `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
+            );
+          }
+          const recorded = await ctx.runMutation(internal.canvases.recordRender, {
+            canvasId,
+            createdBy: principal.userId,
+            relPath: result.relPath,
+            type,
+            mimeType: result.mimeType,
+            size: result.size,
+            storageId,
+          });
+          await ctx.runMutation(internal.canvases.logRender, {
+            canvasId,
+            entrypoint: input.entrypoint,
+            format: input.format,
+            status: "success",
+            durationMs: Date.now() - started,
+            createdBy: principal.userId,
+          });
+          return jsonResult({
+            artifact: { path: recorded.artifact.relPath, type, role: recorded.artifact.role },
+          });
+        } catch (err) {
+          await ctx.runMutation(internal.canvases.logRender, {
+            canvasId,
+            entrypoint: input.entrypoint,
+            format: input.format,
+            status: "error",
+            durationMs: Date.now() - started,
+            errorText: describeError(err),
+            createdBy: principal.userId,
+          });
+          throw err;
+        }
       }),
   );
 
