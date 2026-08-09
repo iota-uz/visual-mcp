@@ -12,7 +12,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
-// minimap/#node= deep-linking) directly against the fetched CanvasDoc —
+// minimap/?node= deep-linking) directly against the fetched CanvasDoc —
 // this is the client-side rendering path (PLAN.md Part 1 section 2/8),
 // distinct from the worker's server-side render used for PNG/PDF export
 // and for html/image/pdf-kind canvases (rendered via `entry_url` below).

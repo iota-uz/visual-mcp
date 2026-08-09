@@ -45,8 +45,10 @@ version, never destroys the old one.
 | `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |
 
-Deep-linking: `#node=<nodeId>` selects and frames a node. Addressable inspector state is what
-makes these diagrams useful pasted into Slack or Notion.
+Deep-linking: `?node=<nodeId>` selects and frames a node (a query param, not a `#` fragment —
+`apps/web/src/routes/Canvas.tsx` drives it through react-router's `useSearchParams`, which is
+the natural fit for an SPA route already keyed on `useParams`). Addressable inspector state is
+what makes these diagrams useful pasted into Slack or Notion.
 
 ---
 
@@ -208,7 +210,7 @@ and mutation layer; the SPA-side search UI that queries them is ⏳ (tracked und
 `CanvasDoc` carrying node HTML mockups can exceed it, so the full doc lives in file storage and
 `canvasVersions` holds only the `storageId`. Search and deep-links are served by `canvasNodes` —
 one small document per node, with a Convex search index over title/eyebrow/copy. This is better
-than a single jsonb blob: `#node=` resolution and "find the canvas that mentions Europrotocol"
+than a single jsonb blob: `?node=` resolution and "find the canvas that mentions Europrotocol"
 become index lookups instead of full-document scans.
 
 **Mapping from the old local runtime:**
@@ -469,7 +471,7 @@ Convex session, not by this route.
 | M | Ships | Status |
 |---|---|---|
 | **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is still ⏳ |
-| **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) enforces the 250MB-per-canvas soft cap via `reserveCanvasStorage`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. The quota is a running counter (`canvases.storageBytesUsed`), not a scan of current `artifacts`/`canvasFiles` rows — a scan-based total silently undercounts once version history is accounted for (re-rendering the same `output_path` keeps the superseded blob alive forever per decision #1's "never destroys the old one"), which would have let the exact "agent loop re-rendering the same path" scenario the cap targets bypass it entirely; caught in review before merge, fixed, regression-tested (`convex/canvases.test.ts`). `write_file`/`render_file`/`run_code` also now delete the just-stored blob if the follow-up mutation rejects (e.g. quota), so a rejected write doesn't leak storage. All 4 UI items (slug rotation, `#node=`, search, version history) plus template gallery/theme integration/CDN-inlining are ⏳ not started |
+| **C2** Polish | public slug rotation UI, `?node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) enforces the 250MB-per-canvas soft cap via `reserveCanvasStorage`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. The quota is a running counter (`canvases.storageBytesUsed`), not a scan of current `artifacts`/`canvasFiles` rows — a scan-based total silently undercounts once version history is accounted for (re-rendering the same `output_path` keeps the superseded blob alive forever per decision #1's "never destroys the old one"), which would have let the exact "agent loop re-rendering the same path" scenario the cap targets bypass it entirely; caught in review before merge, fixed, regression-tested (`convex/canvases.test.ts`). `write_file`/`render_file`/`run_code` also now delete the just-stored blob if the follow-up mutation rejects (e.g. quota), so a rejected write doesn't leak storage. `?node=` deep-linking is also already implemented (`apps/web/src/routes/Canvas.tsx` reads it on mount via `controller.selectNode` and writes it on selection via `useSearchParams`) — it just hasn't been live-browser-verified, same as the rest of signed-in SPA flows (⏳ blocked on the real Google OAuth client ID, `/c/:canvasId` sits behind the same `AuthGate` as `/settings/tokens`), and has no automated test (`apps/web` has no test suite yet). The 3 remaining UI items genuinely have no code yet — slug rotation, search, version history — plus template gallery/theme integration/CDN-inlining, all ⏳ not started |
 
 ---
 
