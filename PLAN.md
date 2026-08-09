@@ -531,10 +531,19 @@ Recorded because they were consciously chosen.
   supporting/non-primary render is discarded rather than wired, thumbnails don't count against
   the storage quota) plus `apps/worker/test/render.test.ts` (a png render with a
   `thumbnailUpload` produces and uploads a smaller, downscaled PNG; no thumbnail is produced
-  without one, or for non-png formats even if one is provided).
+  without one, or for non-png formats even if one is provided); public-slug rotation (✅,
+  `convex/canvases.test.ts` — mints a new slug in one atomic patch, the old slug stops resolving
+  via `resolvePublicArtifact`, rejects rotating a private canvas, rejects an unauthenticated
+  caller); cross-workspace node search (✅, `convex/canvases.test.ts` — `putDoc` deletes the
+  previous version's `canvasNodes` rows instead of leaving them behind (the bug found while
+  building this), `searchNodes` finds a node by `searchText` and resolves its parent canvas,
+  blank query returns `[]`, unauthenticated caller rejected); version history (✅,
+  `convex/canvases.test.ts` — lists newest-first, flags the current version, resolves the
+  author's email, empty list for a deleted/unknown canvas rather than throwing, unauthenticated
+  caller rejected).
 - **Golden render**: PNG of the fixture canvas against a committed baseline. ⏳
-- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 52
-  tests; 189 tests total across the whole workspace as of the last local `npm test` run); the
+- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 62
+  tests; 199 tests total across the whole workspace as of the last local `npm test` run); the
   1 MiB document ceiling on `canvasVersions`/`canvasNodes` is enforced structurally by storing
   the doc in file storage, not inline.
 - **Manual end-to-end**: ✅ run live against the dev deployment (`giddy-retriever-468`) —
@@ -548,9 +557,14 @@ Recorded because they were consciously chosen.
   `render_file(format="png")` call produced and uploaded a correctly-downscaled thumbnail
   (600px-capped, aspect preserved), `get_canvas`/`list_canvases` both resolved a working
   `thumbnail_url`, and re-rendering the primary path confirmed the superseded thumbnail blob was
-  actually deleted (404 on refetch), not leaked. Not yet covered: signed-in SPA flows (blocked on
-  a real Google OAuth client ID) and the gallery's live-update-across-tabs behavior — both
-  require the pending Netlify deploy.
+  actually deleted (404 on refetch), not leaked. The `canvasNodes` dedup fix was verified the same
+  way: two real `put_canvas_doc` calls to the same `canvas_id` left exactly one `canvasNodes` row
+  (checked via `npx convex data canvasNodes`), holding the newer content, and
+  `npx convex run --inline-query` confirmed the search index resolves it; the same inline-query
+  technique confirmed `canvasVersions`/`currentVersionId` back the version-history query
+  correctly on real multi-version data. Not yet covered: signed-in SPA flows (blocked on a real
+  Google OAuth client ID) and the gallery's live-update-across-tabs behavior — both require the
+  pending Netlify deploy.
 
 ---
 
