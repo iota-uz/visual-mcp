@@ -60,6 +60,13 @@ export default defineSchema({
     theme: v.optional(v.string()),
     currentVersionId: v.optional(v.id("canvasVersions")),
     thumbnailId: v.optional(v.id("_storage")),
+    // Running total of live storage blobs this canvas has ever caused to be
+    // stored (artifacts + canvasFiles writes), minus what sweepCacheTtl has
+    // actually deleted. Backs the quota in canvases.ts — see that file's
+    // comment above CANVAS_STORAGE_QUOTA_BYTES for why this must be a
+    // monotonic counter rather than a point-in-time table scan. Optional so
+    // pre-existing rows (undefined ⇒ treated as 0) don't need a migration.
+    storageBytesUsed: v.optional(v.number()),
     createdBy: v.id("users"),
     // Bumped on every new version — backs by_workspace_updated so the
     // gallery can sort by recency (PLAN.md section 4's index name implies

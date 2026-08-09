@@ -315,7 +315,7 @@ describe("per-canvas storage quota (PLAN.md section 9/12.4: 250MB soft cap)", ()
     ).rejects.toThrow(/Canvas storage quota exceeded/);
   });
 
-  test("re-rendering the same output_path does not double-count its own previous size", async () => {
+  test("re-rendering the same output_path accumulates against the quota — the superseded blob is kept for version history, not freed", async () => {
     const t = convexTest(schema, modules);
     const { canvasId, createdBy } = await seedCanvas(t);
     const storageId1 = await seedStorage(t, "one");
@@ -327,12 +327,17 @@ describe("per-canvas storage quota (PLAN.md section 9/12.4: 250MB soft cap)", ()
       relPath: "/output/a.png",
       type: "image",
       mimeType: "image/png",
-      size: 200 * MB,
+      size: 150 * MB,
       storageId: storageId1,
     });
 
-    // Same relPath, replacing the prior 200MB entry — total stays ~200MB,
-    // well under the cap, even though naive addition (200 + 200) would trip it.
+    // Same relPath — the `artifacts` table still shows one current row, but
+    // PLAN.md section 1 keeps the first render's blob alive forever via the
+    // superseded canvasVersions row, so a second 150MB render to the same
+    // path is 300MB of real storage, not a 150MB replace. This is exactly
+    // the "agent loop re-rendering the same output_path" scenario the quota
+    // exists to catch (PLAN.md section 9/12.4) — a quota computed only from
+    // current `artifacts`/`canvasFiles` rows would miss it entirely.
     await expect(
       t.mutation(internal.canvases.recordRender, {
         canvasId,
@@ -340,10 +345,10 @@ describe("per-canvas storage quota (PLAN.md section 9/12.4: 250MB soft cap)", ()
         relPath: "/output/a.png",
         type: "image",
         mimeType: "image/png",
-        size: 200 * MB,
+        size: 150 * MB,
         storageId: storageId2,
       }),
-    ).resolves.toBeTruthy();
+    ).rejects.toThrow(/Canvas storage quota exceeded/);
   });
 
   test("write_file is rejected once it would push a canvas over the cap", async () => {
@@ -515,5 +520,46 @@ describe("cache TTL sweep (PLAN.md section 9/12.4: /cache is ephemeral, 24h)", (
 
     const blob = await t.run((ctx) => ctx.storage.get(storageId));
     expect(blob).toBeNull();
+  });
+
+  test("releases the deleted blob's bytes from the canvas's running storage total", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+    const t = convexTest(schema, modules);
+    const { canvasId, createdBy } = await seedCanvas(t);
+    const cacheStorage = await seedStorage(t, "expires-soon");
+    const outputStorage = await seedStorage(t, "stays");
+    const MB = 1024 * 1024;
+
+    await t.mutation(internal.canvases.recordExecArtifacts, {
+      canvasId,
+      createdBy,
+      artifacts: [
+        {
+          relPath: "/cache/stale.svg",
+          type: "svg",
+          mimeType: "image/svg+xml",
+          size: 30 * MB,
+          storageId: cacheStorage,
+        },
+        {
+          relPath: "/output/keep.png",
+          type: "image",
+          mimeType: "image/png",
+          size: 20 * MB,
+          storageId: outputStorage,
+        },
+      ],
+    });
+
+    vi.setSystemTime(new Date("2026-01-02T01:00:00Z"));
+    await t.mutation(internal.canvases.sweepCacheTtl, {});
+
+    // Only the 30MB /cache/ blob was actually deleted — the running total
+    // should drop by exactly that much, leaving the 20MB /output/ blob's
+    // contribution intact.
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    expect(canvas?.storageBytesUsed).toBe(20 * MB);
   });
 });

@@ -469,7 +469,7 @@ Convex session, not by this route.
 | M | Ships | Status |
 |---|---|---|
 | **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | 🚧 partial — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is still ⏳ |
-| **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) now enforces the 250MB-per-canvas soft cap via `assertWithinQuota`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. All 4 UI items (slug rotation, `#node=`, search, version history) plus template gallery/theme integration/CDN-inlining are ⏳ not started |
+| **C2** Polish | public slug rotation UI, `#node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) enforces the 250MB-per-canvas soft cap via `reserveCanvasStorage`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. The quota is a running counter (`canvases.storageBytesUsed`), not a scan of current `artifacts`/`canvasFiles` rows — a scan-based total silently undercounts once version history is accounted for (re-rendering the same `output_path` keeps the superseded blob alive forever per decision #1's "never destroys the old one"), which would have let the exact "agent loop re-rendering the same path" scenario the cap targets bypass it entirely; caught in review before merge, fixed, regression-tested (`convex/canvases.test.ts`). `write_file`/`render_file`/`run_code` also now delete the just-stored blob if the follow-up mutation rejects (e.g. quota), so a rejected write doesn't leak storage. All 4 UI items (slug rotation, `#node=`, search, version history) plus template gallery/theme integration/CDN-inlining are ⏳ not started |
 
 ---
 
@@ -511,12 +511,16 @@ Recorded because they were consciously chosen.
   revokes the old slug; explicit `relPath` lookup; SVG forced `Content-Disposition: attachment`);
   token expiry and revocation (✅, `convex/tokens.test.ts`); `normalizeCanvasPath` traversal cases
   (✅, ported from the four guards it replaced); per-canvas storage quota and cache-TTL sweep (✅,
-  `convex/canvases.test.ts` — quota rejection, same-relPath re-render not double-counted, quota
+  `convex/canvases.test.ts` — quota rejection, same-relPath re-render *accumulating* against the
+  quota (the running-counter fix — a same-relPath re-render keeps the superseded blob alive for
+  version history, so it must add to the total, not cancel out; the original test asserted the
+  opposite and was itself proof the first cut of this quota didn't measure real usage), quota
   scoped per canvas not per workspace, TTL sweep deletes stale `/cache/` rows and blobs while
-  leaving fresh `/cache/` and any-age `/output/` alone).
+  leaving fresh `/cache/` and any-age `/output/` alone and releases exactly the deleted bytes from
+  the running counter).
 - **Golden render**: PNG of the fixture canvas against a committed baseline. ⏳
-- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 47
-  tests; 181 tests total across the whole workspace as of the last local `npm test` run); the
+- **Convex**: `convex-test` + vitest against an in-memory backend (✅, `convex/*.test.ts`, 48
+  tests; 182 tests total across the whole workspace as of the last local `npm test` run); the
   1 MiB document ceiling on `canvasVersions`/`canvasNodes` is enforced structurally by storing
   the doc in file storage, not inline.
 - **Manual end-to-end**: ✅ run live against the dev deployment (`giddy-retriever-468`) —
@@ -539,10 +543,15 @@ Recorded because they were consciously chosen.
    `*.convex.site` is used as-is. Revisit only if a real need for `canvas.iota.uz` shows up.
 3. **Embeds** — resolved as decision #12: deferred, no `/embed/:slug` route in v1.
 4. **Retention & quotas** — ✅ shipped (tracked in C2/§9): a per-canvas 250MB soft storage quota
-   (`convex/canvases.ts`'s `assertWithinQuota`, enforced on every render/exec/write) and a
-   `/cache` TTL Convex cron (24h, `convex/crons.ts` → `canvases.sweepCacheTtl`) that deletes
-   stale `/cache/` artifacts and their storage blobs. Quota rejection surfaces as a clear MCP
-   tool error, not a silent drop.
+   (`convex/canvases.ts`'s `reserveCanvasStorage`, enforced on every render/exec/write) tracked as
+   a running counter (`canvases.storageBytesUsed`) rather than a scan of current `artifacts`/
+   `canvasFiles` rows — version history means a superseded blob is never freed, so a scan-based
+   total undercounts and would let repeated re-renders of the same `output_path` bypass the cap
+   entirely (caught in review, fixed before merge). A `/cache` TTL Convex cron (24h,
+   `convex/crons.ts` → `canvases.sweepCacheTtl`) deletes stale `/cache/` artifacts, their storage
+   blobs, and releases their bytes from the running counter. Quota rejection surfaces as a clear
+   MCP tool error, not a silent drop, and `write_file`/`render_file`/`run_code` clean up the
+   just-stored blob if the rejection happens after the upload.
 5. **Token lifetime** — resolved as decision #10: 90 days, shipped.
 6. **UI language** — resolved as decision #11: English only.
 

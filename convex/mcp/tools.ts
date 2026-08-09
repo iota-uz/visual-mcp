@@ -279,13 +279,18 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const { mime } = inferArtifactInfo(normalized.relPath);
         const bytes = new TextEncoder().encode(input.content);
         const storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
-        await ctx.runMutation(internal.canvases.upsertFile, {
-          canvasId,
-          relPath: normalized.displayPath,
-          storageId,
-          size: bytes.byteLength,
-          contentHash: await sha256Hex(input.content),
-        });
+        try {
+          await ctx.runMutation(internal.canvases.upsertFile, {
+            canvasId,
+            relPath: normalized.displayPath,
+            storageId,
+            size: bytes.byteLength,
+            contentHash: await sha256Hex(input.content),
+          });
+        } catch (err) {
+          await ctx.storage.delete(storageId);
+          throw err;
+        }
         return jsonResult({ path: normalized.displayPath, bytes_written: bytes.byteLength });
       }),
   );
@@ -336,20 +341,29 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         const uploaded = result.artifacts.filter((a) => a.uploaded);
         if (uploaded.length > 0) {
-          await ctx.runMutation(internal.canvases.recordExecArtifacts, {
-            canvasId,
-            createdBy: principal.userId,
-            artifacts: uploaded.map((a) => {
-              const info = inferArtifactInfo(a.relPath);
-              return {
-                relPath: a.relPath,
-                type: info.type,
-                mimeType: info.mime,
-                size: a.size,
-                storageId: extractStorageId(a.uploadBody) as Id<"_storage">,
-              };
-            }),
+          const artifactEntries = uploaded.map((a) => {
+            const info = inferArtifactInfo(a.relPath);
+            return {
+              relPath: a.relPath,
+              type: info.type,
+              mimeType: info.mime,
+              size: a.size,
+              storageId: extractStorageId(a.uploadBody) as Id<"_storage">,
+            };
           });
+          try {
+            await ctx.runMutation(internal.canvases.recordExecArtifacts, {
+              canvasId,
+              createdBy: principal.userId,
+              artifacts: artifactEntries,
+            });
+          } catch (err) {
+            // recordExecArtifacts is one mutation covering every uploaded
+            // artifact — a rejection (e.g. quota) rolls back all of it
+            // atomically, so every blob just uploaded is now unreferenced.
+            await Promise.all(artifactEntries.map((a) => ctx.storage.delete(a.storageId)));
+            throw err;
+          }
         }
 
         return jsonResult({
@@ -439,15 +453,23 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
             );
           }
-          const recorded = await ctx.runMutation(internal.canvases.recordRender, {
-            canvasId,
-            createdBy: principal.userId,
-            relPath: result.relPath,
-            type,
-            mimeType: result.mimeType,
-            size: result.size,
-            storageId,
-          });
+          const recordRenderOrCleanup = async () => {
+            try {
+              return await ctx.runMutation(internal.canvases.recordRender, {
+                canvasId,
+                createdBy: principal.userId,
+                relPath: result.relPath,
+                type,
+                mimeType: result.mimeType,
+                size: result.size,
+                storageId,
+              });
+            } catch (err) {
+              await ctx.storage.delete(storageId);
+              throw err;
+            }
+          };
+          const recorded = await recordRenderOrCleanup();
           await ctx.runMutation(internal.canvases.logRender, {
             canvasId,
             entrypoint: input.entrypoint,
