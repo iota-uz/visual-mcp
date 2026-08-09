@@ -373,6 +373,39 @@ export const rotateMySlug = mutation({
   },
 });
 
+// Read-only version history for the Canvas page (PLAN.md section 9 C2) —
+// every render/put_canvas_doc creates a new canvasVersions row and old ones
+// are never destroyed (decision #1), so this is a plain reverse-chronological
+// list. No restore/rollback here — that's separate, unshipped scope.
+export const listVersionsMine = query({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) return [];
+
+    const versions = await ctx.db
+      .query("canvasVersions")
+      .withIndex("by_canvas_version", (q) => q.eq("canvasId", args.canvasId))
+      .order("desc")
+      .take(50);
+
+    return Promise.all(
+      versions.map(async (v) => {
+        const author = await ctx.db.get(v.createdBy);
+        return {
+          versionId: v._id,
+          version: v.version,
+          note: v.note,
+          createdAt: v._creationTime,
+          createdByEmail: author?.email ?? null,
+          isCurrent: canvas.currentVersionId === v._id,
+        };
+      }),
+    );
+  },
+});
+
 // Cross-workspace search over canvas-kind node titles/eyebrows/inspector
 // copy (PLAN.md section 4/9), backed by canvasNodes.search_text. Org-wide
 // like the rest of the signed-in read surface (decision #4) — no canvasId

@@ -241,6 +241,80 @@ describe("canvases.rotateMySlug", () => {
   });
 });
 
+describe("canvases.listVersionsMine", () => {
+  test("lists versions newest-first, flags the current one, resolves the author's email", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Versioned Canvas",
+      kind: "canvas",
+      createdBy,
+    });
+    const docStorageId = await seedStorage(t, "{}");
+
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      createdBy,
+      note: "first pass",
+      nodes: [],
+    });
+    const { versionId: v2Id } = await t.mutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      createdBy,
+      note: "second pass",
+      nodes: [],
+    });
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    const versions = await asMember.query(api.canvases.listVersionsMine, { canvasId });
+
+    expect(versions.map((v) => v.version)).toEqual([2, 1]);
+    expect(versions[0]).toMatchObject({
+      versionId: v2Id,
+      note: "second pass",
+      isCurrent: true,
+      createdByEmail: "test@iota.uz",
+    });
+    expect(versions[1]).toMatchObject({ note: "first pass", isCurrent: false });
+  });
+
+  test("returns an empty list for a deleted/unknown canvas rather than throwing", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Soon Gone",
+      kind: "canvas",
+      createdBy,
+    });
+    await t.run((ctx) => ctx.db.delete(canvasId));
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    const versions = await asMember.query(api.canvases.listVersionsMine, { canvasId });
+    expect(versions).toEqual([]);
+  });
+
+  test("rejects an unauthenticated caller", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Versioned Canvas",
+      kind: "canvas",
+      createdBy,
+    });
+    await expect(t.query(api.canvases.listVersionsMine, { canvasId })).rejects.toThrow(
+      /not signed in/i,
+    );
+  });
+});
+
 describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search index)", () => {
   async function seedCanvasDocCanvas(t: ReturnType<typeof convexTest>) {
     const createdBy = await seedUser(t);

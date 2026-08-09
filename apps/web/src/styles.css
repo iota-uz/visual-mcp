@@ -126,6 +126,16 @@ body {
   margin-top: 8px;
 }
 
+.version-history {
+  margin-top: 8px;
+}
+
+.version-history .card-list {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .vc-viewport-host {
   position: relative;
   width: 100%;

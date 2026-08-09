@@ -105,6 +105,35 @@ function PublishControl({
   );
 }
 
+function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
+  const versions = useQuery(api.canvases.listVersionsMine, { canvasId });
+
+  if (versions === undefined) return <p className="muted">Loading version history…</p>;
+  if (versions.length === 0) return null;
+
+  return (
+    <details className="version-history">
+      <summary>Version history ({versions.length})</summary>
+      <ul className="card-list">
+        {versions.map((v) => (
+          <li key={v.versionId} className="card-list-item">
+            <strong>
+              v{v.version}
+              {v.isCurrent && " (current)"}
+            </strong>
+            {v.note && <span className="muted"> — {v.note}</span>}
+            <span className="muted">
+              {" "}
+              · {new Date(v.createdAt).toLocaleString()}
+              {v.createdByEmail && ` · ${v.createdByEmail}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function CanvasPage() {
   const { canvasId } = useParams<{ canvasId: string }>();
   const canvas = useQuery(
@@ -158,6 +187,7 @@ export function CanvasPage() {
           visibility={canvas.visibility}
           publicSlug={canvas.public_slug}
         />
+        <VersionHistory canvasId={canvas.canvas_id} />
       </header>
 
       {canvas.kind === "canvas" ? (
