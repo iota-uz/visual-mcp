@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "convex"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

@@ -1,0 +1,19 @@
+{
+  "name": "@visual-canvas/convex",
+  "version": "0.1.0-dev",
+  "description": "Convex backend: schema, queries/mutations/actions, /mcp and /s/:slug httpActions.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.38",
+    "vitest": "^3.2.0"
+  }
+}
