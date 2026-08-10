@@ -27,7 +27,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 | 10 | **MCP tokens expire after 90 days**, non-configurable in v1 — the mechanism that makes a departed employee's access actually die, independent of their Google account's state. |
 | 11 | **UI is English-only.** No i18n in v1. |
 | 12 | **Embeds are explicitly deferred.** No `/embed/:slug` route in v1 — a shared link is enough. |
-| 13 | **No custom domain requirement for v1.** Netlify's auto-generated subdomain is acceptable for the SPA; `*.convex.site` is used as-is for `/mcp` and artifacts. |
+| 13 | **No custom domain requirement for v1.** A platform-generated subdomain is acceptable for the SPA; `*.convex.site` is used as-is for `/mcp` and artifacts. (Originally scoped as Netlify; shipped on Railway instead — same "no custom domain" decision, different static host. See §12.2.) |
 
 ---
 
@@ -144,7 +144,7 @@ Convex deployment                          Railway project
 ├── httpAction  /s/:slug  (artifact proxy)
 └── crons (cache TTL, quota sweep)
 
-Netlify  ← Vite + React SPA (static)
+Railway  ← Vite + React SPA (static, Dockerfile + `serve -s`)
 ```
 
 **Why the worker still exists:** Convex functions run in a V8/Node sandbox with a 10–30 min
@@ -391,8 +391,8 @@ button is ⏳ (part of the `/settings/tokens` SPA route).
 
 ## 8. Serving artifacts and sharing safely ✅
 
-Convex file storage URLs live on `*.convex.cloud` — already a different origin from the SPA on
-Netlify, but headers can't be set on them. So HTML artifacts stream through an httpAction on
+Convex file storage URLs live on `*.convex.cloud` — already a different origin from the SPA's
+own host, but headers can't be set on them. So HTML artifacts stream through an httpAction on
 `*.convex.site` (`GET /s/:slug` and `/s/:slug/*` — Convex's `httpRouter` has no named-param
 syntax, only exact `path`/`pathPrefix`, so `http.ts` splits the slug and relPath off
 `url.pathname` by hand), which is both a distinct cookieless origin and a place headers are
@@ -425,9 +425,10 @@ Convex session, not by this route.
   base-uri 'none'; form-action 'none';
   ```
   ✅ shipped exactly as above (`http.ts`'s `publicArtifactCsp`), plus `X-Content-Type-Options:
-  nosniff`. `frame-ancestors` widens beyond `'self'` only once the `SPA_ORIGIN` env var is set
-  (post Netlify deploy) — unset, it's "no embedding at all," the safe default rather than a
-  broken one. `'unsafe-inline'` for scripts is unavoidable (ApexCharts init is inline);
+  nosniff`. `frame-ancestors` widens beyond `'self'` only once the `SPA_ORIGIN` env var is set —
+  unset, it's "no embedding at all," the safe default rather than a broken one.
+  `SPA_ORIGIN` is now set to the real deployed SPA's origin. `'unsafe-inline'` for scripts is
+  unavoidable (ApexCharts init is inline);
   `connect-src 'none'` on a cookieless origin makes it tolerable. The env-configurable allowlist
   this section and `RENDER_ALLOWED_HOSTS` (§10.2) were meant to share is still two separate
   constants in practice, not one — a real gap, not a documentation oversight; unifying them is
@@ -464,7 +465,7 @@ Convex session, not by this route.
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
 | **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
-| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; Netlify deploy | 🚧 partial — auth backend, public function layer, `apps/web` itself, and `/s/:slug` are ✅ (`npm run build`/`typecheck`/`test` all green, verified live against the dev deployment — see §11); `apps/web` is deploy-ready (`public/_redirects` added for client-side routing, builds clean against the real `VITE_CONVEX_URL`) but the actual Netlify publish step is ⏳ — it needs either a human's Netlify login or an explicit go-ahead to drag-and-drop `apps/web/dist` at app.netlify.com/drop, neither of which an unattended session can do on its own. The real Google OAuth client ID is also ⏳. Live-updating thumbnails are ✅ at the data layer (`listForWorkspace`/`list_canvases` resolve `thumbnail_url` per row, `WorkspacePage` renders it in the gallery grid) and live-verified end-to-end against the deployed Railway worker (render → downscaled thumbnail upload → `canvases.thumbnailId` → resolved URL) — only the actual signed-in-browser rendering of that grid is ⏳, blocked on the same OAuth client ID as the rest of the SPA |
+| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; deploy | ✅ done — deployed to Railway (not Netlify, see decision #13 note below) as a Dockerfile-built static image (`apps/web/Dockerfile`, Node's `serve -s` with SPA fallback) at the service's generated domain; `GOOGLE_OAUTH_CLIENT_ID`/`VITE_GOOGLE_CLIENT_ID` and `SPA_ORIGIN` are set on the real deployment. Live-updating thumbnails are ✅ at the data layer and live-verified end-to-end against the deployed Railway worker (render → downscaled thumbnail upload → `canvases.thumbnailId` → resolved URL). Manual signed-in-browser verification: see §11 |
 
 ### Track B — canvas engine
 
@@ -562,9 +563,11 @@ Recorded because they were consciously chosen.
   (checked via `npx convex data canvasNodes`), holding the newer content, and
   `npx convex run --inline-query` confirmed the search index resolves it; the same inline-query
   technique confirmed `canvasVersions`/`currentVersionId` back the version-history query
-  correctly on real multi-version data. Not yet covered: signed-in SPA flows (blocked on a real
-  Google OAuth client ID) and the gallery's live-update-across-tabs behavior — both require the
-  pending Netlify deploy.
+  correctly on real multi-version data. The SPA is now deployed (Railway, see §12.2) with a real
+  Google OAuth client ID configured, unblocking the signed-in browser flows (gallery live-update
+  across tabs, viewer pan/zoom/inspector/`#node=`, `/settings/tokens` mint/revoke, public/private
+  `/s/:slug` toggling from the UI) — see the PR description for the manual-pass checklist and
+  results.
 
 ---
 
@@ -572,8 +575,15 @@ Recorded because they were consciously chosen.
 
 1. **Write scoping** — resolved as decision #9: org-wide writes, `createdBy` attribution, no
    per-workspace ACL.
-2. **Domains** — resolved as decision #13: Netlify's auto-generated subdomain is acceptable;
-   `*.convex.site` is used as-is. Revisit only if a real need for `canvas.iota.uz` shows up.
+2. **Domains** — resolved as decision #13: a platform-generated subdomain is acceptable;
+   `*.convex.site` is used as-is. **Host changed from the original Netlify plan to Railway**
+   (`apps/web/Dockerfile`, static build served via `serve -s` with SPA fallback, deployed to the
+   same Railway project as the render worker) — this session had authenticated Railway access
+   but none on Netlify, and Railway was already in use for the worker, so it was the pragmatic
+   choice once a human confirmed the switch. `apps/web/public/_redirects` (the Netlify-specific
+   SPA-fallback config) is now dead weight kept only because it's harmless; `serve -s` provides
+   the same fallback behavior directly via the Dockerfile's `CMD`. Revisit the domain question
+   only if a real need for `canvas.iota.uz` shows up.
 3. **Embeds** — resolved as decision #12: deferred, no `/embed/:slug` route in v1.
 4. **Retention & quotas** — ✅ shipped (tracked in C2/§9): a per-canvas 250MB soft storage quota
    (`convex/canvases.ts`'s `reserveCanvasStorage`, enforced on every render/exec/write) tracked as

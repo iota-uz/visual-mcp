@@ -16,11 +16,10 @@ claude mcp add --transport http visual-canvas https://<your-deployment>.convex.s
   --header "Authorization: Bearer vct_..."
 ```
 
-You need a bearer token first. Once the SPA is deployed and you can sign in
-with a Google account on `iota.uz`, `/settings/tokens` mints and revokes
-tokens for you — it needs a real Google OAuth client ID configured on both
-the Convex deployment and the SPA build (see PLAN.md §7), which isn't wired
-up yet. Until then, mint one from a checkout of this repo:
+You need a bearer token first. Sign in with a Google account on `iota.uz` at
+the deployed SPA — https://web-production-08c1d5.up.railway.app — and
+`/settings/tokens` mints and revokes tokens for you. Or mint one from a
+checkout of this repo:
 
 ```
 node scripts/mint-mcp-token.mjs <your-email> "<your name>" [token-name]
@@ -47,9 +46,11 @@ Once connected, Claude has these tools:
 ## Architecture
 
 Convex (data, file storage, auth, the `/mcp` and `/s/:slug` HTTP endpoints)
-plus a Railway-hosted render worker (Playwright/Chromium, D2, Tailwind CLI,
-`run_code` — everything Convex's own sandbox can't run) plus a Vite+React SPA
-on Netlify for the human-facing gallery/viewer. Full design, current
+plus two Railway services: a render worker (Playwright/Chromium, D2,
+Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
+Vite+React SPA (Dockerfile static build, served via `serve -s`) for the
+human-facing gallery/viewer, live at
+https://web-production-08c1d5.up.railway.app. Full design, current
 milestone status, and accepted risks: [PLAN.md](./PLAN.md).
 
 ## Repo layout
@@ -63,7 +64,8 @@ packages/canvas/    the canvas-document engine (types, layout, edge
 convex/             schema, queries/mutations/actions, /mcp and /s/:slug
 apps/worker/        Hono render worker: POST /render, /exec (Railway)
 apps/web/           Vite + React SPA (workspaces, canvas gallery, viewer,
-                     MCP token settings) — builds static, deploys to Netlify
+                     MCP token settings) — builds static, deploys to Railway
+                     (Dockerfile + serve)
 ```
 
 ## Development
@@ -84,33 +86,45 @@ Convex functions live under `convex/`; **read
 — see this repo's `CLAUDE.md`. Run `npx convex dev` (or `npm run convex:dev`)
 to push schema/function changes to your dev deployment while iterating.
 
-## Deploying the SPA (needs credentials this repo's automation doesn't have)
+## Deploying the SPA
 
-`apps/web/` builds clean and is deploy-ready, but two pieces need a human
-with the right access — an unattended session can't create either:
+Live at https://web-production-08c1d5.up.railway.app (Railway project
+`visual-canvas-worker`, service `web`). `apps/web/Dockerfile` builds the
+Vite app in a monorepo-aware multi-stage build (see the Dockerfile's own
+comments for why it needs a *bare* `npm ci` — no `--workspace=` flags —
+plus the full `convex/`, `packages/canvas/`, and `packages/runtime/`
+sources, not just `apps/web/`) and serves the static output with `serve -s`
+for SPA-route fallback.
 
-1. **Google OAuth client ID** (5 min, needs Google Cloud Console access on
-   the `iota.uz` org): console.cloud.google.com → APIs & Services →
-   Credentials → Create OAuth client ID → Web application. Add the deployed
-   SPA origin (see step 3) to Authorized JavaScript origins. Then:
+To redeploy or stand up a fresh copy:
+
+1. **Google OAuth client ID** (Google Cloud Console → APIs & Services →
+   Credentials → Create OAuth client ID → Web application). Add the SPA's
+   origin to Authorized JavaScript origins. Then:
    ```
    npx convex env set GOOGLE_OAUTH_CLIENT_ID <client-id>.apps.googleusercontent.com
+   npx convex env set SPA_ORIGIN https://<your-spa-domain>
    ```
-   and set the same value as `VITE_GOOGLE_CLIENT_ID` in `apps/web/.env` (or
-   your Netlify build env — see `apps/web/.env.example`).
-2. **Build**, pointing at the real Convex deployment:
+2. **Create/update the Railway service**, Dockerfile builder, path
+   `apps/web/Dockerfile`, root directory `.` (repo root — the Dockerfile's
+   `COPY` paths assume it). Set build-time variables (Vite bakes `VITE_*`
+   into the JS at build time, not runtime — Railway auto-injects service
+   variables as matching `ARG`s for Dockerfile builds):
    ```
-   cd apps/web && VITE_CONVEX_URL=<your-deployment>.convex.cloud npm run build
+   VITE_CONVEX_URL=<your-deployment>.convex.cloud
+   VITE_GOOGLE_CLIENT_ID=<client-id>.apps.googleusercontent.com
+   PORT=3000
    ```
-3. **Deploy `apps/web/dist` to Netlify** — either `netlify login && netlify deploy --prod --dir=dist`
-   (needs a Netlify account with access to this org/site), or drag-and-drop
-   `dist` at app.netlify.com/drop for a one-off. Netlify's auto-generated
-   subdomain is fine for v1; a custom domain (e.g. `canvas.iota.uz`) needs
-   separate DNS access.
+   (`PORT` must be set explicitly and match the domain's target port —
+   Railway's platform-default `PORT` and a service's generated-domain
+   target port aren't guaranteed to agree, and a mismatch here is a silent
+   502, not a build failure.)
+3. Deploy from a connected GitHub branch, or directly from a local checkout
+   with the Railway CLI: `railway up --service web`.
 
-Once both are done, `/settings/tokens`, the live-updating gallery, the
-canvas viewer's pan/zoom/inspector/`#node=` deep links, and public/private
-`/s/:slug` sign-in-gated flows all become browser-testable end to end —
-today they're covered by scripted tests only (`convex/users.test.ts`'s
-forged-claim `hd`/`email_verified` cases) plus live MCP-driven checks
-against the dev deployment, documented in PLAN.md §9/§11.
+`/settings/tokens`, the live-updating gallery, the canvas viewer's
+pan/zoom/inspector/`#node=` deep links, and public/private `/s/:slug`
+sign-in-gated flows are all browser-testable end to end at the URL above.
+Scripted coverage for the parts that don't need a browser:
+`convex/users.test.ts`'s forged-claim `hd`/`email_verified` cases, plus live
+MCP-driven checks against the dev deployment — documented in PLAN.md §9/§11.
