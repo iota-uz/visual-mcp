@@ -730,6 +730,25 @@ export const resolvePublicArtifact = internalQuery({
   },
 });
 
+// Anonymous, SPA-facing counterpart to `getMine` (PLAN.md Part 1 section 1's
+// `/s/:slug` public viewer route) — kind="canvas" documents render on the
+// app origin (section 8), so unlike `resolvePublicArtifact` this is a plain
+// query the client calls directly, not an httpAction. Keyed on the
+// unguessable slug alone; never accepts a canvasId, since the slug itself
+// is the access control. Returns null for both "no such slug" and "exists
+// but private" so neither leaks to an anonymous caller.
+export const getPublic = query({
+  args: { publicSlug: v.string() },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db
+      .query("canvases")
+      .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
+      .unique();
+    if (canvas?.visibility !== "public") return null;
+    return getCanvas(ctx, canvas._id);
+  },
+});
+
 export const listFilesForCanvas = internalQuery({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, args) => {

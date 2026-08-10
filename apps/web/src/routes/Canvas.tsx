@@ -16,7 +16,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 // this is the client-side rendering path (PLAN.md Part 1 section 2/8),
 // distinct from the worker's server-side render used for PNG/PDF export
 // and for html/image/pdf-kind canvases (rendered via `entry_url` below).
-function CanvasViewport({ doc }: { doc: CanvasDoc }) {
+export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const setSearchParams = useSearchParams()[1];
 
@@ -134,12 +134,16 @@ function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
   );
 }
 
-export function CanvasPage() {
-  const { canvasId } = useParams<{ canvasId: string }>();
-  const canvas = useQuery(
-    api.canvases.getMine,
-    canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
-  );
+interface FetchableCanvas {
+  kind: string;
+  doc_url: string | null;
+  css_url: string | null;
+}
+
+// Shared by CanvasPage (signed-in) and PublicCanvasPage (anonymous
+// /s/:slug) — both resolve a canvas summary first, then need this same
+// doc-fetch-and-validate plus compiled-Tailwind-CSS-injection sequence.
+export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
   const [doc, setDoc] = useState<CanvasDoc | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
 
@@ -199,6 +203,17 @@ export function CanvasPage() {
       styleEl?.remove();
     };
   }, [canvas?.css_url]);
+
+  return { doc, docError, cssReady };
+}
+
+export function CanvasPage() {
+  const { canvasId } = useParams<{ canvasId: string }>();
+  const canvas = useQuery(
+    api.canvases.getMine,
+    canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
+  );
+  const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
 
   const workspace = useQuery(
     api.workspaces.getById,

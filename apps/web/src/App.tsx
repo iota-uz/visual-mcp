@@ -5,6 +5,7 @@ import { api } from "../../../convex/_generated/api";
 import { SignInButton, useGoogleAuth } from "./auth";
 import { CanvasPage } from "./routes/Canvas";
 import { HomePage } from "./routes/Home";
+import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
 import { WorkspacePage } from "./routes/Workspace";
 
@@ -67,18 +68,29 @@ function Nav() {
   );
 }
 
+// `/s/:slug` is deliberately outside <AuthGate> — it's the anonymous,
+// no-login public-share route (PLAN.md Part 1 section 1/8, decision #4).
+// Every other route requires a signed-in @iota.uz session.
 export function App() {
   return (
-    <AuthGate>
-      <Nav />
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/w/:wsSlug" element={<WorkspacePage />} />
-          <Route path="/c/:canvasId" element={<CanvasPage />} />
-          <Route path="/settings/tokens" element={<TokensPage />} />
-        </Routes>
-      </main>
-    </AuthGate>
+    <Routes>
+      <Route path="/s/:slug" element={<PublicCanvasPage />} />
+      <Route
+        path="*"
+        element={
+          <AuthGate>
+            <Nav />
+            <main className="app-main">
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/w/:wsSlug" element={<WorkspacePage />} />
+                <Route path="/c/:canvasId" element={<CanvasPage />} />
+                <Route path="/settings/tokens" element={<TokensPage />} />
+              </Routes>
+            </main>
+          </AuthGate>
+        }
+      />
+    </Routes>
   );
 }
