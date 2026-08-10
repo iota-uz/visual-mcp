@@ -27,7 +27,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 | 10 | **MCP tokens expire after 90 days**, non-configurable in v1 — the mechanism that makes a departed employee's access actually die, independent of their Google account's state. |
 | 11 | **UI is English-only.** No i18n in v1. |
 | 12 | **Embeds are explicitly deferred.** No `/embed/:slug` route in v1 — a shared link is enough. |
-| 13 | **No custom domain requirement for v1.** A platform-generated subdomain is acceptable for the SPA; `*.convex.site` is used as-is for `/mcp` and artifacts. (Originally scoped as Netlify; shipped on Railway instead — same "no custom domain" decision, different static host. See §12.2.) |
+| 13 | **No custom domain *requirement* for v1** — a platform-generated subdomain would have been acceptable; `*.convex.site` is used as-is for `/mcp` and artifacts. In practice the SPA got one anyway: `canvas.iota.uz`, CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
 
 ---
 
@@ -575,15 +575,20 @@ Recorded because they were consciously chosen.
 
 1. **Write scoping** — resolved as decision #9: org-wide writes, `createdBy` attribution, no
    per-workspace ACL.
-2. **Domains** — resolved as decision #13: a platform-generated subdomain is acceptable;
-   `*.convex.site` is used as-is. **Host changed from the original Netlify plan to Railway**
+2. **Domains** — resolved as decision #13: `*.convex.site` is used as-is for `/mcp` and
+   artifacts. **Host changed from the original Netlify plan to Railway**
    (`apps/web/Dockerfile`, static build served via `serve -s` with SPA fallback, deployed to the
    same Railway project as the render worker) — this session had authenticated Railway access
    but none on Netlify, and Railway was already in use for the worker, so it was the pragmatic
    choice once a human confirmed the switch. `apps/web/public/_redirects` (the Netlify-specific
    SPA-fallback config) is now dead weight kept only because it's harmless; `serve -s` provides
-   the same fallback behavior directly via the Dockerfile's `CMD`. Revisit the domain question
-   only if a real need for `canvas.iota.uz` shows up.
+   the same fallback behavior directly via the Dockerfile's `CMD`. The SPA is live at
+   **`canvas.iota.uz`** — a real custom domain, not the platform-generated fallback decision #13
+   said was acceptable — CNAME'd to Railway via Cloudflare (DNS-only, not proxied). Its
+   `GOOGLE_OAUTH_CLIENT_ID` reuses the existing shared IOTA-ERP OAuth client rather than a
+   dedicated one, per a human's explicit choice; `https://canvas.iota.uz` has been added to that
+   client's Authorized JavaScript origins (Google notes propagation can take 5 minutes to a few
+   hours).
 3. **Embeds** — resolved as decision #12: deferred, no `/embed/:slug` route in v1.
 4. **Retention & quotas** — ✅ shipped (tracked in C2/§9): a per-canvas 250MB soft storage quota
    (`convex/canvases.ts`'s `reserveCanvasStorage`, enforced on every render/exec/write) tracked as

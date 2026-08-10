@@ -17,9 +17,8 @@ claude mcp add --transport http visual-canvas https://<your-deployment>.convex.s
 ```
 
 You need a bearer token first. Sign in with a Google account on `iota.uz` at
-the deployed SPA — https://web-production-08c1d5.up.railway.app — and
-`/settings/tokens` mints and revokes tokens for you. Or mint one from a
-checkout of this repo:
+the deployed SPA — https://canvas.iota.uz — and `/settings/tokens` mints and
+revokes tokens for you. Or mint one from a checkout of this repo:
 
 ```
 node scripts/mint-mcp-token.mjs <your-email> "<your name>" [token-name]
@@ -50,7 +49,7 @@ plus two Railway services: a render worker (Playwright/Chromium, D2,
 Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
 Vite+React SPA (Dockerfile static build, served via `serve -s`) for the
 human-facing gallery/viewer, live at
-https://web-production-08c1d5.up.railway.app. Full design, current
+https://canvas.iota.uz. Full design, current
 milestone status, and accepted risks: [PLAN.md](./PLAN.md).
 
 ## Repo layout
@@ -88,7 +87,7 @@ to push schema/function changes to your dev deployment while iterating.
 
 ## Deploying the SPA
 
-Live at https://web-production-08c1d5.up.railway.app (Railway project
+Live at https://canvas.iota.uz (Railway project
 `visual-canvas-worker`, service `web`). `apps/web/Dockerfile` builds the
 Vite app in a monorepo-aware multi-stage build (see the Dockerfile's own
 comments for why it needs a *bare* `npm ci` — no `--workspace=` flags —
@@ -99,8 +98,10 @@ for SPA-route fallback.
 To redeploy or stand up a fresh copy:
 
 1. **Google OAuth client ID** (Google Cloud Console → APIs & Services →
-   Credentials → Create OAuth client ID → Web application). Add the SPA's
-   origin to Authorized JavaScript origins. Then:
+   Credentials → Create OAuth client ID → Web application, or add the SPA's
+   origin to an existing client's Authorized JavaScript origins — a
+   `origin_mismatch` error at sign-in means this step is missing or targets
+   the wrong origin). Then:
    ```
    npx convex env set GOOGLE_OAUTH_CLIENT_ID <client-id>.apps.googleusercontent.com
    npx convex env set SPA_ORIGIN https://<your-spa-domain>
@@ -121,6 +122,18 @@ To redeploy or stand up a fresh copy:
    502, not a build failure.)
 3. Deploy from a connected GitHub branch, or directly from a local checkout
    with the Railway CLI: `railway up --service web`.
+4. **Custom domain** (optional — a `*.up.railway.app` domain works without
+   this): add it in Railway (`generate_domain` with a `domain` value, or
+   Settings → Networking → Custom Domain in the dashboard) and it returns a
+   CNAME + TXT ownership-verification record. Add both at your DNS provider
+   — `canvas.iota.uz` is on Cloudflare, DNS-only (grey-clouded, not
+   proxied: Railway issues its own Let's Encrypt cert, which needs a direct
+   connection to validate). Takes a few minutes for the cert; Railway
+   serves a generic `*.up.railway.app` cert over the new hostname in the
+   meantime, so a `curl` cert-name mismatch right after adding the DNS
+   records is expected, not a failure. Update `GOOGLE_OAUTH_CLIENT_ID`'s
+   Authorized JavaScript origins and Convex's `SPA_ORIGIN` to the new
+   domain once it's live.
 
 `/settings/tokens`, the live-updating gallery, the canvas viewer's
 pan/zoom/inspector/`#node=` deep links, and public/private `/s/:slug`
