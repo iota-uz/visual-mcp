@@ -1,6 +1,6 @@
 import { googleLogout } from "@react-oauth/google";
 import { useConvexAuth, useMutation } from "convex/react";
-import { LogOut } from "lucide-react";
+import { Blocks, KeyRound, LayoutGrid, LogOut } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -62,11 +62,14 @@ function AuthGate({ children }: { children: ReactNode }) {
   return <EnsureUser>{children}</EnsureUser>;
 }
 
-function navLinkClass({ isActive }: { isActive: boolean }) {
-  return isActive ? "app-nav-link active" : "app-nav-link";
+function sidebarLinkClass({ isActive }: { isActive: boolean }) {
+  return isActive ? "app-sidebar-link active" : "app-sidebar-link";
 }
 
-function Nav() {
+// Left sidebar, not a top bar — a canvas page (below) needs the full
+// viewport height for its viewport to feel like Figma/the original osago
+// file, and a horizontal nav bar would eat into that on every page.
+function Sidebar() {
   const { identity, signOut } = useGoogleAuth();
 
   function handleSignOut() {
@@ -75,20 +78,32 @@ function Nav() {
   }
 
   return (
-    <header className="app-nav">
-      <Link to="/" className="app-nav-brand">
-        Visual Canvas
+    <aside className="app-sidebar">
+      <Link to="/" className="app-sidebar-brand">
+        <Blocks size={20} />
+        <span>Visual Canvas</span>
       </Link>
-      <nav className="app-nav-links">
-        <NavLink to="/settings/tokens" className={navLinkClass}>
-          MCP tokens
+      <nav className="app-sidebar-nav">
+        <NavLink to="/" end className={sidebarLinkClass}>
+          <LayoutGrid size={16} />
+          <span>Workspaces</span>
         </NavLink>
-        {identity?.email && <span className="app-nav-email muted">{identity.email}</span>}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={handleSignOut}>
-          <LogOut size={14} /> Sign out
-        </button>
+        <NavLink to="/settings/tokens" className={sidebarLinkClass}>
+          <KeyRound size={16} />
+          <span>MCP tokens</span>
+        </NavLink>
       </nav>
-    </header>
+      <div className="app-sidebar-footer">
+        {identity?.email && (
+          <span className="app-sidebar-email" title={identity.email}>
+            {identity.email}
+          </span>
+        )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={handleSignOut}>
+          <LogOut size={14} /> <span>Sign out</span>
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -105,11 +120,9 @@ export function App() {
         element={
           <div className="public-shell">
             <header className="public-shell-header">
-              <span className="app-nav-brand">Visual Canvas</span>
+              <span className="public-shell-brand">Visual Canvas</span>
             </header>
-            <main className="app-main">
-              <PublicCanvasPage />
-            </main>
+            <PublicCanvasPage />
           </div>
         }
       />
@@ -117,15 +130,38 @@ export function App() {
         path="*"
         element={
           <AuthGate>
-            <Nav />
-            <main className="app-main">
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/w/:wsSlug" element={<WorkspacePage />} />
-                <Route path="/c/:canvasId" element={<CanvasPage />} />
-                <Route path="/settings/tokens" element={<TokensPage />} />
-              </Routes>
-            </main>
+            <div className="app-shell">
+              <Sidebar />
+              <div className="app-content">
+                <Routes>
+                  <Route
+                    path="/"
+                    element={
+                      <div className="page-container">
+                        <HomePage />
+                      </div>
+                    }
+                  />
+                  <Route
+                    path="/w/:wsSlug"
+                    element={
+                      <div className="page-container">
+                        <WorkspacePage />
+                      </div>
+                    }
+                  />
+                  <Route path="/c/:canvasId" element={<CanvasPage />} />
+                  <Route
+                    path="/settings/tokens"
+                    element={
+                      <div className="page-container">
+                        <TokensPage />
+                      </div>
+                    }
+                  />
+                </Routes>
+              </div>
+            </div>
           </AuthGate>
         }
       />

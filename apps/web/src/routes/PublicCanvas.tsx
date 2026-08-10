@@ -14,27 +14,57 @@ export function PublicCanvasPage() {
   const canvas = useQuery(api.canvases.getPublic, slug ? { publicSlug: slug } : "skip");
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
 
-  if (canvas === undefined) return <LoadingState />;
-  if (canvas === null) return <EmptyState title="This link is no longer available." />;
+  if (canvas === undefined) {
+    return (
+      <div className="canvas-page-full">
+        <div className="canvas-page-loading">
+          <LoadingState />
+        </div>
+      </div>
+    );
+  }
+  if (canvas === null) {
+    return (
+      <div className="canvas-page-full">
+        <div className="canvas-page-loading">
+          <EmptyState title="This link is no longer available." />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="canvas-page">
-      <PageHeader title={canvas.title} />
+    <div className="canvas-page-full">
+      <div className="canvas-floating-header">
+        <PageHeader title={canvas.title} />
+      </div>
 
       {canvas.kind === "canvas" ? (
         <>
-          {docError && <p className="error-text">{docError}</p>}
-          {!doc && !docError && <LoadingState label="Loading canvas…" />}
+          {docError && <p className="error-text canvas-page-loading">{docError}</p>}
+          {!doc && !docError && (
+            <div className="canvas-page-loading">
+              <LoadingState label="Loading canvas…" />
+            </div>
+          )}
           {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
-        canvas.kind === "image" ? (
-          <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
-        ) : (
-          <iframe src={canvas.entry_url} title={canvas.title} className="artifact-preview-frame" />
-        )
+        <div className="canvas-artifact-full">
+          {canvas.kind === "image" ? (
+            <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
+          ) : (
+            <iframe
+              src={canvas.entry_url}
+              title={canvas.title}
+              className="artifact-preview-frame"
+            />
+          )}
+        </div>
       ) : (
-        <EmptyState title="No render yet." />
+        <div className="canvas-page-loading">
+          <EmptyState title="No render yet." />
+        </div>
       )}
     </div>
   );

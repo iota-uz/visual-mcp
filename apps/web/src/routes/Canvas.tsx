@@ -233,12 +233,28 @@ export function CanvasPage() {
     canvas ? { workspaceId: canvas.workspace_id } : "skip",
   );
 
-  if (canvas === undefined) return <LoadingState />;
-  if (canvas === null) return <EmptyState title="Canvas not found." />;
+  if (canvas === undefined) {
+    return (
+      <div className="canvas-page-full">
+        <div className="canvas-page-loading">
+          <LoadingState />
+        </div>
+      </div>
+    );
+  }
+  if (canvas === null) {
+    return (
+      <div className="canvas-page-full">
+        <div className="canvas-page-loading">
+          <EmptyState title="Canvas not found." />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="canvas-page">
-      <header className="canvas-page-header">
+    <div className="canvas-page-full">
+      <div className="canvas-floating-header">
         <PageHeader
           title={canvas.title}
           back={{ to: workspace ? `/w/${workspace.slug}` : "/", label: "Workspace" }}
@@ -249,22 +265,34 @@ export function CanvasPage() {
           publicSlug={canvas.public_slug}
         />
         <VersionHistory canvasId={canvas.canvas_id} />
-      </header>
+      </div>
 
       {canvas.kind === "canvas" ? (
         <>
-          {docError && <p className="error-text">{docError}</p>}
-          {!doc && !docError && <LoadingState label="Loading canvas…" />}
+          {docError && <p className="error-text canvas-page-loading">{docError}</p>}
+          {!doc && !docError && (
+            <div className="canvas-page-loading">
+              <LoadingState label="Loading canvas…" />
+            </div>
+          )}
           {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
-        canvas.kind === "image" ? (
-          <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
-        ) : (
-          <iframe src={canvas.entry_url} title={canvas.title} className="artifact-preview-frame" />
-        )
+        <div className="canvas-artifact-full">
+          {canvas.kind === "image" ? (
+            <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
+          ) : (
+            <iframe
+              src={canvas.entry_url}
+              title={canvas.title}
+              className="artifact-preview-frame"
+            />
+          )}
+        </div>
       ) : (
-        <EmptyState title="No render yet." hint="Ask Claude to render this canvas." />
+        <div className="canvas-page-loading">
+          <EmptyState title="No render yet." hint="Ask Claude to render this canvas." />
+        </div>
       )}
     </div>
   );

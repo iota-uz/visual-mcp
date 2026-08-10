@@ -83,62 +83,98 @@ a {
   color: var(--app-accent);
 }
 
-/* --- nav --- */
+/* --- app shell: fixed-height sidebar + scrollable content column, so a
+   canvas page (below) can stretch its viewport to the full remaining
+   viewport height instead of living in normal padded document flow --- */
 
-.app-nav {
+.app-shell {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--app-space-3) var(--app-space-6);
-  border-bottom: 1px solid var(--app-line);
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-sm);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  height: 100dvh;
+  overflow: hidden;
 }
 
-.app-nav-brand {
+.app-sidebar {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--app-white);
+  border-right: 1px solid var(--app-line);
+  padding: var(--app-space-4) var(--app-space-3);
+  overflow-y: auto;
+}
+
+.app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
   font-family: var(--app-font-display);
   font-weight: 700;
-  font-size: var(--app-text-lg);
+  font-size: var(--app-text-base);
   text-decoration: none;
   color: var(--app-ink);
+  padding: var(--app-space-2);
+  margin-bottom: var(--app-space-4);
 }
 
-.app-nav-links {
+.app-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  flex: 1;
+}
+
+.app-sidebar-link {
   display: flex;
   align-items: center;
-  gap: var(--app-space-4);
-}
-
-.app-nav-link {
+  gap: var(--app-space-2);
   color: var(--app-muted);
   text-decoration: none;
   font-size: var(--app-text-sm);
   font-weight: 600;
-  padding: var(--app-space-1) var(--app-space-2);
-  border-radius: var(--app-radius-sm);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-md);
   transition:
     color 0.15s,
     background 0.15s;
 }
 
-.app-nav-link:hover {
+.app-sidebar-link:hover {
   color: var(--app-ink);
   background: var(--app-paper);
 }
 
-.app-nav-link.active {
+.app-sidebar-link.active {
   color: var(--app-accent);
   background: var(--app-accent-soft);
 }
 
-.app-nav-email {
-  font-size: var(--app-text-sm);
+.app-sidebar-footer {
+  border-top: 1px solid var(--app-line);
+  padding-top: var(--app-space-3);
+  margin-top: var(--app-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
 }
 
-.app-main {
+.app-sidebar-email {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+  padding: 0 var(--app-space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.page-container {
   max-width: 1040px;
   margin: 0 auto;
   padding: var(--app-space-6);
@@ -166,19 +202,30 @@ a {
   justify-content: center;
 }
 
-/* --- public share shell (/s/:slug — no Nav, no auth) --- */
+/* --- public share shell (/s/:slug — no sidebar, no auth) --- */
 
 .public-shell {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--app-paper);
 }
 
 .public-shell-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   padding: var(--app-space-3) var(--app-space-6);
   border-bottom: 1px solid var(--app-line);
   background: var(--app-white);
+}
+
+.public-shell-brand {
+  font-family: var(--app-font-display);
+  font-weight: 700;
+  font-size: var(--app-text-base);
+  color: var(--app-ink);
 }
 
 .muted {
@@ -570,27 +617,64 @@ a {
   overflow-x: auto;
 }
 
-/* --- canvas page --- */
+/* --- canvas page: fills the entire remaining viewport (Figma/osago-style
+   full-bleed canvas) instead of living in padded document flow — title,
+   publish control, and version history float over it as a card instead of
+   pushing it down --- */
 
-.canvas-page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--app-space-4);
+.canvas-page-full {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--app-paper);
 }
 
-.canvas-page-header {
+.canvas-floating-header {
+  position: absolute;
+  top: var(--app-space-4);
+  left: var(--app-space-4);
+  z-index: 20;
+  width: 340px;
+  max-width: calc(100% - var(--app-space-8));
+  max-height: calc(100% - var(--app-space-8));
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  padding: var(--app-space-3) var(--app-space-4);
+  box-shadow: var(--app-shadow-lg);
+}
+
+.canvas-floating-header .page-header {
   margin-bottom: 0;
+}
+
+.canvas-page-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .publish-control {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--app-space-2);
-  margin-top: var(--app-space-2);
+  margin-top: var(--app-space-3);
+}
+
+.publish-control .muted {
+  overflow-wrap: anywhere;
 }
 
 .version-history {
-  margin-top: var(--app-space-2);
+  margin-top: var(--app-space-3);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-lg);
   background: var(--app-white);
@@ -611,43 +695,59 @@ a {
 }
 
 .vc-viewport-host {
-  position: relative;
-  width: 100%;
-  height: 80vh;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-xl);
-  overflow: hidden;
+  position: absolute;
+  inset: 0;
   background: var(--app-white);
-  box-shadow: var(--app-shadow-md);
+}
+
+.canvas-artifact-full {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--app-space-6);
 }
 
 .artifact-preview {
   max-width: 100%;
+  max-height: 100%;
   border-radius: var(--app-radius-md);
 }
 
 .artifact-preview-frame {
   width: 100%;
-  height: 80vh;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
+  height: 100%;
+  border: none;
 }
 
 /* --- responsive --- */
 
 @media (max-width: 640px) {
-  .app-nav {
-    padding: var(--app-space-2) var(--app-space-4);
-    flex-wrap: wrap;
-    gap: var(--app-space-2);
+  .app-sidebar {
+    flex-basis: 64px;
+    padding: var(--app-space-3) var(--app-space-2);
+    align-items: center;
   }
 
-  .app-nav-email {
+  .app-sidebar-brand,
+  .app-sidebar-link {
+    justify-content: center;
+    padding: var(--app-space-2);
+  }
+
+  .app-sidebar-brand span,
+  .app-sidebar-link span,
+  .app-sidebar-email {
     display: none;
   }
 
-  .app-main {
+  .page-container {
     padding: var(--app-space-4);
+  }
+
+  .canvas-floating-header {
+    width: calc(100% - var(--app-space-8));
   }
 
   .canvas-grid {
