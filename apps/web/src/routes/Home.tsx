@@ -1,7 +1,11 @@
 import { useMutation, useQuery } from "convex/react";
+import { Search } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
+import { PageHeader } from "../components/PageHeader";
 
 function NodeSearch() {
   const [term, setTerm] = useState("");
@@ -9,6 +13,7 @@ function NodeSearch() {
 
   return (
     <div className="node-search">
+      <Search className="node-search-icon" size={14} />
       <input
         value={term}
         onChange={(e) => setTerm(e.target.value)}
@@ -54,9 +59,9 @@ export function HomePage() {
   return (
     <div>
       <NodeSearch />
-      <h1>Workspaces</h1>
-      {workspaces === undefined && <p>Loading…</p>}
-      {workspaces?.length === 0 && <p>No workspaces yet — create one below.</p>}
+      <PageHeader title="Workspaces" />
+      {workspaces === undefined && <LoadingState />}
+      {workspaces?.length === 0 && <EmptyState title="No workspaces yet — create one below." />}
       <ul className="card-list">
         {workspaces?.map((w) => (
           <li key={w.workspace_id}>
@@ -74,7 +79,7 @@ export function HomePage() {
           placeholder="New workspace name"
           disabled={creating}
         />
-        <button type="submit" disabled={creating || !name.trim()}>
+        <button type="submit" className="btn btn-primary" disabled={creating || !name.trim()}>
           Create
         </button>
       </form>

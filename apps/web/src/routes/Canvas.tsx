@@ -7,9 +7,12 @@ import {
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
+import { PageHeader } from "../components/PageHeader";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
 // minimap/?node= deep-linking) directly against the fetched CanvasDoc —
@@ -90,13 +93,23 @@ function PublishControl({
 
   return (
     <div className="publish-control">
-      <button type="button" onClick={toggle} disabled={busy}>
+      <button
+        type="button"
+        className={visibility === "public" ? "btn btn-secondary" : "btn btn-primary"}
+        onClick={toggle}
+        disabled={busy}
+      >
         {visibility === "public" ? "Make private" : "Publish"}
       </button>
       {visibility === "public" && publicSlug && (
         <>
-          <span className="muted"> shared at /s/{publicSlug}</span>
-          <button type="button" onClick={rotate} disabled={busy}>
+          <span className="muted">shared at /s/{publicSlug}</span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={rotate}
+            disabled={busy}
+          >
             Rotate link
           </button>
         </>
@@ -108,7 +121,7 @@ function PublishControl({
 function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
   const versions = useQuery(api.canvases.listVersionsMine, { canvasId });
 
-  if (versions === undefined) return <p className="muted">Loading version history…</p>;
+  if (versions === undefined) return <LoadingState label="Loading version history…" />;
   if (versions.length === 0) return null;
 
   return (
@@ -220,16 +233,16 @@ export function CanvasPage() {
     canvas ? { workspaceId: canvas.workspace_id } : "skip",
   );
 
-  if (canvas === undefined) return <p>Loading…</p>;
-  if (canvas === null) return <p>Canvas not found.</p>;
+  if (canvas === undefined) return <LoadingState />;
+  if (canvas === null) return <EmptyState title="Canvas not found." />;
 
   return (
     <div className="canvas-page">
       <header className="canvas-page-header">
-        <p>
-          <Link to={workspace ? `/w/${workspace.slug}` : "/"}>← Workspace</Link>
-        </p>
-        <h1>{canvas.title}</h1>
+        <PageHeader
+          title={canvas.title}
+          back={{ to: workspace ? `/w/${workspace.slug}` : "/", label: "Workspace" }}
+        />
         <PublishControl
           canvasId={canvas.canvas_id}
           visibility={canvas.visibility}
@@ -241,7 +254,7 @@ export function CanvasPage() {
       {canvas.kind === "canvas" ? (
         <>
           {docError && <p className="error-text">{docError}</p>}
-          {!doc && !docError && <p>Loading canvas…</p>}
+          {!doc && !docError && <LoadingState label="Loading canvas…" />}
           {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
@@ -251,7 +264,7 @@ export function CanvasPage() {
           <iframe src={canvas.entry_url} title={canvas.title} className="artifact-preview-frame" />
         )
       ) : (
-        <p>No render yet — ask Claude to render this canvas.</p>
+        <EmptyState title="No render yet." hint="Ask Claude to render this canvas." />
       )}
     </div>
   );

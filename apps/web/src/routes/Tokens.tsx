@@ -1,6 +1,11 @@
 import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "../../../../convex/_generated/api";
+import { Badge } from "../components/Badge";
+import { CopyButton } from "../components/CopyButton";
+import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
+import { PageHeader } from "../components/PageHeader";
 
 export function TokensPage() {
   const tokens = useQuery(api.tokens.listMine, {});
@@ -25,27 +30,33 @@ export function TokensPage() {
 
   const convexUrl = (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? "<your-deployment>";
   const mcpUrl = convexUrl.replace(/\.convex\.cloud$/, ".convex.site").replace(/\/+$/, "");
+  const cliSnippet = justMinted
+    ? `claude mcp add --transport http visual-canvas ${mcpUrl}/mcp \\\n  --header "Authorization: Bearer ${justMinted.token}"`
+    : "";
 
   return (
     <div>
-      <h1>MCP tokens</h1>
-      <p className="muted">
-        Tokens let Claude connect to this workspace over MCP. They expire after 90 days and are
-        shown in full exactly once, right after minting.
-      </p>
+      <PageHeader
+        title="MCP tokens"
+        subtitle="Tokens let Claude connect to this workspace over MCP. They expire after 90 days and are shown in full exactly once, right after minting."
+      />
 
       {justMinted && (
         <div className="token-reveal">
           <p>
             <strong>Copy this now — it won't be shown again:</strong>
           </p>
-          <code>{justMinted.token}</code>
+          <div className="token-reveal-row">
+            <code>{justMinted.token}</code>
+            <CopyButton value={justMinted.token} />
+          </div>
           <p className="muted">Expires {new Date(justMinted.expiresAt).toLocaleDateString()}</p>
           <p className="muted">Configure with:</p>
-          <pre>
-            {`claude mcp add --transport http visual-canvas ${mcpUrl}/mcp \\\n  --header "Authorization: Bearer ${justMinted.token}"`}
-          </pre>
-          <button type="button" onClick={() => setJustMinted(null)}>
+          <div className="token-reveal-row">
+            <pre>{cliSnippet}</pre>
+            <CopyButton value={cliSnippet} label="Copy command" />
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={() => setJustMinted(null)}>
             Done
           </button>
         </div>
@@ -58,43 +69,63 @@ export function TokensPage() {
           placeholder="Token name (e.g. laptop)"
           disabled={minting}
         />
-        <button type="submit" disabled={minting || !name.trim()}>
+        <button type="submit" className="btn btn-primary" disabled={minting || !name.trim()}>
           Mint token
         </button>
       </form>
 
-      <table className="token-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Prefix</th>
-            <th>Expires</th>
-            <th>Last used</th>
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {tokens?.map((t) => (
-            <tr key={t.tokenId}>
-              <td>{t.name}</td>
-              <td>
-                <code>{t.prefix}…</code>
-              </td>
-              <td>{new Date(t.expiresAt).toLocaleDateString()}</td>
-              <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString() : "never"}</td>
-              <td>{t.revokedAt ? "revoked" : t.expiresAt <= Date.now() ? "expired" : "active"}</td>
-              <td>
-                {!t.revokedAt && (
-                  <button type="button" onClick={() => revoke({ tokenId: t.tokenId })}>
-                    Revoke
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {tokens === undefined && <LoadingState label="Loading tokens…" />}
+      {tokens?.length === 0 && (
+        <EmptyState title="No tokens yet." hint="Mint one above to connect Claude over MCP." />
+      )}
+      {tokens && tokens.length > 0 && (
+        <div className="token-table-wrap">
+          <table className="token-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Prefix</th>
+                <th>Expires</th>
+                <th>Last used</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {tokens.map((t) => (
+                <tr key={t.tokenId}>
+                  <td>{t.name}</td>
+                  <td>
+                    <code>{t.prefix}…</code>
+                  </td>
+                  <td>{new Date(t.expiresAt).toLocaleDateString()}</td>
+                  <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString() : "never"}</td>
+                  <td>
+                    {t.revokedAt ? (
+                      <Badge tone="danger">revoked</Badge>
+                    ) : t.expiresAt <= Date.now() ? (
+                      <Badge tone="warning">expired</Badge>
+                    ) : (
+                      <Badge tone="success">active</Badge>
+                    )}
+                  </td>
+                  <td>
+                    {!t.revokedAt && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => revoke({ tokenId: t.tokenId })}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

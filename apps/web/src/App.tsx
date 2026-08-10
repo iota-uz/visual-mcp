@@ -1,8 +1,11 @@
+import { googleLogout } from "@react-oauth/google";
 import { useConvexAuth, useMutation } from "convex/react";
+import { LogOut } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
 import { SignInButton, useGoogleAuth } from "./auth";
+import { LoadingState } from "./components/LoadingState";
 import { CanvasPage } from "./routes/Canvas";
 import { HomePage } from "./routes/Home";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
@@ -34,7 +37,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="centered-page">
-        <p>Loading…</p>
+        <LoadingState />
       </div>
     );
   }
@@ -44,7 +47,9 @@ function AuthGate({ children }: { children: ReactNode }) {
       <div className="centered-page">
         <h1>Visual Canvas</h1>
         <p>Sign in with your @iota.uz Google account to continue.</p>
-        <SignInButton />
+        <div className="centered-page-signin">
+          <SignInButton />
+        </div>
         {identity && identity.hd !== "iota.uz" && (
           <p className="error-text">
             Signed in as {identity.email}, which is not an @iota.uz account.
@@ -57,24 +62,57 @@ function AuthGate({ children }: { children: ReactNode }) {
   return <EnsureUser>{children}</EnsureUser>;
 }
 
+function navLinkClass({ isActive }: { isActive: boolean }) {
+  return isActive ? "app-nav-link active" : "app-nav-link";
+}
+
 function Nav() {
+  const { identity, signOut } = useGoogleAuth();
+
+  function handleSignOut() {
+    googleLogout();
+    signOut();
+  }
+
   return (
     <header className="app-nav">
       <Link to="/" className="app-nav-brand">
         Visual Canvas
       </Link>
-      <Link to="/settings/tokens">MCP tokens</Link>
+      <nav className="app-nav-links">
+        <NavLink to="/settings/tokens" className={navLinkClass}>
+          MCP tokens
+        </NavLink>
+        {identity?.email && <span className="app-nav-email muted">{identity.email}</span>}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={handleSignOut}>
+          <LogOut size={14} /> Sign out
+        </button>
+      </nav>
     </header>
   );
 }
 
 // `/s/:slug` is deliberately outside <AuthGate> — it's the anonymous,
-// no-login public-share route (PLAN.md Part 1 section 1/8, decision #4).
-// Every other route requires a signed-in @iota.uz session.
+// no-login public-share route (PLAN.md Part 1 section 1/8, decision #4). It
+// gets its own minimal shell (brand only, no nav links, no sign-out) since
+// it's the only page anonymous outsiders ever see. Every other route
+// requires a signed-in @iota.uz session.
 export function App() {
   return (
     <Routes>
-      <Route path="/s/:slug" element={<PublicCanvasPage />} />
+      <Route
+        path="/s/:slug"
+        element={
+          <div className="public-shell">
+            <header className="public-shell-header">
+              <span className="app-nav-brand">Visual Canvas</span>
+            </header>
+            <main className="app-main">
+              <PublicCanvasPage />
+            </main>
+          </div>
+        }
+      />
       <Route
         path="*"
         element={

@@ -1,6 +1,10 @@
 import { useQuery } from "convex/react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import { Badge } from "../components/Badge";
+import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
+import { PageHeader } from "../components/PageHeader";
 
 export function WorkspacePage() {
   const { wsSlug } = useParams<{ wsSlug: string }>();
@@ -11,26 +15,31 @@ export function WorkspacePage() {
   );
 
   if (workspace === undefined) {
-    return <p>Loading…</p>;
+    return <LoadingState />;
   }
   if (workspace === null) {
-    return <p>No workspace found at "{wsSlug}".</p>;
+    return <p className="error-text">No workspace found at "{wsSlug}".</p>;
   }
 
   return (
     <div>
-      <p>
-        <Link to="/">← Workspaces</Link>
-      </p>
-      <h1>{workspace.name}</h1>
-      {workspace.description && <p className="muted">{workspace.description}</p>}
+      <PageHeader
+        title={workspace.name}
+        subtitle={workspace.description}
+        back={{ to: "/", label: "Workspaces" }}
+      />
 
-      {canvases === undefined && <p>Loading canvases…</p>}
+      {canvases === undefined && <LoadingState label="Loading canvases…" />}
       {canvases?.length === 0 && (
-        <p>
-          No canvases yet. Point Claude at this workspace over MCP — see{" "}
-          <Link to="/settings/tokens">MCP tokens</Link>.
-        </p>
+        <EmptyState
+          title="No canvases yet."
+          hint={
+            <>
+              Point Claude at this workspace over MCP — see{" "}
+              <Link to="/settings/tokens">MCP tokens</Link>.
+            </>
+          }
+        />
       )}
       <ul className="canvas-grid">
         {canvases?.map((c) => (
@@ -42,9 +51,12 @@ export function WorkspacePage() {
                 <div className="canvas-card-thumbnail canvas-card-thumbnail-empty" />
               )}
               <strong>{c.title}</strong>
-              <span className="muted">
-                {c.kind} · {c.visibility}
-                {c.visibility === "public" && c.public_slug ? " · shared" : ""}
+              <span className="canvas-card-status">
+                <Badge tone="neutral">{c.kind}</Badge>
+                <Badge tone={c.visibility === "public" ? "success" : "neutral"}>
+                  {c.visibility}
+                </Badge>
+                {c.visibility === "public" && c.public_slug && <Badge tone="info">shared</Badge>}
               </span>
             </Link>
           </li>

@@ -1,6 +1,9 @@
 import { useQuery } from "convex/react";
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
+import { PageHeader } from "../components/PageHeader";
 import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 
 // The anonymous /s/:slug viewer (PLAN.md Part 1 section 1/8, decision #4):
@@ -11,19 +14,17 @@ export function PublicCanvasPage() {
   const canvas = useQuery(api.canvases.getPublic, slug ? { publicSlug: slug } : "skip");
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
 
-  if (canvas === undefined) return <p>Loading…</p>;
-  if (canvas === null) return <p>This link is no longer available.</p>;
+  if (canvas === undefined) return <LoadingState />;
+  if (canvas === null) return <EmptyState title="This link is no longer available." />;
 
   return (
     <div className="canvas-page">
-      <header className="canvas-page-header">
-        <h1>{canvas.title}</h1>
-      </header>
+      <PageHeader title={canvas.title} />
 
       {canvas.kind === "canvas" ? (
         <>
           {docError && <p className="error-text">{docError}</p>}
-          {!doc && !docError && <p>Loading canvas…</p>}
+          {!doc && !docError && <LoadingState label="Loading canvas…" />}
           {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
@@ -33,7 +34,7 @@ export function PublicCanvasPage() {
           <iframe src={canvas.entry_url} title={canvas.title} className="artifact-preview-frame" />
         )
       ) : (
-        <p>No render yet.</p>
+        <EmptyState title="No render yet." />
       )}
     </div>
   );
