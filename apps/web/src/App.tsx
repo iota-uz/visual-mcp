@@ -1,10 +1,9 @@
-import { googleLogout } from "@react-oauth/google";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Blocks, KeyRound, LayoutGrid, LogOut } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
-import { SignInButton, useGoogleAuth } from "./auth";
+import { SignInButton, useSessionUser, useSignOut } from "./auth";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
@@ -40,7 +39,6 @@ function EnsureUser({ children }: { children: ReactNode }) {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
-  const { identity } = useGoogleAuth();
 
   if (isLoading) {
     return (
@@ -56,13 +54,11 @@ function AuthGate({ children }: { children: ReactNode }) {
         <h1>Visual Canvas</h1>
         <p>Sign in with your @iota.uz Google account to continue.</p>
         <div className="centered-page-signin">
+          {/* Accounts outside the org are now rejected server-side during
+              the OAuth exchange, so the "signed in as someone else" state
+              can no longer exist here — the button reports the refusal. */}
           <SignInButton />
         </div>
-        {identity && identity.hd !== "iota.uz" && (
-          <p className="error-text">
-            Signed in as {identity.email}, which is not an @iota.uz account.
-          </p>
-        )}
       </div>
     );
   }
@@ -78,15 +74,18 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
 function Sidebar() {
-  const { identity, signOut } = useGoogleAuth();
+  const sessionUser = useSessionUser();
+  const signOut = useSignOut();
   // Switching workspaces used to be a three-hop trip: canvas → workspace →
   // home → other workspace. This is the same subscription Home already
   // holds, so the list costs nothing extra.
   const workspaces = useQuery(api.workspaces.listMine, {});
 
   function handleSignOut() {
-    googleLogout();
-    signOut();
+    // Ends the Convex session and drops the stored tokens; the Google
+    // account itself stays signed in in the browser, which is what a user
+    // signing out of one app expects.
+    void signOut();
   }
 
   return (
@@ -119,9 +118,9 @@ function Sidebar() {
         </NavLink>
       </nav>
       <div className="app-sidebar-footer">
-        {identity?.email && (
-          <span className="app-sidebar-email" title={identity.email}>
-            {identity.email}
+        {sessionUser?.email && (
+          <span className="app-sidebar-email" title={sessionUser.email}>
+            {sessionUser.email}
           </span>
         )}
         <button type="button" className="btn btn-ghost btn-sm" onClick={handleSignOut}>

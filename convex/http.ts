@@ -37,6 +37,9 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { httpAction } from "./_generated/server";
+// Aliased: the request handlers below bind a local `auth` for the verified
+// bearer AuthInfo.
+import { auth as convexAuth } from "./auth";
 import { sha256Hex } from "./lib/hash";
 import { buildInstructions } from "./mcp/instructions";
 import { type McpPrincipal, registerResources, registerTools } from "./mcp/tools";
@@ -78,6 +81,12 @@ function buildVerifier(ctx: ActionCtx): OAuthTokenVerifier {
 }
 
 const http = httpRouter();
+
+// Convex Auth's own endpoints (../auth.ts): the OAuth redirect, the Google
+// callback, and the refresh-token exchange the SPA calls silently in the
+// background. They live under /api/auth/*, so they cannot collide with /mcp
+// or the public /s/:slug artifact route below.
+convexAuth.addHttpRoutes(http);
 
 http.route({
   path: "/mcp",

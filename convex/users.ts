@@ -5,7 +5,7 @@
  */
 
 import { mutation, query } from "./_generated/server";
-import { getOrCreateUserId, requireIotaIdentity } from "./lib/auth";
+import { getOrCreateUserId, requireIotaIdentity, resolveUserId } from "./lib/auth";
 
 // Called once by the SPA right after sign-in, before any other Convex call
 // that depends on a `users` row existing. Idempotent — safe to call on
@@ -24,10 +24,10 @@ export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
     const identity = await requireIotaIdentity(ctx);
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_googleSub", (q) => q.eq("googleSub", identity.subject))
-      .unique();
+    // Resolves both token shapes: a Convex Auth subject carries the row's id
+    // directly, a raw Google ID token has to be looked up by `googleSub`.
+    const userId = await resolveUserId(ctx, identity);
+    const user = userId ? await ctx.db.get(userId) : null;
     if (!user) {
       // Signed in with a valid @iota.uz token but ensureUser hasn't run yet
       // (e.g. token refreshed in a second tab before the first tab's mutation

@@ -52,6 +52,55 @@ describe("requireIotaIdentity (via ensureUser/getCurrentUser)", () => {
   });
 });
 
+/*
+ * Convex Auth sessions look nothing like a Google ID token: `subject` is
+ * "<usersId>|<sessionId>" and there is no `hd`, no `email`, no
+ * `email_verified` — those claims were checked once, at sign-in, inside
+ * convex/auth.ts's createOrUpdateUser. These tests pin the two halves of
+ * that contract: such a session is accepted, and it resolves to the
+ * pre-existing user row rather than minting a second one.
+ */
+describe("Convex Auth sessions", () => {
+  async function seedUser(t: ReturnType<typeof convexTest>) {
+    return await t.run((ctx) =>
+      ctx.db.insert("users", {
+        googleSub: "google-sub-123",
+        email: "person@iota.uz",
+        name: "Person",
+        lastSeenAt: 0,
+      }),
+    );
+  }
+
+  test("accepts a session subject with no Google claims at all", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t);
+    const asSession = t.withIdentity({ subject: `${userId}|session-abc`, issuer: "convex" });
+
+    const me = await asSession.query(api.users.getCurrentUser, {});
+    expect(me?.userId).toBe(userId);
+    expect(me?.email).toBe("person@iota.uz");
+  });
+
+  test("resolves to the existing row instead of creating a second user", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t);
+    const asSession = t.withIdentity({ subject: `${userId}|session-abc`, issuer: "convex" });
+
+    expect(await asSession.mutation(api.users.ensureUser, {})).toBe(userId);
+    const all = await t.run((ctx) => ctx.db.query("users").collect());
+    expect(all).toHaveLength(1);
+  });
+
+  test("a subject naming no real row is not signed in as somebody else", async () => {
+    const t = convexTest(schema, modules);
+    await seedUser(t);
+    // Well-formed shape, garbage id — must not resolve to the seeded user.
+    const asBogus = t.withIdentity({ subject: "not-a-real-id|session-abc", issuer: "convex" });
+    expect(await asBogus.query(api.users.getCurrentUser, {})).toBeNull();
+  });
+});
+
 describe("bootstrap-user reconciliation", () => {
   test("first sign-in adopts a pre-existing bootstrap:<email> row instead of creating a duplicate user", async () => {
     const t = convexTest(schema, modules);

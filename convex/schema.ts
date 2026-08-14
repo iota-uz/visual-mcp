@@ -11,19 +11,41 @@
  * Convex's 1 MiB document limit").
  */
 
+import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// `users` is deliberately NOT taken from `authTables`: this app had one
+// first, keyed by `googleSub`, and every workspace, canvas and MCP token
+// points at those ids. ../auth.ts's `createOrUpdateUser` owns all writes to
+// it, so Convex Auth never inserts a row of its own — it links its
+// `authAccounts` row to the row that was already there. The optional fields
+// below are the auth table's own; they are declared so a future library
+// write can't fail schema validation, and the `email`/`phone` indexes are
+// the names the library looks up by.
+const { users: _authUsers, ...authSupportTables } = authTables;
+
 export default defineSchema({
+  ...authSupportTables,
+
   users: defineTable({
     googleSub: v.string(),
     email: v.string(),
     name: v.string(),
     pictureUrl: v.optional(v.string()),
     lastSeenAt: v.number(),
+    image: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
   })
     .index("by_googleSub", ["googleSub"])
-    .index("by_email", ["email"]),
+    // Named `email`, not `by_email`: Convex rejects two indexes over the
+    // same field, and `email`/`phone` are the names the auth library looks
+    // up by. Nothing in this repo queried the old `by_email` index.
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
 
   // Static bearer tokens (PLAN.md section 7) — never store the plaintext,
   // only its sha256 hash plus an 8-char display prefix for the tokens UI.
