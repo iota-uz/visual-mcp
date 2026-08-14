@@ -179,6 +179,46 @@ type FileInput = z.infer<typeof FileInputSchema>;
  */
 const REF_PATTERN = /(?:src|href)\s*=\s*["']([^"']+)["']|url\(\s*["']?([^"')]+)["']?\s*\)/gi;
 
+/**
+ * Resolves a reference the way a browser does — against the *directory of
+ * the file that made it*, not against the canvas root. `/src/index.html`
+ * pointing at `../assets/logo.png` means `/assets/logo.png`; treating the
+ * reference as root-relative produced the nonsense path `/../assets/logo.png`,
+ * which matched no file, so every correct `../assets/...` reference was
+ * reported as broken. Returns null for a path that climbs past the root,
+ * which can never name a canvas file.
+ */
+function resolveRef(fromFile: string, raw: string): string | null {
+  const segments = raw.startsWith("/")
+    ? []
+    : fromFile
+        .replace(/\/[^/]*$/, "")
+        .split("/")
+        .filter(Boolean);
+  for (const segment of raw.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.pop() === undefined) return null;
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.length > 0 ? `/${segments.join("/")}` : null;
+}
+
+/** Collapses warnings that name the same problem — the static scan and the
+ * renderer's own failed-request report overlap by design, and a caller does
+ * not need to be told twice that one image is missing. */
+function dedupeWarnings(warnings: Warning[]): Warning[] {
+  const seen = new Set<string>();
+  return warnings.filter((w) => {
+    const key = `${w.code} ${w.path ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function scanUnresolvedRefs(
   writtenText: Array<{ path: string; text: string }>,
   knownPaths: Set<string>,
@@ -193,10 +233,7 @@ function scanUnresolvedRefs(
       // Absolute, protocol-relative, data/blob URIs and anchors are external.
       if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|mailto:)/i.test(raw)) continue;
 
-      const resolved = raw.startsWith("/")
-        ? raw
-        : `/${raw.replace(/^\.\//, "")}`.replace(/\/{2,}/g, "/");
-      const normalized = resolved.split("?")[0]?.split("#")[0] ?? resolved;
+      const normalized = resolveRef(file.path, raw.split("?")[0]?.split("#")[0] ?? raw);
       if (!normalized || knownPaths.has(normalized)) continue;
       // The worker vendors this one itself; it is never a canvas file.
       if (normalized === "/assets/js/apexcharts.min.js") continue;
@@ -835,7 +872,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           files_written: filesWritten,
           artifacts,
           storage: detail.storage,
-          warnings,
+          warnings: dedupeWarnings(warnings),
         });
       }),
   );

@@ -434,8 +434,38 @@ describe("/mcp canvas_save", () => {
 
     const warnings = data.warnings as Array<{ code: string; path?: string }>;
     const paths = warnings.filter((w) => w.code === "unresolved_asset").map((w) => w.path);
-    expect(paths).toContain("/accident-1.jpg");
+    // "./accident-1.jpg" sits *beside* index.html, so it means
+    // /src/accident-1.jpg — resolving refs against the canvas root instead
+    // named files that were never referenced.
+    expect(paths).toContain("/src/accident-1.jpg");
     expect(paths).toContain("/assets/missing.png");
+  });
+
+  test("a ../assets reference resolves against the referencing file, not the root", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "probe/refs",
+        kind: "html",
+        files: [
+          { path: "/assets/logo.png", text: "PNG" },
+          {
+            path: "/src/index.html",
+            text: '<img src="../assets/logo.png"><img src="../assets/gone.png">',
+          },
+        ],
+      }),
+    );
+
+    // Resolving against the canvas root instead produced "/../assets/logo.png",
+    // which matches nothing — so every correct reference was reported broken
+    // and the report was useless noise.
+    const paths = (data.warnings as { code: string; path?: string }[])
+      .filter((w) => w.code === "unresolved_asset")
+      .map((w) => w.path);
+    expect(paths).toEqual(["/assets/gone.png"]);
   });
 
   test("an asset that IS present produces no warning", async () => {
