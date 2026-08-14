@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import { Badge } from "../components/Badge";
+import { ConnectPanel } from "../components/ConnectPanel";
 import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
@@ -28,17 +29,11 @@ export function TokensPage() {
     }
   }
 
-  const convexUrl = (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? "<your-deployment>";
-  const mcpUrl = convexUrl.replace(/\.convex\.cloud$/, ".convex.site").replace(/\/+$/, "");
-  const cliSnippet = justMinted
-    ? `claude mcp add --transport http visual-canvas ${mcpUrl}/mcp \\\n  --header "Authorization: Bearer ${justMinted.token}"`
-    : "";
-
   return (
     <div>
       <PageHeader
         title="MCP tokens"
-        subtitle="Tokens let Claude connect to this workspace over MCP. They expire after 90 days and are shown in full exactly once, right after minting."
+        subtitle="Tokens let Claude Code or Codex connect to this deployment over MCP. They expire after 90 days and are shown in full exactly once, right after minting."
       />
 
       {justMinted && (
@@ -51,11 +46,7 @@ export function TokensPage() {
             <CopyButton value={justMinted.token} />
           </div>
           <p className="muted">Expires {new Date(justMinted.expiresAt).toLocaleDateString()}</p>
-          <p className="muted">Configure with:</p>
-          <div className="token-reveal-row">
-            <pre>{cliSnippet}</pre>
-            <CopyButton value={cliSnippet} label="Copy command" />
-          </div>
+          <ConnectPanel token={justMinted.token} showTokenLink={false} />
           <button type="button" className="btn btn-secondary" onClick={() => setJustMinted(null)}>
             Done
           </button>

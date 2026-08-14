@@ -6,13 +6,16 @@ import {
   mountViewport,
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
+import { History, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { ConfirmButton } from "../components/ConfirmButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
+import { RenameForm } from "../components/RenameForm";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
 // minimap/?node= deep-linking) directly against the fetched CanvasDoc —
@@ -118,6 +121,43 @@ function PublishControl({
   );
 }
 
+function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; version: number }) {
+  const restore = useMutation(api.canvases.restoreVersionMine);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRestore() {
+    setBusy(true);
+    setError(null);
+    try {
+      await restore({ canvasId, version });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={handleRestore}
+        disabled={busy}
+      >
+        <History size={14} /> {busy ? "Restoring…" : "Restore"}
+      </button>
+      {error && <span className="error-text">{error}</span>}
+    </>
+  );
+}
+
+// The rows used to be inert text: the backend has kept every version since
+// v1, but a human could see them and not act on them. Restoring is
+// non-destructive (it writes a new current version from an old one), so
+// unlike delete it needs no armed confirmation — only the current version's
+// row has no button, since restoring it would just churn history.
 function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
   const versions = useQuery(api.canvases.listVersionsMine, { canvasId });
 
@@ -130,16 +170,23 @@ function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
       <ul className="card-list">
         {versions.map((v) => (
           <li key={v.versionId} className="card-list-item">
-            <strong>
-              v{v.version}
-              {v.isCurrent && " (current)"}
-            </strong>
-            {v.note && <span className="muted"> — {v.note}</span>}
-            <span className="muted">
-              {" "}
-              · {new Date(v.createdAt).toLocaleString()}
-              {v.createdByEmail && ` · ${v.createdByEmail}`}
-            </span>
+            <div>
+              <strong>
+                v{v.version}
+                {v.isCurrent && " (current)"}
+              </strong>
+              {v.note && <span className="muted"> — {v.note}</span>}
+              <span className="muted">
+                {" "}
+                · {new Date(v.createdAt).toLocaleString()}
+                {v.createdByEmail && ` · ${v.createdByEmail}`}
+              </span>
+            </div>
+            {!v.isCurrent && (
+              <div className="row-item-actions">
+                <RestoreButton canvasId={canvasId} version={v.version} />
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -233,6 +280,12 @@ export function CanvasPage() {
     canvas ? { workspaceId: canvas.workspace_id } : "skip",
   );
 
+  const rename = useMutation(api.canvases.renameMine);
+  const remove = useMutation(api.canvases.deleteMine);
+  const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const backTo = workspace ? `/w/${workspace.slug}` : "/";
+
   if (canvas === undefined) {
     return (
       <div className="canvas-page-full">
@@ -255,10 +308,43 @@ export function CanvasPage() {
   return (
     <div className="canvas-page-full">
       <div className="canvas-floating-header">
-        <PageHeader
-          title={canvas.title}
-          back={{ to: workspace ? `/w/${workspace.slug}` : "/", label: "Workspace" }}
-        />
+        {/* The rename form replaces the header rather than nesting inside
+            it: PageHeader's title is an <h1>, which may only contain
+            phrasing content — a <form> in there is invalid markup. */}
+        {editing ? (
+          <RenameForm
+            initial={canvas.title}
+            label="Canvas title"
+            onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
+            onDone={() => setEditing(false)}
+          />
+        ) : (
+          <PageHeader
+            title={canvas.title}
+            back={{ to: backTo, label: "Workspace" }}
+            actions={
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil size={14} /> Rename
+                </button>
+                {/* Navigate in the same tick the delete resolves: `getMine`
+                    is reactive and would otherwise flip to null under us and
+                    flash "Canvas not found." */}
+                <ConfirmButton
+                  description="Deletes this canvas and every version of it. Permanent."
+                  onConfirm={async () => {
+                    await remove({ canvasId: canvas.canvas_id });
+                    navigate(backTo);
+                  }}
+                />
+              </>
+            }
+          />
+        )}
         <PublishControl
           canvasId={canvas.canvas_id}
           visibility={canvas.visibility}

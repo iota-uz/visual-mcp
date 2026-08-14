@@ -77,4 +77,82 @@ describe("HomePage", () => {
     expect(link).toHaveAttribute("href", "/c/c1?node=checkout");
     expect(screen.getByText(/Payments/)).toBeInTheDocument();
   });
+
+  test("empty state explains how to connect an agent, for both Claude Code and Codex", () => {
+    useQueryMock.mockReturnValue([]);
+    renderHome();
+
+    expect(screen.getByRole("link", { name: /mint an MCP token/ })).toHaveAttribute(
+      "href",
+      "/settings/tokens",
+    );
+    expect(screen.getByText(/claude mcp add --transport http visual-canvas/)).toBeInTheDocument();
+    expect(screen.getByText(/codex mcp add visual-canvas --url/)).toBeInTheDocument();
+  });
+
+  // The curator surface deletes hard (the workspace and every canvas in it),
+  // so the confirmation is the only thing between a stray click and data
+  // loss — and it must not be a browser modal.
+  describe("workspace deletion", () => {
+    function mockOneWorkspaceWithTwoCanvases() {
+      useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
+        if (args && typeof args === "object") {
+          if ("query" in args) return [];
+          if ("workspaceId" in args) return [{ canvas_id: "c1" }, { canvas_id: "c2" }];
+        }
+        return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+      });
+    }
+
+    test("requires an explicit second click and names what will be lost", async () => {
+      const mutation = vi.fn().mockResolvedValue({ bytes_reclaimed: 0, canvases_deleted: 2 });
+      useMutationMock.mockReturnValue(mutation);
+      mockOneWorkspaceWithTwoCanvases();
+      renderHome();
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Delete/ }));
+      expect(mutation).not.toHaveBeenCalled();
+      expect(screen.getByText(/Deletes this workspace and 2 canvases/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Really delete?" }));
+      expect(mutation).toHaveBeenCalledWith({ workspaceId: "ws1" });
+    });
+
+    test("cancelling disarms the confirmation without deleting", async () => {
+      const mutation = vi.fn();
+      useMutationMock.mockReturnValue(mutation);
+      mockOneWorkspaceWithTwoCanvases();
+      renderHome();
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /Delete/ }));
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(mutation).not.toHaveBeenCalled();
+      expect(screen.queryByText("Really delete?")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Delete/ })).toBeInTheDocument();
+    });
+  });
+
+  test("renaming a workspace happens inline and submits the trimmed name", async () => {
+    const mutation = vi.fn().mockResolvedValue({ name: "OSAGO v2" });
+    useMutationMock.mockReturnValue(mutation);
+    useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
+      if (args && typeof args === "object" && "query" in args) return [];
+      if (args && typeof args === "object" && "workspaceId" in args) return [];
+      return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+    });
+    renderHome();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Rename/ }));
+
+    const input = screen.getByLabelText("Workspace name");
+    await user.clear(input);
+    await user.type(input, "  OSAGO v2  ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mutation).toHaveBeenCalledWith({ workspaceId: "ws1", name: "OSAGO v2" });
+  });
 });

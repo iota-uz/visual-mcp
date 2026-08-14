@@ -1,15 +1,24 @@
 import { useMutation, useQuery } from "convex/react";
-import { Search } from "lucide-react";
+import { Pencil, Search } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import { ConfirmButton } from "../components/ConfirmButton";
+import { ConnectPanel } from "../components/ConnectPanel";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
+import { RenameForm } from "../components/RenameForm";
+import { useDebouncedValue } from "../lib/useDebouncedValue";
 
 function NodeSearch() {
   const [term, setTerm] = useState("");
-  const results = useQuery(api.canvases.searchNodes, { query: term });
+  // Debounced: every keystroke used to open a fresh Convex subscription,
+  // so typing "europrotocol" cost twelve full-text queries and rendered
+  // twelve throwaway result sets.
+  const query = useDebouncedValue(term.trim(), 250);
+  const results = useQuery(api.canvases.searchNodes, query ? { query } : "skip");
 
   return (
     <div className="node-search">
@@ -19,7 +28,7 @@ function NodeSearch() {
         onChange={(e) => setTerm(e.target.value)}
         placeholder="Search canvas nodes…"
       />
-      {term.trim() && (
+      {query && (
         <ul className="card-list">
           {results === undefined && <li className="muted">Searching…</li>}
           {results?.length === 0 && <li className="muted">No matches.</li>}
@@ -35,6 +44,69 @@ function NodeSearch() {
         </ul>
       )}
     </div>
+  );
+}
+
+interface WorkspaceSummary {
+  workspace_id: Id<"workspaces">;
+  slug: string;
+  name: string;
+  description?: string;
+}
+
+function WorkspaceRow({ workspace }: { workspace: WorkspaceSummary }) {
+  // `listMine` returns no canvas count, and convex/ is off-limits here, so
+  // the count is derived client-side from the same query the workspace page
+  // uses. Accurate (it already filters archived rows) at the cost of one
+  // extra subscription per row; the alternative — printing nothing — would
+  // also leave the delete confirmation unable to say what is being lost.
+  const canvases = useQuery(api.canvases.listForWorkspace, {
+    workspaceId: workspace.workspace_id,
+  });
+  const rename = useMutation(api.workspaces.renameMine);
+  const remove = useMutation(api.workspaces.deleteMine);
+  const [editing, setEditing] = useState(false);
+
+  const count = canvases?.length;
+
+  if (editing) {
+    return (
+      <li className="card-list-item">
+        <RenameForm
+          initial={workspace.name}
+          label="Workspace name"
+          onSave={(name) => rename({ workspaceId: workspace.workspace_id, name })}
+          onDone={() => setEditing(false)}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="card-list-item row-item">
+      <Link to={`/w/${workspace.slug}`} className="row-item-main">
+        <strong>{workspace.name}</strong>
+        {workspace.description && <span className="muted"> — {workspace.description}</span>}
+      </Link>
+      <div className="row-item-actions">
+        {count !== undefined && (
+          <span className="muted row-item-meta">
+            {count} {count === 1 ? "canvas" : "canvases"}
+          </span>
+        )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
+          <Pencil size={14} /> Rename
+        </button>
+        <ConfirmButton
+          description={
+            count === undefined
+              ? "Deletes this workspace and every canvas in it. Permanent."
+              : `Deletes this workspace and ${count} ${count === 1 ? "canvas" : "canvases"}. Permanent.`
+          }
+          onConfirm={() => remove({ workspaceId: workspace.workspace_id })}
+        />
+      </div>
+    </li>
   );
 }
 
@@ -64,12 +136,7 @@ export function HomePage() {
       {workspaces?.length === 0 && <EmptyState title="No workspaces yet — create one below." />}
       <ul className="card-list">
         {workspaces?.map((w) => (
-          <li key={w.workspace_id}>
-            <Link to={`/w/${w.slug}`} className="card-list-item">
-              <strong>{w.name}</strong>
-              {w.description && <span className="muted"> — {w.description}</span>}
-            </Link>
-          </li>
+          <WorkspaceRow key={w.workspace_id} workspace={w} />
         ))}
       </ul>
       <form onSubmit={handleCreate} className="inline-form">
@@ -83,6 +150,7 @@ export function HomePage() {
           Create
         </button>
       </form>
+      {workspaces?.length === 0 && <ConnectPanel />}
     </div>
   );
 }
