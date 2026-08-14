@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { GoogleAuthProvider, useConvexAuthFromGoogle } from "./auth";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ToastProvider } from "./components/Toast";
 import "./styles.css";
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
@@ -27,7 +29,11 @@ createRoot(rootEl).render(
       <GoogleAuthProvider>
         <ConvexProviderWithAuth client={convex} useAuth={useConvexAuthFromGoogle}>
           <BrowserRouter>
-            <App />
+            <ToastProvider>
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
+            </ToastProvider>
           </BrowserRouter>
         </ConvexProviderWithAuth>
       </GoogleAuthProvider>

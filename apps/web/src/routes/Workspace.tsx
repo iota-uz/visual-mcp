@@ -1,20 +1,33 @@
 import { useMutation, useQuery } from "convex/react";
-import { Pencil } from "lucide-react";
+import {
+  FileCode,
+  FileText,
+  Image as ImageIcon,
+  LayoutDashboard,
+  type LucideIcon,
+  Pencil,
+} from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { Badge } from "../components/Badge";
 import { ConfirmButton } from "../components/ConfirmButton";
+import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
+import { CardGridSkeleton } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
+import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 
 interface CanvasSummary {
   canvas_id: Id<"canvases">;
+  slug: string;
   title: string;
+  description?: string;
   kind: string;
   visibility: "private" | "public";
   public_slug?: string;
@@ -22,10 +35,25 @@ interface CanvasSummary {
   thumbnail_url: string | null;
 }
 
-function CanvasCard({ canvas }: { canvas: CanvasSummary }) {
+// A canvas with no render has no thumbnail, and the placeholder used to be
+// an empty grey rectangle — indistinguishable from a broken image. Say what
+// the thing is instead.
+const KIND_ICON: Record<string, LucideIcon> = {
+  canvas: LayoutDashboard,
+  html: FileCode,
+  image: ImageIcon,
+  pdf: FileText,
+};
+
+function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspaceSlug: string }) {
   const rename = useMutation(api.canvases.renameMine);
   const remove = useMutation(api.canvases.deleteMine);
+  const { notify } = useToast();
   const [editing, setEditing] = useState(false);
+  const KindIcon = KIND_ICON[canvas.kind] ?? FileCode;
+  // The ref an agent addresses this canvas by. It was invisible everywhere,
+  // so the one string you need to say back to Claude had to be guessed.
+  const ref = `${workspaceSlug}/${canvas.slug}`;
 
   return (
     <li className="canvas-card">
@@ -33,19 +61,27 @@ function CanvasCard({ canvas }: { canvas: CanvasSummary }) {
         {canvas.thumbnail_url ? (
           <img src={canvas.thumbnail_url} alt="" className="canvas-card-thumbnail" />
         ) : (
-          <div className="canvas-card-thumbnail canvas-card-thumbnail-empty" />
+          <div className="canvas-card-thumbnail canvas-card-thumbnail-empty">
+            <KindIcon size={24} strokeWidth={1.5} aria-hidden="true" />
+            <span>no render yet</span>
+          </div>
         )}
         {!editing && <strong>{canvas.title}</strong>}
+        {canvas.description && (
+          <span className="canvas-card-description">{canvas.description}</span>
+        )}
         <span className="canvas-card-status">
           <Badge tone="neutral">{canvas.kind}</Badge>
+          {/* `public` and `shared` said the same thing twice. */}
           <Badge tone={canvas.visibility === "public" ? "success" : "neutral"}>
             {canvas.visibility}
           </Badge>
-          {canvas.visibility === "public" && canvas.public_slug && (
-            <Badge tone="info">shared</Badge>
-          )}
         </span>
       </Link>
+      <div className="canvas-card-ref">
+        <code>{ref}</code>
+        <CopyButton value={ref} label="Copy ref" />
+      </div>
       {editing ? (
         <RenameForm
           initial={canvas.title}
@@ -65,7 +101,12 @@ function CanvasCard({ canvas }: { canvas: CanvasSummary }) {
             </button>
             <ConfirmButton
               description="Deletes this canvas and every version of it. Permanent."
-              onConfirm={() => remove({ canvasId: canvas.canvas_id })}
+              onConfirm={async () => {
+                const result = await remove({ canvasId: canvas.canvas_id });
+                notify({
+                  message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
+                });
+              }}
             />
           </div>
         </div>
@@ -86,7 +127,14 @@ export function WorkspacePage() {
     return <LoadingState />;
   }
   if (workspace === null) {
-    return <p className="error-text">No workspace found at "{wsSlug}".</p>;
+    // Was bare red error text while the structurally identical
+    // canvas-not-found used an EmptyState. Same shape, same treatment.
+    return (
+      <EmptyState
+        title={`No workspace at "${wsSlug}".`}
+        hint={<Link to="/">Back to workspaces</Link>}
+      />
+    );
   }
 
   return (
@@ -97,7 +145,7 @@ export function WorkspacePage() {
         back={{ to: "/", label: "Workspaces" }}
       />
 
-      {canvases === undefined && <LoadingState label="Loading canvases…" />}
+      {canvases === undefined && <CardGridSkeleton cards={3} />}
       {canvases?.length === 0 && (
         <EmptyState
           title="No canvases yet."
@@ -111,7 +159,7 @@ export function WorkspacePage() {
       )}
       <ul className="canvas-grid">
         {canvases?.map((c) => (
-          <CanvasCard key={c.canvas_id} canvas={c} />
+          <CanvasCard key={c.canvas_id} canvas={c} workspaceSlug={workspace.slug} />
         ))}
       </ul>
     </div>

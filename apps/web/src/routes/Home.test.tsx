@@ -35,7 +35,7 @@ describe("HomePage", () => {
       return [];
     });
     renderHome();
-    expect(screen.getByText("No workspaces yet — create one below.")).toBeInTheDocument();
+    expect(screen.getByText("No workspaces yet.")).toBeInTheDocument();
   });
 
   test("renders a link per workspace, using its slug", () => {
@@ -86,6 +86,25 @@ describe("HomePage", () => {
       "href",
       "/settings/tokens",
     );
+    expect(screen.getByText(/claude mcp add --transport http visual-canvas/)).toBeInTheDocument();
+    expect(screen.getByText(/codex mcp add visual-canvas --url/)).toBeInTheDocument();
+    // Nothing to look at yet, so the instructions start open.
+    expect(screen.getByText("Connect an agent").closest("details")).toHaveAttribute("open");
+  });
+
+  // Regression: the panel used to be gated on `workspaces.length === 0`, so
+  // the moment you connected an agent successfully the instructions vanished
+  // and there was no path back to them from anywhere in the app.
+  test("connect instructions stay reachable once workspaces exist", () => {
+    useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
+      if (args && typeof args === "object" && "query" in args) return [];
+      if (args && typeof args === "object" && "workspaceId" in args) return [];
+      return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+    });
+    renderHome();
+
+    const disclosure = screen.getByText("Connect an agent").closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
     expect(screen.getByText(/claude mcp add --transport http visual-canvas/)).toBeInTheDocument();
     expect(screen.getByText(/codex mcp add visual-canvas --url/)).toBeInTheDocument();
   });

@@ -6,16 +6,28 @@ import {
   mountViewport,
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
-import { History, Pencil } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  History,
+  Lock,
+  Pencil,
+  RefreshCw,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ConfirmButton } from "../components/ConfirmButton";
+import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
+import { toastError, useToast } from "../components/Toast";
+import { formatBytes } from "../lib/formatBytes";
+import { formatRelativeTime } from "../lib/formatDate";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
 // minimap/?node= deep-linking) directly against the fetched CanvasDoc —
@@ -25,6 +37,16 @@ import { RenameForm } from "../components/RenameForm";
 export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const setSearchParams = useSearchParams()[1];
+  /*
+   * Held in a ref, and deliberately out of the effect's dep array below.
+   * react-router rebuilds `setSearchParams` whenever `location.search`
+   * changes — which is exactly what `onSelect` does — so having it as a dep
+   * meant every node click disposed the viewport, rebuilt the DOM and
+   * re-ran fitAll(). Clicking a node, or clicking empty space to deselect,
+   * threw away whatever the user had panned and zoomed to.
+   */
+  const setSearchParamsRef = useRef(setSearchParams);
+  setSearchParamsRef.current = setSearchParams;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -42,7 +64,15 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
       container,
       canvas: positioned,
       onSelect: (nodeId) => {
-        setSearchParams(nodeId ? { node: nodeId } : {}, { replace: true });
+        /*
+         * `replace`, not push. Selection is view state, not navigation: the
+         * URL exists so a selected node can be linked and reloaded, and the
+         * viewport has no listener for the reverse direction, so a pushed
+         * entry would rewind the URL while leaving the node visibly
+         * selected — and 15 node clicks would cost 15 Backs to leave the
+         * page. Escape (handled inside the viewport) is the deselect.
+         */
+        setSearchParamsRef.current(nodeId ? { node: nodeId } : {}, { replace: true });
       },
     });
     controller.fitAll();
@@ -55,7 +85,7 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
     if (initialNode) controller.selectNode(initialNode, true);
 
     return () => controller.dispose();
-  }, [doc, setSearchParams]);
+  }, [doc]);
 
   return <div ref={containerRef} className="vc-viewport-host" />;
 }
@@ -71,50 +101,71 @@ function PublishControl({
 }) {
   const publish = useMutation(api.canvases.publishMine);
   const rotateSlug = useMutation(api.canvases.rotateMySlug);
+  const { notify } = useToast();
   const [busy, setBusy] = useState(false);
+  const shareUrl = publicSlug ? `${window.location.origin}/s/${publicSlug}` : null;
 
-  async function toggle() {
+  async function publishNow() {
     setBusy(true);
     try {
-      await publish({
-        canvasId,
-        visibility: visibility === "public" ? "private" : "public",
-      });
+      await publish({ canvasId, visibility: "public" });
+      notify({ message: "Published — the share link is live." });
+    } catch (err: unknown) {
+      notify(toastError(err, "Couldn't publish"));
     } finally {
       setBusy(false);
     }
   }
 
+  // Unpublishing and rotating both kill every link already in circulation,
+  // instantly and with no way back — so both arm first, same as a delete.
+  async function unpublish() {
+    await publish({ canvasId, visibility: "private" });
+    notify({ message: "Now private — the old share link no longer resolves." });
+  }
+
   async function rotate() {
-    setBusy(true);
-    try {
-      await rotateSlug({ canvasId });
-    } finally {
-      setBusy(false);
-    }
+    await rotateSlug({ canvasId });
+    notify({ message: "New share link generated — the old one is dead." });
   }
 
   return (
     <div className="publish-control">
-      <button
-        type="button"
-        className={visibility === "public" ? "btn btn-secondary" : "btn btn-primary"}
-        onClick={toggle}
-        disabled={busy}
-      >
-        {visibility === "public" ? "Make private" : "Publish"}
-      </button>
-      {visibility === "public" && publicSlug && (
+      {visibility === "public" ? (
+        <ConfirmButton
+          label="Make private"
+          confirmLabel="Really make private?"
+          busyLabel="Updating…"
+          tone="warning"
+          icon={Lock}
+          description="Every link you have shared stops working."
+          onConfirm={unpublish}
+        />
+      ) : (
+        <button type="button" className="btn btn-primary" onClick={publishNow} disabled={busy}>
+          {busy ? "Publishing…" : "Publish"}
+        </button>
+      )}
+      {visibility === "public" && shareUrl && (
         <>
-          <span className="muted">shared at /s/{publicSlug}</span>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={rotate}
-            disabled={busy}
-          >
-            Rotate link
-          </button>
+          {/* The whole point of publishing is handing someone a URL. This
+              used to be dead muted text printing a *relative* path, so the
+              one thing a human came here for had to be retyped by hand. */}
+          <div className="share-link-row">
+            <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-link">
+              {shareUrl}
+            </a>
+            <CopyButton value={shareUrl} label="Copy link" />
+          </div>
+          <ConfirmButton
+            label="Rotate link"
+            confirmLabel="Really rotate?"
+            busyLabel="Rotating…"
+            tone="warning"
+            icon={RefreshCw}
+            description="Mints a new link and permanently breaks the current one."
+            onConfirm={rotate}
+          />
         </>
       )}
     </div>
@@ -123,6 +174,7 @@ function PublishControl({
 
 function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; version: number }) {
   const restore = useMutation(api.canvases.restoreVersionMine);
+  const { notify } = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,6 +183,10 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
     setError(null);
     try {
       await restore({ canvasId, version });
+      // Restoring just re-points `currentVersionId` — nothing is destroyed
+      // and no new version is minted — so without this the only signal is
+      // the document quietly changing underneath you.
+      notify({ message: `v${version} is now the current version.` });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -155,9 +211,10 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
 
 // The rows used to be inert text: the backend has kept every version since
 // v1, but a human could see them and not act on them. Restoring is
-// non-destructive (it writes a new current version from an old one), so
-// unlike delete it needs no armed confirmation — only the current version's
-// row has no button, since restoring it would just churn history.
+// non-destructive — `restoreVersion` only re-points `currentVersionId` at an
+// existing version, minting nothing and discarding nothing — so unlike delete
+// it needs no armed confirmation. Only the current version's row has no
+// button, since restoring it would be a no-op.
 function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
   const versions = useQuery(api.canvases.listVersionsMine, { canvasId });
 
@@ -206,13 +263,19 @@ interface FetchableCanvas {
 export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
   const [doc, setDoc] = useState<CanvasDoc | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
+  // Keyed on the two fields the fetch actually depends on, not the whole
+  // `canvas` object: Convex hands back a fresh object on *any* field change,
+  // so renaming or publishing used to blank the doc, flash "Loading canvas…"
+  // full-screen, refetch, and remount the viewport — losing your pan/zoom.
+  const kind = canvas?.kind;
+  const docUrl = canvas?.doc_url ?? null;
 
   useEffect(() => {
     setDoc(null);
     setDocError(null);
-    if (canvas?.kind !== "canvas" || !canvas.doc_url) return;
+    if (kind !== "canvas" || !docUrl) return;
     let cancelled = false;
-    fetch(canvas.doc_url)
+    fetch(docUrl)
       .then((res) => res.json())
       .then((json) => {
         if (cancelled) return;
@@ -229,7 +292,7 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [canvas]);
+  }, [kind, docUrl]);
 
   // Compiled Tailwind CSS for the doc's HTML nodes (PLAN.md section 2) —
   // injected as a page-level <style> tag before the viewport mounts, so
@@ -282,9 +345,19 @@ export function CanvasPage() {
 
   const rename = useMutation(api.canvases.renameMine);
   const remove = useMutation(api.canvases.deleteMine);
+  const { notify } = useToast();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  // Collapsed by default on a phone, where the card covers most of the
+  // artifact it is supposed to be controls for. Read once at mount: a
+  // resize past the breakpoint shouldn't yank the panel out from under
+  // someone who has already opened or closed it by hand.
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 640);
+  // Labelled with the workspace's real name once it resolves. It used to
+  // always read "Workspace" and point at "/" until the query landed — so an
+  // early click sent you Home, and a fast delete navigated there too.
   const backTo = workspace ? `/w/${workspace.slug}` : "/";
+  const backLabel = workspace ? workspace.name : "Workspaces";
 
   if (canvas === undefined) {
     return (
@@ -299,7 +372,7 @@ export function CanvasPage() {
     return (
       <div className="canvas-page-full">
         <div className="canvas-page-loading">
-          <EmptyState title="Canvas not found." />
+          <EmptyState title="Canvas not found." hint={<Link to="/">Back to workspaces</Link>} />
         </div>
       </div>
     );
@@ -321,9 +394,32 @@ export function CanvasPage() {
         ) : (
           <PageHeader
             title={canvas.title}
-            back={{ to: backTo, label: "Workspace" }}
+            back={{ to: backTo, label: backLabel }}
+            /* Which version am I looking at, and when did an agent last
+               touch it? Both were already in the payload; you had to expand
+               the version history to learn either. */
+            subtitle={
+              <>
+                {canvas.version !== undefined && `v${canvas.version} · `}
+                {formatRelativeTime(canvas.updated_at)}
+                {canvas.description && ` · ${canvas.description}`}
+              </>
+            }
             actions={
               <>
+                {canvas.kind !== "canvas" && canvas.entry_url && (
+                  // Guaranteed path to the artifact. The in-page preview can
+                  // legitimately come up blank (see the iframe note below),
+                  // and without this the user is simply stuck.
+                  <a
+                    href={canvas.entry_public_url ?? canvas.entry_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-ghost btn-sm"
+                  >
+                    <ExternalLink size={14} /> Open
+                  </a>
+                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -337,26 +433,52 @@ export function CanvasPage() {
                 <ConfirmButton
                   description="Deletes this canvas and every version of it. Permanent."
                   onConfirm={async () => {
-                    await remove({ canvasId: canvas.canvas_id });
+                    const result = await remove({ canvasId: canvas.canvas_id });
                     navigate(backTo);
+                    notify({
+                      message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
+                    });
                   }}
                 />
               </>
             }
           />
         )}
-        <PublishControl
-          canvasId={canvas.canvas_id}
-          visibility={canvas.visibility}
-          publicSlug={canvas.public_slug}
-        />
-        <VersionHistory canvasId={canvas.canvas_id} />
+        {/* Collapsible: this panel is pinned over the artifact it describes,
+            and with publish controls plus an expanded version history it can
+            cover most of a laptop screen. */}
+        {panelOpen && (
+          <>
+            <PublishControl
+              canvasId={canvas.canvas_id}
+              visibility={canvas.visibility}
+              publicSlug={canvas.public_slug}
+            />
+            <VersionHistory canvasId={canvas.canvas_id} />
+          </>
+        )}
+        <button
+          type="button"
+          className="canvas-header-toggle"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+        >
+          {panelOpen ? (
+            <ChevronUp size={14} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={14} aria-hidden="true" />
+          )}
+          {panelOpen ? "Hide controls" : "Show controls"}
+        </button>
       </div>
 
       {canvas.kind === "canvas" ? (
         <>
           {docError && <p className="error-text canvas-page-loading">{docError}</p>}
-          {!doc && !docError && (
+          {/* `!doc` alone left a genuinely blank page in the window where
+              the doc had landed but its compiled CSS had not: the loading
+              text was gone and the viewport had not mounted yet. */}
+          {(!doc || !cssReady) && !docError && (
             <div className="canvas-page-loading">
               <LoadingState label="Loading canvas…" />
             </div>
@@ -368,8 +490,14 @@ export function CanvasPage() {
           {canvas.kind === "image" ? (
             <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
           ) : (
+            // The preview is a convenience, not a guarantee: agent-authored
+            // HTML that measures itself at parse time lays out to nothing
+            // inside a cross-origin frame. `entry_public_url` (the /s/ path)
+            // is preferred because a page's own relative refs — ../assets/x —
+            // only resolve when it is served under its canvas; it is null for
+            // private canvases, which is why the escape hatch sits next to it.
             <iframe
-              src={canvas.entry_url}
+              src={canvas.entry_public_url ?? canvas.entry_url}
               title={canvas.title}
               className="artifact-preview-frame"
             />

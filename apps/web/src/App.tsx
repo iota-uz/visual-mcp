@@ -1,11 +1,14 @@
 import { googleLogout } from "@react-oauth/google";
-import { useConvexAuth, useMutation } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { Blocks, KeyRound, LayoutGrid, LogOut } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
 import { SignInButton, useGoogleAuth } from "./auth";
+import { EmptyState } from "./components/EmptyState";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
+import { toastError, useToast } from "./components/Toast";
 import { CanvasPage } from "./routes/Canvas";
 import { HomePage } from "./routes/Home";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
@@ -18,14 +21,19 @@ import { WorkspacePage } from "./routes/Workspace";
 function EnsureUser({ children }: { children: ReactNode }) {
   const ensureUser = useMutation(api.users.ensureUser);
   const { isAuthenticated } = useConvexAuth();
+  const { notify } = useToast();
 
   useEffect(() => {
     if (isAuthenticated) {
+      // Everything downstream assumes this row exists, so failing silently
+      // to the console meant the app looked signed-in and then every query
+      // came back empty with no explanation.
       ensureUser({}).catch((err: unknown) => {
         console.error("ensureUser failed", err);
+        notify(toastError(err, "Couldn't set up your account"));
       });
     }
-  }, [isAuthenticated, ensureUser]);
+  }, [isAuthenticated, ensureUser, notify]);
 
   return <>{children}</>;
 }
@@ -71,6 +79,10 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
 // file, and a horizontal nav bar would eat into that on every page.
 function Sidebar() {
   const { identity, signOut } = useGoogleAuth();
+  // Switching workspaces used to be a three-hop trip: canvas → workspace →
+  // home → other workspace. This is the same subscription Home already
+  // holds, so the list costs nothing extra.
+  const workspaces = useQuery(api.workspaces.listMine, {});
 
   function handleSignOut() {
     googleLogout();
@@ -79,17 +91,30 @@ function Sidebar() {
 
   return (
     <aside className="app-sidebar">
-      <Link to="/" className="app-sidebar-brand">
-        <Blocks size={20} />
+      <Link to="/" className="app-sidebar-brand" aria-label="Visual Canvas — home">
+        <Blocks size={20} aria-hidden="true" />
         <span>Visual Canvas</span>
       </Link>
+      {/* The labels are display:none on the narrow rail, which drops them
+          out of the accessibility tree entirely — hence the aria-labels. */}
       <nav className="app-sidebar-nav">
-        <NavLink to="/" end className={sidebarLinkClass}>
-          <LayoutGrid size={16} />
+        <NavLink to="/" end className={sidebarLinkClass} aria-label="Workspaces">
+          <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
         </NavLink>
-        <NavLink to="/settings/tokens" className={sidebarLinkClass}>
-          <KeyRound size={16} />
+        {workspaces && workspaces.length > 0 && (
+          <ul className="app-sidebar-workspaces">
+            {workspaces.map((w) => (
+              <li key={w.workspace_id}>
+                <NavLink to={`/w/${w.slug}`} className={sidebarLinkClass} title={w.name}>
+                  <span>{w.name}</span>
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        )}
+        <NavLink to="/settings/tokens" className={sidebarLinkClass} aria-label="MCP tokens">
+          <KeyRound size={16} aria-hidden="true" />
           <span>MCP tokens</span>
         </NavLink>
       </nav>
@@ -131,8 +156,14 @@ export function App() {
         element={
           <AuthGate>
             <div className="app-shell">
+              <a href="#main" className="skip-link">
+                Skip to content
+              </a>
               <Sidebar />
-              <div className="app-content">
+              {/* tabIndex -1: without it the skip link moves the viewport
+                  but not focus in Safari and Chrome, so the next Tab goes
+                  back to the sidebar the link just skipped. */}
+              <div className="app-content" id="main" tabIndex={-1}>
                 <Routes>
                   <Route
                     path="/"
@@ -150,12 +181,34 @@ export function App() {
                       </div>
                     }
                   />
-                  <Route path="/c/:canvasId" element={<CanvasPage />} />
+                  <Route
+                    path="/c/:canvasId"
+                    element={
+                      // Its own boundary: a stored CanvasDoc that fails to
+                      // lay out should cost you the canvas, not the app.
+                      <ErrorBoundary label="This canvas failed to render.">
+                        <CanvasPage />
+                      </ErrorBoundary>
+                    }
+                  />
                   <Route
                     path="/settings/tokens"
                     element={
                       <div className="page-container">
                         <TokensPage />
+                      </div>
+                    }
+                  />
+                  {/* Without this an unknown path rendered the shell with a
+                      blank content column and no explanation. */}
+                  <Route
+                    path="*"
+                    element={
+                      <div className="page-container">
+                        <EmptyState
+                          title="There's nothing at this address."
+                          hint={<Link to="/">Back to workspaces</Link>}
+                        />
                       </div>
                     }
                   />

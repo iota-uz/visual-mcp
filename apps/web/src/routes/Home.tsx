@@ -1,47 +1,106 @@
 import { useMutation, useQuery } from "convex/react";
-import { Pencil, Search } from "lucide-react";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Pencil, Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConnectPanel } from "../components/ConnectPanel";
 import { EmptyState } from "../components/EmptyState";
-import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
+import { ListSkeleton } from "../components/Skeleton";
+import { toastError, useToast } from "../components/Toast";
+import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 
+/** Backend cap on `searchNodes` — results are silently truncated at this. */
+const SEARCH_LIMIT = 20;
+
 function NodeSearch() {
-  const [term, setTerm] = useState("");
+  // The query lives in the URL so a search survives a reload and Back
+  // returns to it instead of dropping the user on a blank Home.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") ?? "";
+  const [term, setTerm] = useState(urlQuery);
+  const inputRef = useRef<HTMLInputElement>(null);
   // Debounced: every keystroke used to open a fresh Convex subscription,
   // so typing "europrotocol" cost twelve full-text queries and rendered
   // twelve throwaway result sets.
   const query = useDebouncedValue(term.trim(), 250);
   const results = useQuery(api.canvases.searchNodes, query ? { query } : "skip");
 
+  useEffect(() => {
+    // Bail when the URL already says this — otherwise mount alone fires a
+    // navigate, and so does every arrival via a `?q=` link.
+    if (query === urlQuery) return;
+    // `replace` so a search doesn't stack one history entry per debounce.
+    setSearchParams(query ? { q: query } : {}, { replace: true });
+  }, [query, urlQuery, setSearchParams]);
+
+  function clear() {
+    setTerm("");
+    inputRef.current?.focus();
+  }
+
   return (
     <div className="node-search">
-      <Search className="node-search-icon" size={14} />
-      <input
-        value={term}
-        onChange={(e) => setTerm(e.target.value)}
-        placeholder="Search canvas nodes…"
-      />
+      <label className="visually-hidden" htmlFor="node-search-input">
+        Search canvas nodes
+      </label>
+      {/* The icon and clear button are absolutely positioned against this
+          wrapper, not the whole block — anchoring them to the block meant
+          they slid to the vertical middle of the results list. */}
+      <div className="node-search-field">
+        <Search className="node-search-icon" size={14} aria-hidden="true" />
+        <input
+          id="node-search-input"
+          ref={inputRef}
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") clear();
+          }}
+          placeholder="Search canvas nodes…"
+        />
+        {term && (
+          <button
+            type="button"
+            className="node-search-clear"
+            onClick={clear}
+            aria-label="Clear search"
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
       {query && (
-        <ul className="card-list">
-          {results === undefined && <li className="muted">Searching…</li>}
-          {results?.length === 0 && <li className="muted">No matches.</li>}
-          {results?.map((r) => (
-            <li key={`${r.canvasId}:${r.nodeId}`}>
-              <Link to={`/c/${r.canvasId}?node=${encodeURIComponent(r.nodeId)}`}>
-                <strong>{r.nodeTitle}</strong>
-                {r.nodeEyebrow && <span className="muted"> — {r.nodeEyebrow}</span>}
-                <span className="muted"> ({r.canvasTitle})</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div className="node-search-results" aria-live="polite">
+          {results === undefined && <p className="muted">Searching…</p>}
+          {results?.length === 0 && (
+            <EmptyState title="No matches." hint="Search covers node text, not canvas titles." />
+          )}
+          {results && results.length > 0 && (
+            <>
+              <p className="muted node-search-count">
+                {results.length === SEARCH_LIMIT
+                  ? `First ${SEARCH_LIMIT} matches`
+                  : `${results.length} ${results.length === 1 ? "match" : "matches"}`}
+              </p>
+              <ul className="card-list">
+                {results.map((r) => (
+                  <li key={`${r.canvasId}:${r.nodeId}`} className="card-list-item">
+                    <Link to={`/c/${r.canvasId}?node=${encodeURIComponent(r.nodeId)}`}>
+                      <strong>{r.nodeTitle}</strong>
+                      {r.nodeEyebrow && <span className="muted"> — {r.nodeEyebrow}</span>}
+                      <span className="muted"> ({r.canvasTitle})</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -65,6 +124,7 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceSummary }) {
   });
   const rename = useMutation(api.workspaces.renameMine);
   const remove = useMutation(api.workspaces.deleteMine);
+  const { notify } = useToast();
   const [editing, setEditing] = useState(false);
 
   const count = canvases?.length;
@@ -103,7 +163,16 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceSummary }) {
               ? "Deletes this workspace and every canvas in it. Permanent."
               : `Deletes this workspace and ${count} ${count === 1 ? "canvas" : "canvases"}. Permanent.`
           }
-          onConfirm={() => remove({ workspaceId: workspace.workspace_id })}
+          onConfirm={async () => {
+            // The mutation has always returned what it destroyed; the row
+            // just vanished and never said so.
+            const result = await remove({ workspaceId: workspace.workspace_id });
+            notify({
+              message: `Deleted "${workspace.name}" — ${result.canvases_deleted} ${
+                result.canvases_deleted === 1 ? "canvas" : "canvases"
+              }, ${formatBytes(result.bytes_reclaimed)} freed.`,
+            });
+          }}
         />
       </div>
     </li>
@@ -113,6 +182,7 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceSummary }) {
 export function HomePage() {
   const workspaces = useQuery(api.workspaces.listMine, {});
   const createWorkspace = useMutation(api.workspaces.createMine);
+  const { notify } = useToast();
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -123,6 +193,8 @@ export function HomePage() {
     try {
       await createWorkspace({ name: name.trim() });
       setName("");
+    } catch (err: unknown) {
+      notify(toastError(err, "Couldn't create the workspace"));
     } finally {
       setCreating(false);
     }
@@ -130,27 +202,52 @@ export function HomePage() {
 
   return (
     <div>
-      <NodeSearch />
+      {/* Below the <h1>, not above it — an unlabelled input floating over
+          the page title read as chrome that belonged to nothing. */}
       <PageHeader title="Workspaces" />
-      {workspaces === undefined && <LoadingState />}
-      {workspaces?.length === 0 && <EmptyState title="No workspaces yet — create one below." />}
-      <ul className="card-list">
-        {workspaces?.map((w) => (
-          <WorkspaceRow key={w.workspace_id} workspace={w} />
-        ))}
-      </ul>
+      <NodeSearch />
+      {/* Above the list, not under it. With 20 workspaces the create form
+          was below the fold, so the one action on the page was the one
+          thing you had to scroll to find. */}
       <form onSubmit={handleCreate} className="inline-form">
+        <label className="visually-hidden" htmlFor="new-workspace-name">
+          New workspace name
+        </label>
         <input
+          id="new-workspace-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="New workspace name"
           disabled={creating}
         />
         <button type="submit" className="btn btn-primary" disabled={creating || !name.trim()}>
-          Create
+          {creating ? "Creating…" : "Create"}
         </button>
       </form>
-      {workspaces?.length === 0 && <ConnectPanel />}
+      {workspaces === undefined && <ListSkeleton rows={3} />}
+      {workspaces?.length === 0 && (
+        <EmptyState
+          title="No workspaces yet."
+          hint="Create one above, or let an agent create it for you on its first save."
+        />
+      )}
+      <ul className="card-list">
+        {workspaces?.map((w) => (
+          <WorkspaceRow key={w.workspace_id} workspace={w} />
+        ))}
+      </ul>
+      {/* Connecting an agent is the only way canvases ever get created, so
+          the instructions must stay reachable forever — they used to render
+          only while the account had zero workspaces, which meant the moment
+          you succeeded once they vanished and were never findable again.
+          Open by default while there is nothing to look at, folded away
+          once there is. */}
+      {workspaces !== undefined && (
+        <details className="connect-disclosure" open={workspaces.length === 0}>
+          <summary>Connect an agent</summary>
+          <ConnectPanel />
+        </details>
+      )}
     </div>
   );
 }

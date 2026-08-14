@@ -14,7 +14,9 @@
   --app-paper: #f4f7fb;
   --app-white: #ffffff;
   --app-line: #dce4ed;
-  --app-muted: #6b7e94;
+  /* Was #6b7e94 — ~4.0:1 on white, below WCAG AA, and it carries every
+     11-13px hint in the app. Darkened to clear 4.5:1. */
+  --app-muted: #5b6e85;
 
   --app-accent: #2f6df6;
   --app-accent-soft: #eaf0fe;
@@ -33,7 +35,6 @@
   --app-text-sm: 13px;
   --app-text-base: 15px;
   --app-text-lg: 18px;
-  --app-text-xl: 24px;
   --app-text-2xl: 32px;
 
   --app-space-1: 4px;
@@ -43,14 +44,20 @@
   --app-space-6: 24px;
   --app-space-8: 32px;
 
-  --app-radius-sm: 6px;
   --app-radius-md: 8px;
   --app-radius-lg: 13px;
-  --app-radius-xl: 18px;
 
   --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
   --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
   --app-shadow-lg: 0 18px 50px rgba(18, 42, 70, 0.14);
+
+  /* Was the same duration literal repeated at five call sites. */
+  --app-transition: 0.15s;
+  --app-disabled-opacity: 0.5;
+  /* Mirrors the Lucide `size=` values used at the call sites; the search
+     input's left padding used to hardcode 14px to match one of them. */
+  --app-icon-sm: 14px;
+  --app-icon-md: 16px;
 
   font-family: var(--app-font-body);
 }
@@ -81,6 +88,51 @@ h3 {
 
 a {
   color: var(--app-accent);
+}
+
+/*
+ * There was no focus styling anywhere: every button and link fell back to
+ * the UA outline, which against the accent-on-paper palette is neither
+ * consistently visible nor recognisably part of this app. One ring, applied
+ * once, keyboard-only (`:focus-visible`, so mouse clicks stay quiet).
+ */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+  border-radius: var(--app-radius-md);
+}
+
+/* Labels that must exist for screen readers but not on screen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard users had to tab the entire sidebar on every page first. */
+.skip-link {
+  position: absolute;
+  left: var(--app-space-3);
+  top: -100px;
+  z-index: 200;
+  background: var(--app-white);
+  color: var(--app-ink);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  padding: var(--app-space-2) var(--app-space-3);
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: var(--app-space-3);
 }
 
 /* --- app shell: fixed-height sidebar + scrollable content column, so a
@@ -135,8 +187,8 @@ a {
   padding: var(--app-space-2) var(--app-space-3);
   border-radius: var(--app-radius-md);
   transition:
-    color 0.15s,
-    background 0.15s;
+    color var(--app-transition),
+    background var(--app-transition);
 }
 
 .app-sidebar-link:hover {
@@ -147,6 +199,24 @@ a {
 .app-sidebar-link.active {
   color: var(--app-accent);
   background: var(--app-accent-soft);
+}
+
+.app-sidebar-workspaces {
+  list-style: none;
+  margin: 0 0 var(--app-space-2) 0;
+  padding: 0 0 0 var(--app-space-4);
+}
+
+.app-sidebar-workspaces .app-sidebar-link {
+  font-weight: 500;
+  font-size: var(--app-text-xs);
+  padding: var(--app-space-1) var(--app-space-3);
+}
+
+.app-sidebar-workspaces span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-sidebar-footer {
@@ -180,9 +250,20 @@ a {
   padding: var(--app-space-6);
 }
 
+/* Genuinely centred. `margin: 15vh auto` put the sign-in card near the top
+   of a laptop viewport with a screenful of white under it; min-height +
+   centring keeps it optically centred at any height, and `justify-content`
+   on the column also stops the loading variant from jumping when the card
+   swaps in. */
 .centered-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-2);
+  min-height: 100vh;
   max-width: 420px;
-  margin: 15vh auto;
+  margin: 0 auto;
   text-align: center;
   padding: var(--app-space-8) var(--app-space-6);
 }
@@ -250,15 +331,15 @@ a {
   border: 1px solid transparent;
   cursor: pointer;
   transition:
-    background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s,
-    opacity 0.15s;
+    background var(--app-transition),
+    border-color var(--app-transition),
+    box-shadow var(--app-transition),
+    opacity var(--app-transition);
   line-height: 1.2;
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: var(--app-disabled-opacity);
   cursor: not-allowed;
 }
 
@@ -296,6 +377,18 @@ a {
 
 .btn-danger:not(:disabled):hover {
   border-color: var(--app-danger);
+}
+
+/* Not destroying data, but breaking something outside the app — every link
+   already handed out. Loud enough to arm against, quieter than danger. */
+.btn-warning {
+  background: var(--app-warning-soft);
+  border-color: var(--app-warning-soft);
+  color: var(--app-warning);
+}
+
+.btn-warning:not(:disabled):hover {
+  border-color: var(--app-warning);
 }
 
 .btn-ghost {
@@ -366,7 +459,7 @@ a {
   font-size: var(--app-text-sm);
   font-weight: 600;
   margin-bottom: var(--app-space-2);
-  transition: color 0.15s;
+  transition: color var(--app-transition);
 }
 
 .page-header-back:hover {
@@ -411,7 +504,7 @@ a {
 
 .empty-state-icon {
   color: var(--app-muted);
-  opacity: 0.6;
+  opacity: var(--app-disabled-opacity);
 }
 
 .empty-state-title {
@@ -437,6 +530,148 @@ a {
   }
 }
 
+/* --- skeletons ---
+   Sized to the rows and cards that replace them, so the swap doesn't
+   shift the page. Pointer events off: they look like content and are not. */
+
+.skeleton-list,
+.skeleton-card,
+.skeleton-row {
+  pointer-events: none;
+}
+
+.skeleton-row {
+  gap: var(--app-space-3);
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-card {
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}
+
+.skeleton-bar-title {
+  width: 40%;
+}
+
+.skeleton-bar-meta {
+  width: 22%;
+  height: 10px;
+}
+
+.skeleton-card .skeleton-bar-title {
+  width: 65%;
+  margin-bottom: var(--app-space-2);
+}
+
+.skeleton-card .skeleton-bar-meta {
+  width: 35%;
+}
+
+.skeleton-thumb {
+  height: 120px;
+  margin-bottom: var(--app-space-3);
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}
+
+/* --- toasts --- */
+
+.toast-region {
+  position: fixed;
+  z-index: 100;
+  right: var(--app-space-4);
+  bottom: var(--app-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  width: min(420px, calc(100vw - var(--app-space-8)));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-md);
+  font-size: var(--app-text-sm);
+  color: var(--app-ink);
+  pointer-events: auto;
+  animation: toast-in var(--app-transition) ease-out;
+}
+
+.toast-success {
+  border-color: var(--app-success);
+  background: var(--app-success-soft);
+}
+
+.toast-error {
+  border-color: var(--app-danger);
+  background: var(--app-danger-soft);
+}
+
+.toast-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast-success .toast-icon {
+  color: var(--app-success);
+}
+
+.toast-error .toast-icon {
+  color: var(--app-danger);
+}
+
+.toast-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: var(--app-disabled-opacity);
+}
+
+.toast-dismiss:hover {
+  opacity: 1;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* --- render-error recovery --- */
+
+.error-boundary {
+  padding: var(--app-space-8) var(--app-space-4);
+}
+
+.error-boundary-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--app-space-2);
+}
+
 /* --- card list / canvas grid --- */
 
 .card-list,
@@ -449,7 +684,9 @@ a {
 }
 
 .canvas-grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* 220px cards left a mostly-empty page and gave the thumbnail — the only
+     way to recognise a canvas at a glance — barely any pixels. */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
 .card-list-item,
@@ -464,9 +701,9 @@ a {
   text-decoration: none;
   color: inherit;
   transition:
-    box-shadow 0.15s,
-    transform 0.15s,
-    border-color 0.15s;
+    box-shadow var(--app-transition),
+    transform var(--app-transition),
+    border-color var(--app-transition);
 }
 
 .card-list-item:hover,
@@ -486,6 +723,41 @@ a {
 
 .canvas-card-thumbnail-empty {
   border: 1px dashed var(--app-line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-1);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-card-description {
+  font-size: var(--app-text-sm);
+  color: var(--app-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The "workspace-slug/canvas-slug" ref an agent addresses this canvas by. */
+.canvas-card-ref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-2);
+  min-width: 0;
+}
+
+.canvas-card-ref code {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .canvas-card-status {
@@ -675,6 +947,27 @@ a {
   margin-bottom: var(--app-space-4);
 }
 
+/* Folded-away connect instructions on Home once the account has data. */
+.connect-disclosure {
+  margin-top: var(--app-space-6);
+}
+
+.connect-disclosure > summary {
+  cursor: pointer;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--app-muted);
+  padding: var(--app-space-2) 0;
+}
+
+.connect-disclosure > summary:hover {
+  color: var(--app-ink);
+}
+
+.connect-disclosure > .connect-panel {
+  margin-top: var(--app-space-2);
+}
+
 /* --- forms --- */
 
 .inline-form {
@@ -693,8 +986,8 @@ a {
   background: var(--app-white);
   color: var(--app-ink);
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--app-transition),
+    box-shadow var(--app-transition);
 }
 
 .inline-form input:focus,
@@ -706,7 +999,11 @@ a {
 
 .node-search {
   margin-bottom: var(--app-space-6);
+}
+
+.node-search-field {
   position: relative;
+  max-width: 420px;
 }
 
 .node-search-icon {
@@ -720,11 +1017,52 @@ a {
 
 .node-search input {
   width: 100%;
-  max-width: 420px;
-  padding-left: calc(var(--app-space-3) * 2 + 14px);
+  padding-left: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
+  padding-right: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
+}
+
+.node-search-clear {
+  position: absolute;
+  right: var(--app-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--app-muted);
+  display: flex;
+}
+
+.node-search-clear:hover {
+  color: var(--app-ink);
+}
+
+.node-search-results {
+  margin-top: var(--app-space-3);
+}
+
+.node-search-count {
+  font-size: var(--app-text-xs);
+  margin-bottom: var(--app-space-2);
 }
 
 /* --- token table --- */
+
+.token-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-4);
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  cursor: pointer;
+}
+
+.token-filter input {
+  width: auto;
+  margin: 0;
+}
 
 .token-table-wrap {
   margin-top: var(--app-space-4);
@@ -853,6 +1191,42 @@ a {
   overflow-wrap: anywhere;
 }
 
+.canvas-header-toggle {
+  margin-top: var(--app-space-3);
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-xs);
+  font-weight: 600;
+  color: var(--app-muted);
+}
+
+.canvas-header-toggle:hover {
+  color: var(--app-ink);
+}
+
+.share-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.share-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--app-accent);
+  overflow-wrap: anywhere;
+}
+
 .version-history {
   margin-top: var(--app-space-3);
   border: 1px solid var(--app-line);
@@ -903,6 +1277,18 @@ a {
 
 /* --- responsive --- */
 
+/* Nothing lived between 640px and desktop: a tablet got the full 220px
+   sidebar against a 1040px container. Narrow it first, collapse it later. */
+@media (max-width: 960px) {
+  .app-sidebar {
+    flex-basis: 176px;
+  }
+
+  .page-container {
+    padding: var(--app-space-4);
+  }
+}
+
 @media (max-width: 640px) {
   .app-sidebar {
     flex-basis: 64px;
@@ -919,6 +1305,12 @@ a {
   .app-sidebar-brand span,
   .app-sidebar-link span,
   .app-sidebar-email {
+    display: none;
+  }
+
+  /* Workspace links are text-only, so hiding their span leaves an empty
+     target. Drop the list entirely on the icon rail. */
+  .app-sidebar-workspaces {
     display: none;
   }
 
@@ -953,7 +1345,10 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loading-state {
+  .loading-state,
+  .skeleton-row,
+  .skeleton-card,
+  .toast {
     animation: none;
   }
 
