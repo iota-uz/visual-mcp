@@ -250,6 +250,22 @@ a {
   padding: var(--app-space-6);
 }
 
+/* One owner for the vertical rhythm of a page's top-level blocks. Margins
+   could not do this job here: `.card-list` carries none (it is reused
+   inside cards and panels where a margin would be wrong), so the workspace
+   list sat flush against the create form, while the blocks that *do* carry
+   margins collapsed against each other into a different gap again. A flex
+   gap is uniform, does not collapse, and stays correct when a block in the
+   middle renders nothing. */
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-6);
+}
+
+/* The per-block margins these rules cancel live further down the file; the
+   cancelling half sits at the very bottom, under "stack overrides". */
+
 /* Genuinely centred. `margin: 15vh auto` put the sign-in card near the top
    of a laptop viewport with a screenful of white under it; min-height +
    centring keeps it optically centred at any height, and `justify-content`
@@ -360,6 +376,29 @@ a {
 
 .btn-primary:not(:disabled):hover {
   box-shadow: var(--app-shadow-md);
+}
+
+/* Google's branding guidelines, light theme: white fill, #747775 stroke,
+   #1F1F1F label in Roboto Medium 14, 12px between mark and label, 40px
+   high. The hardcoded hexes are deliberate — they are Google's, not this
+   app's palette, and must not drift with the theme tokens. */
+.btn-google {
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  background: #fff;
+  border-color: #747775;
+  border-radius: var(--app-radius-md);
+  color: #1f1f1f;
+  font-family: Roboto, var(--app-font-body);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.btn-google:not(:disabled):hover {
+  /* The guidelines' hover state: the label colour at 8% over the fill. */
+  background: #f2f2f2;
+  box-shadow: var(--app-shadow-sm);
 }
 
 .btn-secondary {
@@ -988,6 +1027,15 @@ a {
   display: flex;
   gap: var(--app-space-2);
   margin-top: var(--app-space-4);
+  /* Matches `.node-search-field`, so the two controls stacked above the
+     list share one left and right edge instead of ending at two arbitrary
+     widths an input's default size apart. */
+  max-width: 420px;
+}
+
+.inline-form input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .inline-form input,
@@ -1374,4 +1422,21 @@ a {
   .canvas-card {
     transition: none;
   }
+}
+
+/* --- stack overrides ---
+   Last in the file on purpose: each block below brings its own margin for
+   use outside a `.page-stack`, and inside one the stack's gap owns the
+   spacing instead. Declared after the rules they cancel so the cascade
+   needs no specificity games (and Biome's noDescendingSpecificity stays
+   quiet). */
+
+.page-stack > .page-header,
+.page-stack > .node-search {
+  margin-bottom: 0;
+}
+
+.page-stack > .inline-form,
+.page-stack > .connect-disclosure {
+  margin-top: 0;
 }

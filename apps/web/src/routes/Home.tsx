@@ -201,7 +201,7 @@ export function HomePage() {
   }
 
   return (
-    <div>
+    <div className="page-stack">
       {/* Below the <h1>, not above it — an unlabelled input floating over
           the page title read as chrome that belonged to nothing. */}
       <PageHeader title="Workspaces" />
@@ -231,11 +231,16 @@ export function HomePage() {
           hint="Create one above, or let an agent create it for you on its first save."
         />
       )}
-      <ul className="card-list">
-        {workspaces?.map((w) => (
-          <WorkspaceRow key={w.workspace_id} workspace={w} />
-        ))}
-      </ul>
+      {/* Rendered only when it has rows: an empty <ul> is invisible but
+          still counts as a stack child, so it used to add a gap between the
+          empty state and the connect instructions. */}
+      {workspaces !== undefined && workspaces.length > 0 && (
+        <ul className="card-list">
+          {workspaces.map((w) => (
+            <WorkspaceRow key={w.workspace_id} workspace={w} />
+          ))}
+        </ul>
+      )}
       {/* Connecting an agent is the only way canvases ever get created, so
           the instructions must stay reachable forever — they used to render
           only while the account had zero workspaces, which meant the moment
