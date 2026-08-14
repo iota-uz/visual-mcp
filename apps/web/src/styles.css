@@ -323,6 +323,10 @@ a {
   display: inline-flex;
   align-items: center;
   gap: var(--app-space-2);
+  /* Labels are two or three words; in the narrow floating canvas card
+     "Copy link" was breaking across two lines and doubling the button's
+     height. */
+  white-space: nowrap;
   font-family: var(--app-font-body);
   font-size: var(--app-text-sm);
   font-weight: 600;
@@ -928,7 +932,17 @@ a {
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   padding: var(--app-space-2) var(--app-space-3);
-  overflow-x: auto;
+  /* Wrap rather than scroll. These are commands the user reads before
+     running: with overflow alone the codex line ran off the right edge
+     under macOS's overlay scrollbar, so half of it was simply invisible. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.canvas-preview-hint {
+  margin: var(--app-space-2) 0 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
 }
 
 .connect-panel-hint {
@@ -1123,8 +1137,12 @@ a {
   margin: var(--app-space-2) 0;
 }
 
-.token-reveal code,
-.token-reveal pre {
+/* Scoped to the reveal *row*, not the whole reveal: unscoped, it also hit
+   the inline <code> inside ConnectPanel's footnote and gave it `flex: 1`
+   plus box padding, so the env-var name rendered as a giant pill floating
+   over the sentence it belonged to. */
+.token-reveal-row code,
+.token-reveal-row pre {
   font-family: var(--app-font-mono);
   font-size: var(--app-text-sm);
   background: var(--app-white);

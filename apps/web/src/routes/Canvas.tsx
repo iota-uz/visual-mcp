@@ -449,6 +449,17 @@ export function CanvasPage() {
             cover most of a laptop screen. */}
         {panelOpen && (
           <>
+            {canvas.kind !== "canvas" && canvas.entry_url && (
+              // Verified live: agent-authored HTML that measures itself at
+              // parse time computes a degenerate layout inside a
+              // cross-origin frame and comes up blank here, while the same
+              // URL renders instantly at top level. Nothing in this app can
+              // fix someone else's document, so say so and point at Open.
+              <p className="canvas-preview-hint">
+                The preview is a live frame — some artifacts only lay out correctly at top level. If
+                it looks blank, use <strong>Open</strong>.
+              </p>
+            )}
             <PublishControl
               canvasId={canvas.canvas_id}
               visibility={canvas.visibility}
