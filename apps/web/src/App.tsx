@@ -3,7 +3,7 @@ import { Blocks, KeyRound, LayoutGrid, LogOut } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
-import { SignInButton, useSessionUser, useSignOut } from "./auth";
+import { clearSignInAttempt, SignInButton, useSessionUser, useSignOut } from "./auth";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
@@ -24,6 +24,9 @@ function EnsureUser({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isAuthenticated) {
+      // The round trip worked, so a later sign-out must not land on the
+      // "sign-in didn't complete" message left by this one.
+      clearSignInAttempt();
       // Everything downstream assumes this row exists, so failing silently
       // to the console meant the app looked signed-in and then every query
       // came back empty with no explanation.
@@ -54,9 +57,10 @@ function AuthGate({ children }: { children: ReactNode }) {
         <h1>Visual Canvas</h1>
         <p>Sign in with your @iota.uz Google account to continue.</p>
         <div className="centered-page-signin">
-          {/* Accounts outside the org are now rejected server-side during
-              the OAuth exchange, so the "signed in as someone else" state
-              can no longer exist here — the button reports the refusal. */}
+          {/* Accounts outside the org are rejected server-side during the
+              OAuth exchange, so the "signed in as someone else" state can no
+              longer exist here. The refusal comes back as a bare redirect,
+              which is why SignInButton reconstructs it from a marker. */}
           <SignInButton />
         </div>
       </div>

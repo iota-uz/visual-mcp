@@ -18,8 +18,40 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { LogIn } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
+
+/*
+ * A rejected sign-in is silent on the wire, so we have to remember that one
+ * was in flight. When `createOrUpdateUser` throws — the outsider-account
+ * case — Convex Auth's callback logs the error server-side and redirects
+ * back here with no `code` and no error param (see the library's
+ * server/implementation/index.ts: `catch { logError; Response.redirect }`).
+ * Without this marker the user bounces off Google straight back onto the
+ * sign-in wall with nothing said, which is strictly worse than the
+ * client-side "not an @iota.uz account" message this auth model removed.
+ */
+const SIGNIN_ATTEMPT_KEY = "visual-canvas:signin-attempt";
+
+// Covers both ways to arrive back here without a session: the org rejection
+// and simply abandoning Google's account chooser. It must not assert which.
+const BOUNCED_MESSAGE =
+  "Sign-in didn't complete. Only @iota.uz Google accounts can sign in — if you " +
+  "picked a different account, that's why.";
+
+function forgetSignInAttempt() {
+  // Safari's "block all cookies" makes even sessionStorage throw.
+  try {
+    window.sessionStorage.removeItem(SIGNIN_ATTEMPT_KEY);
+  } catch {
+    /* nothing to forget */
+  }
+}
+
+/** Called once a session exists, so a later sign-out lands on a clean wall. */
+export function clearSignInAttempt() {
+  forgetSignInAttempt();
+}
 
 /** The signed-in person, or null/undefined while unknown. */
 export function useSessionUser() {
@@ -36,16 +68,38 @@ export function SignInButton() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // This component only mounts when the session settled as signed-out (see
+  // AuthGate), so a marker still standing here means the round trip failed.
+  useEffect(() => {
+    let pending = false;
+    try {
+      pending = window.sessionStorage.getItem(SIGNIN_ATTEMPT_KEY) !== null;
+    } catch {
+      /* storage unavailable — nothing was recorded either */
+    }
+    if (pending) {
+      forgetSignInAttempt();
+      setError(BOUNCED_MESSAGE);
+    }
+  }, []);
+
   async function handleSignIn() {
     setBusy(true);
     setError(null);
+    try {
+      window.sessionStorage.setItem(SIGNIN_ATTEMPT_KEY, "1");
+    } catch {
+      /* the redirect still works; only the failure message is lost */
+    }
     try {
       // Full-page redirect to Google and back — no popup to be blocked, and
       // no One Tap prompt that Google can silently put on cooldown.
       await signIn("google");
     } catch (err: unknown) {
-      // The most likely failure is the deliberate one: an account outside
-      // iota.uz, rejected by `createOrUpdateUser` after the OAuth exchange.
+      // Reached only if the *local* call fails (offline, deployment down);
+      // the org rejection happens after the redirect and lands in the effect
+      // above instead.
+      forgetSignInAttempt();
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
