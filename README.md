@@ -28,19 +28,21 @@ This generates the token locally, hashes it, and registers only the hash
 with Convex via `npx convex run tokens:bootstrap` — the plaintext token is
 printed once, to your terminal only. Tokens expire after 90 days.
 
-Once connected, Claude has these tools:
+Once connected, Claude has six tools. Every one of them is addressed by a
+single `ref`, which is either a canvas id or `workspace-slug/canvas-slug` —
+there are no separate workspace/canvas/slug arguments to thread through.
 
 | Tool | Purpose |
 | --- | --- |
-| `create_workspace` / `list_workspaces` | Create/list top-level workspaces ("OSAGO", "Billing", ...) |
-| `create_canvas` / `list_canvases` | Create/list canvases inside a workspace |
-| `put_canvas_doc` / `get_canvas` | Write/read a canvas's declarative document (lanes, stages, nodes, edges — see PLAN.md §2) |
-| `publish_canvas` | Toggle a canvas between private (any signed-in @iota.uz user) and public (unguessable share link) |
-| `write_file` | Write a source file (HTML, D2, ...) into a canvas's `/src` or `/output` |
-| `run_code` | Execute JS/TS in a resource-limited sandbox (worker-thread isolated, no shell access) |
-| `render_file` | Render an HTML or `.d2` entrypoint to PNG/SVG/PDF/HTML |
-| `list_artifacts` / `export_artifact` | List/fetch a canvas's rendered artifacts |
-| `list_templates` | List the built-in starter templates |
+| `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
+| `canvas_get` | Reads one canvas: metadata and URLs always, plus any of `doc` / `files` / `artifacts` / `versions` / `renders` / `storage`. Bytes come back as links, never inlined. |
+| `canvas_find` | Browses and searches — workspaces, canvases, and the text inside canvas-document nodes. Every result carries a `ref`. |
+| `canvas_delete` | Archives (reversible) or purges a workspace, canvas, file, or artifact, and reports the bytes reclaimed. |
+| `canvas_run` | Executes JS/TS in a resource-limited sandbox (worker-thread isolated, no shell access). Anything written to `/output` is collected as an artifact. |
+| `canvas_upload_url` | The out-of-band data plane: a short-lived URL to POST raw bytes to, whose `storageId` you pass back as a file's `upload_id`. Large files never enter the conversation. |
+
+The built-in starter templates are MCP **resources**, not a tool —
+`canvas://templates/{id}` — so their source only enters context when read.
 
 ## Architecture
 
@@ -65,6 +67,7 @@ apps/worker/        Hono render worker: POST /render, /exec (Railway)
 apps/web/           Vite + React SPA (workspaces, canvas gallery, viewer,
                      MCP token settings) — builds static, deploys to Railway
                      (Dockerfile + serve)
+scripts/            mint-mcp-token.mjs — local token minting (see above)
 ```
 
 ## Development
@@ -112,7 +115,7 @@ To redeploy or stand up a fresh copy:
    into the JS at build time, not runtime — Railway auto-injects service
    variables as matching `ARG`s for Dockerfile builds):
    ```
-   VITE_CONVEX_URL=<your-deployment>.convex.cloud
+   VITE_CONVEX_URL=https://<your-deployment>.convex.cloud
    VITE_GOOGLE_CLIENT_ID=<client-id>.apps.googleusercontent.com
    PORT=3000
    ```
@@ -136,8 +139,8 @@ To redeploy or stand up a fresh copy:
    domain once it's live.
 
 `/settings/tokens`, the live-updating gallery, the canvas viewer's
-pan/zoom/inspector/`#node=` deep links, and public/private `/s/:slug`
+pan/zoom/inspector/`?node=` deep links, and public/private `/s/:slug`
 sign-in-gated flows are all browser-testable end to end at the URL above.
 Scripted coverage for the parts that don't need a browser:
 `convex/users.test.ts`'s forged-claim `hd`/`email_verified` cases, plus live
-MCP-driven checks against the dev deployment — documented in PLAN.md §9/§11.
+MCP-driven checks against the dev deployment — documented in PLAN.md §11.

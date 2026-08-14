@@ -65,6 +65,7 @@ WORKDIR /app
 RUN npm install --global serve@14
 COPY --from=build /repo/apps/web/dist ./dist
 EXPOSE 3000
-# `serve -s` rewrites every unmatched path to index.html — the SPA-fallback
-# behavior apps/web/public/_redirects gave for free on Netlify.
+# `serve -s` rewrites every unmatched path to index.html. This is what makes
+# deep links like /c/:canvasId and /s/:slug work on a hard refresh, and it is
+# the only SPA-fallback mechanism now that the deploy is Railway-hosted.
 CMD ["sh", "-c", "serve -s dist -l ${PORT:-3000}"]

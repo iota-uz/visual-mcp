@@ -3,11 +3,12 @@
 `visual-canvas` (formerly `visual-runtime`) is a hosted service for @iota.uz: Claude authors
 canvases and artifacts through a remote MCP endpoint, and humans browse, view, and share them by
 URL. This document is the canonical architecture reference for the repo — Part 1 describes the
-hosted product as it exists today plus what's left to ship; Part 2 preserves the original
-single-user local-runtime spec, since most of `packages/runtime`'s rendering internals (Tailwind
-policy, D2/ApexCharts authoring modes, sandbox policy, template/theme systems, artifact manifest
-shape) still work exactly as first specified and code comments throughout that package cite it
-by section number.
+hosted product as it exists today plus what's left to ship; Part 2 keeps the still-accurate half
+of the original single-user local-runtime spec, since `packages/runtime`'s rendering internals
+(Tailwind policy, D2/ApexCharts authoring modes, sandbox policy, template/theme systems, artifact
+manifest shape) still work exactly as first specified and code comments throughout that package
+cite them by section number. The parts of that spec describing the removed local stdio server are
+gone — see the note at the head of Part 2.
 
 Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 
@@ -88,7 +89,6 @@ export interface CanvasNode {
 }
 export type NodeContent =
   | { type: 'html'; html: string; frame?: 'phone'|'browser'|'window'|'none'; scale?: number }
-  | { type: 'image'; assetPath: string }
   | { type: 'text'; body: string }
 
 export interface CanvasEdge {
@@ -100,9 +100,14 @@ export interface CanvasEdge {
 }
 ```
 
+There was a third variant, `{ type: 'image'; assetPath: string }`, removed in v2. It was emitted
+verbatim into `<img src>` with no resolver anywhere, so a canvas-relative path 404'd in the render
+worker and resolved against the app origin in the SPA — a field that silently produced broken
+images. An `<img>` inside a `type: 'html'` node expresses the same thing and actually renders.
+
 **Invariant: `NodeContent.html` is static HTML/CSS/SVG.** No `<script>`, `on*`, `javascript:`,
 `<iframe>`, `<object>`. Validated on write and rejected loudly, not silently stripped, so Claude
-gets a fixable error (✅ enforced in `put_canvas_doc`, covered by `convex/http.test.ts`). This is
+gets a fixable error (✅ enforced on every doc save, covered by `convex/http.test.ts`). This is
 what makes it safe to render canvas nodes on the app origin with working keyboard and pan/zoom,
 instead of trapping them in a sandboxed iframe.
 
@@ -124,12 +129,11 @@ shipped:
 | `theme.css` | the ported design system (tokens, shadow ladder, role palettes, caption bar, arrow markers) |
 
 `render.ts` in Node with `viewport.ts` omitted emits a static HTML page, so it feeds the existing
-Playwright renderer and thumbnails/PNG/PDF export come for free — **thumbnail capture for
-kind="canvas" canvases specifically is still ⏳**: `put_canvas_doc` never triggers a render at
-all (the SPA views the doc client-side, no worker round-trip), so there is no PNG to thumbnail
-yet for that kind. What *is* ✅ (see §9's A2/C1/C2 rows): `render_file`'s format="png" path — the
-one every html/image/pdf-kind canvas actually uses — now captures a downscaled thumbnail
-alongside the primary render and wires it to `canvases.thumbnailId`.
+Playwright renderer and thumbnails/PNG/PDF export come for free. Both thumbnail paths are ✅ (see
+§9's A2/C1 rows): `render_file`'s format="png" path — the one every html/image/pdf-kind canvas
+uses — captures a downscaled thumbnail alongside the primary render and wires it to
+`canvases.thumbnailId`; for kind="canvas", `put_canvas_doc` persists the assembled static page at
+`/src/__canvas.html` and renders it through the worker to produce the same pair.
 
 ---
 
@@ -176,8 +180,8 @@ by a thin React wrapper (`apps/web/src/routes/Canvas.tsx`'s `CanvasViewport`, wh
 stored `CanvasDoc` client-side via a signed `ctx.storage.getUrl()` and calls `layoutCanvas` +
 `mountViewport` directly — no server round-trip through the worker for the interactive view;
 the worker is still what produces PNG/PDF/thumbnail exports). Worker Dockerfile targets
-`mcr.microsoft.com/playwright:v1.62.1-noble` (Node 24 — see the CI Node-version note in Part 2's
-sandbox section).
+`mcr.microsoft.com/playwright:v1.62.1-noble` (Node 24, which CI also pins so the sandbox's
+Node-22+ globals are exercised on the same major the image ships).
 
 ---
 
@@ -286,8 +290,8 @@ arithmetic, zero traversal surface.
 `Mcp-Session-Id`; every request is self-contained. This is a natural fit for a Convex
 `httpAction`, which is a pure request/response function — the old stateful SSE model would have
 fought that. It also means there's no in-memory session-store problem to solve on this side of
-the system (the *old* stdio server's `session-store.ts` is a separate, unrelated thing — see §3
-of Part 2 and the removal tracked in §9's "deprecate stdio" row).
+the system (the *old* stdio server's `session-store.ts` was a separate, unrelated thing, removed
+with the rest of the local path per decision #6).
 
 **Library:** the official TypeScript SDK v2 (`@modelcontextprotocol/server`), mounted via
 `createMcpHandler` inside a Convex `httpAction` (`convex/http.ts`). Auth uses the SDK's own
@@ -452,7 +456,7 @@ Convex session, not by this route.
   Claude last rendered for it via `render_file` (if any) — there is no separate anonymous
   canvas-engine renderer. A canvas with no render yet 404s here.
 - **Thumbnails**: captured in the same browser context right after the primary render, clipped
-  and `sharp`-downscaled to ~600px. ⏳ not yet wired (see §2).
+  and `sharp`-downscaled to ~600px. ✅ wired for both kinds (see §2).
 
 ---
 
@@ -465,7 +469,7 @@ Convex session, not by this route.
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
 | **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
-| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; deploy | ✅ done — deployed to Railway (not Netlify, see decision #13 note below) as a Dockerfile-built static image (`apps/web/Dockerfile`, Node's `serve -s` with SPA fallback) at the service's generated domain; `GOOGLE_OAUTH_CLIENT_ID`/`VITE_GOOGLE_CLIENT_ID` and `SPA_ORIGIN` are set on the real deployment. Live-updating thumbnails are ✅ at the data layer and live-verified end-to-end against the deployed Railway worker (render → downscaled thumbnail upload → `canvases.thumbnailId` → resolved URL). Manual signed-in-browser verification: see §11 |
+| **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; deploy | ✅ done — SPA live at `canvas.iota.uz`, built as a static Dockerfile image (`apps/web/Dockerfile`, served by `serve -s`) on Railway rather than the originally-scoped Netlify (§12.2); OAuth client ID and `SPA_ORIGIN` set on the real deployment. Live-updating thumbnails verified end-to-end against the deployed worker. Browser verification: §11 |
 
 ### Track B — canvas engine
 
@@ -477,8 +481,8 @@ Convex session, not by this route.
 
 | M | Ships | Status |
 |---|---|---|
-| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | ✅ done — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, Tailwind compile inline in `renderFile`) is ✅; the SPA viewer is ✅ (`apps/web/src/routes/Canvas.tsx` fetches the stored doc client-side and mounts `packages/canvas`'s viewport directly — no worker round-trip needed for interactive viewing); thumbnail capture is ✅ for `render_file`'s format="png" path (every html/image/pdf-kind canvas) and now ✅ for kind="canvas" too — `put_canvas_doc` best-effort assembles a full static page (`packages/canvas`'s `renderCanvas()` world HTML + a build-time-generated `THEME_CSS` module + the doc's compiled node CSS), persists it at the fixed path `/src/__canvas.html` via `upsertFile`, and feeds it through the existing worker `/render` endpoint to produce a PNG + thumbnail — attached via a new `attachCanvasRender` mutation as a forced-`"supporting"` artifact (the doc itself stays primary; a new `upsertArtifact` `forceRole` option makes that explicit rather than relying on its "first artifact ever" inference, which would have gotten this case wrong) and an unconditional thumbnail attach (`setCanvasThumbnail`, unlike `render_file`'s primary-gated `attachThumbnailIfPrimary`). A render/worker failure is caught and surfaced as `render_error` on the tool response, never failing the `put_canvas_doc` call itself. Because the assembled page is a real `canvasFiles` row, `render_file(entrypoint: "/src/__canvas.html", format: "pdf")` works immediately afterward with zero new worker code — PDF export "for free" as originally scoped. Regression-tested (`convex/http.test.ts`: successful render attaches exactly one supporting artifact + thumbnail with no extra `canvasVersions` row; worker `/render` failure surfaces `render_error` with no artifact/thumbnail; quota-exceeded attach failure cleans up the uploaded PNG/thumbnail blobs instead of orphaning them; the PDF-export-for-free path against the auto-persisted HTML). Live-verified against the dev deployment end-to-end via real `/mcp` calls: `create_workspace` → `create_canvas(kind:"canvas")` → `put_canvas_doc` (returned `render_error`-free) → `get_canvas` (`thumbnail_url` resolved to a genuine 200 `image/png` response, PNG magic bytes verified) → `list_artifacts` (`/output/canvas.png`, role `"supporting"`, primary still `null`) → `render_file(entrypoint:"/src/__canvas.html", format:"pdf")` → `export_artifact` (`/output/canvas.pdf`, 200 `application/pdf`, magic bytes verified) |
-| **C2** Polish | public slug rotation UI, `?node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — the backend half is ✅: `canvases.sweepCacheTtl` (a `crons.interval` job, `convex/crons.ts`) deletes `/cache/`-prefixed artifacts older than 24h including their storage blobs, and every write path (`recordRender`/`recordExecArtifacts`/`upsertFile`) enforces the 250MB-per-canvas soft cap via `reserveCanvasStorage`, surfaced as a clear MCP tool error (not a silent failure) and verified live against the dev deployment. The quota is a running counter (`canvases.storageBytesUsed`), not a scan of current `artifacts`/`canvasFiles` rows — a scan-based total silently undercounts once version history is accounted for (re-rendering the same `output_path` keeps the superseded blob alive forever per decision #1's "never destroys the old one"), which would have let the exact "agent loop re-rendering the same path" scenario the cap targets bypass it entirely; caught in review before merge, fixed, regression-tested (`convex/canvases.test.ts`). `write_file`/`render_file`/`run_code` also now delete the just-stored blob if the follow-up mutation rejects (e.g. quota), so a rejected write doesn't leak storage. `?node=` deep-linking is also already implemented (`apps/web/src/routes/Canvas.tsx` reads it on mount via `controller.selectNode` and writes it on selection via `useSearchParams`) — it just hasn't been live-browser-verified, same as the rest of signed-in SPA flows (⏳ blocked on the real Google OAuth client ID, `/c/:canvasId` sits behind the same `AuthGate` as `/settings/tokens`), and has no automated test (`apps/web` has no test suite yet). Public-slug rotation is now ✅ too: `canvases.rotateMySlug` (public mutation, `requireIotaIdentity`-gated, rejects a private canvas) atomically replaces `publicSlug`, invalidating the old link instantly (`convex/canvases.test.ts`: mints a new slug, old slug 404s via `resolvePublicArtifact`, rejects on a private canvas, rejects unauthenticated); the SPA's `PublishControl` gets a "Rotate link" button, code-reviewed only like the rest of the signed-in UI (same OAuth-blocked browser-verification gap). Search is ✅ too, and fixed a real bug while shipping it: `put_canvas_doc` (via `canvases.putDoc`) never deleted the previous version's `canvasNodes` rows, so every re-render of a canvas doc left its old nodes behind — the search index would have returned one stale duplicate per past edit for every unchanged node, and the table would have grown unboundedly forever (the same "version history keeps things alive forever" trap as the storage-quota bug above, but for a derived index that's supposed to reflect only the current doc, not artifact blobs). Fixed by deleting the prior version's `canvasNodes` before inserting the new ones; regression-tested (`convex/canvases.test.ts`: re-putting a doc leaves exactly one row per node, not two) and live-verified against the dev deployment via two real `put_canvas_doc` MCP calls to the same `canvas_id` — confirmed via `npx convex data canvasNodes` that exactly one row survived, holding the v2 content, and via `npx convex run --inline-query` that the search index resolves it. `canvases.searchNodes` (public query, `requireIotaIdentity`-gated, cross-workspace, no `canvasId` filter) wraps `withSearchIndex` and joins back to `canvases` for titles; a search box on the Home page links results to `/c/:canvasId?node=<id>`, code-reviewed only like the rest of the signed-in UI (same OAuth-blocked browser-verification gap). Version history UI is ✅ too: `canvases.listVersionsMine` (public query, `requireIotaIdentity`-gated) lists a canvas's `canvasVersions` rows newest-first via `by_canvas_version`, flags which one is current (`canvas.currentVersionId`), and resolves the author's email — read-only v1, no restore/rollback. A collapsible list on the Canvas page. Live-verified against the dev deployment via the same index query pattern against real `put_canvas_doc` data (two real versions, correct order, `currentVersionId` pointing at the newer one). Template gallery/theme integration/CDN-inlining/kind="canvas" thumbnails remain ⏳ not started — out of scope for this pass |
+| **C1** Canvas kind live | `put_canvas_doc`/`get_canvas`; doc JSON in file storage + `canvasNodes` search index; viewer page on the app origin; server-side render → thumbnail + PNG/PDF export | ✅ done — MCP-side wiring (`put_canvas_doc`/`get_canvas`, `canvasNodes`, inline Tailwind compile in `renderFile`) plus an SPA viewer that mounts `packages/canvas`'s viewport client-side against the stored doc, with no worker round-trip. Thumbnails cover both paths: `render_file(format="png")` for html/image/pdf canvases, and for kind="canvas", `put_canvas_doc` assembles a full static page at `/src/__canvas.html` and renders it through the worker, attaching the PNG as a forced-`"supporting"` artifact so the doc itself stays primary. A worker failure surfaces as `render_error` on the tool response rather than failing the call. Because the assembled page is a real `canvasFiles` row, `render_file(entrypoint: "/src/__canvas.html", format: "pdf")` gives PDF export with zero new worker code. Regression-tested (`convex/http.test.ts`) and live-verified end-to-end against the dev deployment |
+| **C2** Polish | public slug rotation UI, `?node=` deep links, search UI over `canvasNodes`, version history UI, template gallery, theme integration, Convex crons for `/cache` TTL (24h) and per-canvas storage quota (250MB soft), CDN-inlining on upload | 🚧 partial — shipped: the `/cache` TTL cron (`canvases.sweepCacheTtl`, 24h, `convex/crons.ts`); the 250MB per-canvas soft quota (`reserveCanvasStorage`) tracked as a running counter rather than a scan, since version history keeps superseded blobs alive — rejections surface as a clear MCP error and the just-stored blob is cleaned up; public-slug rotation (`rotateMySlug` + a "Rotate link" button); `?node=` deep links; cross-workspace node search (`searchNodes` + a Home-page search box), which also fixed `putDoc` leaking the previous version's `canvasNodes` rows; and read-only version history (`listVersionsMine`, no restore/rollback). All regression-tested in `convex/canvases.test.ts` and live-verified against the dev deployment. Still ⏳: template gallery, theme integration, CDN-inlining on upload. `apps/web` has no test suite yet, so the SPA halves are code-reviewed and browser-checked, not automated |
 
 ---
 
@@ -565,7 +569,7 @@ Recorded because they were consciously chosen.
   technique confirmed `canvasVersions`/`currentVersionId` back the version-history query
   correctly on real multi-version data. The SPA is now deployed (Railway, see §12.2) with a real
   Google OAuth client ID configured, unblocking the signed-in browser flows (gallery live-update
-  across tabs, viewer pan/zoom/inspector/`#node=`, `/settings/tokens` mint/revoke, public/private
+  across tabs, viewer pan/zoom/inspector/`?node=`, `/settings/tokens` mint/revoke, public/private
   `/s/:slug` toggling from the UI) — see the PR description for the manual-pass checklist and
   results.
 
@@ -581,8 +585,8 @@ Recorded because they were consciously chosen.
    same Railway project as the render worker) — this session had authenticated Railway access
    but none on Netlify, and Railway was already in use for the worker, so it was the pragmatic
    choice once a human confirmed the switch. `apps/web/public/_redirects` (the Netlify-specific
-   SPA-fallback config) is now dead weight kept only because it's harmless; `serve -s` provides
-   the same fallback behavior directly via the Dockerfile's `CMD`. The SPA is live at
+   SPA-fallback config) has been deleted — `serve -s` provides the same fallback behavior
+   directly via the Dockerfile's `CMD`. The SPA is live at
    **`canvas.iota.uz`** — a real custom domain, not the platform-generated fallback decision #13
    said was acceptable — CNAME'd to Railway via Cloudflare (DNS-only, not proxied). Its
    `GOOGLE_OAUTH_CLIENT_ID` reuses the existing shared IOTA-ERP OAuth client rather than a
@@ -608,18 +612,20 @@ Recorded because they were consciously chosen.
 # Part 2 — Rendering runtime internals (inherited from the pre-hosting local spec)
 
 Everything below describes `packages/runtime` as it was originally specified before the hosted
-Convex/worker split existed. It is retained verbatim in structure (including its original
-section numbers — `2.2`, `2.4`, `3.1`–`3.3`, the old §6 tool surface, `7`–`13`, `15`) because
-`packages/runtime`'s source comments cite this content by those exact numbers, and the policies
-described are still accurate: Tailwind v4 styling rules, D2/ApexCharts authoring modes, sandbox
-restrictions, the template and theme systems, and the artifact manifest shape are unchanged by
-the migration to a hosted product — only the transport (`stdio` → Convex `/mcp`) and the
-identifier (`session_id` → `canvas_id`) changed, and those are covered by Part 1 §6.
+Convex/worker split existed. The policies described are still accurate: Tailwind v4 styling
+rules, D2/ApexCharts authoring modes, sandbox restrictions, the template and theme systems, and
+the artifact manifest shape are unchanged by the migration to a hosted product — only the
+transport (`stdio` → Convex `/mcp`) and the identifier (`session_id` → `canvas_id`) changed, and
+those are covered by Part 1 §6.
 
-Where a subsection's *contract* is superseded rather than merely relocated (the old §6 tool
-surface itself, and old §7's session-workspace-as-filesystem framing), a note says so; the
-underlying mechanics (sandbox directory layout, Tailwind build, D2 render, ApexCharts asset
-vendoring) remain load-bearing.
+**Removed:** the three subsections that described the local stdio runtime rather than a policy —
+old §6 (its seven-tool surface, superseded by Part 1 §6's tool table), old §7 (the persisted
+per-session filesystem, which no longer exists; the same `/src`, `/output`, `/assets`,
+`/templates`, `/cache` shape is now recreated per-render inside the worker's throwaway temp
+directory — see §2.2 below and Part 1 §5's `hydrate`/`collectOutputs`), and old §13 (the
+pre-workspaces single-package tree, superseded by Part 1 §3's monorepo layout). Every *other*
+section keeps its original number — `packages/runtime`'s source comments cite them by number —
+so the gaps left behind are deliberate.
 
 ### 2.2 One session → many artifacts
 
@@ -717,33 +723,6 @@ wrapper:
 
 The `apexcharts.min.js` bundle is a local allowlisted asset — no CDN script tags, ever.
 
-### 6 (superseded) — the original local-runtime tool surface
-
-The original seven tools (`create_visual_session`, `run_code`, `write_file`, `render_file`,
-`list_artifacts`, `export_artifact`, `list_templates`) are superseded by Part 1 §6's Convex/MCP
-tool table — same underlying mechanics, `session_id` renamed `canvas_id`, plus workspace/canvas
-CRUD and publish tools that didn't exist locally. `create_visual_session`'s template seeding bug
-(only the first template per `kind` was ever reachable) is fixed in the new `create_canvas`,
-which takes a template id directly.
-
-### 7 (superseded) — filesystem model
-
-Each session had an isolated workspace:
-
-```text
-/session
-  /src
-  /output
-  /assets
-  /templates
-  /cache
-```
-
-Rules: the LLM writes to `/src` and `/output`; `/templates` is read-only; uploaded assets live in
-`/assets`; final files must land in `/output`. This shape is now recreated per-render inside the
-worker's throwaway temp directory (Part 1 §5's `hydrate`/`collectOutputs`) rather than persisted
-per-canvas on disk.
-
 ### 8.1–8.3 Rendering pipelines
 
 ```text
@@ -788,6 +767,12 @@ A small number of strong templates, each exposing:
 Templates: `architecture-overview`, `sequence-flow`, `mobile-app-screen`, `browser-app-screen`,
 `dashboard-overview`, `one-page-infographic`, `multipage-report`, `chart-report`.
 
+**No custom SDK abstraction** (no `Document`/`Diagram`/`Chart` classes, no "VisualKit") — each
+template is a concrete example of HTML/D2/ApexCharts code the LLM writes directly, and the render
+layer only wraps existing renderers (D2, Playwright, Sharp). This constraint predates the
+monorepo and still holds; `packages/runtime`'s comments cite it as "section 13's no-VisualKit
+constraint."
+
 ### 11 Theme system
 
 Token-based themes, compiled to Tailwind v4 `@theme` tokens:
@@ -828,24 +813,6 @@ rather than a `manifest.json` file — same shape):
 Exactly one artifact is `primary` per canvas at all times — enforced by the hosted layer's
 role-inference logic (`convex/canvases.ts`'s `upsertArtifact`), which re-derives the correct role
 on every render rather than assuming "first render is primary, everything else supporting."
-
-### 13 Package structure (superseded — see Part 1 §3 for the current monorepo layout)
-
-The original repo was a single package with no workspaces:
-
-```text
-visual-runtime
-  /src
-    /server /sandbox /render/{diagrams,charts,themes,playwright-renderer,artifact-store}
-    /templates
-  /test
-  package.json
-  tsconfig.json
-```
-
-No custom SDK abstraction (`Document`/`Diagram`/`Chart` classes) — the LLM writes HTML/D2/
-ApexCharts code directly; the render layer only wraps existing renderers (D2, Playwright, Sharp).
-This constraint still holds in the monorepo layout.
 
 ### 15 Worked example
 
