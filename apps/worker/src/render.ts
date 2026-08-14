@@ -1,12 +1,12 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import { renderD2ToSvg } from "@visual-canvas/runtime/render/diagrams/index.js";
 import { renderFile as renderFileWithPlaywright } from "@visual-canvas/runtime/render/playwright-renderer/index.js";
 import { resolveWorkspacePath } from "@visual-canvas/runtime/sandbox/path-guard.js";
-import { resolveRenderOutputPath } from "@visual-canvas/runtime/server/render-output-path.js";
 import { hydrate } from "@visual-canvas/runtime/storage/workspace.js";
 import sharp from "sharp";
-import type { RenderRequest } from "./schemas.js";
+import type { RenderRequest, RenderResponse } from "./schemas.js";
 import { uploadBytes, uploadFile } from "./upload.js";
 
 const MIME_BY_FORMAT: Record<RenderRequest["format"], string> = {
@@ -20,14 +20,8 @@ function isD2Entrypoint(entrypoint: string): boolean {
   return entrypoint.toLowerCase().endsWith(".d2");
 }
 
-export interface RenderResult {
-  relPath: string;
-  size: number;
-  mimeType: string;
-  uploadStatus: number;
-  uploadBody: unknown;
-  thumbnail?: { uploadStatus: number; uploadBody: unknown };
-}
+/** The response body shape — see `RenderResponseSchema` in ./schemas.ts. */
+export type RenderResult = RenderResponse;
 
 const THUMBNAIL_MAX_DIMENSION = 600;
 
@@ -42,7 +36,21 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
   const ws = await hydrate(req.sources);
   try {
     const absEntrypoint = resolveWorkspacePath(ws.root, req.entrypoint, "read");
-    const { absolutePath: absOutput } = resolveRenderOutputPath(ws.root, req.outputPath);
+    // Normalize once, here, and keep BOTH forms: the absolute path to write
+    // to, and the canonical `/output/x.png` display form to report back.
+    // Echoing the caller's raw `outputPath` (as this used to) let
+    // `"output/x.png"` register an artifact row keyed without a leading
+    // slash — unservable by `/s/:slug`, unsweepable by the /cache TTL cron.
+    const { relPath, displayPath } = normalizeCanvasPath(
+      req.outputPath,
+      "render-output",
+      "output_path",
+    );
+    const absOutput = path.resolve(ws.root, relPath);
+
+    // Only the Playwright branch can observe subresource loads; the D2
+    // compiler resolves nothing external, so its list is empty by nature.
+    let unresolvedRefs: string[] = [];
 
     if (isD2Entrypoint(req.entrypoint) && req.format === "svg") {
       const source = await readFile(absEntrypoint, "utf8");
@@ -50,7 +58,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
       await mkdir(path.dirname(absOutput), { recursive: true });
       await writeFile(absOutput, svg, "utf8");
     } else {
-      await renderFileWithPlaywright({
+      const rendered = await renderFileWithPlaywright({
         entrypoint: absEntrypoint,
         outputPath: absOutput,
         format: req.format,
@@ -58,6 +66,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
         pdf: req.pdf,
         workspaceRoot: ws.root,
       });
+      unresolvedRefs = rendered.unresolvedRefs;
     }
 
     const stats = await stat(absOutput);
@@ -77,12 +86,13 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
     }
 
     return {
-      relPath: req.outputPath,
+      relPath: displayPath,
       size: stats.size,
       mimeType,
       uploadStatus: upload.status,
       uploadBody: upload.body,
       thumbnail,
+      unresolvedRefs,
     };
   } finally {
     await ws.dispose();

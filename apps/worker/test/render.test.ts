@@ -23,6 +23,9 @@ function dataUrl(contentType: string, body: string): string {
   return `data:${contentType};base64,${Buffer.from(body).toString("base64")}`;
 }
 
+/** Smallest thing a page can reference that Chromium will actually fetch. */
+const DOT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>`;
+
 test("handleRender: HTML -> PNG uploads the rendered bytes", async () => {
   const uploadServer = await startTestUploadServer();
   try {
@@ -147,6 +150,99 @@ test("handleRender: thumbnailUpload is ignored for non-png formats", async () =>
 
     assert.equal(result.thumbnail, undefined);
     assert.equal(uploadServer.uploads.length, 1);
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleRender: an HTML reference to a missing file lands in unresolvedRefs, render still succeeds", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [
+        {
+          relPath: "/src/index.html",
+          getUrl: dataUrl(
+            "text/html",
+            // Two flavours of the production failure: a relative <img>
+            // src next to the entrypoint, and a CSS url() — plus a
+            // duplicate of the first, which must not be reported twice.
+            `<html><head><style>body{background:url("./myid-face-camera-v1.png")}</style></head>` +
+              `<body><img src="./accident-1.jpg"><img src="./accident-1.jpg"></body></html>`,
+          ),
+        },
+      ],
+      entrypoint: "/src/index.html",
+      outputPath: "/output/report.png",
+      format: "png",
+      viewport: { width: 200, height: 100 },
+      upload: { putUrl: uploadServer.putUrl("out.png") },
+    });
+
+    assert.deepEqual(
+      [...result.unresolvedRefs].sort(),
+      ["/src/accident-1.jpg", "/src/myid-face-camera-v1.png"],
+      "missing subresources should be reported as workspace-relative paths, de-duplicated",
+    );
+    // Non-fatal: the artifact was still produced and uploaded.
+    assert.equal(result.uploadStatus, 200);
+    assert.ok(result.size > 0);
+    assert.equal(uploadServer.uploads.length, 1);
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleRender: a render with every referenced file present returns an empty unresolvedRefs", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [
+        {
+          relPath: "/src/index.html",
+          getUrl: dataUrl(
+            "text/html",
+            `<html><body><img src="/assets/dot.svg"><img src="./dot.svg"></body></html>`,
+          ),
+        },
+        { relPath: "/assets/dot.svg", getUrl: dataUrl("image/svg+xml", DOT_SVG) },
+        { relPath: "/src/dot.svg", getUrl: dataUrl("image/svg+xml", DOT_SVG) },
+      ],
+      entrypoint: "/src/index.html",
+      outputPath: "/output/report.png",
+      format: "png",
+      viewport: { width: 200, height: 100 },
+      upload: { putUrl: uploadServer.putUrl("out.png") },
+    });
+
+    assert.deepEqual(result.unresolvedRefs, []);
+    assert.equal(result.uploadStatus, 200);
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleRender: a leading-slash-less outputPath comes back normalized", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleRender({
+      sources: [
+        {
+          relPath: "/src/index.html",
+          getUrl: dataUrl("text/html", "<html><body><h1>hi</h1></body></html>"),
+        },
+      ],
+      entrypoint: "/src/index.html",
+      // Raw caller input: no leading slash, and a redundant "." segment.
+      // Recording an artifact under this string makes it unservable by
+      // /s/:slug and invisible to the /cache TTL cron.
+      outputPath: "output/./x.png",
+      format: "png",
+      viewport: { width: 100, height: 100 },
+      upload: { putUrl: uploadServer.putUrl("out.png") },
+    });
+
+    assert.equal(result.relPath, "/output/x.png");
   } finally {
     await uploadServer.close();
   }

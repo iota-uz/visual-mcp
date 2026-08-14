@@ -51,6 +51,35 @@ export const RenderRequestSchema = z.object({
 });
 export type RenderRequest = z.infer<typeof RenderRequestSchema>;
 
+/**
+ * `/render`'s response body. Declared here (rather than as a bare interface
+ * next to the handler) so the response contract sits beside the request
+ * contract and callers — Convex's `callWorker` type parameter today — have
+ * one place to read it from.
+ *
+ * `relPath` is the *normalized* output path (`/output/x.png`), not the
+ * caller's raw `outputPath`: artifact rows are keyed by it, `/s/:slug`
+ * always rebuilds a leading-slash relPath when serving, and the `/cache`
+ * TTL cron matches `startsWith("/cache/")` — a row keyed `output/x.png`
+ * is invisible to both.
+ */
+export const RenderResponseSchema = z.object({
+  relPath: z.string(),
+  size: z.number(),
+  mimeType: z.string(),
+  uploadStatus: z.number(),
+  uploadBody: z.unknown(),
+  thumbnail: z.object({ uploadStatus: z.number(), uploadBody: z.unknown() }).optional(),
+  // Subresources the render asked for and never got (missing images,
+  // fonts, CSS `url(...)` targets). Always present, usually empty: a
+  // render with unresolved refs still succeeds and still returns its
+  // artifact — Chromium draws a broken image instead of failing — so this
+  // is the only signal the caller gets that the picture is wrong. Capped
+  // and de-duplicated by the renderer (MAX_UNRESOLVED_REFS).
+  unresolvedRefs: z.array(z.string()),
+});
+export type RenderResponse = z.infer<typeof RenderResponseSchema>;
+
 export const ExecRequestSchema = z.object({
   sources: z.array(SignedSourceSchema),
   code: z.string(),
