@@ -1195,6 +1195,64 @@ describe("canvases.upsertFile storage accounting", () => {
     expect(await t.run((ctx) => ctx.storage.getUrl(firstBlob))).toBeNull();
     expect(await t.run((ctx) => ctx.storage.getUrl(secondBlob))).not.toBeNull();
   });
+
+  test("re-declaring the same blob at the same path charges the quota once", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+    });
+
+    const blob = await seedStorage(t, "same bytes");
+    for (let i = 0; i < 3; i++) {
+      await t.mutation(internal.canvases.upsertFile, {
+        canvasId: created.canvasId,
+        relPath: "/assets/logo.png",
+        storageId: blob,
+        size: 100,
+        contentHash: "h1",
+      });
+    }
+
+    // This is what a retried canvas_save does: it replays the upload_ids it
+    // was handed. Charging per replay would burn a canvas's quota on bytes
+    // that were never re-uploaded, and the blob is still very much alive.
+    const used = await t.run(async (ctx) => (await ctx.db.get(created.canvasId))?.storageBytesUsed);
+    expect(used).toBe(100);
+    expect(await t.run((ctx) => ctx.storage.getUrl(blob))).not.toBeNull();
+  });
+});
+
+describe("canvases.storageAttachment", () => {
+  test("reports where a blob is attached so a replayed write can be told from aliasing", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+    });
+
+    const blob = await seedStorage(t, "bytes");
+    const free = await t.query(internal.canvases.storageAttachment, { storageId: blob });
+    expect(free).toBeNull();
+
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/assets/logo.png",
+      storageId: blob,
+      size: 5,
+      contentHash: "h1",
+    });
+
+    const taken = await t.query(internal.canvases.storageAttachment, { storageId: blob });
+    expect(taken).toMatchObject({
+      scope: "file",
+      canvasId: created.canvasId,
+      relPath: "/assets/logo.png",
+      size: 5,
+    });
+  });
 });
 
 describe("canvases.restoreVersionByRef", () => {

@@ -881,4 +881,74 @@ describe("GET /s/:slug", () => {
     expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
     expect(res.headers.get("content-disposition")).toMatch(/diagram\.svg/);
   });
+
+  // A shared HTML artifact is a *page*, and a page has subresources. Until
+  // these, `<img src="../assets/logo.png">` rendered fine in the worker (it
+  // hydrates every canvasFile) and then 404'd for whoever opened the link,
+  // because this route could only ever serve `artifacts` rows.
+  async function seedAsset(
+    t: ReturnType<typeof convexTest>,
+    canvasId: Id<"canvases">,
+    relPath: string,
+    body: string,
+  ) {
+    await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([body]));
+      await ctx.db.insert("canvasFiles", {
+        canvasId,
+        relPath,
+        storageId,
+        size: body.length,
+        contentHash: "hash",
+      });
+    });
+  }
+
+  test("serves a public canvas's /assets file, typed from its extension", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    await seedAsset(t, canvasId, "/assets/logo.png", "PNGBYTES");
+
+    const res = await t.fetch("/s/pub-slug-123/assets/logo.png", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("PNGBYTES");
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  test("an /assets SVG still downloads rather than rendering as a document", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    await seedAsset(t, canvasId, "/assets/logo.svg", "<svg/>");
+
+    const res = await t.fetch("/s/pub-slug-123/assets/logo.svg", { method: "GET" });
+
+    // Content-Disposition does not apply to `<img>` subresource loads, so
+    // the logo still renders inside the page — but a direct navigation to
+    // this URL must not execute SVG script on the shared origin.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
+  });
+
+  test("the fallback is scoped to /assets — a public canvas never serves its /src", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    await seedAsset(t, canvasId, "/src/index.html", "<h1>author source</h1>");
+
+    const res = await t.fetch("/s/pub-slug-123/src/index.html", { method: "GET" });
+
+    expect(res.status).toBe(404);
+  });
+
+  test("a private canvas's assets are not served either", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t, { visibility: "private" });
+    await seedAsset(t, canvasId, "/assets/logo.png", "PNGBYTES");
+
+    const res = await t.fetch("/s/pub-slug-123/assets/logo.png", { method: "GET" });
+
+    expect(res.status).toBe(404);
+  });
 });

@@ -338,10 +338,40 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
     doc_storage_id: docStorageId,
     doc_url: docUrl,
     entry_url: entryUrl,
+    entry_public_url: await publicEntryUrl(ctx, canvas, entryStorageId),
     css_url: cssUrl,
     thumbnail_url: thumbnailUrl,
     version,
   };
+}
+
+/**
+ * `entry_url` is a bare `/api/storage/<uuid>` URL, which is fine for a
+ * self-contained page and useless for one with subresources: a relative
+ * `../assets/logo.svg` resolves against `/api/`, not against the canvas, so
+ * every image in a shared multi-asset page 404s. Served instead from
+ * `/s/:slug/output/index.html`, the same relative reference lands on
+ * `/s/:slug/assets/logo.svg`, which `resolvePublicArtifact` now answers.
+ *
+ * Public canvases only — the `/s/` endpoint is anonymous by design, so
+ * there is nothing to point a private canvas's viewer at. Null there, and
+ * the caller falls back to `entry_url`.
+ */
+async function publicEntryUrl(
+  ctx: QueryCtx,
+  canvas: Doc<"canvases">,
+  entryStorageId: Id<"_storage"> | undefined,
+): Promise<string | null> {
+  if (canvas.visibility !== "public" || !canvas.publicSlug || !entryStorageId) return null;
+  const site = process.env.CONVEX_SITE_URL;
+  if (!site) return null;
+  const artifact = await ctx.db
+    .query("artifacts")
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+    .filter((q) => q.eq(q.field("storageId"), entryStorageId))
+    .first();
+  if (!artifact) return null;
+  return `${site}/s/${canvas.publicSlug}${artifact.relPath}`;
 }
 
 async function publishCanvas(
@@ -645,14 +675,19 @@ export const upsertFile = internalMutation({
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
 
-    await reserveCanvasStorage(ctx, args.canvasId, args.size);
-
     const existing = await ctx.db
       .query("canvasFiles")
       .withIndex("by_canvas_relPath", (q) =>
         q.eq("canvasId", args.canvasId).eq("relPath", args.relPath),
       )
       .unique();
+
+    // Re-declaring the identical blob at the identical path (a retried
+    // canvas_save replaying its upload_ids) must not charge the quota twice
+    // for bytes that were already charged and are still the same bytes.
+    if (existing?.storageId !== args.storageId) {
+      await reserveCanvasStorage(ctx, args.canvasId, args.size);
+    }
 
     if (existing) {
       const supersededId = existing.storageId;
@@ -759,6 +794,31 @@ export const resolvePublicArtifact = internalQuery({
         .take(1);
       row = primaryRows[0] ?? null;
     }
+
+    // Fall back to the canvas's own /assets. A shared HTML artifact is a
+    // page, and a page has subresources: `<img src="../assets/logo.svg">`
+    // renders correctly in the worker (which hydrates every canvasFile) and
+    // then 404s for the reader, because artifacts were the only thing this
+    // endpoint could serve. Deliberately scoped to /assets — /src holds the
+    // author's sources, and publishing those with the render was never part
+    // of what "public" means here.
+    if (!row && args.relPath?.startsWith("/assets/")) {
+      const file = await ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) =>
+          q.eq("canvasId", canvas._id).eq("relPath", args.relPath as string),
+        )
+        .unique();
+      if (!file) return null;
+      const { type, mime } = classifyAssetPath(file.relPath);
+      return {
+        relPath: file.relPath,
+        type,
+        mimeType: mime,
+        size: file.size,
+        storageId: file.storageId,
+      };
+    }
     if (!row) return null;
 
     return {
@@ -770,6 +830,51 @@ export const resolvePublicArtifact = internalQuery({
     };
   },
 });
+
+/**
+ * `canvasFiles` rows carry no mime type — they are inputs, not artifacts, and
+ * nothing needed one until /assets became publicly servable. Extension-based
+ * because that is all the row has, and `x-content-type-options: nosniff` on
+ * the response means a wrong guess fails closed rather than being sniffed
+ * into something executable.
+ */
+function classifyAssetPath(relPath: string): {
+  type: "pdf" | "image" | "svg" | "source";
+  mime: string;
+} {
+  const ext = relPath.slice(relPath.lastIndexOf(".") + 1).toLowerCase();
+  switch (ext) {
+    case "png":
+      return { type: "image", mime: "image/png" };
+    case "jpg":
+    case "jpeg":
+      return { type: "image", mime: "image/jpeg" };
+    case "gif":
+      return { type: "image", mime: "image/gif" };
+    case "webp":
+      return { type: "image", mime: "image/webp" };
+    case "avif":
+      return { type: "image", mime: "image/avif" };
+    case "ico":
+      return { type: "image", mime: "image/x-icon" };
+    case "svg":
+      return { type: "svg", mime: "image/svg+xml" };
+    case "pdf":
+      return { type: "pdf", mime: "application/pdf" };
+    case "css":
+      return { type: "source", mime: "text/css" };
+    case "woff2":
+      return { type: "source", mime: "font/woff2" };
+    case "woff":
+      return { type: "source", mime: "font/woff" };
+    case "ttf":
+      return { type: "source", mime: "font/ttf" };
+    case "otf":
+      return { type: "source", mime: "font/otf" };
+    default:
+      return { type: "source", mime: "application/octet-stream" };
+  }
+}
 
 // Anonymous, SPA-facing counterpart to `getMine` (PLAN.md Part 1 section 1's
 // `/s/:slug` public viewer route) — kind="canvas" documents render on the
@@ -1148,21 +1253,46 @@ async function restoreVersion(
  * passes back is chosen by the caller, from the org's whole storage
  * namespace. Attaching a blob that some other row already points at would
  * double-count it against the quota and make deleting one canvas punch a
- * hole in another. One indexed check closes that.
+ * hole in another.
+ *
+ * Returns *where* the blob is attached rather than a bare boolean, because
+ * one case is not aliasing at all: re-declaring the same blob at the same
+ * path on the same canvas. That is exactly what a retried `canvas_save`
+ * does — it replays the upload_ids it was given — and rejecting it would
+ * break the idempotent-retry guarantee the whole ref/upsert design exists
+ * for. The caller treats that one shape as a no-op and everything else as
+ * a conflict.
  */
-export const isStorageIdInUse = internalQuery({
+export const storageAttachment = internalQuery({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, args) => {
     const files = await ctx.db
       .query("canvasFiles")
       .filter((q) => q.eq(q.field("storageId"), args.storageId))
       .take(1);
-    if (files.length > 0) return true;
+    const file = files[0];
+    if (file) {
+      return {
+        scope: "file" as const,
+        canvasId: file.canvasId,
+        relPath: file.relPath,
+        size: file.size,
+      };
+    }
     const artifacts = await ctx.db
       .query("artifacts")
       .filter((q) => q.eq(q.field("storageId"), args.storageId))
       .take(1);
-    return artifacts.length > 0;
+    const artifact = artifacts[0];
+    if (artifact) {
+      return {
+        scope: "artifact" as const,
+        canvasId: artifact.canvasId,
+        relPath: artifact.relPath,
+        size: artifact.size,
+      };
+    }
+    return null;
   },
 });
 

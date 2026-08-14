@@ -253,12 +253,24 @@ async function writeOneFile(
   // Already-uploaded blob: nothing to move, just verify and attach.
   if (file.upload_id) {
     const storageId = file.upload_id as Id<"_storage">;
-    const inUse = await ctx.runQuery(internal.canvases.isStorageIdInUse, { storageId });
-    if (inUse) {
+    const attachment = await ctx.runQuery(internal.canvases.storageAttachment, { storageId });
+    // Same blob, same canvas, same path — a replayed call, not aliasing.
+    // Re-attaching would be a no-op anyway, so short-circuit and let the
+    // retry report the file as written, which it is.
+    const isReplay =
+      attachment !== null &&
+      attachment.scope === "file" &&
+      attachment.canvasId === canvasId &&
+      attachment.relPath === displayPath;
+    if (attachment && !isReplay) {
       throw new Error(
-        `upload_id "${file.upload_id}" is already attached to a canvas. ` +
-          "Request a fresh URL from canvas_upload_url for each file.",
+        `upload_id "${file.upload_id}" is already attached to ${attachment.relPath}` +
+          `${attachment.canvasId === canvasId ? " on this canvas" : " on another canvas"}. ` +
+          "Request a fresh URL from canvas_upload_url for each file you write.",
       );
+    }
+    if (isReplay) {
+      return { path: displayPath, size_bytes: attachment.size };
     }
     const metadata = await ctx.storage.getMetadata(storageId);
     if (!metadata) {

@@ -55,7 +55,10 @@ export function PublicCanvasPage() {
             <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
           ) : (
             <iframe
-              src={canvas.entry_url}
+              // Prefer the /s/:slug path: a page's own relative references
+              // (../assets/logo.svg) only resolve when it is served from
+              // under its canvas, not from a bare storage URL.
+              src={canvas.entry_public_url ?? canvas.entry_url}
               title={canvas.title}
               className="artifact-preview-frame"
             />
