@@ -46,7 +46,18 @@ for (const [name, value] of [
   ["JWT_PRIVATE_KEY", JWT_PRIVATE_KEY],
   ["JWKS", JWKS],
 ]) {
-  execFileSync("npx", ["convex", "env", "set", ...convexArgs, name, value], { stdio: "inherit" });
+  try {
+    // `--` is required: the PKCS#8 key starts with "-----BEGIN", which the
+    // CLI's option parser would otherwise read as a flag.
+    execFileSync("npx", ["convex", "env", "set", ...convexArgs, "--", name, value], {
+      stdio: "inherit",
+    });
+  } catch {
+    // Never rethrow: execFileSync's error message embeds the whole argv,
+    // i.e. the private key, into whatever log catches it.
+    console.error(`\nFailed to set ${name}. Nothing was printed; re-run to try again.`);
+    process.exit(1);
+  }
 }
 
 console.log("\nJWT_PRIVATE_KEY and JWKS are set. Still required before sign-in works:");
