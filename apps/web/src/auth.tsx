@@ -32,11 +32,13 @@ import { api } from "../../../convex/_generated/api";
  */
 const SIGNIN_ATTEMPT_KEY = "visual-canvas:signin-attempt";
 
-// Covers both ways to arrive back here without a session: the org rejection
-// and simply abandoning Google's account chooser. It must not assert which.
+// Every way of arriving back here without a session looks identical from
+// the client, so the message must not assert which one happened: the org
+// rejection, abandoning Google's account chooser, and a redirect that never
+// reached the deployment at all all land here.
 const BOUNCED_MESSAGE =
-  "Sign-in didn't complete. Only @iota.uz Google accounts can sign in — if you " +
-  "picked a different account, that's why.";
+  "Sign-in didn't complete. Try again — if it keeps failing, check that the " +
+  "account is @iota.uz, since no other Google account can sign in here.";
 
 function forgetSignInAttempt() {
   // Safari's "block all cookies" makes even sessionStorage throw.
