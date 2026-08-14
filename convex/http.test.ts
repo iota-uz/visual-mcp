@@ -233,7 +233,7 @@ describe("/mcp bearer-auth gate", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "list_workspaces", arguments: {} },
+        params: { name: "canvas_find", arguments: {} },
       }),
     });
     expect(res.status).toBe(401);
@@ -251,7 +251,7 @@ describe("/mcp bearer-auth gate", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "list_workspaces", arguments: {} },
+        params: { name: "canvas_find", arguments: {} },
       }),
     });
     expect(res.status).toBe(401);
@@ -279,7 +279,7 @@ describe("/mcp bearer-auth gate", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "list_workspaces", arguments: {} },
+        params: { name: "canvas_find", arguments: {} },
       }),
     });
     expect(res.status).toBe(401);
@@ -292,482 +292,458 @@ describe("/mcp bearer-auth gate", () => {
   test("a valid token is accepted (200, JSON-RPC result, not an error envelope)", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const response = await callTool(t, token, "list_workspaces", {});
+    const response = await callTool(t, token, "canvas_find", {});
     expect(response.error).toBeUndefined();
     expect(response.result).toBeDefined();
   });
 });
 
-describe("/mcp create_canvas template seeding", () => {
-  async function createWorkspace(t: ReturnType<typeof convexTest>, token: string): Promise<string> {
-    const ws = await callTool(t, token, "create_workspace", { name: "Template WS" });
-    const wsResult = ws.result as { content: Array<{ text: string }> };
-    return JSON.parse(wsResult.content[0]?.text ?? "{}").workspace_id as string;
+describe("/mcp resources: templates", () => {
+  async function rpc(
+    t: ReturnType<typeof convexTest>,
+    token: string,
+    method: string,
+    params: Record<string, unknown>,
+  ) {
+    const res = await t.fetch("/mcp", {
+      method: "POST",
+      headers: { ...MCP_HEADERS, authorization: `Bearer ${token}` },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await t.finishInProgressScheduledFunctions();
+    return parseJsonRpc(res);
   }
 
-  test("seeds /src with the named template's source, reachable immediately", async () => {
+  test("templates are resources, not a tool that dumps every example into context", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const workspace_id = await createWorkspace(t, token);
 
-    const response = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "From Template",
-      kind: "html",
-      template: "browser-app-screen",
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBeFalsy();
-    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-    expect(parsed.seeded_path).toBe("/src/browser-app-screen.html");
-
-    const files = await t.run((ctx) =>
-      ctx.db
-        .query("canvasFiles")
-        .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", parsed.canvas_id))
-        .collect(),
-    );
-    expect(files).toHaveLength(1);
-    expect(files[0]?.relPath).toBe("/src/browser-app-screen.html");
+    const listed = await rpc(t, token, "resources/list", {});
+    const resources = (listed.result as { resources: Array<{ uri: string; name: string }> })
+      .resources;
+    expect(resources.length).toBeGreaterThan(0);
+    expect(resources.map((r) => r.uri)).toContain("canvas://templates/browser-app-screen");
+    // The listing carries names and descriptions only — v1's list_templates
+    // returned every template's full exampleCode (~46KB) on every call.
+    const serialized = JSON.stringify(resources);
+    expect(serialized).not.toContain("<!doctype html>");
   });
 
-  test("a diagram-kind template is seeded as .d2, not .html", async () => {
+  test("reading one template returns its example source", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const workspace_id = await createWorkspace(t, token);
 
-    const response = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "From D2 Template",
-      kind: "html",
-      template: "architecture-overview",
+    const read = await rpc(t, token, "resources/read", {
+      uri: "canvas://templates/browser-app-screen",
     });
-    const result = response.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-    expect(parsed.seeded_path).toBe("/src/architecture-overview.d2");
-  });
-
-  test("rejects an unknown template id loudly", async () => {
-    const t = convexTest(schema, modules);
-    const { token } = await seedUserWithToken(t);
-    const workspace_id = await createWorkspace(t, token);
-
-    const response = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "Bad Template",
-      kind: "html",
-      template: "does-not-exist",
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text ?? "").toMatch(/Unknown template id/);
-  });
-
-  test('rejects a template on a kind="canvas" canvas — no /src concept there', async () => {
-    const t = convexTest(schema, modules);
-    const { token } = await seedUserWithToken(t);
-    const workspace_id = await createWorkspace(t, token);
-
-    const response = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "Canvas Kind",
-      kind: "canvas",
-      template: "browser-app-screen",
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text ?? "").toMatch(/put_canvas_doc/);
-  });
-
-  test("no template param means no seeding, no error", async () => {
-    const t = convexTest(schema, modules);
-    const { token } = await seedUserWithToken(t);
-    const workspace_id = await createWorkspace(t, token);
-
-    const response = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "No Template",
-      kind: "html",
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBeFalsy();
-    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-    expect(parsed.seeded_path).toBeUndefined();
+    const contents = (read.result as { contents: Array<{ text: string }> }).contents;
+    expect(contents[0]?.text).toContain("<!doctype html>");
   });
 });
 
-describe("/mcp put_canvas_doc", () => {
-  async function seedCanvas(t: ReturnType<typeof convexTest>, token: string) {
-    const ws = await callTool(t, token, "create_workspace", { name: "Test WS" });
-    const wsResult = ws.result as { content: Array<{ text: string }> };
-    const { workspace_id } = JSON.parse(wsResult.content[0]?.text ?? "{}");
-
-    const canvas = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "Doc Canvas",
-      kind: "canvas",
-    });
-    const canvasResult = canvas.result as { content: Array<{ text: string }> };
-    const { canvas_id } = JSON.parse(canvasResult.content[0]?.text ?? "{}");
-    return canvas_id as string;
-  }
-
+describe("/mcp canvas_save", () => {
   const baseDoc = {
     version: 1,
     title: "Test Canvas",
     lanes: [{ id: "l1", label: "Lane", role: "primary", height: 200 }],
     stages: [{ id: "s1", index: 0, label: "Stage" }],
-    nodes: [
-      {
-        id: "n1",
-        lane: "l1",
-        stage: "s1",
-        shape: "note",
-        caption: { title: "Node" },
-      },
-    ],
+    nodes: [{ id: "n1", lane: "l1", stage: "s1", shape: "note", caption: { title: "Node" } }],
     edges: [],
   };
 
-  test("rejects a node with a <script> tag loudly, with a fixable error — not silently stripped", async () => {
+  function parse(response: { result?: unknown }) {
+    const result = response.result as {
+      content: Array<{ text: string }>;
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    };
+    const text = result.content[0]?.text ?? "";
+    // Error results carry a prose message, not JSON — only parse successes.
+    const data = result.isError ? {} : (result.structuredContent ?? JSON.parse(text || "{}"));
+    return { isError: result.isError, text, data };
+  }
+
+  test("a slug ref creates workspace and canvas in one call and returns a real URL", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
 
-    const unsafeDoc = {
-      ...baseDoc,
-      nodes: [
-        {
-          ...baseDoc.nodes[0],
-          content: { type: "html", html: "<div>hi</div><script>alert(1)</script>" },
-        },
-      ],
-    };
-
-    const response = await callTool(t, token, "put_canvas_doc", {
-      canvas_id: canvasId,
-      doc: unsafeDoc,
+    const response = await callTool(t, token, "canvas_save", {
+      ref: "osago/fast-settlement",
+      title: "Fast Settlement",
+      files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
     });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text ?? "").toMatch(/script/i);
+    const { isError, data } = parse(response);
+
+    expect(isError).toBeFalsy();
+    expect(data.created).toBe(true);
+    expect(data.ref).toBe("osago/fast-settlement");
+    // The v1 gap this closes: no tool returned a link an agent could hand over.
+    expect(data.canvas_url).toMatch(/^https:\/\/canvas\.test\/c\//);
+    expect(data.share_url).toBeNull();
+    expect(data.files_written).toEqual([{ path: "/src/index.html", size_bytes: 11 }]);
   });
 
-  test("rejects an on* event-handler attribute", async () => {
+  test("calling it twice with the same ref updates rather than minting osago-2", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
 
-    const unsafeDoc = {
-      ...baseDoc,
-      nodes: [
-        {
-          ...baseDoc.nodes[0],
-          content: { type: "html", html: '<div onclick="doEvil()">hi</div>' },
-        },
-      ],
-    };
+    await callTool(t, token, "canvas_save", { ref: "osago/report", title: "First" });
+    const second = parse(
+      await callTool(t, token, "canvas_save", { ref: "osago/report", title: "Second" }),
+    );
 
-    const response = await callTool(t, token, "put_canvas_doc", {
-      canvas_id: canvasId,
-      doc: unsafeDoc,
-    });
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBe(true);
+    expect(second.data.created).toBe(false);
+    expect(second.data.title).toBe("Second");
+    const workspaces = await t.run((ctx) => ctx.db.query("workspaces").collect());
+    expect(workspaces).toHaveLength(1);
   });
 
-  test("accepts a well-formed doc with only static HTML/CSS/SVG, compiling its Tailwind CSS", async () => {
-    const worker = await startMockCompileCssWorker();
-    try {
-      const t = convexTest(schema, modules);
-      const { token } = await seedUserWithToken(t);
-      const canvasId = await seedCanvas(t, token);
+  test("publishing returns the share URL, not a bare slug", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
 
-      const safeDoc = {
-        ...baseDoc,
-        nodes: [
+    const { data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+        visibility: "public",
+      }),
+    );
+
+    expect(data.visibility).toBe("public");
+    expect(data.share_url).toMatch(/^https:\/\/canvas\.test\/s\/[0-9A-Za-z]+$/);
+  });
+
+  test("an unresolved asset reference is reported instead of rendering silently broken", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [
           {
-            ...baseDoc.nodes[0],
-            content: { type: "html", html: '<div class="card"><svg><rect/></svg></div>' },
+            path: "/src/index.html",
+            text: '<img src="./accident-1.jpg"><style>.a{background:url("/assets/missing.png")}</style>',
           },
         ],
-      };
+      }),
+    );
 
-      const response = await callTool(t, token, "put_canvas_doc", {
-        canvas_id: canvasId,
-        doc: safeDoc,
-      });
-      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-      expect(result.isError).toBeFalsy();
-      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-      expect(parsed.version).toBe(1);
+    const warnings = data.warnings as Array<{ code: string; path?: string }>;
+    const paths = warnings.filter((w) => w.code === "unresolved_asset").map((w) => w.path);
+    expect(paths).toContain("/accident-1.jpg");
+    expect(paths).toContain("/assets/missing.png");
+  });
 
-      // The worker actually got called with this node's HTML, and the
-      // canvas ends up with a real css_url pointing at what it returned
-      // (PLAN.md section 2's "no CDN script runs on the app origin").
+  test("an asset that IS present produces no warning", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [
+          { path: "/assets/logo.svg", text: "<svg/>" },
+          { path: "/src/index.html", text: '<img src="/assets/logo.svg">' },
+        ],
+      }),
+    );
+
+    const warnings = data.warnings as Array<{ code: string }>;
+    expect(warnings.filter((w) => w.code === "unresolved_asset")).toHaveLength(0);
+  });
+
+  test("/assets is writable — the whole reason images no longer need base64 inlining", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { isError, data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [{ path: "/assets/logo.svg", text: "<svg/>" }],
+      }),
+    );
+
+    expect(isError).toBeFalsy();
+    expect(data.files_written).toEqual([{ path: "/assets/logo.svg", size_bytes: 6 }]);
+  });
+
+  test("writing to /cache is still refused, and says where writes are allowed", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { isError, text } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [{ path: "/cache/x.txt", text: "nope" }],
+      }),
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toMatch(/only allowed under \/src, \/output or \/assets/);
+  });
+
+  test("a <script> in a doc node is rejected AND the offending node is named", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const { isError, text } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/doc",
+        kind: "canvas",
+        doc: {
+          ...baseDoc,
+          nodes: [
+            {
+              ...baseDoc.nodes[0],
+              content: { type: "html", html: "<script>alert(1)</script>" },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toMatch(/script/i);
+    // v1 dropped zod issue paths, so a 40-node doc reported the rule and
+    // never said which node broke it.
+    expect(text).toMatch(/nodes\.0/);
+  });
+
+  test("a doc with HTML nodes compiles Tailwind before storing anything", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const worker = await startMockCompileCssWorker(".compiled{color:red}");
+    try {
+      const { isError, data } = parse(
+        await callTool(t, token, "canvas_save", {
+          ref: "osago/doc",
+          kind: "canvas",
+          doc: {
+            ...baseDoc,
+            nodes: [
+              {
+                ...baseDoc.nodes[0],
+                content: { type: "html", html: '<div class="p-4">x</div>' },
+              },
+            ],
+          },
+        }),
+      );
+      expect(isError).toBeFalsy();
+      expect(data.version).toBe(1);
       expect(worker.requests).toHaveLength(1);
-      expect(worker.requests[0]?.htmlFragments).toEqual([
-        '<div class="card"><svg><rect/></svg></div>',
-      ]);
-      const canvas = await t.query(internal.canvases.get, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(canvas?.css_url).toBeTruthy();
-      const cssText = await t.run(async (ctx) => {
-        const c = await ctx.db.get(canvasId as Id<"canvases">);
-        if (!c?.currentVersionId) return null;
-        const version = await ctx.db.get(c.currentVersionId);
-        if (!version?.cssStorageId) return null;
-        const blob = await ctx.storage.get(version.cssStorageId);
-        return blob ? blob.text() : null;
-      });
-      expect(cssText).toBe(".compiled-test-class{color:red}");
     } finally {
       await worker.close();
     }
   });
 
-  test("a doc with no HTML-content nodes never calls the worker, no css_url", async () => {
+  test("a doc with no HTML nodes never calls the worker", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
     const worker = await startMockCompileCssWorker();
     try {
-      const t = convexTest(schema, modules);
-      const { token } = await seedUserWithToken(t);
-      const canvasId = await seedCanvas(t, token);
-
-      const response = await callTool(t, token, "put_canvas_doc", {
-        canvas_id: canvasId,
-        doc: baseDoc,
-      });
-      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-      expect(result.isError).toBeFalsy();
+      const { isError } = parse(
+        await callTool(t, token, "canvas_save", {
+          ref: "osago/doc",
+          kind: "canvas",
+          doc: baseDoc,
+        }),
+      );
+      expect(isError).toBeFalsy();
       expect(worker.requests).toHaveLength(0);
-
-      const canvas = await t.query(internal.canvases.get, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(canvas?.css_url).toBeNull();
     } finally {
       await worker.close();
     }
+  });
+
+  test("a render marked primary drives the thumbnail, whatever order renders ran in", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const pngStorageId = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["png"], { type: "image/png" })),
+    );
+    const thumbStorageId = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["thumb"], { type: "image/png" })),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: pngStorageId,
+      thumbnailStorageId: thumbStorageId,
+    });
+    try {
+      const { isError, data } = parse(
+        await callTool(t, token, "canvas_save", {
+          ref: "osago/report",
+          files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+          renders: [{ entrypoint: "/src/index.html", format: "png", primary: true }],
+        }),
+      );
+
+      expect(isError).toBeFalsy();
+      expect(data.status).toBe("ok");
+      const artifacts = data.artifacts as Array<{ path: string; role: string }>;
+      expect(artifacts[0]?.role).toBe("primary");
+      // The v1 trap: an html-first render claimed primary forever, so every
+      // later PNG's thumbnail was discarded and the gallery stayed blank.
+      expect(data.thumbnail_url).not.toBeNull();
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("output_path without a leading slash is normalized before it is recorded", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const pngStorageId = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["png"], { type: "image/png" })),
+    );
+    const worker = await startMockRenderWorker({ renderStorageId: pngStorageId });
+    try {
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+        renders: [{ entrypoint: "/src/index.html", format: "png", output_path: "output/x.png" }],
+      });
+      const sent = worker.requests.render[0] as { outputPath: string };
+      // Un-normalized, this recorded an artifact /s/:slug could never serve
+      // and the /cache TTL cron never swept.
+      expect(sent.outputPath).toBe("/output/x.png");
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("a failed render leaves the content saved and reports status partial", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    // startMockCompileCssWorker only implements /compile-css, so /render 404s.
+    const worker = await startMockCompileCssWorker();
+    try {
+      const { isError, data } = parse(
+        await callTool(t, token, "canvas_save", {
+          ref: "osago/report",
+          files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+          renders: [{ entrypoint: "/src/index.html", format: "png" }],
+        }),
+      );
+
+      expect(isError).toBeFalsy();
+      expect(data.status).toBe("partial");
+      const warnings = data.warnings as Array<{ code: string }>;
+      expect(warnings.some((w) => w.code === "render_failed")).toBe(true);
+      // The file still landed — a render failure must not lose the content.
+      expect(data.files_written).toHaveLength(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("rendering a nonexistent entrypoint fails fast, naming the files that exist", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const { data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/report",
+        files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+        renders: [{ entrypoint: "/src/typo.html", format: "png" }],
+      }),
+    );
+    const warnings = data.warnings as Array<{ message: string }>;
+    expect(warnings.some((w) => w.message.includes("/src/index.html"))).toBe(true);
+  });
+
+  test("mode create refuses to overwrite, which is what makes a retry safe", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", { ref: "osago/report" });
+    const { isError, text } = parse(
+      await callTool(t, token, "canvas_save", { ref: "osago/report", mode: "create" }),
+    );
+    expect(isError).toBe(true);
+    expect(text).toMatch(/already exists/i);
   });
 });
 
-describe("/mcp put_canvas_doc auto-render (PLAN.md section 9 C1)", () => {
-  async function seedCanvas(t: ReturnType<typeof convexTest>, token: string) {
-    const ws = await callTool(t, token, "create_workspace", { name: "Render WS" });
-    const wsResult = ws.result as { content: Array<{ text: string }> };
-    const { workspace_id } = JSON.parse(wsResult.content[0]?.text ?? "{}");
-
-    const canvas = await callTool(t, token, "create_canvas", {
-      workspace_id,
-      title: "Render Canvas",
-      kind: "canvas",
-    });
-    const canvasResult = canvas.result as { content: Array<{ text: string }> };
-    const { canvas_id } = JSON.parse(canvasResult.content[0]?.text ?? "{}");
-    return canvas_id as string;
+describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {
+  function parse(response: { result?: unknown }) {
+    const result = response.result as {
+      content: Array<{ text: string }>;
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    };
+    const text = result.content[0]?.text ?? "";
+    // Error results carry a prose message, not JSON — only parse successes.
+    const data = result.isError ? {} : (result.structuredContent ?? JSON.parse(text || "{}"));
+    return { isError: result.isError, text, data };
   }
 
-  const doc = {
-    version: 1,
-    title: "Render Test",
-    lanes: [{ id: "l1", label: "Lane", role: "primary", height: 200 }],
-    stages: [{ id: "s1", index: 0, label: "Stage" }],
-    nodes: [
-      {
-        id: "n1",
-        lane: "l1",
-        stage: "s1",
-        shape: "note",
-        caption: { title: "Node" },
-        content: { type: "html", html: '<div class="card">hi</div>' },
-      },
-    ],
-    edges: [],
-  };
-
-  test("successful render attaches a supporting artifact + thumbnail to the version put_canvas_doc created, no new version", async () => {
+  test("archiving hides a canvas; purging reclaims its bytes", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
-
-    const [pngStorageId, thumbStorageId] = await t.run(async (ctx) => {
-      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
-      const thumb = await ctx.storage.store(new Blob(["thumb-bytes"], { type: "image/png" }));
-      return [png, thumb];
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/report",
+      files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
     });
 
-    const worker = await startMockRenderWorker({
-      renderStorageId: pngStorageId,
-      thumbnailStorageId: thumbStorageId,
-    });
-    try {
-      const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
-      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-      expect(result.isError).toBeFalsy();
-      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-      expect(parsed.version).toBe(1);
-      expect(parsed.render_error).toBeUndefined();
+    const archived = parse(
+      await callTool(t, token, "canvas_delete", { ref: "osago/report", target: "canvas" }),
+    );
+    expect(archived.data.archived).toBe(true);
 
-      expect(worker.requests.render).toHaveLength(1);
-      expect(worker.requests.render[0]).toMatchObject({
-        entrypoint: "/src/__canvas.html",
-        outputPath: "/output/canvas.png",
-        format: "png",
-      });
-
-      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(artifacts).toEqual([
-        { path: "/output/canvas.png", type: "image", role: "supporting" },
-      ]);
-
-      const canvas = await t.query(internal.canvases.get, { canvasId: canvasId as Id<"canvases"> });
-      expect(canvas?.thumbnail_url).toBeTruthy();
-
-      const files = await t.query(internal.canvases.listFilesForCanvas, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(files.map((f) => f.relPath)).toContain("/src/__canvas.html");
-
-      const versionCount = await t.run(
-        async (ctx) =>
-          (
-            await ctx.db
-              .query("canvasVersions")
-              .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvasId as Id<"canvases">))
-              .collect()
-          ).length,
-      );
-      expect(versionCount).toBe(1);
-    } finally {
-      await worker.close();
-    }
+    const purged = parse(
+      await callTool(t, token, "canvas_delete", {
+        ref: "osago/report",
+        target: "canvas",
+        purge: true,
+      }),
+    );
+    // The advice v1's quota error gave ("remove old files") with no tool that could.
+    expect(purged.data.bytes_reclaimed).toBeGreaterThan(0);
   });
 
-  test("worker's /render step failing: put still succeeds, render_error reported, no artifact/thumbnail", async () => {
+  test("canvas_find returns refs that can be passed straight back in", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
+    await callTool(t, token, "canvas_save", { ref: "osago/fast-settlement", title: "Settlement" });
 
-    // startMockCompileCssWorker only implements /compile-css and 404s
-    // everything else, so /compile-css (and thus the doc put itself)
-    // succeeds, and renderCanvasThumbnail's own /render call is what fails —
-    // exercising the "doc already committed, auto-render fails independently"
-    // case the render_error contract exists for.
-    const worker = await startMockCompileCssWorker();
-
-    const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
-    await worker.close();
-    const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-    expect(result.isError).toBeFalsy();
-    const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-    expect(parsed.version).toBe(1);
-    expect(parsed.render_error).toMatch(/\/render/i);
-
-    const canvas = await t.query(internal.canvases.get, { canvasId: canvasId as Id<"canvases"> });
-    expect(canvas?.doc_url).toBeTruthy();
-    expect(canvas?.thumbnail_url).toBeNull();
-
-    const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
-      canvasId: canvasId as Id<"canvases">,
-    });
-    expect(artifacts).toEqual([]);
+    const { data } = parse(await callTool(t, token, "canvas_find", { query: "Settlement" }));
+    const canvases = data.canvases as Array<{ ref: string; canvas_url: string }>;
+    expect(canvases[0]?.ref).toBe("osago/fast-settlement");
+    expect(canvases[0]?.canvas_url).toMatch(/^https:\/\/canvas\.test\/c\//);
   });
 
-  test("attach failure (quota exceeded) cleans up the uploaded blobs instead of orphaning them", async () => {
+  test("canvas_upload_url hands back a URL and explains the handshake", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
+    await callTool(t, token, "canvas_save", { ref: "osago/report" });
 
-    const [pngStorageId, thumbStorageId] = await t.run(async (ctx) => {
-      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
-      const thumb = await ctx.storage.store(new Blob(["thumb-bytes"], { type: "image/png" }));
-      return [png, thumb];
-    });
-
-    // A reported size beyond the 250MB soft cap makes attachCanvasRender's
-    // reserveCanvasStorage reject, even though the referenced blobs
-    // themselves are tiny — the mock controls `size` independently of the
-    // real blob bytes, same as apps/worker's real response would report the
-    // PNG's actual size regardless of what's in the pre-stored fixture.
-    const worker = await startMockRenderWorker({
-      renderStorageId: pngStorageId,
-      thumbnailStorageId: thumbStorageId,
-      renderSize: 300 * 1024 * 1024,
-    });
-    try {
-      const response = await callTool(t, token, "put_canvas_doc", { canvas_id: canvasId, doc });
-      const result = response.result as { content: Array<{ text: string }>; isError?: boolean };
-      expect(result.isError).toBeFalsy();
-      const parsed = JSON.parse(result.content[0]?.text ?? "{}");
-      expect(parsed.version).toBe(1);
-      expect(parsed.render_error).toMatch(/quota/i);
-
-      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(artifacts).toEqual([]);
-
-      const [pngStillThere, thumbStillThere] = await t.run(async (ctx) => [
-        await ctx.storage.get(pngStorageId),
-        await ctx.storage.get(thumbStorageId),
-      ]);
-      expect(pngStillThere).toBeNull();
-      expect(thumbStillThere).toBeNull();
-    } finally {
-      await worker.close();
-    }
+    const { isError, data } = parse(
+      await callTool(t, token, "canvas_upload_url", {
+        ref: "osago/report",
+        path: "/assets/photo.jpg",
+      }),
+    );
+    expect(isError).toBeFalsy();
+    expect(data.upload_id_field).toBe("storageId");
+    expect(data.path).toBe("/assets/photo.jpg");
+    expect(typeof data.upload_url).toBe("string");
   });
 
-  test("render_file against the auto-persisted /src/__canvas.html works afterward (PDF export 'for free')", async () => {
+  test("canvas_upload_url validates the destination before an upload is wasted", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const canvasId = await seedCanvas(t, token);
+    await callTool(t, token, "canvas_save", { ref: "osago/report" });
 
-    const [pngStorageId, pdfStorageId] = await t.run(async (ctx) => {
-      const png = await ctx.storage.store(new Blob(["png-bytes"], { type: "image/png" }));
-      const pdf = await ctx.storage.store(new Blob(["pdf-bytes"], { type: "application/pdf" }));
-      return [png, pdf];
-    });
-
-    const putWorker = await startMockRenderWorker({ renderStorageId: pngStorageId });
-    try {
-      const putResponse = await callTool(t, token, "put_canvas_doc", {
-        canvas_id: canvasId,
-        doc,
-      });
-      expect((putResponse.result as { isError?: boolean }).isError).toBeFalsy();
-      expect(putWorker.requests.render).toHaveLength(1);
-    } finally {
-      await putWorker.close();
-    }
-
-    // A distinct mock/storageId for the second call, so its artifact row is
-    // independently verifiable from the auto-render's.
-    const pdfWorker = await startMockRenderWorker({ renderStorageId: pdfStorageId });
-    try {
-      const renderResponse = await callTool(t, token, "render_file", {
-        canvas_id: canvasId,
-        entrypoint: "/src/__canvas.html",
-        output_path: "/output/canvas.pdf",
-        format: "pdf",
-      });
-      const result = renderResponse.result as {
-        content: Array<{ text: string }>;
-        isError?: boolean;
-      };
-      expect(result.isError).toBeFalsy();
-      expect(pdfWorker.requests.render).toHaveLength(1);
-
-      const artifacts = await t.query(internal.canvases.listArtifactsForCanvas, {
-        canvasId: canvasId as Id<"canvases">,
-      });
-      expect(artifacts.map((a) => a.path)).toContain("/output/canvas.pdf");
-    } finally {
-      await pdfWorker.close();
-    }
+    const { isError } = parse(
+      await callTool(t, token, "canvas_upload_url", {
+        ref: "osago/report",
+        path: "/cache/photo.jpg",
+      }),
+    );
+    expect(isError).toBe(true);
   });
 });
 

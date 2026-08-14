@@ -9,6 +9,14 @@ import {
   query,
 } from "./_generated/server";
 import { requireIotaIdentity } from "./lib/auth";
+import { findCanvasByRef, findWorkspaceByRef, resolveOrCreateCanvas } from "./lib/canvasRefs";
+import {
+  isBlobReferenced as isStorageReferenced,
+  purgeArtifact,
+  purgeCanvas,
+  purgeCanvasFile,
+  purgeWorkspace,
+} from "./lib/purge";
 import { slugify } from "./lib/slug";
 import { randomPublicSlug } from "./lib/tokenFormat";
 
@@ -40,8 +48,8 @@ async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Pr
 // The counter only grows on writes below and only shrinks when a blob is
 // actually deleted (sweepCacheTtl) — it tracks live storage, not a
 // recomputation of current pointers. `canvasVersions` doc/css blobs
-// (put_canvas_doc) and canvas thumbnails are deliberately excluded: one
-// blob per call for docs, and thumbnails are capped at one small blob per
+// (written when a doc is saved) and canvas thumbnails are deliberately
+// excluded: one blob per call for docs, and thumbnails are capped at one per
 // canvas by construction (recordRender always deletes the superseded one) —
 // neither is the unbounded-loop growth vector this cap targets.
 const CANVAS_STORAGE_QUOTA_BYTES = 250 * 1024 * 1024;
@@ -90,9 +98,11 @@ async function releaseCanvasStorage(
  * packages/runtime/src/render/artifact-store's `registerArtifact` role
  * inference: the first artifact a canvas ever produces becomes "primary";
  * every artifact after that becomes "supporting" unless it explicitly
- * demotes the current primary (not exposed to callers here — render_file
- * and run_code never pass an explicit role, matching the stdio tool's
- * behavior). Re-registering an existing relPath overwrites that row rather
+ * demotes the current primary. That override is `forceRole`, and
+ * `canvas_save`'s per-render `primary` flag is what reaches it: inference
+ * alone made the *first* artifact primary, so an html-then-png canvas
+ * pinned its thumbnail to the html and never showed a picture.
+ * Re-registering an existing relPath overwrites that row rather
  * than duplicating it — and, unlike the reference implementation's literal
  * "any artifacts already exist" check, re-registering the relPath that is
  * *currently* primary keeps it primary: the hosted product re-renders the
@@ -114,12 +124,19 @@ async function upsertArtifact(
     storageId: Id<"_storage">;
   },
   opts?: {
-    // attachCanvasRender's only caller: kind="canvas"'s primary content is
-    // the doc itself (PLAN.md section 2), never a PNG snapshot of it, so its
+    // attachCanvasRender's caller: kind="canvas"'s primary content is the doc
+    // itself (PLAN.md section 2), never a PNG snapshot of it, so its
     // auto-render must never become "primary" even when it's the first
     // artifact this canvas has ever produced — the inference below would
     // otherwise get this wrong for exactly that case.
-    forceRole?: "supporting";
+    //
+    // "primary" is the v2 addition: the caller can now *declare* which render
+    // is the canvas's face instead of leaving it to first-artifact-wins
+    // inference. That inference had a trap — an html-kind canvas whose first
+    // render was format:"html" claimed primary forever, so every later PNG
+    // was "supporting" and its thumbnail was silently discarded, leaving the
+    // gallery permanently blank for that canvas.
+    forceRole?: "primary" | "supporting";
   },
 ): Promise<{ relPath: string; role: "primary" | "supporting" }> {
   await reserveCanvasStorage(ctx, canvasId, entry.size);
@@ -130,8 +147,8 @@ async function upsertArtifact(
     .unique();
 
   let role: "primary" | "supporting";
-  if (opts?.forceRole === "supporting") {
-    role = "supporting";
+  if (opts?.forceRole) {
+    role = opts.forceRole;
   } else if (existingRow?.role === "primary") {
     role = "primary";
   } else {
@@ -193,11 +210,11 @@ async function setCanvasThumbnail(
 }
 
 /**
- * recordRender's (render_file) thumbnail policy: the gallery shows one
- * thumbnail per canvas, for its *primary* artifact — a thumbnail from
- * re-rendering a supporting/debug output path doesn't belong on the canvas,
- * so it's discarded immediately rather than left as an orphaned blob.
- * attachCanvasRender (put_canvas_doc's auto-render) does NOT use this: its
+ * recordRender's thumbnail policy: the gallery shows one thumbnail per
+ * canvas, for its *primary* artifact — a thumbnail from re-rendering a
+ * supporting output path doesn't belong on the canvas, so it's discarded
+ * immediately rather than left as an orphaned blob.
+ * attachCanvasRender (the doc auto-render) does NOT use this: its
  * artifact is always "supporting" by design (see upsertArtifact's
  * forceRole), but its thumbnail is still exactly what the doc currently
  * looks like and should always be attached — see its own call to
@@ -275,11 +292,13 @@ export const create = internalMutation({
 });
 
 async function listCanvases(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
-  const rows = await ctx.db
-    .query("canvases")
-    .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
-    .order("desc")
-    .take(200);
+  const rows = (
+    await ctx.db
+      .query("canvases")
+      .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
+      .order("desc")
+      .take(200)
+  ).filter((c) => c.archivedAt === undefined);
   // Signed, time-limited URLs, resolved per row — this is what lights up
   // the gallery grid (PLAN.md section 8: "gallery with live-updating
   // thumbnails"), not just the single-canvas viewer's thumbnail_url.
@@ -426,10 +445,10 @@ export const rotateMySlug = mutation({
   },
 });
 
-// Read-only version history for the Canvas page (PLAN.md section 9 C2) —
-// every render/put_canvas_doc creates a new canvasVersions row and old ones
-// are never destroyed (decision #1), so this is a plain reverse-chronological
-// list. No restore/rollback here — that's separate, unshipped scope.
+// Version history for the Canvas page — every save creates a new
+// canvasVersions row and old ones are never destroyed (decision #1), so this
+// is a plain reverse-chronological list. Restoring one of these is
+// restoreVersionMine (SPA) / restoreVersionByRef (MCP), below.
 export const listVersionsMine = query({
   args: { canvasId: v.id("canvases") },
   handler: async (ctx, args) => {
@@ -529,7 +548,7 @@ export const putDoc = internalMutation({
     // canvasNodes exists only to back the search index and `?node=` lookups
     // against the *current* doc, unlike canvasVersions/artifacts (whose
     // history is deliberately kept forever). Deleting the previous version's
-    // rows here keeps it that way — otherwise every put_canvas_doc leaves
+    // rows here keeps it that way — otherwise every doc save leaves
     // its old nodes behind, and search would return one stale duplicate per
     // past edit for every node that survived unchanged.
     if (last) {
@@ -561,11 +580,11 @@ export const putDoc = internalMutation({
 });
 
 /**
- * Attaches a server-side render's PNG + thumbnail to a version put_canvas_doc
+ * Attaches a server-side render's PNG + thumbnail to a version a doc save
  * already created (PLAN.md section 9 C1: "server-side render -> thumbnail +
  * PNG/PDF export... come for free"). Deliberately does NOT insert a new
  * canvasVersions row or touch currentVersionId — unlike recordRender (which
- * backs render_file, an explicit user action producing its own version), this
+ * backs an explicit `renders` entry, producing its own version), this
  * is a best-effort side-render of a doc version that already exists; giving
  * it its own version would leave that version with no docStorageId and break
  * the SPA viewer (getCanvas resolves doc_url from the *current* version).
@@ -636,11 +655,33 @@ export const upsertFile = internalMutation({
       .unique();
 
     if (existing) {
+      const supersededId = existing.storageId;
+      const supersededSize = existing.size;
       await ctx.db.patch(existing._id, {
         storageId: args.storageId,
         size: args.size,
         contentHash: args.contentHash,
       });
+      // Overwriting a source file used to drop the old storageId on the
+      // floor: the blob stayed alive forever, unreferenced and invisible,
+      // and its bytes stayed charged against the 250MB quota with no way to
+      // get them back — so an agent iterating on one file could exhaust the
+      // canvas by re-saving it. Source files are *inputs*, not versioned
+      // artifacts (renders and docs are what version history tracks), so the
+      // superseded blob is genuinely garbage once replaced. Guarded because
+      // `recordRender` can share one blob between a file row and a version's
+      // entryStorageId, in which case history still needs it.
+      if (supersededId !== args.storageId) {
+        const stillReferenced = await isStorageReferenced(ctx, args.canvasId, supersededId);
+        if (!stillReferenced) {
+          try {
+            await ctx.storage.delete(supersededId);
+            await releaseCanvasStorage(ctx, args.canvasId, supersededSize);
+          } catch {
+            // Blob already gone; the row now points at the new one either way.
+          }
+        }
+      }
     } else {
       await ctx.db.insert("canvasFiles", {
         canvasId: args.canvasId,
@@ -756,12 +797,17 @@ export const listFilesForCanvas = internalQuery({
       .query("canvasFiles")
       .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId))
       .take(500);
-    return rows.map((f) => ({ relPath: f.relPath, storageId: f.storageId }));
+    return rows.map((f) => ({
+      relPath: f.relPath,
+      storageId: f.storageId,
+      size: f.size,
+      contentHash: f.contentHash,
+    }));
   },
 });
 
 /**
- * Records a render_file result: a new canvasVersions row (entryStorageId —
+ * Records one `canvas_save` render: a new canvasVersions row (entryStorageId —
  * "kind=canvas" uses docStorageId instead, per PLAN.md section 4) plus the
  * produced artifact, atomically. "Claude re-rendering creates a new
  * version, never destroys the old one" (PLAN.md section 1) applies to every
@@ -782,6 +828,9 @@ export const recordRender = internalMutation({
     // so it can't accumulate: the superseded one is always deleted below,
     // capping this at one small blob per canvas regardless of render count.
     thumbnailStorageId: v.optional(v.id("_storage")),
+    // Explicit role, when the caller declared one. Undefined keeps the
+    // historical first-artifact-wins inference.
+    primary: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const canvas = await ctx.db.get(args.canvasId);
@@ -796,13 +845,21 @@ export const recordRender = internalMutation({
     });
     await ctx.db.patch(args.canvasId, { currentVersionId: versionId, updatedAt: Date.now() });
 
-    const artifact = await upsertArtifact(ctx, args.canvasId, versionId, {
-      relPath: args.relPath,
-      type: args.type,
-      mimeType: args.mimeType,
-      size: args.size,
-      storageId: args.storageId,
-    });
+    const artifact = await upsertArtifact(
+      ctx,
+      args.canvasId,
+      versionId,
+      {
+        relPath: args.relPath,
+        type: args.type,
+        mimeType: args.mimeType,
+        size: args.size,
+        storageId: args.storageId,
+      },
+      args.primary === undefined
+        ? undefined
+        : { forceRole: args.primary ? "primary" : "supporting" },
+    );
 
     if (args.thumbnailStorageId) {
       await attachThumbnailIfPrimary(ctx, args.canvasId, artifact.role, args.thumbnailStorageId);
@@ -813,9 +870,9 @@ export const recordRender = internalMutation({
 });
 
 /**
- * Records run_code's produced /output files as one new version (see
+ * Records `canvas_run`'s produced /output files as one new version (see
  * recordRender's comment) plus one artifact row per file. No-ops (creates
- * no version) when run_code produced nothing to upload — a pure-compute
+ * no version) when the script produced nothing to upload — a pure-compute
  * call shouldn't bump the canvas's version history.
  */
 export const recordExecArtifacts = internalMutation({
@@ -877,7 +934,7 @@ export const logRender = internalMutation({
 });
 
 // PLAN.md section 4/9/12.4: "/cache renders stay out of `artifacts`, as
-// today" describes intent, not current storage — render_file/run_code
+// today" describes intent, not current storage — renders and script runs
 // record every output, /cache/ ones included, as a normal `artifacts` row
 // (see upsertArtifact above). This sweep is what actually makes /cache/
 // paths ephemeral: anything under that prefix older than the TTL is deleted,
@@ -891,16 +948,499 @@ export const sweepCacheTtl = internalMutation({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now() - CACHE_TTL_MS;
-    const rows = await ctx.db.query("artifacts").collect();
+    // Paginated rather than `.collect()`: an unbounded collect over the whole
+    // artifacts table is a transaction-size bomb that fails outright once the
+    // table outgrows the read limit — and a cron that starts throwing is a
+    // cron nobody notices has stopped. A bounded page per run keeps this
+    // predictable; anything not reached this pass is picked up the next one.
+    const SWEEP_PAGE = 512;
+    const page = await ctx.db.query("artifacts").take(SWEEP_PAGE);
     let deleted = 0;
-    for (const row of rows) {
+    for (const row of page) {
       if (row.relPath.startsWith("/cache/") && row._creationTime < cutoff) {
-        await ctx.storage.delete(row.storageId);
+        try {
+          await ctx.storage.delete(row.storageId);
+        } catch {
+          // Blob already collected; still drop the row and release the bytes.
+        }
         await ctx.db.delete(row._id);
         await releaseCanvasStorage(ctx, row.canvasId, row.size);
         deleted += 1;
       }
     }
-    return { scanned: rows.length, deleted };
+    return { scanned: page.length, deleted, truncated: page.length === SWEEP_PAGE };
+  },
+});
+
+/* ------------------------------------------------------------------------
+ * v2 surface: upsert, delete, restore
+ *
+ * Everything below is reachable from both the MCP tools (via internal*) and
+ * the SPA (via the *Mine public wrappers at the bottom).
+ * ---------------------------------------------------------------------- */
+
+const KindValidator = v.union(
+  v.literal("canvas"),
+  v.literal("html"),
+  v.literal("image"),
+  v.literal("pdf"),
+);
+
+/** Current quota position, echoed by every write so a caller can see the cap coming. */
+export async function storageStatus(ctx: QueryCtx, canvasId: Id<"canvases">) {
+  const canvas = await ctx.db.get(canvasId);
+  return {
+    used_bytes: canvas?.storageBytesUsed ?? 0,
+    quota_bytes: CANVAS_STORAGE_QUOTA_BYTES,
+  };
+}
+
+/**
+ * The find-or-create behind `canvas_save`. Returns enough for the tool layer
+ * to build URLs and warnings without a second round trip.
+ */
+export const upsertByRef = internalMutation({
+  args: {
+    ref: v.string(),
+    createdBy: v.id("users"),
+    title: v.optional(v.string()),
+    kind: v.optional(KindValidator),
+    description: v.optional(v.string()),
+    theme: v.optional(v.string()),
+    mode: v.optional(v.union(v.literal("upsert"), v.literal("create"), v.literal("update"))),
+    expectedVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { canvas, workspace, created, overwroteOtherAuthor } = await resolveOrCreateCanvas(ctx, {
+      ref: args.ref,
+      createdBy: args.createdBy,
+      title: args.title,
+      kind: args.kind,
+      description: args.description,
+      theme: args.theme,
+      mode: args.mode,
+      expectedVersion: args.expectedVersion,
+    });
+    return {
+      canvasId: canvas._id,
+      workspaceId: workspace._id,
+      workspaceSlug: workspace.slug,
+      canvasSlug: canvas.slug,
+      kind: canvas.kind,
+      title: canvas.title,
+      visibility: canvas.visibility,
+      publicSlug: canvas.publicSlug,
+      created,
+      overwroteOtherAuthor,
+    };
+  },
+});
+
+export type DeleteTarget = "workspace" | "canvas" | "file" | "artifact";
+
+async function performDelete(
+  ctx: MutationCtx,
+  args: { ref: string; target: DeleteTarget; path?: string; purge?: boolean },
+) {
+  const hard = args.purge === true;
+
+  if (args.target === "workspace") {
+    const workspace = await findWorkspaceByRef(ctx, args.ref);
+    if (!workspace) throw new Error(`No workspace found for ref "${args.ref}".`);
+    if (!hard) {
+      await ctx.db.patch(workspace._id, { archivedAt: Date.now() });
+      return {
+        deleted: [{ kind: "workspace" as const, ref: workspace.slug }],
+        bytes_reclaimed: 0,
+        archived: true,
+      };
+    }
+    const totals = await purgeWorkspace(ctx, workspace);
+    return {
+      deleted: [{ kind: "workspace" as const, ref: workspace.slug }],
+      bytes_reclaimed: totals.bytesReclaimed,
+      canvases_deleted: totals.canvasesDeleted,
+      archived: false,
+    };
+  }
+
+  const canvas = await findCanvasByRef(ctx, args.ref);
+  if (!canvas) throw new Error(`No canvas found for ref "${args.ref}".`);
+  const workspace = await ctx.db.get(canvas.workspaceId);
+  const refLabel = workspace ? `${workspace.slug}/${canvas.slug}` : canvas.slug;
+
+  if (args.target === "canvas") {
+    if (!hard) {
+      await ctx.db.patch(canvas._id, { archivedAt: Date.now() });
+      return {
+        deleted: [{ kind: "canvas" as const, ref: refLabel }],
+        bytes_reclaimed: 0,
+        archived: true,
+      };
+    }
+    const totals = await purgeCanvas(ctx, canvas);
+    return {
+      deleted: [{ kind: "canvas" as const, ref: refLabel }],
+      bytes_reclaimed: totals.bytesReclaimed,
+      archived: false,
+    };
+  }
+
+  if (!args.path) {
+    throw new Error(`target "${args.target}" requires a path (e.g. "/output/report.png").`);
+  }
+
+  const totals =
+    args.target === "file"
+      ? await purgeCanvasFile(ctx, canvas._id, args.path)
+      : await purgeArtifact(ctx, canvas._id, args.path);
+  if (!totals) {
+    throw new Error(
+      `No ${args.target} at "${args.path}" on "${refLabel}". Use canvas_get to list what exists.`,
+    );
+  }
+  await releaseCanvasStorage(ctx, canvas._id, totals.bytesReclaimed);
+  return {
+    deleted: [{ kind: args.target, ref: refLabel, path: args.path }],
+    bytes_reclaimed: totals.bytesReclaimed,
+    archived: false,
+  };
+}
+
+export const removeByRef = internalMutation({
+  args: {
+    ref: v.string(),
+    target: v.union(
+      v.literal("workspace"),
+      v.literal("canvas"),
+      v.literal("file"),
+      v.literal("artifact"),
+    ),
+    path: v.optional(v.string()),
+    purge: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => performDelete(ctx, args),
+});
+
+/**
+ * Rolls a canvas back to an earlier version by re-pointing
+ * `currentVersionId`. The blobs were never destroyed (decision #1), so this
+ * is a pointer move, not a copy — which is why v1's write-only history was a
+ * missing surface rather than missing data.
+ */
+async function restoreVersion(
+  ctx: MutationCtx,
+  canvasId: Id<"canvases">,
+  version: number,
+): Promise<{ version: number }> {
+  const target = await ctx.db
+    .query("canvasVersions")
+    .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvasId).eq("version", version))
+    .unique();
+  if (!target) throw new Error(`Canvas has no version ${version}.`);
+  await ctx.db.patch(canvasId, { currentVersionId: target._id, updatedAt: Date.now() });
+  return { version: target.version };
+}
+
+/**
+ * Guard for `canvas_upload_url`'s handle-echo flow. Convex's upload URLs
+ * return the `storageId` in the *client's* response, so the handle a caller
+ * passes back is chosen by the caller, from the org's whole storage
+ * namespace. Attaching a blob that some other row already points at would
+ * double-count it against the quota and make deleting one canvas punch a
+ * hole in another. One indexed check closes that.
+ */
+export const isStorageIdInUse = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const files = await ctx.db
+      .query("canvasFiles")
+      .filter((q) => q.eq(q.field("storageId"), args.storageId))
+      .take(1);
+    if (files.length > 0) return true;
+    const artifacts = await ctx.db
+      .query("artifacts")
+      .filter((q) => q.eq(q.field("storageId"), args.storageId))
+      .take(1);
+    return artifacts.length > 0;
+  },
+});
+
+/** Ref-addressed read backing `canvas_get`, with facets selected by the caller. */
+export const detailByRef = internalQuery({
+  args: {
+    ref: v.string(),
+    includeDoc: v.optional(v.boolean()),
+    includeFiles: v.optional(v.boolean()),
+    includeArtifacts: v.optional(v.boolean()),
+    includeVersions: v.optional(v.boolean()),
+    includeRenders: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const canvas = await findCanvasByRef(ctx, args.ref);
+    if (!canvas || canvas.archivedAt !== undefined) return null;
+    const workspace = await ctx.db.get(canvas.workspaceId);
+    const base = await getCanvas(ctx, canvas._id);
+    if (!base) return null;
+
+    const files = args.includeFiles
+      ? (
+          await ctx.db
+            .query("canvasFiles")
+            .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+            .take(500)
+        ).map((f) => ({ path: f.relPath, size_bytes: f.size, content_hash: f.contentHash }))
+      : undefined;
+
+    const artifacts = args.includeArtifacts
+      ? await Promise.all(
+          (
+            await ctx.db
+              .query("artifacts")
+              .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+              .take(500)
+          ).map(async (a) => ({
+            path: a.relPath,
+            type: a.type,
+            role: a.role,
+            size_bytes: a.size,
+            mime_type: a.mimeType,
+            raw_url: await ctx.storage.getUrl(a.storageId),
+          })),
+        )
+      : undefined;
+
+    const versions = args.includeVersions
+      ? await Promise.all(
+          (
+            await ctx.db
+              .query("canvasVersions")
+              .withIndex("by_canvas_version", (q) => q.eq("canvasId", canvas._id))
+              .order("desc")
+              .take(50)
+          ).map(async (row) => {
+            const author = await ctx.db.get(row.createdBy);
+            return {
+              version: row.version,
+              note: row.note,
+              created_at: row._creationTime,
+              created_by_email: author?.email ?? null,
+              is_current: canvas.currentVersionId === row._id,
+            };
+          }),
+        )
+      : undefined;
+
+    const renders = args.includeRenders
+      ? (
+          await ctx.db
+            .query("renders")
+            .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+            .order("desc")
+            .take(20)
+        ).map((r) => ({
+          entrypoint: r.entrypoint,
+          format: r.format,
+          status: r.status,
+          duration_ms: r.durationMs,
+          error_text: r.errorText,
+          created_at: r._creationTime,
+        }))
+      : undefined;
+
+    const author = await ctx.db.get(canvas.createdBy);
+    return {
+      canvas: base,
+      workspace_slug: workspace?.slug ?? null,
+      created_by_email: author?.email ?? null,
+      storage: {
+        used_bytes: canvas.storageBytesUsed ?? 0,
+        quota_bytes: CANVAS_STORAGE_QUOTA_BYTES,
+      },
+      doc_included: args.includeDoc === true,
+      files,
+      artifacts,
+      versions,
+      renders,
+    };
+  },
+});
+
+/**
+ * Backs `canvas_find` — the browse/search tool. v1 had list_workspaces and
+ * list_canvases (both silently truncating at 200 with no cursor) and no
+ * search at all over MCP, even though the SPA had one.
+ */
+export const findCanvases = internalQuery({
+  args: {
+    query: v.optional(v.string()),
+    workspaceSlug: v.optional(v.string()),
+    kind: v.optional(KindValidator),
+    visibility: v.optional(v.union(v.literal("private"), v.literal("public"))),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 25, 1), 100);
+    const term = args.query?.trim();
+
+    let workspaceId: Id<"workspaces"> | undefined;
+    if (args.workspaceSlug) {
+      const workspace = await ctx.db
+        .query("workspaces")
+        .withIndex("by_slug", (q) => q.eq("slug", args.workspaceSlug as string))
+        .unique();
+      if (!workspace || workspace.archivedAt !== undefined) {
+        return { canvases: [], nodes: [], has_more: false };
+      }
+      workspaceId = workspace._id;
+    }
+
+    // Node-level full-text, when a query was given. Matching a node is the
+    // most useful hit: it locates the right canvas AND the right place in it.
+    const nodes = term
+      ? (
+          await ctx.db
+            .query("canvasNodes")
+            .withSearchIndex("search_text", (q) => q.search("searchText", term))
+            .take(limit)
+        ).slice(0, limit)
+      : [];
+
+    const nodeResults = (
+      await Promise.all(
+        nodes.map(async (row) => {
+          const canvas = await ctx.db.get(row.canvasId);
+          if (!canvas || canvas.archivedAt !== undefined) return null;
+          const workspace = await ctx.db.get(canvas.workspaceId);
+          if (workspaceId && canvas.workspaceId !== workspaceId) return null;
+          return {
+            ref: workspace ? `${workspace.slug}/${canvas.slug}` : canvas._id,
+            canvas_id: canvas._id,
+            node_id: row.nodeId,
+            node_title: row.title,
+            eyebrow: row.eyebrow,
+          };
+        }),
+      )
+    ).filter((r): r is NonNullable<typeof r> => r !== null);
+
+    // Canvas rows: scoped to a workspace when asked, otherwise across all of
+    // them. Titles are matched here too — v1's search only ever looked at
+    // canvas-node text, so a canvas whose title matched was unfindable.
+    const candidates = workspaceId
+      ? await ctx.db
+          .query("canvases")
+          .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
+          .order("desc")
+          .take(200)
+      : await ctx.db.query("canvases").take(200);
+
+    const filtered = candidates.filter((c) => {
+      if (c.archivedAt !== undefined) return false;
+      if (args.kind && c.kind !== args.kind) return false;
+      if (args.visibility && c.visibility !== args.visibility) return false;
+      if (term && !c.title.toLowerCase().includes(term.toLowerCase())) return false;
+      return true;
+    });
+
+    const page = filtered.slice(0, limit);
+    const canvases = await Promise.all(
+      page.map(async (c) => {
+        const workspace = await ctx.db.get(c.workspaceId);
+        return {
+          ref: workspace ? `${workspace.slug}/${c.slug}` : c._id,
+          canvas_id: c._id,
+          title: c.title,
+          kind: c.kind,
+          visibility: c.visibility,
+          public_slug: c.publicSlug,
+          updated_at: c.updatedAt,
+          thumbnail_url: c.thumbnailId ? await ctx.storage.getUrl(c.thumbnailId) : null,
+        };
+      }),
+    );
+
+    return { canvases, nodes: nodeResults, has_more: filtered.length > page.length };
+  },
+});
+
+/** Workspace listing with canvas counts — the gallery's missing context. */
+export const findWorkspaces = internalQuery({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
+    const rows = (await ctx.db.query("workspaces").take(200)).filter(
+      (w) => w.archivedAt === undefined,
+    );
+    const page = rows.slice(0, limit);
+    const workspaces = await Promise.all(
+      page.map(async (w) => {
+        const canvases = await ctx.db
+          .query("canvases")
+          .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", w._id))
+          .take(200);
+        return {
+          slug: w.slug,
+          name: w.name,
+          description: w.description,
+          canvas_count: canvases.filter((c) => c.archivedAt === undefined).length,
+        };
+      }),
+    );
+    return { workspaces, has_more: rows.length > page.length };
+  },
+});
+
+export const restoreVersionByRef = internalMutation({
+  args: { ref: v.string(), version: v.number() },
+  handler: async (ctx, args) => {
+    const canvas = await findCanvasByRef(ctx, args.ref);
+    if (!canvas) throw new Error(`No canvas found for ref "${args.ref}".`);
+    return restoreVersion(ctx, canvas._id, args.version);
+  },
+});
+
+/* --- Public, SPA-facing curator surface ------------------------------- */
+
+export const renameMine = mutation({
+  args: { canvasId: v.id("canvases"), title: v.string() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const title = args.title.trim();
+    if (!title) throw new Error("Title must not be empty.");
+    // Slug is intentionally untouched: it is the upsert key agents address
+    // this canvas by, and every share link is built from it.
+    await ctx.db.patch(args.canvasId, { title, updatedAt: Date.now() });
+    return { title };
+  },
+});
+
+export const archiveMine = mutation({
+  args: { canvasId: v.id("canvases"), archived: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    await ctx.db.patch(args.canvasId, {
+      archivedAt: args.archived ? Date.now() : undefined,
+    });
+    return { archived: args.archived };
+  },
+});
+
+export const deleteMine = mutation({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) throw new Error("Canvas not found.");
+    const totals = await purgeCanvas(ctx, canvas);
+    return { bytes_reclaimed: totals.bytesReclaimed };
+  },
+});
+
+export const restoreVersionMine = mutation({
+  args: { canvasId: v.id("canvases"), version: v.number() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    return restoreVersion(ctx, args.canvasId, args.version);
   },
 });

@@ -68,6 +68,11 @@ export default defineSchema({
     // pre-existing rows (undefined ⇒ treated as 0) don't need a migration.
     storageBytesUsed: v.optional(v.number()),
     createdBy: v.id("users"),
+    // Soft-delete tombstone, mirroring workspaces.archivedAt. Archived
+    // canvases stay out of listings and searches but keep their blobs and
+    // version history, so an accidental delete is recoverable; a hard purge
+    // deletes the row outright.
+    archivedAt: v.optional(v.number()),
     // Bumped on every new version — backs by_workspace_updated so the
     // gallery can sort by recency (PLAN.md section 4's index name implies
     // this; not itself an explicit field in the plan's abbreviated table).
@@ -99,6 +104,10 @@ export default defineSchema({
     searchText: v.string(),
   })
     .index("by_version", ["versionId"])
+    // Needed to enumerate a canvas's nodes without walking its versions —
+    // deleting a canvas has to remove them, and the search index can filter
+    // by canvasId but cannot enumerate by it.
+    .index("by_canvas", ["canvasId"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
 
   // /src, /output, /cache, /assets are prefixes on relPath, not directories
@@ -119,7 +128,7 @@ export default defineSchema({
     // the artifact-store's type inference moves into packages/runtime per
     // PLAN.md section 5, so the vocabulary must stay identical.
     type: v.union(v.literal("pdf"), v.literal("image"), v.literal("svg"), v.literal("source")),
-    role: v.union(v.literal("primary"), v.literal("supporting"), v.literal("debug")),
+    role: v.union(v.literal("primary"), v.literal("supporting")),
     mimeType: v.string(),
     size: v.number(),
     storageId: v.id("_storage"),

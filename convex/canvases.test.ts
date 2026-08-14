@@ -923,3 +923,319 @@ describe("cache TTL sweep (PLAN.md section 9/12.4: /cache is ephemeral, 24h)", (
     expect(canvas?.storageBytesUsed).toBe(20 * MB);
   });
 });
+
+/* ------------------------------------------------------------------------
+ * v2 surface: ref-addressed upsert, delete, restore
+ * ---------------------------------------------------------------------- */
+
+describe("canvases.upsertByRef (the idempotent create)", () => {
+  test("a slug ref creates the workspace and the canvas together", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+
+    const result = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/fast-settlement",
+      createdBy,
+      title: "Fast Settlement",
+      kind: "html",
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.workspaceSlug).toBe("osago");
+    expect(result.canvasSlug).toBe("fast-settlement");
+    expect(result.title).toBe("Fast Settlement");
+  });
+
+  test("re-calling the same ref updates instead of minting a duplicate", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+
+    const first = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/fast-settlement",
+      createdBy,
+      title: "Fast Settlement",
+      kind: "html",
+    });
+    const second = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/fast-settlement",
+      createdBy,
+      title: "Fast Settlement v2",
+    });
+
+    expect(second.created).toBe(false);
+    expect(second.canvasId).toBe(first.canvasId);
+    expect(second.title).toBe("Fast Settlement v2");
+    // The v1 bug this replaces: a retried create left behind `osago-2`.
+    expect(second.workspaceSlug).toBe("osago");
+    const workspaces = await t.query(internal.workspaces.list, {});
+    expect(workspaces).toHaveLength(1);
+  });
+
+  test("the slug stays put when the title changes", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+
+    await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/fast-settlement",
+      createdBy,
+      title: "Original",
+    });
+    const renamed = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/fast-settlement",
+      createdBy,
+      title: "Completely Different Name",
+    });
+
+    expect(renamed.canvasSlug).toBe("fast-settlement");
+  });
+
+  test('mode "create" refuses to touch an existing canvas', async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+
+    await t.mutation(internal.canvases.upsertByRef, { ref: "osago/report", createdBy });
+    await expect(
+      t.mutation(internal.canvases.upsertByRef, {
+        ref: "osago/report",
+        createdBy,
+        mode: "create",
+      }),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  test('mode "update" refuses to create a missing canvas', async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    await expect(
+      t.mutation(internal.canvases.upsertByRef, {
+        ref: "osago/nope",
+        createdBy,
+        mode: "update",
+      }),
+    ).rejects.toThrow(/no canvas at/i);
+  });
+
+  test("expected_version mismatch is refused, so a concurrent write is caught", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    await t.mutation(internal.canvases.upsertByRef, { ref: "osago/report", createdBy });
+
+    await expect(
+      t.mutation(internal.canvases.upsertByRef, {
+        ref: "osago/report",
+        createdBy,
+        expectedVersion: 7,
+      }),
+    ).rejects.toThrow(/expected_version 7/);
+  });
+
+  test("flags an upsert that lands on another author's canvas", async () => {
+    const t = convexTest(schema, modules);
+    const author = await seedUser(t);
+    const other = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        googleSub: "bootstrap:other@iota.uz",
+        email: "other@iota.uz",
+        name: "Other",
+        lastSeenAt: 0,
+      }),
+    );
+
+    await t.mutation(internal.canvases.upsertByRef, { ref: "osago/report", createdBy: author });
+    const second = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy: other,
+    });
+
+    expect(second.overwroteOtherAuthor).toBe(true);
+  });
+
+  test("a bad ref explains the two accepted forms instead of leaking a validator error", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    await expect(
+      t.mutation(internal.canvases.upsertByRef, { ref: "a/b/c", createdBy }),
+    ).rejects.toThrow(/too many "\/" segments/);
+  });
+});
+
+describe("canvases.removeByRef", () => {
+  test("soft-archive hides a canvas from listings but keeps its bytes", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+    });
+
+    const result = await t.mutation(internal.canvases.removeByRef, {
+      ref: "osago/report",
+      target: "canvas",
+    });
+
+    expect(result.archived).toBe(true);
+    const listed = await t.query(internal.canvases.list, { workspaceId: created.workspaceId });
+    expect(listed).toHaveLength(0);
+  });
+
+  test("purge deletes the canvas's version blobs, not just its artifacts", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+      kind: "canvas",
+    });
+
+    // A version blob (doc) that the quota never counted and no sweep touches
+    // — exactly the thing a naive delete orphans forever.
+    const docStorageId = await seedStorage(t, "{}");
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId,
+      createdBy,
+      nodes: [],
+    });
+
+    await t.mutation(internal.canvases.removeByRef, {
+      ref: "osago/report",
+      target: "canvas",
+      purge: true,
+    });
+
+    const blobStillThere = await t.run((ctx) => ctx.storage.getUrl(docStorageId));
+    expect(blobStillThere).toBeNull();
+    const versionsLeft = await t.run((ctx) => ctx.db.query("canvasVersions").collect());
+    expect(versionsLeft).toHaveLength(0);
+  });
+
+  test("purging a workspace removes every canvas inside it", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    await t.mutation(internal.canvases.upsertByRef, { ref: "junk/one", createdBy });
+    await t.mutation(internal.canvases.upsertByRef, { ref: "junk/two", createdBy });
+
+    const result = await t.mutation(internal.canvases.removeByRef, {
+      ref: "junk",
+      target: "workspace",
+      purge: true,
+    });
+
+    expect(result.canvases_deleted).toBe(2);
+    const workspaces = await t.query(internal.workspaces.list, {});
+    expect(workspaces).toHaveLength(0);
+  });
+
+  test("deleting a file reclaims its bytes from the quota counter", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+    });
+    const storageId = await seedStorage(t, "hello world");
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/src/index.html",
+      storageId,
+      size: 11,
+      contentHash: "h1",
+    });
+
+    const before = await t.run(
+      async (ctx) => (await ctx.db.get(created.canvasId))?.storageBytesUsed,
+    );
+    expect(before).toBe(11);
+
+    const result = await t.mutation(internal.canvases.removeByRef, {
+      ref: "osago/report",
+      target: "file",
+      path: "/src/index.html",
+    });
+
+    expect(result.bytes_reclaimed).toBe(11);
+    const after = await t.run(
+      async (ctx) => (await ctx.db.get(created.canvasId))?.storageBytesUsed,
+    );
+    expect(after).toBe(0);
+  });
+});
+
+describe("canvases.upsertFile storage accounting", () => {
+  test("overwriting a source file releases the superseded blob instead of leaking it", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+    });
+
+    const firstBlob = await seedStorage(t, "v1");
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/src/index.html",
+      storageId: firstBlob,
+      size: 100,
+      contentHash: "h1",
+    });
+
+    const secondBlob = await seedStorage(t, "v2");
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/src/index.html",
+      storageId: secondBlob,
+      size: 100,
+      contentHash: "h2",
+    });
+
+    // v1 charged both writes forever, so an agent iterating on one file could
+    // exhaust a 250MB canvas by re-saving it.
+    const used = await t.run(async (ctx) => (await ctx.db.get(created.canvasId))?.storageBytesUsed);
+    expect(used).toBe(100);
+    expect(await t.run((ctx) => ctx.storage.getUrl(firstBlob))).toBeNull();
+    expect(await t.run((ctx) => ctx.storage.getUrl(secondBlob))).not.toBeNull();
+  });
+});
+
+describe("canvases.restoreVersionByRef", () => {
+  test("rolls currentVersionId back to an earlier version", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+      kind: "canvas",
+    });
+
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "{v:1}"),
+      createdBy,
+      nodes: [],
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "{v:2}"),
+      createdBy,
+      nodes: [],
+    });
+
+    const restored = await t.mutation(internal.canvases.restoreVersionByRef, {
+      ref: "osago/report",
+      version: 1,
+    });
+    expect(restored.version).toBe(1);
+
+    const canvas = await t.query(internal.canvases.get, { canvasId: created.canvasId });
+    expect(canvas?.version).toBe(1);
+  });
+
+  test("a missing version is refused with the version number named", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    await t.mutation(internal.canvases.upsertByRef, { ref: "osago/report", createdBy });
+    await expect(
+      t.mutation(internal.canvases.restoreVersionByRef, { ref: "osago/report", version: 42 }),
+    ).rejects.toThrow(/no version 42/i);
+  });
+});

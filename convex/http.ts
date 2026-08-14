@@ -38,7 +38,8 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { httpAction } from "./_generated/server";
 import { sha256Hex } from "./lib/hash";
-import { type McpPrincipal, registerTools } from "./mcp/tools";
+import { buildInstructions } from "./mcp/instructions";
+import { type McpPrincipal, registerResources, registerTools } from "./mcp/tools";
 
 function principalFromAuthInfo(authInfo: AuthInfo | undefined): McpPrincipal {
   const extra = authInfo?.extra;
@@ -87,8 +88,16 @@ http.route({
     if (auth instanceof Response) return auth;
 
     const mcpHandler = createMcpHandler((reqCtx) => {
-      const server = new McpServer({ name: "visual-canvas", version: "0.1.0" });
+      // `instructions` is how a server explains itself once, instead of
+      // repeating the addressing rules in all six tool descriptions — and it
+      // replaces the v1 descriptions' citations of "PLAN.md section 7", a
+      // file the caller has no way to read.
+      const server = new McpServer(
+        { name: "visual-canvas", version: "2.0.0" },
+        { instructions: buildInstructions() },
+      );
       registerTools(server, ctx, principalFromAuthInfo(reqCtx.authInfo));
+      registerResources(server);
       return server;
     });
 
@@ -104,9 +113,9 @@ const PUBLIC_ARTIFACT_INLINE_LIMIT = 18 * 1024 * 1024;
 // Deliberately allows the Tailwind CDN and Google Fonts (PLAN.md Part 1
 // section 8/10.2): the reference osago artifact this product exists to host
 // loads both, and a stricter default-deny would render it unstyled.
-// `frame-ancestors` widens to the SPA's own origin once SPA_ORIGIN is set
-// (post Netlify deploy) — until then this equals "no embedding at all",
-// which is the safe default, not a broken one.
+// `frame-ancestors` widens to the SPA's own origin once SPA_ORIGIN is set —
+// until then this equals "no embedding at all", which is the safe default,
+// not a broken one.
 function publicArtifactCsp(): string {
   const spaOrigin = process.env.SPA_ORIGIN;
   const frameAncestors = spaOrigin ? `'self' ${spaOrigin}` : "'self'";

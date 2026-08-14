@@ -1,0 +1,55 @@
+/**
+ * The server's `instructions` string — MCP's channel for telling a client how
+ * the server works as a whole, rather than repeating it in every tool
+ * description.
+ *
+ * v1 registered no instructions at all, and several tool descriptions cited
+ * "PLAN.md section 7" — a file the caller cannot read. Everything a caller
+ * needs to use this server correctly now lives here, once.
+ */
+
+import { listTemplates } from "@visual-canvas/runtime/templates/index.js";
+
+export function buildInstructions(): string {
+  // Derived from the live registry, not the reference-only TEMPLATE_IDS
+  // constant in runtime/types.ts — that one is documentation and can drift.
+  const templateIds = listTemplates().map((t) => t.id);
+  return [
+    "Visual Canvas authors shareable visual documents — diagrams, dashboards, reports, mockups —",
+    "and serves them at stable URLs for humans to view and share.",
+    "",
+    "ADDRESSING. Every tool takes a single `ref` in one of two forms:",
+    '  "workspace-slug/canvas-slug"  — e.g. "osago/fast-settlement". Creates on first save.',
+    '  "<canvas_id>"                 — the opaque id returned by a previous call.',
+    "Prefer the slug form: it is stable, human-readable, and makes canvas_save idempotent, so a",
+    "retried call updates the same canvas instead of creating a duplicate. File paths are never",
+    "part of the ref — they go in their own `path` field.",
+    "",
+    "AUTHORING. One canvas_save call does the whole job: it creates the workspace and canvas if",
+    "needed, writes files, renders, and publishes. You rarely need more than one call.",
+    "  kind=canvas          author with `doc` (a declarative CanvasDoc: lanes, stages, nodes, edges)",
+    "  kind=html|image|pdf  author with `files` + `renders`",
+    "",
+    "FILE PATHS. Writable: /src (sources), /assets (images, fonts), /output (results).",
+    "Read-only: /cache (render scratch, deleted after 24h). Reference assets from your HTML with",
+    'root-relative paths like "/assets/logo.png".',
+    "",
+    "LARGE FILES. Do NOT inline megabytes of base64 into a tool call — it burns context and may",
+    "exceed the request limit. Call canvas_upload_url, POST the bytes to the returned URL out of",
+    "band, then pass the storageId you get back as `upload_id` on the file. Small text files can",
+    "go inline via `text`.",
+    "",
+    "URLS. canvas_save and canvas_get return real, fully-qualified URLs:",
+    "  canvas_url  — the signed-in viewer, for teammates",
+    "  share_url   — the public link, only present once visibility is 'public'",
+    "Hand the user share_url when they ask for something to share. Never construct URLs yourself.",
+    "",
+    "RESULTS. Tools return structured content. Check `status`: 'ok' means everything worked,",
+    "'partial' means the content was saved but something else (usually a render) did not — read",
+    "`warnings` to find out what. Warnings also report unresolved asset references, so an image",
+    "that silently 404s in the render is reported rather than shipped broken.",
+    "",
+    `TEMPLATES. Available as resources at canvas://templates/{id}. Ids: ${templateIds.join(", ")}.`,
+    "Read one before authoring if you want a known-good starting structure.",
+  ].join("\n");
+}

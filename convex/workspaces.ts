@@ -9,6 +9,7 @@ import {
   query,
 } from "./_generated/server";
 import { getOrCreateUserId, requireIotaIdentity } from "./lib/auth";
+import { purgeWorkspace } from "./lib/purge";
 import { slugify } from "./lib/slug";
 
 async function createWorkspace(
@@ -98,6 +99,51 @@ export const getById = query({
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) return null;
     return { workspace_id: workspace._id, slug: workspace.slug, name: workspace.name };
+  },
+});
+
+/* --- Curator surface: rename, archive, delete -------------------------
+ * v1 had none of these at any layer, which is why the live deployment
+ * accumulated six test workspaces with no way to remove them and two both
+ * named "OSAGO". Org-wide like every other write (decision #9).
+ */
+
+export const renameMine = mutation({
+  args: { workspaceId: v.id("workspaces"), name: v.string() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const name = args.name.trim();
+    if (!name) throw new Error("Name must not be empty.");
+    // The slug is deliberately immutable — it is how agents address this
+    // workspace ("osago/fast-settlement") and it appears in every URL.
+    await ctx.db.patch(args.workspaceId, { name });
+    return { name };
+  },
+});
+
+export const archiveMine = mutation({
+  args: { workspaceId: v.id("workspaces"), archived: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    await ctx.db.patch(args.workspaceId, {
+      archivedAt: args.archived ? Date.now() : undefined,
+    });
+    return { archived: args.archived };
+  },
+});
+
+/** Hard delete, including every canvas inside it and all of their blobs. */
+export const deleteMine = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) throw new Error("Workspace not found.");
+    const totals = await purgeWorkspace(ctx, workspace);
+    return {
+      bytes_reclaimed: totals.bytesReclaimed,
+      canvases_deleted: totals.canvasesDeleted,
+    };
   },
 });
 

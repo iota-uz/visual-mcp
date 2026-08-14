@@ -1,30 +1,34 @@
 /**
- * Real MCP tool handlers (PLAN.md section 6), replacing the A1.0 spike's
- * single `echo` tool. Registered per-request against a fresh `McpServer`
- * instance (see ../http.ts's factory) with the caller's verified
- * `McpPrincipal` closed over — every write is attributed via `createdBy`.
+ * The v2 MCP tool surface: six tools where v1 had thirteen.
+ *
+ * v1's tools mirrored the data model one verb at a time — create_workspace,
+ * create_canvas, write_file, render_file, publish_canvas, get_canvas — so
+ * shipping a single deliverable took six round trips and *still* did not
+ * return a URL a human could open. v2 moves the expressiveness into the
+ * arguments instead: `canvas_save` alone creates the workspace and canvas,
+ * writes files, renders, publishes, and hands back real links.
+ *
+ * Design rules this file follows, each from an observed v1 failure:
+ *
+ *   - One `ref` addresses everything (../lib/ref.ts). No more juggling
+ *     workspace_id + canvas_id + slug.
+ *   - Writes are idempotent. A retried call updates; it does not mint
+ *     `osago-2`.
+ *   - Every result carries fully-qualified URLs (../lib/urls.ts).
+ *   - Bytes stay out of JSON-RPC. `canvas_upload_url` hands back a URL the
+ *     client POSTs to directly; only the handle travels in the tool call.
+ *   - Nothing fails silently. `status: "partial"` plus a typed `warnings[]`
+ *     reports renders that failed, assets that did not resolve, lists that
+ *     were truncated, and upserts that landed on someone else's canvas.
+ *   - Results are structured. Every tool declares an `outputSchema` and
+ *     returns `structuredContent`, instead of pretty-printed JSON inside a
+ *     text blob the caller has to re-parse.
  *
  * Two zod majors are in play here on purpose (see ../http.ts's header
- * comment): tool `inputSchema`s use zod v4 (this file's `z` import, which
- * resolves to root's zod@4 — what `@modelcontextprotocol/server` itself
- * requires), while `CanvasDocSchema` is imported from `@visual-canvas/canvas`
- * and validates with its own bundled zod v3. Never mix the two schema
- * objects — each only knows how to `.parse()` values built for its own
- * major version's runtime.
- *
- * render_file and run_code delegate to the render worker (apps/worker, now
- * deployed on Railway) via getWorkerConfig/callWorker (../lib/worker.ts) —
- * the worker holds no Convex credential, only the short-lived signed
- * source/upload URLs each call passes it (PLAN.md section 3). A render
- * always creates a new canvasVersions row, even for non-"canvas" kinds
- * (PLAN.md section 1: "Claude re-rendering creates a new version, never
- * destroys the old one") — see canvases.ts's recordRender/recordExecArtifacts.
- *
- * list_templates is registered but, unlike PLAN.md section 6's "only
- * auth-free tool" note, still sits behind this endpoint's bearer gate for
- * now — exempting one tool from that gate would require inspecting the
- * JSON-RPC body before authenticating, which is a real change to the
- * request-handling flow, not a small one.
+ * comment): tool schemas use zod v4 (this file's `z` import, which resolves
+ * to root's zod@4 — what `@modelcontextprotocol/server` itself requires),
+ * while `CanvasDocSchema` comes from `@visual-canvas/canvas` and validates
+ * with its own bundled zod v3. Never mix the two schema objects.
  */
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
@@ -33,7 +37,7 @@ import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { CanvasDoc } from "@visual-canvas/canvas/types.js";
 import { CanvasDocSchema } from "@visual-canvas/canvas/types.js";
-import { normalizeCanvasPath, SandboxPathError } from "@visual-canvas/runtime/paths/index.js";
+import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import {
   getTemplate,
   listTemplates as templateRegistryList,
@@ -42,9 +46,9 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { inferArtifactInfo, isTextMime } from "../lib/artifactInfo";
-import { bytesToBase64 } from "../lib/bytes";
-import { sha256Hex } from "../lib/hash";
+import { inferArtifactInfo } from "../lib/artifactInfo";
+import { sha256Hex, sha256HexBytes } from "../lib/hash";
+import { canvasUrl, shareUrl } from "../lib/urls";
 import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
 
 export interface McpPrincipal {
@@ -53,14 +57,67 @@ export interface McpPrincipal {
   email: string;
 }
 
-function jsonResult(value: unknown): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+/* ------------------------------------------------------------------------
+ * Result plumbing
+ * ---------------------------------------------------------------------- */
+
+type WarningCode =
+  | "unresolved_asset"
+  | "overwrote_other_author"
+  | "truncated"
+  | "render_failed"
+  | "quota_near_limit"
+  | "upload_pool_exhausted";
+
+interface Warning {
+  code: WarningCode;
+  message: string;
+  path?: string;
 }
 
+const WarningSchema = z.object({
+  code: z.enum([
+    "unresolved_asset",
+    "overwrote_other_author",
+    "truncated",
+    "render_failed",
+    "quota_near_limit",
+    "upload_pool_exhausted",
+  ]),
+  message: z.string(),
+  path: z.string().optional(),
+});
+
+const StorageSchema = z.object({ used_bytes: z.number(), quota_bytes: z.number() });
+
+/**
+ * Every success returns both a human-readable text block and machine-readable
+ * `structuredContent`. The text block stays because plenty of clients still
+ * only surface text; the structured half is what a caller should actually
+ * program against.
+ */
+function result(value: Record<string, unknown>): CallToolResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    structuredContent: value,
+  };
+}
+
+/**
+ * Turns a thrown value into a message worth reading. v1 joined zod issue
+ * messages and *dropped the paths*, so a 40-node CanvasDoc that failed
+ * validation reported `"<script> elements are not allowed"` without ever
+ * naming the offending node. The path is the only part that makes it fixable.
+ */
 function describeError(err: unknown): string {
   if (err && typeof err === "object" && Array.isArray((err as { issues?: unknown }).issues)) {
-    const issues = (err as { issues: { message: string }[] }).issues;
-    return issues.map((i) => i.message).join("; ");
+    const issues = (err as { issues: { message: string; path?: (string | number)[] }[] }).issues;
+    return issues
+      .map((issue) => {
+        const path = issue.path?.length ? issue.path.join(".") : null;
+        return path ? `${path}: ${issue.message}` : issue.message;
+      })
+      .join("; ");
   }
   return err instanceof Error ? err.message : String(err);
 }
@@ -73,7 +130,11 @@ async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResul
   }
 }
 
-/** Signed download URLs for every file a canvas has (render_file/run_code's `sources`). */
+/* ------------------------------------------------------------------------
+ * Shared helpers
+ * ---------------------------------------------------------------------- */
+
+/** Signed download URLs for every file a canvas has (the worker's `sources`). */
 async function resolveCanvasSources(
   ctx: ActionCtx,
   canvasId: Id<"canvases">,
@@ -88,35 +149,463 @@ async function resolveCanvasSources(
   return resolved.filter((s): s is { relPath: string; getUrl: string } => s !== null);
 }
 
+/** Server-side fetch cap for `FileInput.url`, so one call can't pull a DVD in. */
+const URL_FETCH_LIMIT_BYTES = 25 * 1024 * 1024;
+
+const FileInputSchema = z.object({
+  path: z
+    .string()
+    .describe('Workspace path: /src/…, /assets/… or /output/…, e.g. "/assets/logo.png".'),
+  text: z.string().optional().describe("Inline UTF-8 content. Use for small text files only."),
+  upload_id: z
+    .string()
+    .optional()
+    .describe("storageId returned by canvas_upload_url. The way to attach large or binary files."),
+  url: z.string().optional().describe("Public URL for the server to fetch the bytes from."),
+  delete: z.boolean().optional().describe("Delete this path instead of writing it."),
+});
+
+type FileInput = z.infer<typeof FileInputSchema>;
+
 /**
- * Best-effort server-side render of a just-put CanvasDoc into a PNG +
- * thumbnail (PLAN.md section 9 C1: "server-side render -> thumbnail +
- * PNG/PDF export... come for free"). Assembles a full static HTML page
- * (packages/canvas's renderCanvas() world content + theme.css + the doc's
- * compiled node CSS) and persists it as a real canvasFile at
- * /src/__canvas.html — which also means `render_file(entrypoint:
- * "/src/__canvas.html", format: "pdf")` works for free afterward, with zero
- * new worker code.
+ * Static scan for references a render would silently 404 on.
  *
- * Returns an error string on failure instead of throwing: the doc itself has
- * already been committed by the time this runs, so a render failure (worker
- * down, quota exceeded, etc.) must not fail the put_canvas_doc call — it's
- * surfaced to the caller as `render_error` alongside the successful version.
+ * This is the cheap half of the unresolved-asset story (the worker reports
+ * the runtime half from Chromium). It exists because a production canvas
+ * shipped with a broken `url("./myid-face-camera-v1.png")` in a CSS block and
+ * *nothing anywhere* said a word — the render "succeeded" with a missing
+ * image. Only same-origin relative refs are checked; absolute URLs and
+ * `data:` URIs are none of our business.
  */
-async function renderCanvasThumbnail(
+const REF_PATTERN = /(?:src|href)\s*=\s*["']([^"']+)["']|url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+
+function scanUnresolvedRefs(
+  writtenText: Array<{ path: string; text: string }>,
+  knownPaths: Set<string>,
+): Warning[] {
+  const warnings: Warning[] = [];
+  const seen = new Set<string>();
+
+  for (const file of writtenText) {
+    for (const match of file.text.matchAll(REF_PATTERN)) {
+      const raw = (match[1] ?? match[2] ?? "").trim();
+      if (!raw) continue;
+      // Absolute, protocol-relative, data/blob URIs and anchors are external.
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|mailto:)/i.test(raw)) continue;
+
+      const resolved = raw.startsWith("/")
+        ? raw
+        : `/${raw.replace(/^\.\//, "")}`.replace(/\/{2,}/g, "/");
+      const normalized = resolved.split("?")[0]?.split("#")[0] ?? resolved;
+      if (!normalized || knownPaths.has(normalized)) continue;
+      // The worker vendors this one itself; it is never a canvas file.
+      if (normalized === "/assets/js/apexcharts.min.js") continue;
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+
+      warnings.push({
+        code: "unresolved_asset",
+        path: normalized,
+        message:
+          `${file.path} references "${raw}", which this canvas does not contain. ` +
+          "It will be missing in the render. Upload it with canvas_upload_url, " +
+          "or use an absolute URL.",
+      });
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Resolves one `FileInput` to bytes and writes it. Returns null for deletes.
+ *
+ * The three input modes exist because the alternatives all failed in
+ * practice: `text` alone forced a 3.5MB document through a JSON-RPC argument
+ * (which meant hand-rolling a raw HTTP call to get it in at all), and there
+ * was no binary path whatsoever, so images had to be base64-inlined into the
+ * HTML — tripling the payload and burning the caller's context.
+ */
+async function writeOneFile(
   ctx: ActionCtx,
   canvasId: Id<"canvases">,
-  versionId: Id<"canvasVersions">,
-  doc: CanvasDoc,
-  compiledCss: string,
-): Promise<string | undefined> {
+  file: FileInput,
+): Promise<{ path: string; size_bytes: number } | null> {
+  const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
+
+  if (file.delete) {
+    await ctx.runMutation(internal.canvases.removeByRef, {
+      ref: canvasId,
+      target: "file",
+      path: displayPath,
+    });
+    return null;
+  }
+
+  const provided = [file.text !== undefined, !!file.upload_id, !!file.url].filter(Boolean).length;
+  if (provided !== 1) {
+    throw new Error(
+      `File "${file.path}" needs exactly one of text, upload_id or url (got ${provided}).`,
+    );
+  }
+
+  const { mime } = inferArtifactInfo(relPath);
+
+  // Already-uploaded blob: nothing to move, just verify and attach.
+  if (file.upload_id) {
+    const storageId = file.upload_id as Id<"_storage">;
+    const inUse = await ctx.runQuery(internal.canvases.isStorageIdInUse, { storageId });
+    if (inUse) {
+      throw new Error(
+        `upload_id "${file.upload_id}" is already attached to a canvas. ` +
+          "Request a fresh URL from canvas_upload_url for each file.",
+      );
+    }
+    const metadata = await ctx.storage.getMetadata(storageId);
+    if (!metadata) {
+      throw new Error(
+        `upload_id "${file.upload_id}" does not exist. Upload the bytes to the URL from ` +
+          "canvas_upload_url first, then pass the storageId it returns.",
+      );
+    }
+    await ctx.runMutation(internal.canvases.upsertFile, {
+      canvasId,
+      relPath: displayPath,
+      storageId,
+      size: metadata.size,
+      contentHash: metadata.sha256,
+    });
+    return { path: displayPath, size_bytes: metadata.size };
+  }
+
+  let blob: Blob;
+  let size: number;
+  let hash: string;
+
+  if (file.url) {
+    const res = await fetch(file.url);
+    if (!res.ok) {
+      throw new Error(`Fetching "${file.url}" failed: HTTP ${res.status} ${res.statusText}`);
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > URL_FETCH_LIMIT_BYTES) {
+      throw new Error(
+        `"${file.url}" is ${buf.byteLength} bytes, over the ${URL_FETCH_LIMIT_BYTES}-byte fetch limit.`,
+      );
+    }
+    blob = new Blob([buf], { type: res.headers.get("content-type") ?? mime });
+    size = buf.byteLength;
+    hash = await sha256HexBytes(buf);
+  } else {
+    const text = file.text as string;
+    const bytes = new TextEncoder().encode(text);
+    blob = new Blob([bytes], { type: mime });
+    size = bytes.byteLength;
+    hash = await sha256Hex(text);
+  }
+
+  const storageId = await ctx.storage.store(blob);
+  try {
+    await ctx.runMutation(internal.canvases.upsertFile, {
+      canvasId,
+      relPath: displayPath,
+      storageId,
+      size,
+      contentHash: hash,
+    });
+  } catch (err) {
+    // The mutation rejected (quota, most likely). Don't leak the blob.
+    await ctx.storage.delete(storageId);
+    throw err;
+  }
+  return { path: displayPath, size_bytes: size };
+}
+
+const RenderInputSchema = z.object({
+  entrypoint: z.string().describe('Source file to render, e.g. "/src/index.html".'),
+  format: z.enum(["png", "svg", "pdf", "html"]),
+  output_path: z
+    .string()
+    .optional()
+    .describe("Where to write the result. Derived from entrypoint + format when omitted."),
+  primary: z
+    .boolean()
+    .optional()
+    .describe(
+      "Mark this render as the canvas's face — what /s/:slug serves and what the thumbnail " +
+        "comes from. Declare it explicitly rather than relying on render order.",
+    ),
+  viewport: z
+    .object({
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      device_scale_factor: z.number().positive().optional(),
+    })
+    .optional(),
+  pdf: z
+    .object({
+      format: z.enum(["A4", "A3", "Letter"]).optional(),
+      orientation: z.enum(["portrait", "landscape"]).optional(),
+      print_background: z.boolean().optional(),
+      display_header_footer: z.boolean().optional(),
+      header_template: z.string().optional(),
+      footer_template: z.string().optional(),
+      margin: z
+        .object({
+          top: z.string().optional(),
+          right: z.string().optional(),
+          bottom: z.string().optional(),
+          left: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+type RenderInput = z.infer<typeof RenderInputSchema>;
+
+interface RenderedArtifact {
+  path: string;
+  format: string;
+  role: "primary" | "supporting";
+  size_bytes: number;
+  mime_type: string;
+  raw_url: string | null;
+}
+
+/** Derives an output path when the caller didn't name one. */
+function deriveOutputPath(entrypoint: string, format: RenderInput["format"]): string {
+  const base = entrypoint.replace(/^.*\//, "").replace(/\.[^.]+$/, "") || "output";
+  return `/output/${base}.${format}`;
+}
+
+/**
+ * One render, worker round trip included. Returns either the artifact or a
+ * warning — a failed render never throws, because the caller's content has
+ * already been committed by the time renders run and losing that would be
+ * far worse than shipping without a PNG.
+ */
+async function performRender(
+  ctx: ActionCtx,
+  canvasId: Id<"canvases">,
+  principal: McpPrincipal,
+  spec: RenderInput,
+): Promise<{ artifact?: RenderedArtifact; warnings: Warning[] }> {
+  const warnings: Warning[] = [];
+  const outputPath = spec.output_path ?? deriveOutputPath(spec.entrypoint, spec.format);
+  // Normalized here, not just in the worker: v1 shipped the caller's raw
+  // string through, so `output_path: "output/x.png"` (no leading slash)
+  // recorded an artifact that /s/:slug could never serve and the /cache TTL
+  // cron never swept.
+  const { displayPath } = normalizeCanvasPath(outputPath, "render-output", "output_path");
+  const started = Date.now();
+
+  try {
+    // Caller input is validated before infrastructure is touched: v1 let a
+    // typo'd entrypoint reach Chromium and come back as an ENOENT-shaped
+    // worker 500, and checking the worker config first would mask the far
+    // more actionable "that file isn't here" with "the worker is down".
+    const sources = await resolveCanvasSources(ctx, canvasId);
+    if (!sources.some((s) => s.relPath === spec.entrypoint)) {
+      throw new Error(
+        `Entrypoint "${spec.entrypoint}" is not a file on this canvas. ` +
+          `Files present: ${sources.map((s) => s.relPath).join(", ") || "(none)"}`,
+      );
+    }
+
+    const config = getWorkerConfig();
+    const putUrl = await ctx.storage.generateUploadUrl();
+    const thumbnailPutUrl =
+      spec.format === "png" ? await ctx.storage.generateUploadUrl() : undefined;
+
+    const workerResult = await callWorker<{
+      relPath: string;
+      size: number;
+      mimeType: string;
+      uploadStatus: number;
+      uploadBody: unknown;
+      thumbnail?: { uploadStatus: number; uploadBody: unknown };
+      unresolvedRefs?: string[];
+    }>(config, "/render", {
+      sources,
+      entrypoint: spec.entrypoint,
+      outputPath: displayPath,
+      format: spec.format,
+      viewport: spec.viewport
+        ? {
+            width: spec.viewport.width,
+            height: spec.viewport.height,
+            deviceScaleFactor: spec.viewport.device_scale_factor,
+          }
+        : undefined,
+      pdf: spec.pdf
+        ? {
+            format: spec.pdf.format,
+            orientation: spec.pdf.orientation,
+            printBackground: spec.pdf.print_background,
+            displayHeaderFooter: spec.pdf.display_header_footer,
+            headerTemplate: spec.pdf.header_template,
+            footerTemplate: spec.pdf.footer_template,
+            margin: spec.pdf.margin,
+          }
+        : undefined,
+      upload: { putUrl },
+      thumbnailUpload: thumbnailPutUrl ? { putUrl: thumbnailPutUrl } : undefined,
+    });
+
+    for (const ref of workerResult.unresolvedRefs ?? []) {
+      warnings.push({
+        code: "unresolved_asset",
+        path: ref,
+        message: `The render requested "${ref}" and it was not found. It is missing from the output.`,
+      });
+    }
+
+    const storageId = extractStorageId(workerResult.uploadBody) as Id<"_storage">;
+    let thumbnailStorageId: Id<"_storage"> | undefined;
+    if (workerResult.thumbnail) {
+      try {
+        thumbnailStorageId = extractStorageId(workerResult.thumbnail.uploadBody) as Id<"_storage">;
+      } catch {
+        thumbnailStorageId = undefined;
+      }
+    }
+
+    const { type } = inferArtifactInfo(workerResult.relPath);
+    let recorded: { version: number; artifact: { relPath: string; role: string } };
+    try {
+      recorded = await ctx.runMutation(internal.canvases.recordRender, {
+        canvasId,
+        createdBy: principal.userId,
+        relPath: workerResult.relPath,
+        type,
+        mimeType: workerResult.mimeType,
+        size: workerResult.size,
+        storageId,
+        thumbnailStorageId,
+        primary: spec.primary,
+      });
+    } catch (err) {
+      await ctx.storage.delete(storageId);
+      if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
+      throw err;
+    }
+
+    await ctx.runMutation(internal.canvases.logRender, {
+      canvasId,
+      entrypoint: spec.entrypoint,
+      format: spec.format,
+      status: "success",
+      durationMs: Date.now() - started,
+      createdBy: principal.userId,
+    });
+
+    return {
+      artifact: {
+        path: recorded.artifact.relPath,
+        format: spec.format,
+        role: recorded.artifact.role as "primary" | "supporting",
+        size_bytes: workerResult.size,
+        mime_type: workerResult.mimeType,
+        raw_url: await ctx.storage.getUrl(storageId),
+      },
+      warnings,
+    };
+  } catch (err) {
+    await ctx.runMutation(internal.canvases.logRender, {
+      canvasId,
+      entrypoint: spec.entrypoint,
+      format: spec.format,
+      status: "error",
+      durationMs: Date.now() - started,
+      errorText: describeError(err),
+      createdBy: principal.userId,
+    });
+    warnings.push({
+      code: "render_failed",
+      path: spec.entrypoint,
+      message: `Render of ${spec.entrypoint} to ${spec.format} failed: ${describeError(err)}`,
+    });
+    return { warnings };
+  }
+}
+
+/**
+ * Commits a CanvasDoc: validate, compile the doc's Tailwind CSS, store, and
+ * assemble the static page that makes the doc renderable and thumbnailable.
+ */
+async function saveDoc(
+  ctx: ActionCtx,
+  canvasId: Id<"canvases">,
+  principal: McpPrincipal,
+  rawDoc: unknown,
+  note: string | undefined,
+): Promise<{ version: number; warnings: Warning[] }> {
+  const warnings: Warning[] = [];
+  const doc: CanvasDoc = CanvasDocSchema.parse(rawDoc);
+
+  const htmlNodes = doc.nodes
+    .filter((n) => n.content?.type === "html")
+    .map((n) => (n.content as { type: "html"; html: string }).html);
+
+  let compiledCss = "";
+  if (htmlNodes.length > 0) {
+    // Compiled before anything is stored, so a Tailwind failure rejects the
+    // whole save rather than committing a half-styled document.
+    const config = getWorkerConfig();
+    const cssResult = await callWorker<{ css: string }>(config, "/compile-css", {
+      nodes: htmlNodes,
+    });
+    compiledCss = cssResult.css;
+  }
+
+  const docJson = JSON.stringify(doc);
+  const docBytes = new TextEncoder().encode(docJson);
+  const docStorageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
+  const cssStorageId = compiledCss
+    ? await ctx.storage.store(new Blob([compiledCss], { type: "text/css" }))
+    : undefined;
+
+  let version: number;
+  try {
+    const put = await ctx.runMutation(internal.canvases.putDoc, {
+      canvasId,
+      docStorageId,
+      cssStorageId,
+      note,
+      createdBy: principal.userId,
+      nodes: doc.nodes.map((node) => ({
+        nodeId: node.id,
+        title: node.caption.title,
+        eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+        searchText: [
+          node.caption.title,
+          node.caption.subtitle,
+          node.caption.tag,
+          node.inspector?.eyebrow,
+          node.inspector?.title,
+          node.inspector?.copy,
+        ]
+          .filter((s): s is string => typeof s === "string" && s.length > 0)
+          .join(" "),
+      })),
+    });
+    version = put.version;
+  } catch (err) {
+    await ctx.storage.delete(docStorageId);
+    if (cssStorageId) await ctx.storage.delete(cssStorageId);
+    throw err;
+  }
+
+  // The rendered page is written to a reserved path. v1 wrote this silently
+  // into /src/__canvas.html — colliding with any caller file of that name and
+  // consuming the caller's quota without ever mentioning it. Same mechanism,
+  // but now it is documented in the tool description and reported back.
   try {
     const { html } = renderCanvas(layoutCanvas(doc));
     const page =
       '<!doctype html><html><head><meta charset="utf-8" />' +
       `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
       `<style>${compiledCss}</style></head><body>${html}</body></html>`;
-
     const bytes = new TextEncoder().encode(page);
     const htmlStorageId = await ctx.storage.store(new Blob([bytes], { type: "text/html" }));
     try {
@@ -131,416 +620,452 @@ async function renderCanvasThumbnail(
       await ctx.storage.delete(htmlStorageId);
       throw err;
     }
-
-    const config = getWorkerConfig();
-    const sources = await resolveCanvasSources(ctx, canvasId);
-    const putUrl = await ctx.storage.generateUploadUrl();
-    const thumbnailPutUrl = await ctx.storage.generateUploadUrl();
-
-    const result = await callWorker<{
-      relPath: string;
-      size: number;
-      mimeType: string;
-      uploadStatus: number;
-      uploadBody: unknown;
-      thumbnail?: { uploadStatus: number; uploadBody: unknown };
-    }>(config, "/render", {
-      sources,
-      entrypoint: "/src/__canvas.html",
-      outputPath: "/output/canvas.png",
-      format: "png",
-      upload: { putUrl },
-      thumbnailUpload: { putUrl: thumbnailPutUrl },
-    });
-
-    let storageId: Id<"_storage">;
-    try {
-      storageId = extractStorageId(result.uploadBody) as Id<"_storage">;
-    } catch (extractErr) {
-      throw new Error(
-        `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
-      );
-    }
-    let thumbnailStorageId: Id<"_storage"> | undefined;
-    if (result.thumbnail) {
-      try {
-        thumbnailStorageId = extractStorageId(result.thumbnail.uploadBody) as Id<"_storage">;
-      } catch {
-        thumbnailStorageId = undefined;
-      }
-    }
-
-    try {
-      await ctx.runMutation(internal.canvases.attachCanvasRender, {
-        canvasId,
-        versionId,
-        relPath: result.relPath,
-        mimeType: result.mimeType,
-        size: result.size,
-        storageId,
-        thumbnailStorageId,
-      });
-    } catch (err) {
-      await ctx.storage.delete(storageId);
-      if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
-      throw err;
-    }
-
-    return undefined;
   } catch (err) {
-    return describeError(err);
+    warnings.push({
+      code: "render_failed",
+      message: `The canvas document saved, but its preview page could not be built: ${describeError(err)}`,
+    });
   }
+
+  return { version, warnings };
 }
 
+/* ------------------------------------------------------------------------
+ * Tool registration
+ * ---------------------------------------------------------------------- */
+
+const RefArg = z
+  .string()
+  .describe('"workspace-slug/canvas-slug" (created on first save) or a canvas id.');
+
+const SaveOutputSchema = z.object({
+  status: z.enum(["ok", "partial"]),
+  created: z.boolean(),
+  ref: z.string(),
+  canvas_id: z.string(),
+  workspace_slug: z.string(),
+  canvas_slug: z.string(),
+  kind: z.enum(["canvas", "html", "image", "pdf"]),
+  title: z.string(),
+  version: z.number(),
+  visibility: z.enum(["private", "public"]),
+  canvas_url: z.string(),
+  share_url: z.string().nullable(),
+  thumbnail_url: z.string().nullable(),
+  files_written: z.array(z.object({ path: z.string(), size_bytes: z.number() })),
+  artifacts: z.array(
+    z.object({
+      path: z.string(),
+      format: z.string(),
+      role: z.enum(["primary", "supporting"]),
+      size_bytes: z.number(),
+      mime_type: z.string(),
+      raw_url: z.string().nullable(),
+    }),
+  ),
+  storage: StorageSchema,
+  warnings: z.array(WarningSchema),
+});
+
 export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
+  /* --- 1. canvas_save ------------------------------------------------- */
   server.registerTool(
-    "create_workspace",
+    "canvas_save",
     {
-      description: 'Creates a workspace (a folder for canvases), e.g. "OSAGO" or "Billing".',
-      inputSchema: z.object({
-        name: z.string().min(1),
-        slug: z.string().min(1).optional(),
-        description: z.string().optional(),
-      }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const result = await ctx.runMutation(internal.workspaces.create, {
-          name: input.name,
-          slug: input.slug,
-          description: input.description,
-          createdBy: principal.userId,
-        });
-        return jsonResult({ workspace_id: result.workspaceId, slug: result.slug });
-      }),
-  );
-
-  server.registerTool(
-    "list_workspaces",
-    {
-      description: "Lists all workspaces.",
-      inputSchema: z.object({}),
-    },
-    async () =>
-      runTool(async () => {
-        const workspaces = await ctx.runQuery(internal.workspaces.list, {});
-        return jsonResult({ workspaces });
-      }),
-  );
-
-  server.registerTool(
-    "create_canvas",
-    {
+      title: "Save canvas",
       description:
-        'Creates a canvas inside a workspace. kind="canvas" is authored via put_canvas_doc; ' +
-        'kind="html"/"image"/"pdf" are authored via write_file + render_file. `template` ' +
-        "(a list_templates id) seeds /src with that template's source, so a render_file call " +
-        'on it works immediately — only valid for kind="html"/"image"/"pdf".',
+        "Creates or updates a canvas and returns its URLs. This one call does everything: it " +
+        "creates the workspace and canvas if they don't exist, writes files, renders, and " +
+        "publishes. Addressed by ref, so calling it twice with the same ref updates rather than " +
+        "duplicating — safe to retry. Author kind=canvas with `doc`; author html/image/pdf with " +
+        "`files` + `renders`. Note that saving a `doc` also writes a generated preview page to " +
+        "the reserved path /src/__canvas.html.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: z.object({
-        workspace_id: z.string(),
-        title: z.string().min(1),
-        kind: z.enum(["canvas", "html", "image", "pdf"]),
-        slug: z.string().min(1).optional(),
+        ref: RefArg,
+        title: z.string().optional(),
+        description: z.string().optional(),
         theme: z.string().optional(),
-        template: z.string().optional(),
+        kind: z
+          .enum(["canvas", "html", "image", "pdf"])
+          .optional()
+          .describe("Inferred from doc/renders when omitted. Cannot be changed after creation."),
+        doc: z
+          .unknown()
+          .optional()
+          .describe("A CanvasDoc (lanes, stages, nodes, edges). Mutually exclusive with files."),
+        files: z.array(FileInputSchema).optional(),
+        renders: z.array(RenderInputSchema).max(4).optional(),
+        from_version: z.number().optional().describe("Restore this earlier version first."),
+        visibility: z
+          .enum(["private", "public"])
+          .optional()
+          .describe("Omit to leave unchanged. 'public' mints a share link."),
+        mode: z
+          .enum(["upsert", "create", "update"])
+          .optional()
+          .describe("'create' refuses to touch an existing canvas; 'update' refuses to make one."),
+        expected_version: z
+          .number()
+          .optional()
+          .describe("Refuse the write if the canvas is not at this version."),
+        note: z.string().optional().describe("Recorded on the version this call creates."),
       }),
+      outputSchema: SaveOutputSchema,
     },
     async (input) =>
       runTool(async () => {
-        if (input.template && input.kind === "canvas") {
+        const warnings: Warning[] = [];
+
+        if (input.doc !== undefined && input.files !== undefined) {
           throw new Error(
-            'template seeding is only for kind="html"/"image"/"pdf" canvases — ' +
-              'kind="canvas" canvases are authored via put_canvas_doc, which has no /src file',
+            "Pass either `doc` (for kind=canvas) or `files` (for html/image/pdf), not both.",
           );
         }
-        let template: ReturnType<typeof getTemplate> | undefined;
-        if (input.template) {
-          template = getTemplate(input.template);
-          if (!template) {
-            throw new Error(
-              `Unknown template id: ${input.template}. Use list_templates to see available ids.`,
-            );
-          }
-        }
 
-        const result = await ctx.runMutation(internal.canvases.create, {
-          workspaceId: input.workspace_id as Id<"workspaces">,
-          title: input.title,
-          kind: input.kind,
-          slug: input.slug,
-          theme: input.theme,
+        const kind = input.kind ?? (input.doc !== undefined ? "canvas" : "html");
+        const upserted = await ctx.runMutation(internal.canvases.upsertByRef, {
+          ref: input.ref,
           createdBy: principal.userId,
+          title: input.title,
+          kind,
+          description: input.description,
+          theme: input.theme,
+          mode: input.mode,
+          expectedVersion: input.expected_version,
         });
+        const canvasId = upserted.canvasId;
 
-        let seededPath: string | undefined;
-        if (template) {
-          const filename =
-            template.kind === "diagram" ? `${template.id}.d2` : `${template.id}.html`;
-          seededPath = `/src/${filename}`;
-          const { mime } = inferArtifactInfo(seededPath);
-          const bytes = new TextEncoder().encode(template.exampleCode);
-          const storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
-          try {
-            await ctx.runMutation(internal.canvases.upsertFile, {
-              canvasId: result.canvasId,
-              relPath: seededPath,
-              storageId,
-              size: bytes.byteLength,
-              contentHash: await sha256Hex(template.exampleCode),
-            });
-          } catch (err) {
-            await ctx.storage.delete(storageId);
-            throw err;
+        if (upserted.overwroteOtherAuthor) {
+          warnings.push({
+            code: "overwrote_other_author",
+            message:
+              `"${input.ref}" was created by someone else and you just wrote to it. ` +
+              "Writes are org-wide here. Use mode:'create' with a different ref if that was unintended.",
+          });
+        }
+
+        if (input.from_version !== undefined) {
+          await ctx.runMutation(internal.canvases.restoreVersionByRef, {
+            ref: canvasId,
+            version: input.from_version,
+          });
+        }
+
+        // --- content ---
+        const filesWritten: Array<{ path: string; size_bytes: number }> = [];
+        const writtenText: Array<{ path: string; text: string }> = [];
+
+        if (input.doc !== undefined) {
+          const saved = await saveDoc(ctx, canvasId, principal, input.doc, input.note);
+          warnings.push(...saved.warnings);
+        }
+
+        for (const file of input.files ?? []) {
+          const written = await writeOneFile(ctx, canvasId, file);
+          if (written) {
+            filesWritten.push(written);
+            if (file.text !== undefined) writtenText.push({ path: written.path, text: file.text });
           }
         }
 
-        return jsonResult({
-          canvas_id: result.canvasId,
-          slug: result.slug,
-          seeded_path: seededPath,
-        });
-      }),
-  );
-
-  server.registerTool(
-    "list_canvases",
-    {
-      description: "Lists canvases in a workspace, most recently updated first.",
-      inputSchema: z.object({ workspace_id: z.string() }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvases = await ctx.runQuery(internal.canvases.list, {
-          workspaceId: input.workspace_id as Id<"workspaces">,
-        });
-        return jsonResult({ canvases });
-      }),
-  );
-
-  server.registerTool(
-    "get_canvas",
-    {
-      description:
-        'Gets a canvas\'s metadata. For kind="canvas" canvases with a current version, also ' +
-        "returns the CanvasDoc JSON.",
-      inputSchema: z.object({ canvas_id: z.string() }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const canvas = await ctx.runQuery(internal.canvases.get, { canvasId });
-        if (!canvas) throw new Error(`Unknown canvas: ${input.canvas_id}`);
-        if (!canvas.doc_storage_id) {
-          return jsonResult({ canvas });
-        }
-        const blob = await ctx.storage.get(canvas.doc_storage_id);
-        const doc = blob ? JSON.parse(await blob.text()) : null;
-        return jsonResult({ canvas, doc });
-      }),
-  );
-
-  server.registerTool(
-    "put_canvas_doc",
-    {
-      description:
-        "Validates a CanvasDoc (PLAN.md section 2) and stores it as a new version of a canvas. " +
-        "Node HTML content must be static (no <script>, on*=, javascript:, <iframe>, <object>) " +
-        "and is rejected loudly, not silently stripped. Also triggers a best-effort server-side " +
-        "render (thumbnail + /output/canvas.png); a render failure is reported as `render_error` " +
-        "but never fails the put itself. The assembled page is saved to /src/__canvas.html, so " +
-        'render_file(entrypoint: "/src/__canvas.html", format: "pdf") works afterward too.',
-      inputSchema: z.object({
-        canvas_id: z.string(),
-        doc: z.unknown(),
-        note: z.string().optional(),
-      }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const doc = CanvasDocSchema.parse(input.doc);
-
-        const nodes = doc.nodes.map((node) => ({
-          nodeId: node.id,
-          title: node.caption.title,
-          eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
-          searchText: [
-            node.caption.title,
-            node.caption.subtitle,
-            node.caption.tag,
-            node.inspector?.eyebrow,
-            node.inspector?.title,
-            node.inspector?.copy,
-          ]
-            .filter((s): s is string => typeof s === "string" && s.length > 0)
-            .join(" "),
-        }));
-
-        // PLAN.md section 2: the osago-style mockups are Tailwind-classed
-        // and rely on the CDN JIT runtime, which can't run on the app
-        // origin. Compiling upfront (before anything is stored) means a
-        // Tailwind build failure rejects the whole put loudly, same as the
-        // unsafe-HTML check above — not a partially-applied doc.
-        const htmlFragments = doc.nodes
-          .map((node) => (node.content?.type === "html" ? node.content.html : null))
-          .filter((html): html is string => html !== null);
-        let cssStorageId: Id<"_storage"> | undefined;
-        let compiledCss = "";
-        if (htmlFragments.length > 0) {
-          const config = getWorkerConfig();
-          const { css } = await callWorker<{ css: string }>(config, "/compile-css", {
-            htmlFragments,
-          });
-          compiledCss = css;
-          cssStorageId = await ctx.storage.store(new Blob([css], { type: "text/css" }));
+        // --- unresolved-reference scan, before rendering ---
+        if (writtenText.length > 0) {
+          const present = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
+          warnings.push(...scanUnresolvedRefs(writtenText, new Set(present.map((f) => f.relPath))));
         }
 
-        const docStorageId = await ctx.storage.store(
-          new Blob([JSON.stringify(doc)], { type: "application/json" }),
-        );
-        let result: { versionId: Id<"canvasVersions">; version: number };
-        try {
-          result = await ctx.runMutation(internal.canvases.putDoc, {
+        // --- renders ---
+        const artifacts: RenderedArtifact[] = [];
+        for (const spec of input.renders ?? []) {
+          const rendered = await performRender(ctx, canvasId, principal, spec);
+          if (rendered.artifact) artifacts.push(rendered.artifact);
+          warnings.push(...rendered.warnings);
+        }
+
+        // --- visibility ---
+        if (input.visibility) {
+          await ctx.runMutation(internal.canvases.publish, {
             canvasId,
-            docStorageId,
-            cssStorageId,
-            note: input.note,
-            createdBy: principal.userId,
-            nodes,
+            visibility: input.visibility,
+            newPublicSlug: input.visibility === "public" ? randomShareSlug() : undefined,
           });
-        } catch (err) {
-          await ctx.storage.delete(docStorageId);
-          if (cssStorageId) await ctx.storage.delete(cssStorageId);
-          throw err;
         }
 
-        const renderError = await renderCanvasThumbnail(
-          ctx,
-          canvasId,
-          result.versionId,
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
+        if (!detail) throw new Error("Canvas vanished mid-save.");
+
+        const usedRatio = detail.storage.used_bytes / detail.storage.quota_bytes;
+        if (usedRatio > 0.8) {
+          warnings.push({
+            code: "quota_near_limit",
+            message:
+              `This canvas is using ${(usedRatio * 100).toFixed(0)}% of its storage quota. ` +
+              "Delete old outputs with canvas_delete.",
+          });
+        }
+
+        const renderFailed = warnings.some((w) => w.code === "render_failed");
+        return result({
+          status: renderFailed ? "partial" : "ok",
+          created: upserted.created,
+          ref: `${upserted.workspaceSlug}/${upserted.canvasSlug}`,
+          canvas_id: canvasId,
+          workspace_slug: upserted.workspaceSlug,
+          canvas_slug: upserted.canvasSlug,
+          kind: detail.canvas.kind,
+          title: detail.canvas.title,
+          version: detail.canvas.version ?? 0,
+          visibility: detail.canvas.visibility,
+          canvas_url: canvasUrl(canvasId),
+          share_url: shareUrl(detail.canvas.public_slug),
+          thumbnail_url: detail.canvas.thumbnail_url,
+          files_written: filesWritten,
+          artifacts,
+          storage: detail.storage,
+          warnings,
+        });
+      }),
+  );
+
+  /* --- 2. canvas_get -------------------------------------------------- */
+  server.registerTool(
+    "canvas_get",
+    {
+      title: "Read canvas",
+      description:
+        "Reads one canvas: metadata and URLs always, plus whichever of doc / files / artifacts / " +
+        "versions / renders / storage you ask for. Artifact bytes are returned as links, not " +
+        "inlined — fetch raw_url if you need the content.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({
+        ref: RefArg,
+        include: z
+          .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
+          .optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const include = new Set(input.include ?? []);
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, {
+          ref: input.ref,
+          includeDoc: include.has("doc"),
+          includeFiles: include.has("files"),
+          includeArtifacts: include.has("artifacts"),
+          includeVersions: include.has("versions"),
+          includeRenders: include.has("renders"),
+        });
+        if (!detail) {
+          throw new Error(
+            `No canvas found for ref "${input.ref}". Use canvas_find to see what exists.`,
+          );
+        }
+
+        let doc: unknown;
+        if (include.has("doc") && detail.canvas.doc_url) {
+          const res = await fetch(detail.canvas.doc_url);
+          if (res.ok) doc = await res.json();
+        }
+
+        return result({
+          canvas: {
+            ref: detail.workspace_slug
+              ? `${detail.workspace_slug}/${detail.canvas.slug}`
+              : detail.canvas.canvas_id,
+            canvas_id: detail.canvas.canvas_id,
+            title: detail.canvas.title,
+            description: detail.canvas.description,
+            kind: detail.canvas.kind,
+            visibility: detail.canvas.visibility,
+            version: detail.canvas.version ?? 0,
+            updated_at: detail.canvas.updated_at,
+            created_by_email: detail.created_by_email,
+            canvas_url: canvasUrl(detail.canvas.canvas_id),
+            share_url: shareUrl(detail.canvas.public_slug),
+            thumbnail_url: detail.canvas.thumbnail_url,
+          },
           doc,
-          compiledCss,
-        );
-        return jsonResult({
-          canvas_id: canvasId,
-          version: result.version,
-          ...(renderError ? { render_error: renderError } : {}),
+          files: detail.files,
+          artifacts: detail.artifacts,
+          versions: detail.versions,
+          renders: detail.renders,
+          storage: include.has("storage") ? detail.storage : undefined,
         });
       }),
   );
 
+  /* --- 3. canvas_find ------------------------------------------------- */
   server.registerTool(
-    "publish_canvas",
+    "canvas_find",
     {
-      description: 'Sets a canvas\'s visibility. "public" mints a share slug on first publish.',
-      inputSchema: z.object({
-        canvas_id: z.string(),
-        visibility: z.enum(["private", "public"]),
-      }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const newPublicSlug =
-          input.visibility === "public" ? crypto.randomUUID().replace(/-/g, "") : undefined;
-        const result = await ctx.runMutation(internal.canvases.publish, {
-          canvasId,
-          visibility: input.visibility,
-          newPublicSlug,
-        });
-        return jsonResult({
-          canvas_id: canvasId,
-          visibility: result.visibility,
-          public_slug: result.publicSlug,
-        });
-      }),
-  );
-
-  server.registerTool(
-    "write_file",
-    {
-      description: "Writes UTF-8 text (HTML, D2, etc.) to a path under a canvas's /src or /output.",
-      inputSchema: z.object({
-        canvas_id: z.string(),
-        path: z.string(),
-        content: z.string(),
-      }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        let normalized: ReturnType<typeof normalizeCanvasPath>;
-        try {
-          normalized = normalizeCanvasPath(input.path, "write", "path");
-        } catch (err) {
-          throw new Error(err instanceof SandboxPathError ? err.message : String(err));
-        }
-        const { mime } = inferArtifactInfo(normalized.relPath);
-        const bytes = new TextEncoder().encode(input.content);
-        const storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
-        try {
-          await ctx.runMutation(internal.canvases.upsertFile, {
-            canvasId,
-            relPath: normalized.displayPath,
-            storageId,
-            size: bytes.byteLength,
-            contentHash: await sha256Hex(input.content),
-          });
-        } catch (err) {
-          await ctx.storage.delete(storageId);
-          throw err;
-        }
-        return jsonResult({ path: normalized.displayPath, bytes_written: bytes.byteLength });
-      }),
-  );
-
-  server.registerTool(
-    "run_code",
-    {
+      title: "Find canvases",
       description:
-        "Executes JS/TS code in a sandboxed Node.js worker against a canvas's /src, /output, " +
-        "/cache, /assets files. Files the code writes under /output are collected as new artifacts.",
+        "Browses and searches. With no query it lists workspaces and recent canvases; with a " +
+        "query it searches canvas titles and the text inside canvas-document nodes, so a hit can " +
+        "point at the exact node. Every result carries a ref you can pass straight to the other " +
+        "tools.",
+      annotations: { readOnlyHint: true },
       inputSchema: z.object({
-        canvas_id: z.string(),
-        code: z.string(),
+        query: z.string().optional(),
+        workspace: z.string().optional().describe("Restrict to one workspace slug."),
+        kind: z.enum(["canvas", "html", "image", "pdf"]).optional(),
+        visibility: z.enum(["private", "public"]).optional(),
+        limit: z.number().int().positive().max(100).optional(),
       }),
     },
     async (input) =>
       runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
+        const found = await ctx.runQuery(internal.canvases.findCanvases, {
+          query: input.query,
+          workspaceSlug: input.workspace,
+          kind: input.kind,
+          visibility: input.visibility,
+          limit: input.limit,
+        });
+        // Workspaces are only interesting when browsing, not when searching.
+        const workspaces = input.query
+          ? undefined
+          : (await ctx.runQuery(internal.canvases.findWorkspaces, {})).workspaces;
+
+        const warnings: Warning[] = [];
+        if (found.has_more) {
+          warnings.push({
+            code: "truncated",
+            message:
+              "More canvases match than were returned. Narrow with workspace/kind or raise limit.",
+          });
+        }
+
+        return result({
+          workspaces,
+          canvases: found.canvases.map((c) => ({
+            ...c,
+            canvas_url: canvasUrl(c.canvas_id),
+            share_url: shareUrl(c.public_slug),
+          })),
+          nodes: found.nodes,
+          has_more: found.has_more,
+          warnings,
+        });
+      }),
+  );
+
+  /* --- 4. canvas_delete ----------------------------------------------- */
+  server.registerTool(
+    "canvas_delete",
+    {
+      title: "Delete",
+      description:
+        "Removes a workspace, canvas, file or artifact. Defaults to archiving (reversible, keeps " +
+        "the bytes); pass purge:true to delete permanently and reclaim storage. Purging a " +
+        "workspace also purges every canvas inside it.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        target: z.enum(["workspace", "canvas", "file", "artifact"]),
+        path: z.string().optional().describe("Required for target file/artifact."),
+        purge: z
+          .boolean()
+          .optional()
+          .describe("true = permanent delete. false/omitted = reversible archive."),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const removed = await ctx.runMutation(internal.canvases.removeByRef, {
+          ref: input.ref,
+          target: input.target,
+          path: input.path,
+          purge: input.purge,
+        });
+        return result({
+          deleted: removed.deleted,
+          archived: removed.archived,
+          bytes_reclaimed: removed.bytes_reclaimed,
+          canvases_deleted: (removed as { canvases_deleted?: number }).canvases_deleted,
+        });
+      }),
+  );
+
+  /* --- 5. canvas_run -------------------------------------------------- */
+  server.registerTool(
+    "canvas_run",
+    {
+      title: "Run code",
+      description:
+        "Executes JS/TS in a sandboxed worker against this canvas's files. Anything written to " +
+        "/output is collected as an artifact. No shell, no filesystem outside the canvas.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        code: z.string(),
+        timeout_ms: z
+          .number()
+          .int()
+          .positive()
+          .max(60_000)
+          .optional()
+          .describe("Defaults to 5000."),
+        memory_limit_mb: z
+          .number()
+          .int()
+          .positive()
+          .max(1024)
+          .optional()
+          .describe("Defaults to 128."),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
+        if (!detail) throw new Error(`No canvas found for ref "${input.ref}".`);
+        const canvasId = detail.canvas.canvas_id;
+
         const config = getWorkerConfig();
         const sources = await resolveCanvasSources(ctx, canvasId);
 
-        // run_code can produce an unpredictable number of /output files;
-        // this pool size is an interim cap (apps/worker/src/schemas.ts's
-        // own documented simplification) — outputs beyond it come back
-        // reported with uploaded:false, never silently dropped.
         const UPLOAD_POOL_SIZE = 10;
         const uploads = await Promise.all(
           Array.from({ length: UPLOAD_POOL_SIZE }, () => ctx.storage.generateUploadUrl()),
         );
 
-        const result = await callWorker<{
+        const workerResult = await callWorker<{
           success: boolean;
           stdout: string;
           stderr: string;
           error?: string;
+          durationMs?: number;
           artifacts: Array<{
             relPath: string;
             size: number;
             uploaded: boolean;
-            uploadStatus?: number;
             uploadBody?: unknown;
           }>;
         }>(config, "/exec", {
           sources,
           code: input.code,
+          // The worker has always accepted these; v1's tool simply never sent
+          // them, so every call silently ran at the 5s/128MB defaults with no
+          // way to ask for more.
+          timeoutMs: input.timeout_ms,
+          memoryLimitMb: input.memory_limit_mb,
           uploads: uploads.map((putUrl) => ({ putUrl })),
         });
 
-        const uploaded = result.artifacts.filter((a) => a.uploaded);
+        const warnings: Warning[] = [];
+        const uploaded = workerResult.artifacts.filter((a) => a.uploaded);
+        if (workerResult.artifacts.some((a) => !a.uploaded)) {
+          warnings.push({
+            code: "upload_pool_exhausted",
+            message:
+              `Only ${UPLOAD_POOL_SIZE} output files can be saved per run and this produced ` +
+              `${workerResult.artifacts.length}. The rest were left behind.`,
+          });
+        }
+
         if (uploaded.length > 0) {
-          const artifactEntries = uploaded.map((a) => {
+          const entries = uploaded.map((a) => {
             const info = inferArtifactInfo(a.relPath);
             return {
               relPath: a.relPath,
@@ -554,250 +1079,146 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             await ctx.runMutation(internal.canvases.recordExecArtifacts, {
               canvasId,
               createdBy: principal.userId,
-              artifacts: artifactEntries,
+              artifacts: entries,
             });
           } catch (err) {
-            // recordExecArtifacts is one mutation covering every uploaded
-            // artifact — a rejection (e.g. quota) rolls back all of it
-            // atomically, so every blob just uploaded is now unreferenced.
-            await Promise.all(artifactEntries.map((a) => ctx.storage.delete(a.storageId)));
+            await Promise.all(entries.map((a) => ctx.storage.delete(a.storageId)));
             throw err;
           }
         }
 
-        return jsonResult({
-          success: result.success,
-          stdout: result.stdout,
-          stderr: result.stderr,
-          error: result.error,
-          artifacts: result.artifacts.map((a) => ({
+        const payload = {
+          status: workerResult.success ? "ok" : "failed",
+          stdout: workerResult.stdout,
+          stderr: workerResult.stderr,
+          error: workerResult.error,
+          duration_ms: workerResult.durationMs,
+          artifacts: workerResult.artifacts.map((a) => ({
             path: a.relPath,
-            size: a.size,
+            size_bytes: a.size,
             uploaded: a.uploaded,
           })),
-        });
-      }),
-  );
+          warnings,
+        };
 
-  server.registerTool(
-    "render_file",
-    {
-      description:
-        "Renders a canvas source file (HTML or D2) to PNG/SVG/PDF/HTML under /output or /cache. " +
-        ".d2 entrypoints with format 'svg' render via the D2 compiler; everything else renders " +
-        "via headless Chromium.",
-      inputSchema: z.object({
-        canvas_id: z.string(),
-        entrypoint: z.string(),
-        output_path: z.string(),
-        format: z.enum(["png", "svg", "pdf", "html"]),
-        viewport: z
-          .object({
-            width: z.number().int().positive(),
-            height: z.number().int().positive(),
-            deviceScaleFactor: z.number().positive().optional(),
-          })
-          .optional(),
-        pdf: z
-          .object({
-            format: z.enum(["A4", "A3", "Letter"]).optional(),
-            orientation: z.enum(["portrait", "landscape"]).optional(),
-            printBackground: z.boolean().optional(),
-            displayHeaderFooter: z.boolean().optional(),
-            headerTemplate: z.string().optional(),
-            footerTemplate: z.string().optional(),
-            margin: z
-              .object({
-                top: z.string().optional(),
-                right: z.string().optional(),
-                bottom: z.string().optional(),
-                left: z.string().optional(),
-              })
-              .optional(),
-          })
-          .optional(),
-      }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const config = getWorkerConfig();
-        const sources = await resolveCanvasSources(ctx, canvasId);
-        const putUrl = await ctx.storage.generateUploadUrl();
-        // Thumbnails are only produced for format="png" — see
-        // apps/worker/src/render.ts's RenderResult["thumbnail"] comment.
-        const thumbnailPutUrl =
-          input.format === "png" ? await ctx.storage.generateUploadUrl() : undefined;
-        const started = Date.now();
-
-        try {
-          const result = await callWorker<{
-            relPath: string;
-            size: number;
-            mimeType: string;
-            uploadStatus: number;
-            uploadBody: unknown;
-            thumbnail?: { uploadStatus: number; uploadBody: unknown };
-          }>(config, "/render", {
-            sources,
-            entrypoint: input.entrypoint,
-            outputPath: input.output_path,
-            format: input.format,
-            viewport: input.viewport,
-            pdf: input.pdf,
-            upload: { putUrl },
-            thumbnailUpload: thumbnailPutUrl ? { putUrl: thumbnailPutUrl } : undefined,
-          });
-
-          const { type } = inferArtifactInfo(result.relPath);
-          let storageId: Id<"_storage">;
-          try {
-            storageId = extractStorageId(result.uploadBody) as Id<"_storage">;
-          } catch (extractErr) {
-            throw new Error(
-              `${(extractErr as Error).message}; uploadStatus=${result.uploadStatus} uploadBody=${JSON.stringify(result.uploadBody)}`,
-            );
-          }
-          // A thumbnail upload failure shouldn't fail the whole render — the
-          // primary artifact is what matters; the gallery just falls back to
-          // no thumbnail for this canvas until the next successful png render.
-          let thumbnailStorageId: Id<"_storage"> | undefined;
-          if (result.thumbnail) {
-            try {
-              thumbnailStorageId = extractStorageId(result.thumbnail.uploadBody) as Id<"_storage">;
-            } catch {
-              thumbnailStorageId = undefined;
-            }
-          }
-          const recordRenderOrCleanup = async () => {
-            try {
-              return await ctx.runMutation(internal.canvases.recordRender, {
-                canvasId,
-                createdBy: principal.userId,
-                relPath: result.relPath,
-                type,
-                mimeType: result.mimeType,
-                size: result.size,
-                storageId,
-                thumbnailStorageId,
-              });
-            } catch (err) {
-              await ctx.storage.delete(storageId);
-              if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
-              throw err;
-            }
+        // A script that threw is a failure, not a success with a flag buried
+        // in the payload — v1 returned isError:false here, so a caller doing
+        // ordinary error handling saw "success".
+        if (!workerResult.success) {
+          return {
+            content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+            structuredContent: payload,
+            isError: true,
           };
-          const recorded = await recordRenderOrCleanup();
-          await ctx.runMutation(internal.canvases.logRender, {
-            canvasId,
-            entrypoint: input.entrypoint,
-            format: input.format,
-            status: "success",
-            durationMs: Date.now() - started,
-            createdBy: principal.userId,
-          });
-          return jsonResult({
-            artifact: { path: recorded.artifact.relPath, type, role: recorded.artifact.role },
-          });
-        } catch (err) {
-          await ctx.runMutation(internal.canvases.logRender, {
-            canvasId,
-            entrypoint: input.entrypoint,
-            format: input.format,
-            status: "error",
-            durationMs: Date.now() - started,
-            errorText: describeError(err),
-            createdBy: principal.userId,
-          });
-          throw err;
         }
+        return result(payload);
       }),
   );
 
+  /* --- 6. canvas_upload_url ------------------------------------------- */
   server.registerTool(
-    "list_artifacts",
+    "canvas_upload_url",
     {
-      description: "Lists a canvas's rendered output artifacts.",
-      inputSchema: z.object({ canvas_id: z.string() }),
-    },
-    async (input) =>
-      runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const artifacts = await ctx.runQuery(internal.canvases.listArtifactsForCanvas, {
-          canvasId,
-        });
-        const primary = artifacts.find((a) => a.role === "primary")?.path ?? null;
-        return jsonResult({ canvas_id: canvasId, primary, artifacts });
-      }),
-  );
-
-  server.registerTool(
-    "export_artifact",
-    {
+      title: "Get an upload URL",
       description:
-        "Returns a canvas artifact's metadata and a download URL. Bytes are inlined only below " +
-        "~1MB; larger artifacts must be fetched from `url`.",
-      inputSchema: z.object({ canvas_id: z.string(), path: z.string() }),
+        "Returns a short-lived URL for uploading one file's bytes out of band. Use this for " +
+        "images, fonts, and anything large: POST the raw bytes to upload_url, read the storageId " +
+        "from the JSON response, then pass it as a file's `upload_id` in canvas_save. This keeps " +
+        "file bytes out of the conversation entirely — never base64 a large file into a tool call.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        path: z.string().describe('Where the file will live, e.g. "/assets/logo.png".'),
+        content_type: z.string().optional(),
+      }),
+      outputSchema: z.object({
+        upload_url: z.string(),
+        method: z.string(),
+        upload_id_field: z.string(),
+        path: z.string(),
+        instructions: z.string(),
+      }),
     },
     async (input) =>
       runTool(async () => {
-        const canvasId = input.canvas_id as Id<"canvases">;
-        const artifact = await ctx.runQuery(internal.canvases.getArtifact, {
-          canvasId,
-          relPath: input.path,
+        // Validate the destination now, so a caller can't burn an upload
+        // discovering that /cache isn't writable.
+        const { displayPath } = normalizeCanvasPath(input.path, "write", "path");
+        const uploadUrl = await ctx.storage.generateUploadUrl();
+        return result({
+          upload_url: uploadUrl,
+          method: "POST",
+          upload_id_field: "storageId",
+          path: displayPath,
+          instructions:
+            `POST the raw bytes to upload_url with Content-Type: ${input.content_type ?? "<the file's type>"}. ` +
+            'The response is JSON like {"storageId":"..."}. Pass that value as ' +
+            `upload_id on a file with path "${displayPath}" in canvas_save.`,
         });
-        if (!artifact) throw new Error(`Unknown artifact: ${input.path}`);
-
-        const url = await ctx.storage.getUrl(artifact.storageId);
-        const summary = {
-          artifact: { path: artifact.path, type: artifact.type, role: artifact.role },
-          url,
-          mime_type: artifact.mimeType,
-          size_bytes: artifact.size,
-        };
-
-        const INLINE_LIMIT_BYTES = 1_000_000;
-        if (artifact.size > INLINE_LIMIT_BYTES) {
-          return jsonResult(summary);
-        }
-
-        const blob = await ctx.storage.get(artifact.storageId);
-        if (!blob) {
-          return jsonResult(summary);
-        }
-        const resourceBlock: CallToolResult["content"][number] = isTextMime(artifact.mimeType)
-          ? {
-              type: "resource",
-              resource: {
-                uri: `canvas://${canvasId}${artifact.path}`,
-                mimeType: artifact.mimeType,
-                text: await blob.text(),
-              },
-            }
-          : {
-              type: "resource",
-              resource: {
-                uri: `canvas://${canvasId}${artifact.path}`,
-                mimeType: artifact.mimeType,
-                blob: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
-              },
-            };
-        const result: CallToolResult = {
-          content: [{ type: "text", text: JSON.stringify(summary, null, 2) }, resourceBlock],
-        };
-        return result;
       }),
   );
+}
 
-  server.registerTool(
-    "list_templates",
-    {
-      description: "Lists built-in visual templates, optionally filtered by kind.",
-      inputSchema: z.object({
-        kind: z.enum(["mockup", "diagram", "report", "infographic", "chart"]).optional(),
-      }),
-    },
-    async (input) =>
-      runTool(async () => jsonResult({ templates: templateRegistryList(input.kind) })),
-  );
+/**
+ * 128-bit base62 share slug. v1 minted these two different ways depending on
+ * which surface published — `crypto.randomUUID()` hex over MCP, base62 in the
+ * SPA. One format now.
+ */
+function randomShareSlug(): string {
+  const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let value = 0n;
+  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
+  let out = "";
+  while (value > 0n) {
+    out = BASE62[Number(value % 62n)] + out;
+    value /= 62n;
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------------
+ * Resources
+ *
+ * Templates were a *tool* in v1 (`list_templates`), and it returned every
+ * template's full `exampleCode` — roughly 46KB of HTML dumped into the
+ * caller's context on every call, with no summary mode. They are reference
+ * data, which is exactly what MCP resources are for: the listing is titles
+ * and descriptions, and a caller reads the one it actually wants.
+ * ---------------------------------------------------------------------- */
+export function registerResources(server: McpServer): void {
+  for (const template of templateRegistryList()) {
+    server.registerResource(
+      `template-${template.id}`,
+      `canvas://templates/${template.id}`,
+      {
+        title: template.name,
+        description: `${template.description} (kind: ${template.kind})`,
+        mimeType: "text/plain",
+      },
+      async (uri) => {
+        const full = getTemplate(template.id);
+        if (!full) throw new Error(`Unknown template: ${template.id}`);
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "text/plain",
+              text: [
+                `# ${full.name}`,
+                "",
+                full.description,
+                "",
+                `Expected inputs: ${JSON.stringify(full.expectedInputs, null, 2)}`,
+                "",
+                "## Example source",
+                "",
+                full.exampleCode,
+              ].join("\n"),
+            },
+          ],
+        };
+      },
+    );
+  }
 }
