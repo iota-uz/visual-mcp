@@ -63,15 +63,17 @@ test("treats backslashes as separators so paths normalize identically on every p
   assert.throws(() => normalizeCanvasPath("src\\..\\..\\etc", "read"), SandboxPathError);
 });
 
-test("write mode allows only /src and /output", () => {
-  for (const ok of ["/src/a.html", "/output/a.png"]) {
+test("write mode allows /src, /output and /assets", () => {
+  for (const ok of ["/src/a.html", "/output/a.png", "/assets/logo.png"]) {
     assert.ok(normalizeCanvasPath(ok, "write").relPath);
   }
-  for (const bad of ["/templates/x.html", "/assets/logo.png", "/cache/build.css", "/other/x"]) {
+  // /cache is render-only (TTL-swept) and /templates is read-only.
+  for (const bad of ["/templates/x.html", "/cache/build.css", "/other/x"]) {
     assert.throws(
       () => normalizeCanvasPath(bad, "write"),
       (err: unknown) =>
-        err instanceof SandboxPathError && /only allowed under \/src or \/output/.test(err.message),
+        err instanceof SandboxPathError &&
+        /only allowed under \/src, \/output or \/assets/.test(err.message),
       `expected ${bad} to be rejected for write`,
     );
   }
@@ -81,11 +83,6 @@ test("render-output mode allows only /output and /cache", () => {
   assert.equal(normalizeCanvasPath("/output/a.pdf", "render-output").topDir, "output");
   assert.equal(normalizeCanvasPath("/cache/a.svg", "render-output").topDir, "cache");
   assert.throws(() => normalizeCanvasPath("/src/a.svg", "render-output"), SandboxPathError);
-});
-
-test("artifact mode allows only /output", () => {
-  assert.equal(normalizeCanvasPath("/output/a.pdf", "artifact").topDir, "output");
-  assert.throws(() => normalizeCanvasPath("/cache/a.svg", "artifact"), SandboxPathError);
 });
 
 test("read mode allows any top-level directory inside the workspace", () => {

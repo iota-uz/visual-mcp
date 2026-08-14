@@ -69,6 +69,18 @@ export interface RenderFileOptions {
 export interface RenderFileResult {
   /** Absolute path the artifact was written to (equal to `outputPath`, resolved). */
   path: string;
+  /**
+   * Subresources the page asked for and did not get — missing local files,
+   * `file:` paths outside the workspace, failed remote requests — as
+   * workspace-relative paths (`/src/accident-1.jpg`) or full URLs for
+   * remote ones. De-duplicated and capped at `MAX_UNRESOLVED_REFS`.
+   *
+   * Purely diagnostic: Chromium renders a broken image rather than
+   * failing, so a non-empty list accompanies an otherwise successful
+   * render and its artifact. Empty for `format: "html"`, which never
+   * launches a browser and therefore never resolves a subresource at all.
+   */
+  unresolvedRefs: string[];
 }
 
 const DEFAULT_VIEWPORT_WIDTH = 1200;
@@ -124,13 +136,20 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
 
   if (format === "html") {
     await fs.writeFile(absOutputPath, builtHtml, "utf8");
-    return { path: absOutputPath };
+    return { path: absOutputPath, unresolvedRefs: [] };
   }
 
   // format is "png" or "pdf" from here on — both need a real browser.
-  await renderWithBrowser(builtHtml, entrypointDir, workspaceRoot, absOutputPath, format, options);
+  const unresolvedRefs = await renderWithBrowser(
+    builtHtml,
+    entrypointDir,
+    workspaceRoot,
+    absOutputPath,
+    format,
+    options,
+  );
 
-  return { path: absOutputPath };
+  return { path: absOutputPath, unresolvedRefs };
 }
 
 async function buildHtmlWithTailwind(rawHtml: string, scanDir: string): Promise<string> {
@@ -147,7 +166,7 @@ async function renderWithBrowser(
   absOutputPath: string,
   format: "png" | "pdf",
   options: RenderFileOptions,
-): Promise<void> {
+): Promise<string[]> {
   // Written next to the entrypoint (not in a temp dir elsewhere) so it
   // stays inside `workspaceRoot` and resolves the same way the original
   // entrypoint would under the routing policy in ./routing.ts.
@@ -167,7 +186,7 @@ async function renderWithBrowser(
     });
     try {
       const page = await context.newPage();
-      await installLocalResourceRouting(page, workspaceRoot);
+      const unresolved = await installLocalResourceRouting(page, workspaceRoot);
       await page.goto(pathToFileURL(tempHtmlPath).href, { waitUntil: "networkidle" });
       await page.waitForTimeout(RENDER_SETTLE_MS);
 
@@ -188,6 +207,11 @@ async function renderWithBrowser(
           margin: pdf?.margin,
         });
       }
+
+      // Read after capture: `networkidle` + the settle timeout mean every
+      // subresource the page was going to request has already been decided
+      // by the route handler, including ones a late-running script added.
+      return unresolved.list();
     } finally {
       await context.close();
     }

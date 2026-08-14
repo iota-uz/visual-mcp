@@ -86,10 +86,6 @@ export const NodeContentSchema = z.discriminatedUnion("type", [
     scale: z.number().positive().optional(),
   }),
   z.object({
-    type: z.literal("image"),
-    assetPath: z.string().min(1),
-  }),
-  z.object({
     type: z.literal("text"),
     body: z.string(),
   }),

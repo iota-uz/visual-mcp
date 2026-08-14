@@ -26,8 +26,6 @@ function renderContent(content: NodeContent | undefined): string {
         <div class="vc-content vc-content-html">${content.html}</div>
       </div>`;
     }
-    case "image":
-      return `<div class="vc-content vc-content-image"><img src="${escapeHtml(content.assetPath)}" alt="" loading="lazy" /></div>`;
     case "text":
       return `<div class="vc-content vc-content-text">${escapeHtml(content.body)}</div>`;
   }

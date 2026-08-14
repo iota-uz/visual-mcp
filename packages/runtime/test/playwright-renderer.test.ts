@@ -222,6 +222,79 @@ test("installLocalResourceRouting: serves local workspace assets via root-relati
 });
 
 /* ------------------------------------------------------------------------
+ * Unresolved-reference reporting: a page whose assets are missing renders
+ * anyway (Chromium draws a broken image), so the *only* signal is the list
+ * routing.ts collects. Regression test for canvases that shipped with
+ * `<img src="./accident-1.jpg">` and no such file, and rendered "fine".
+ * ---------------------------------------------------------------------- */
+
+test("renderFile: reports missing subresources in unresolvedRefs without failing the render", async () => {
+  const dir = await mkFixtureDir("pw-renderer-unresolved-");
+  try {
+    const srcDir = path.join(dir, "src");
+    const assetsDir = path.join(dir, "assets");
+    await fs.mkdir(srcDir, { recursive: true });
+    await fs.mkdir(assetsDir, { recursive: true });
+
+    // One asset that exists (must NOT be reported) and two that don't.
+    await fs.writeFile(
+      path.join(assetsDir, "present.svg"),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>`,
+      "utf8",
+    );
+
+    const entrypoint = path.join(srcDir, "broken-refs.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html>
+<html>
+  <head><style>body { background: url("./myid-face-camera-v1.png"); }</style></head>
+  <body>
+    <img src="/assets/present.svg">
+    <img src="./accident-1.jpg">
+    <img src="./accident-1.jpg">
+  </body>
+</html>`,
+      "utf8",
+    );
+
+    const outputPath = path.join(dir, "output", "broken-refs.png");
+    const result = await renderFile({ entrypoint, outputPath, format: "png" });
+
+    assert.deepEqual(
+      [...result.unresolvedRefs].sort(),
+      ["/src/accident-1.jpg", "/src/myid-face-camera-v1.png"],
+      "missing refs should be workspace-relative and de-duplicated; the present asset absent",
+    );
+    // Non-fatal: the PNG was still written.
+    const bytes = await fs.readFile(result.path);
+    assert.deepEqual(bytes.subarray(0, 8), PNG_MAGIC);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderFile: unresolvedRefs is empty when nothing is missing", async () => {
+  const dir = await mkFixtureDir("pw-renderer-resolved-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "clean.html");
+    await fs.writeFile(entrypoint, `<!doctype html><html><body><h1>ok</h1></body></html>`, "utf8");
+
+    const result = await renderFile({
+      entrypoint,
+      outputPath: path.join(dir, "output", "clean.png"),
+      format: "png",
+    });
+
+    assert.deepEqual(result.unresolvedRefs, []);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------------
  * Focused unit coverage for the smaller building blocks
  * ---------------------------------------------------------------------- */
 

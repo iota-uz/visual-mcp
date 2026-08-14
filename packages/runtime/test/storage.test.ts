@@ -132,7 +132,7 @@ test("uploadUrl returns a distinct opaque placeholder per call", async () => {
 test("hydrate creates the standard workspace subdirectories, ApexCharts vendored", async () => {
   const ws = await hydrate([]);
   try {
-    for (const sub of ["src", "output", "assets", "templates", "cache"]) {
+    for (const sub of ["src", "output", "assets", "cache"]) {
       const dirStat = await stat(path.join(ws.root, sub));
       assert.ok(dirStat.isDirectory());
     }

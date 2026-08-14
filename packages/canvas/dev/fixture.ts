@@ -80,7 +80,10 @@ const doc = {
       shape: "window",
       badge: { text: "PARTIAL", tone: "partial" },
       caption: { title: "Confirm details", subtitle: "eai.uz web", tag: "WEB" },
-      content: { type: "image", assetPath: DOT_SVG },
+      content: {
+        type: "html",
+        html: `<img src="${DOT_SVG}" alt="" style="width:100%;height:100%;object-fit:contain" />`,
+      },
     },
     {
       id: "risk-model",

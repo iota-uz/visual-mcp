@@ -44,7 +44,7 @@ export interface Session {
 
 export type ArtifactType = "pdf" | "image" | "svg" | "source";
 
-export type ArtifactRole = "primary" | "supporting" | "debug";
+export type ArtifactRole = "primary" | "supporting";
 
 export interface Artifact {
   /** Path relative to the session workspace, e.g. "/output/report.pdf". */

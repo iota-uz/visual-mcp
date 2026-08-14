@@ -30,16 +30,22 @@
  * Access modes, each with its own allowed top-level directories.
  *
  * - `read`  — anywhere inside the workspace.
- * - `write` — `/src` and `/output` only (PLAN.md section 7: "LLM can write
- *   to /src and /output"). `/assets`, `/templates` and `/cache` are
- *   read-only from the sandbox's perspective.
+ * - `write` — `/src`, `/output` and `/assets`. `/assets` is writable so a
+ *   caller can upload the images/fonts its HTML references; without it the
+ *   only way to ship an image was to base64-inline it into the document,
+ *   which multiplies payload size and burns the agent's context. `/cache`
+ *   stays render-only (it is TTL-swept) and `/templates` stays read-only.
  * - `render-output` — `/output` (final artifacts, tracked in the manifest)
- *   and `/cache` (scratch intermediates, deliberately untracked). PLAN.md
- *   section 15's worked example renders an intermediate D2 SVG to
- *   `/cache/architecture.svg` before embedding it in the final PDF.
- * - `artifact` — `/output` only; what `export_artifact` may hand back.
+ *   and `/cache` (scratch intermediates, deliberately untracked): an
+ *   intermediate D2 SVG can be rendered to `/cache/architecture.svg` before
+ *   being embedded in a final PDF.
+ *
+ * Note on `/assets` precedence: `hydrate()` vendors the ApexCharts bundle
+ * into `/assets/js/` *before* seeding canvas files, so a canvas that writes
+ * that exact path deliberately overrides the vendored copy rather than
+ * being silently ignored.
  */
-export type PathAccessMode = "read" | "write" | "render-output" | "artifact";
+export type PathAccessMode = "read" | "write" | "render-output";
 
 /** Thrown for any rejected path so callers can distinguish this from I/O errors. */
 export class SandboxPathError extends Error {
@@ -83,9 +89,8 @@ function normalizeCanvasPathStandalone(
 ): NormalizedCanvasPath {
   const allowedByMode: Record<string, string[] | null> = {
     read: null,
-    write: ["src", "output"],
+    write: ["src", "output", "assets"],
     "render-output": ["output", "cache"],
-    artifact: ["output"],
   };
 
   if (typeof requestedPath !== "string" || requestedPath.trim().length === 0) {
@@ -121,7 +126,9 @@ function normalizeCanvasPathStandalone(
     throw new Error(`Unknown path access mode: ${mode}`);
   }
   if (allowed && allowed.indexOf(topDir) === -1) {
-    const pretty = allowed.map((d) => `/${d}`).join(" or ");
+    const dirs = allowed.map((d) => `/${d}`);
+    const pretty =
+      dirs.length > 1 ? `${dirs.slice(0, -1).join(", ")} or ${dirs[dirs.length - 1]}` : dirs[0];
     throw new Error(
       mode === "write"
         ? `Writes are only allowed under ${pretty} (got: ${requestedPath})`

@@ -52,10 +52,21 @@ test("write_file allows writes under /src and /output", () => {
   }
 });
 
-test("write_file rejects writes outside /src and /output (templates, assets, cache)", () => {
+test("write_file accepts /assets so a canvas can ship its own images", () => {
   const { session, cleanup } = freshSession();
   try {
-    for (const target of ["/templates/x.html", "/assets/logo.png", "/cache/build.css"]) {
+    const result = writeFile(session, "/assets/logo.svg", "<svg/>");
+    assert.equal(result.path, "/assets/logo.svg");
+    assert.ok(fs.existsSync(path.join(session.workspace, "assets/logo.svg")));
+  } finally {
+    cleanup();
+  }
+});
+
+test("write_file still rejects writes to /templates and /cache", () => {
+  const { session, cleanup } = freshSession();
+  try {
+    for (const target of ["/templates/x.html", "/cache/build.css"]) {
       assert.throws(() => writeFile(session, target, "nope"), SandboxPathError);
     }
   } finally {
@@ -128,12 +139,12 @@ test("run_code's scoped fs blocks path-traversal writes outside the workspace", 
   }
 });
 
-test("run_code's scoped fs blocks writes outside /src and /output", async () => {
+test("run_code's scoped fs blocks writes outside /src, /output and /assets", async () => {
   const { session, cleanup } = freshSession();
   try {
     const result = await runCode(session, 'fs.writeFileSync("/cache/x.txt", "nope");');
     assert.equal(result.success, false);
-    assert.match(result.error ?? "", /only allowed under \/src or \/output/);
+    assert.match(result.error ?? "", /only allowed under \/src, \/output or \/assets/);
   } finally {
     cleanup();
   }

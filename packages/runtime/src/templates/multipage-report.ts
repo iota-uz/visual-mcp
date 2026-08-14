@@ -4,9 +4,8 @@
  *
  * Plain multi-page HTML using `break-after: page` sections — no Document
  * builder API. Cover page, an architecture page with a placeholder comment
- * for an inline D2 SVG (produced by a prior render_file({format:"svg"})
- * call per the two-step flow in section 15), and a charts page with an
- * inline ApexCharts config. Rendered once via render_file({format:"pdf"}).
+ * for an inline D2 SVG (produced by an earlier svg render of a .d2 source),
+ * and a charts page with an inline ApexCharts config. Rendered once to PDF.
  */
 
 import type { Template } from "../types.js";
@@ -56,10 +55,10 @@ const exampleCode = `<!doctype html>
         async work fans out through a message queue.
       </p>
       <!--
-        Render /src/architecture.d2 first via
-        render_file({ entrypoint: "/src/architecture.d2",
-                       output_path: "/cache/architecture.svg", format: "svg" })
-        then inline the resulting <svg>...</svg> markup here.
+        Render /src/architecture.d2 to SVG first — canvas_save with
+        renders: [{ entrypoint: "/src/architecture.d2",
+                    output_path: "/cache/architecture.svg", format: "svg" }]
+        — then inline the resulting <svg>...</svg> markup here.
       -->
       <div class="rounded-2xl border border-slate-200 p-8 text-slate-400 text-sm">
         &lt;!-- inlined content of /cache/architecture.svg --&gt;
@@ -93,7 +92,7 @@ export const multipageReportTemplate: Template = {
     "Multi-page PDF report using print-CSS `break-after: page` sections: " +
     "a cover page, an architecture page with a placeholder for an inlined " +
     "D2-rendered SVG, and a charts page with an inline ApexCharts config. " +
-    'Render once via render_file({ format: "pdf" }) (PLAN.md section 15).',
+    "Render once to PDF (PLAN.md section 15).",
   expectedInputs: {
     coverEyebrow: "string",
     coverTitle: "string",

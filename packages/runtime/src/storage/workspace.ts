@@ -46,13 +46,16 @@ export interface LocalArtifact {
 
 /**
  * Creates a fresh temp directory (`<os.tmpdir()>/vc-<random>/`) shaped like
- * a session workspace — the same `src/output/assets/templates/cache`
- * subdirectories `sandbox/workspace.ts` creates, with the ApexCharts bundle
- * already vendored into `/assets/js/` via `ensureApexChartsAsset` (PLAN.md
- * section 3.3) — and downloads every `files` entry into it. Without this,
- * a chart authored in a hydrated workspace would 404 on
- * `/assets/js/apexcharts.min.js` at render time, since nothing else
- * populates it.
+ * a session workspace — the same `src/output/assets/cache` subdirectories
+ * `sandbox/workspace.ts` creates, with the ApexCharts bundle already
+ * vendored into `/assets/js/` via `ensureApexChartsAsset` — and downloads
+ * every `files` entry into it. Without this, a chart authored in a hydrated
+ * workspace would 404 on `/assets/js/apexcharts.min.js` at render time,
+ * since nothing else populates it.
+ *
+ * Vendoring happens *before* the canvas's own files are written, so a
+ * canvas that writes `/assets/js/apexcharts.min.js` itself deliberately
+ * overrides the bundled copy rather than being silently ignored.
  *
  * Each `relPath` is routed through `normalizeCanvasPath` in `read` mode
  * (any top-level directory, traversal rejected) before being joined onto
