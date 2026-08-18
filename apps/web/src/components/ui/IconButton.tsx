@@ -11,20 +11,26 @@ import { Link } from "react-router-dom";
 
 interface IconControl {
   icon: LucideIcon;
-  /** Accessible name. Rendered as text too when `showLabel` is set. */
+  /** Accessible name — the full one, e.g. "Open canvas details". */
   label: string;
-  /** Show the label beside the icon, as the two Details triggers do. */
-  showLabel?: boolean;
+  /**
+   * Visible copy beside the icon, where there is room for it. Kept separate
+   * from `label` because the two are not the same string: the control says
+   * "Details" and means "Open canvas details". It has to be a prefix or
+   * substring of `label` (WCAG 2.5.3, label in name) so that saying what is
+   * on screen actually activates the control.
+   */
+  text?: string;
   /** Lucide's `size`, in px. */
   iconSize?: number;
   className?: string;
 }
 
-function Content({ icon: Icon, label, showLabel, iconSize = 16 }: IconControl) {
+function Content({ icon: Icon, text, iconSize = 16 }: IconControl) {
   return (
     <>
       <Icon size={iconSize} aria-hidden="true" />
-      {showLabel && <span>{label}</span>}
+      {text && <span>{text}</span>}
     </>
   );
 }
@@ -36,23 +42,15 @@ export interface IconButtonProps
 export function IconButton({
   icon,
   label,
-  showLabel,
+  text,
   iconSize,
   className,
   type = "button",
   ...rest
 }: IconButtonProps) {
   return (
-    <button
-      type={type}
-      className={className}
-      // Kept even when the label is visible: the visible copy is a shortened
-      // form ("Details") of what the control actually does ("Open canvas
-      // details"), and callers pass the long form.
-      aria-label={label}
-      {...rest}
-    >
-      <Content icon={icon} label={label} showLabel={showLabel} iconSize={iconSize} />
+    <button type={type} className={className} aria-label={label} {...rest}>
+      <Content icon={icon} label={label} text={text} iconSize={iconSize} />
     </button>
   );
 }
@@ -62,18 +60,10 @@ export interface IconLinkProps extends IconControl {
   title?: string;
 }
 
-export function IconLink({
-  icon,
-  label,
-  showLabel,
-  iconSize,
-  className,
-  to,
-  title,
-}: IconLinkProps) {
+export function IconLink({ icon, label, text, iconSize, className, to, title }: IconLinkProps) {
   return (
     <Link to={to} className={className} aria-label={label} title={title}>
-      <Content icon={icon} label={label} showLabel={showLabel} iconSize={iconSize} />
+      <Content icon={icon} label={label} text={text} iconSize={iconSize} />
     </Link>
   );
 }

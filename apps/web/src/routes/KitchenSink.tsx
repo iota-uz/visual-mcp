@@ -133,7 +133,7 @@ export function KitchenSinkPage() {
             <IconButton
               icon={Info}
               label="Open canvas details"
-              showLabel
+              text="Details"
               iconSize={17}
               className="canvas-command-details"
             />
@@ -149,7 +149,7 @@ export function KitchenSinkPage() {
           <IconButton
             icon={Info}
             label="Open canvas details"
-            showLabel
+            text="Details"
             iconSize={18}
             className="ks-static-trigger canvas-artifact-details-trigger"
           />

@@ -398,7 +398,7 @@ export function CanvasPage() {
           <IconButton
             icon={Info}
             label="Open canvas details"
-            showLabel
+            text="Details"
             iconSize={17}
             className="canvas-command-details"
             onClick={() => setDetailsOpen(true)}
@@ -410,7 +410,7 @@ export function CanvasPage() {
         <IconButton
           icon={Info}
           label="Open canvas details"
-          showLabel
+          text="Details"
           iconSize={18}
           className="canvas-artifact-details-trigger"
           onClick={() => setDetailsOpen(true)}
