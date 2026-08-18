@@ -543,7 +543,11 @@ export function CanvasPage() {
           {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
-        <div className="canvas-artifact-full">
+        <div
+          className={`canvas-artifact-full${
+            canvas.kind === "image" ? "" : " canvas-artifact-full-embedded"
+          }`}
+        >
           {canvas.kind === "image" ? (
             <img src={canvas.entry_url} alt={canvas.title} className="artifact-preview" />
           ) : (
