@@ -1,0 +1,112 @@
+/* Text input, select and checkbox. See components/ui/TextInput.tsx. */
+
+/* --- fields --- */
+
+/* The wrapper is what the leading icon and the trailing action are
+   positioned against. Anchored to the containing block instead — which is
+   what the search field used to do — they slid to the vertical middle of
+   the results list underneath. */
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* How the field behaves as a flex *item* is the container's business, so
+     the container sets a hook rather than writing a `.x .field` selector it
+     doesn't own. That kind of descendant override is what put the cascade
+     out of order in the first place. */
+  flex: var(--field-flex, 0 1 auto);
+  min-width: var(--field-min-width, 0);
+}
+
+.field input,
+.field-select {
+  width: 100%;
+  font-family: var(--app-font-body);
+  font-size: var(--field-font-size, var(--app-text-base));
+  border: 1px solid var(--field-border-color, var(--app-line));
+  border-radius: var(--app-radius-md);
+  padding: var(--field-padding, var(--app-space-2) var(--app-space-3));
+  background: var(--app-white);
+  color: var(--app-ink);
+  transition:
+    border-color var(--app-transition),
+    box-shadow var(--app-transition);
+}
+
+.field input:focus,
+.field-select:focus {
+  outline: none;
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px var(--app-accent-soft);
+}
+
+/* Padding follows the decoration rather than being hardcoded per field:
+   the search input used to carry a literal left padding that had to be
+   kept in step with the icon's own offset by hand. */
+.field:has(.field-icon) input {
+  padding-left: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
+}
+
+.field:has(.field-action) input {
+  padding-right: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
+}
+
+.field-icon {
+  position: absolute;
+  left: var(--app-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--app-muted);
+  pointer-events: none;
+}
+
+.field-action {
+  position: absolute;
+  right: var(--app-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--app-muted);
+  display: flex;
+}
+
+.field-action:hover {
+  color: var(--app-ink);
+}
+
+.field-group {
+  flex: var(--field-flex, 0 1 auto);
+  min-width: 0;
+}
+
+.field-label {
+  display: block;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--app-ink-soft);
+  margin-bottom: var(--app-space-1);
+}
+
+.field input:disabled,
+.field-select:disabled {
+  background: var(--app-paper);
+  color: var(--app-muted);
+  cursor: not-allowed;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: auto;
+  margin: 0;
+}

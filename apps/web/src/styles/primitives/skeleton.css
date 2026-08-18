@@ -1,0 +1,57 @@
+/* Placeholders shaped like the content that replaces them. */
+
+@keyframes app-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* --- skeletons ---
+   Sized to the rows and cards that replace them, so the swap doesn't
+   shift the page. Pointer events off: they look like content and are not. */
+.skeleton-list,
+.skeleton-card,
+.skeleton-row {
+  pointer-events: none;
+}
+
+.skeleton-row {
+  gap: var(--app-space-3);
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-card {
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}
+
+.skeleton-bar-title {
+  width: 40%;
+}
+
+.skeleton-bar-meta {
+  width: 22%;
+  height: 10px;
+}
+
+.skeleton-card .skeleton-bar-title {
+  width: 65%;
+  margin-bottom: var(--app-space-2);
+}
+
+.skeleton-card .skeleton-bar-meta {
+  width: 35%;
+}
+
+.skeleton-thumb {
+  height: 120px;
+  margin-bottom: var(--app-space-3);
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}

@@ -1,0 +1,12 @@
+/* What a thrown render looks like. */
+
+/* --- render-error recovery --- */
+.error-boundary {
+  padding: var(--app-space-8) var(--app-space-4);
+}
+
+.error-boundary-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--app-space-2);
+}

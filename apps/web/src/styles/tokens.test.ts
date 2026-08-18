@@ -1,6 +1,6 @@
 /**
  * apps/web duplicates packages/canvas's palette rather than importing it —
- * see the header of ../styles.css for why. Hand-kept sync rots silently, so
+ * see the header of ./tokens.css for why. Hand-kept sync rots silently, so
  * this test is the thing that notices.
  *
  * Divergences are legitimate, but they have to be *declared*: a pair marked
@@ -27,7 +27,7 @@ function customProperties(css: string): Map<string, string> {
   return out;
 }
 
-const app = customProperties(read("../styles.css"));
+const app = customProperties(read("./tokens.css"));
 const canvas = customProperties(read("../../../../packages/canvas/src/theme.css"));
 
 type Pair = { app: string; canvas: string; note?: string };

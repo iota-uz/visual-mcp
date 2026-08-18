@@ -1,0 +1,48 @@
+/* Document-wide behaviour: the focus ring every control inherits, the
+   skip link, and the one reduced-motion block. */
+
+/*
+ * There was no focus styling anywhere: every button and link fell back to
+ * the UA outline, which against the accent-on-paper palette is neither
+ * consistently visible nor recognisably part of this app. One ring, applied
+ * once, keyboard-only (`:focus-visible`, so mouse clicks stay quiet).
+ */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+  border-radius: var(--app-radius-md);
+}
+
+/* Keyboard users had to tab the entire sidebar on every page first. */
+.skip-link {
+  position: absolute;
+  left: var(--app-space-3);
+  top: -100px;
+  z-index: 200;
+  background: var(--app-white);
+  color: var(--app-ink);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  padding: var(--app-space-2) var(--app-space-3);
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: var(--app-space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-state,
+  .skeleton-row,
+  .skeleton-card,
+  .toast {
+    animation: none;
+  }
+
+  .card-list-item,
+  .canvas-card {
+    transition: none;
+  }
+}

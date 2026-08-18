@@ -1,0 +1,19 @@
+/* The armed state of a destructive action. */
+
+/* --- inline confirm (replaces window.confirm for hard deletes) --- */
+.confirm-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+  padding: var(--app-space-1) var(--app-space-2);
+  border: 1px solid var(--app-danger);
+  border-radius: var(--app-radius-md);
+  background: var(--app-danger-soft);
+}
+
+.confirm-inline-text {
+  font-size: var(--app-text-xs);
+  color: var(--app-danger);
+  font-weight: 600;
+}

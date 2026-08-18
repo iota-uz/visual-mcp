@@ -1,0 +1,64 @@
+/* A canvas in the workspace gallery. */
+
+.canvas-card-thumbnail {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}
+
+.canvas-card-thumbnail-empty {
+  border: 1px dashed var(--app-line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-1);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-card-description {
+  font-size: var(--app-text-sm);
+  color: var(--app-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The "workspace-slug/canvas-slug" ref an agent addresses this canvas by. */
+.canvas-card-ref {
+  margin-top: var(--app-space-2);
+}
+
+.canvas-card-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+  margin-top: var(--app-space-1);
+}
+
+/* The card container moved from the <a> to the <li> so curator actions
+   (rename/delete) can sit inside the card without nesting buttons in an
+   anchor — the link keeps the stacking/typography it used to own. */
+.canvas-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  text-decoration: none;
+  color: inherit;
+}
+
+.canvas-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+  margin-top: auto;
+  padding-top: var(--app-space-2);
+  border-top: 1px solid var(--app-line);
+}

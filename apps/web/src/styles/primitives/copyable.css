@@ -1,0 +1,75 @@
+/* A string that has to leave the screen intact. */
+
+/* --- copyable values --- */
+
+/* A string that has to leave the screen intact: a canvas ref, the MCP
+   endpoint, a share link, a token, a shell command. There were four
+   hand-built rows of this, differing only in whether the value was boxed
+   and what it sat on — and they had drifted, two truncating and two
+   wrapping. */
+.copyable {
+  min-width: 0;
+}
+
+.copyable-label {
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.copyable-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
+.copyable-label + .copyable-row {
+  margin-top: var(--app-space-2);
+}
+
+.copyable-value {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-sm);
+}
+
+/* Boxed, for a command or a token copied whole. Wraps rather than scrolls:
+   with overflow alone the codex line ran off the right edge under macOS's
+   overlay scrollbar, so half of it was simply invisible. */
+.copyable-block .copyable-value {
+  background: var(--copyable-surface, var(--app-paper));
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  padding: var(--app-space-2) var(--app-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Bare, for a ref printed inside something that is already a box. */
+.copyable-code .copyable-value {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyable-link .copyable-value {
+  font-size: var(--app-text-xs);
+  color: var(--app-accent-text);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .copyable-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

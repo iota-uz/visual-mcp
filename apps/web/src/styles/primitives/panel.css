@@ -1,0 +1,26 @@
+/* A bordered surface holding one thing. */
+
+/* --- panels --- */
+
+/* A bordered surface holding one thing. The connect instructions, the
+   version list, the post-mint reveal and the kitchen-sink sections were
+   four separate rules with three different radii between them. */
+.panel {
+  border: 1px solid var(--panel-border, var(--app-line));
+  border-radius: var(--app-radius-lg);
+  background: var(--panel-surface, var(--app-white));
+  padding: var(--panel-padding, var(--app-space-4));
+  box-shadow: var(--panel-shadow, var(--app-shadow-sm));
+}
+
+.panel-accent {
+  --panel-surface: var(--app-accent-soft);
+  --panel-border: var(--app-accent);
+  --panel-shadow: none;
+}
+
+.panel-warning {
+  --panel-surface: var(--app-warning-soft);
+  --panel-border: var(--app-warning);
+  --panel-shadow: none;
+}

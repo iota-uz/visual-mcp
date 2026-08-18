@@ -1,0 +1,29 @@
+/* Nothing here yet, and what to do about it. */
+
+/* --- empty / loading states --- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-8) var(--app-space-4);
+  color: var(--app-muted);
+}
+
+.empty-state-icon {
+  color: var(--app-muted);
+  opacity: var(--app-disabled-opacity);
+}
+
+.empty-state-title {
+  margin: 0;
+  color: var(--app-ink-soft);
+  font-weight: 600;
+}
+
+.empty-state-hint {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+}

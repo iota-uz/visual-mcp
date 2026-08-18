@@ -1,0 +1,242 @@
+/* The canvas viewer: command bar, artifact frame, details drawer. */
+
+.canvas-navigation-trigger,
+.canvas-command-back,
+.canvas-command-details {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--app-line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--app-ink-soft);
+  box-shadow: var(--app-shadow-sm);
+  cursor: pointer;
+}
+
+.canvas-navigation-trigger {
+  position: fixed;
+  z-index: 40;
+  top: var(--app-space-3);
+  left: var(--app-space-3);
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+/* Artifact canvases own the top edge themselves. Keep Visual Canvas's
+   navigation in the quiet lower-left corner, adjacent to Details. */
+.is-artifact-canvas-view .canvas-navigation-trigger {
+  top: auto;
+  bottom: var(--app-space-4);
+}
+
+.canvas-navigation-trigger:hover,
+.canvas-command-back:hover,
+.canvas-command-details:hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent-text);
+}
+
+/* Inside the drawer the rail is the whole panel: no border of its own, and
+   it fills the height the drawer gives it. */
+.canvas-navigation-drawer {
+  --drawer-width: min(304px, calc(100vw - 48px));
+  --drawer-body-padding: 0;
+}
+
+.canvas-preview-hint {
+  margin: var(--app-space-2) 0 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+/* --- canvas page: the map stays visually primary; chrome is reduced to a
+   command bar and contextual drawers, following the Figma workspace model. */
+.canvas-page-full {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--app-paper);
+}
+
+.canvas-command-bar {
+  position: absolute;
+  z-index: 20;
+  top: var(--app-space-3);
+  left: 64px;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+  max-width: min(560px, calc(100% - 152px));
+  height: 40px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--app-line);
+  border-radius: 11px;
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: blur(12px);
+}
+
+.canvas-command-bar-public {
+  left: var(--app-space-3);
+  max-width: calc(100% - var(--app-space-6));
+}
+
+.canvas-command-back {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.canvas-command-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  min-width: 0;
+  padding: 0 var(--app-space-1);
+  font-size: var(--app-text-sm);
+  font-weight: 700;
+  color: var(--app-ink);
+}
+
+.canvas-command-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-command-title small {
+  flex: none;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-muted);
+}
+
+.canvas-command-details {
+  flex: none;
+  gap: 6px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 var(--app-space-2);
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+}
+
+.canvas-artifact-details-trigger {
+  position: absolute;
+  z-index: 20;
+  bottom: var(--app-space-4);
+  left: 64px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  height: 40px;
+  padding: 0 var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--app-ink-soft);
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: blur(12px);
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-artifact-details-trigger:hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
+.canvas-details {
+  /* Its header names a section inside an overlay, not the page. */
+  --section-header-gap: var(--app-space-4);
+  --section-header-title-size: var(--app-text-xl);
+}
+
+.canvas-page-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vc-viewport-host {
+  position: absolute;
+  inset: 0;
+  background: var(--app-white);
+}
+
+.canvas-artifact-full {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--app-space-6);
+}
+
+/* Interactive artifacts are the workspace, not a preview card. They own the
+   complete viewer rectangle; the padded treatment remains only for images. */
+.canvas-artifact-full-embedded {
+  padding: 0;
+}
+
+.artifact-preview {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--app-radius-md);
+}
+
+.artifact-preview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+@media (max-width: 640px) {
+  .canvas-command-bar {
+    left: 60px;
+    max-width: calc(100% - 72px);
+  }
+}
+
+@media (max-width: 640px) {
+  .canvas-command-details span {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .canvas-artifact-details-trigger {
+    left: 60px;
+  }
+}
+
+@media (max-width: 640px) {
+  .canvas-command-details {
+    width: 30px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .canvas-details {
+    --drawer-width: calc(100% - 24px);
+  }
+}

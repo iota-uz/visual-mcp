@@ -1,0 +1,112 @@
+/* The one button. See components/ui/Button.tsx. */
+
+/* --- buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  /* Labels are two or three words; in the narrow floating canvas card
+     "Copy link" was breaking across two lines and doubling the button's
+     height. */
+  white-space: nowrap;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  padding: var(--app-space-2) var(--app-space-4);
+  border-radius: var(--app-radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background var(--app-transition),
+    border-color var(--app-transition),
+    box-shadow var(--app-transition),
+    opacity var(--app-transition);
+  line-height: 1.2;
+}
+
+.btn:disabled {
+  opacity: var(--app-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: var(--app-space-1) var(--app-space-2);
+  font-size: var(--app-text-xs);
+}
+
+.btn-primary {
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+  color: var(--app-white);
+}
+
+.btn-primary:not(:disabled):hover {
+  box-shadow: var(--app-shadow-md);
+}
+
+/* Google's branding guidelines, light theme: white fill, #747775 stroke,
+   #1F1F1F label in Roboto Medium 14, 12px between mark and label, 40px
+   high. The hardcoded hexes are deliberate — they are Google's, not this
+   app's palette, and must not drift with the theme tokens. */
+.btn-google {
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  background: #fff;
+  border-color: #747775;
+  border-radius: var(--app-radius-md);
+  color: #1f1f1f;
+  font-family: Roboto, var(--app-font-body);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.btn-google:not(:disabled):hover {
+  /* The guidelines' hover state: the label colour at 8% over the fill. */
+  background: #f2f2f2;
+  box-shadow: var(--app-shadow-sm);
+}
+
+.btn-secondary {
+  background: var(--app-white);
+  border-color: var(--app-line);
+  color: var(--app-ink);
+}
+
+.btn-secondary:not(:disabled):hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
+.btn-danger {
+  background: var(--app-danger-soft);
+  border-color: var(--app-danger-soft);
+  color: var(--app-danger);
+}
+
+.btn-danger:not(:disabled):hover {
+  border-color: var(--app-danger);
+}
+
+/* Not destroying data, but breaking something outside the app — every link
+   already handed out. Loud enough to arm against, quieter than danger. */
+.btn-warning {
+  background: var(--app-warning-soft);
+  border-color: var(--app-warning-soft);
+  color: var(--app-warning);
+}
+
+.btn-warning:not(:disabled):hover {
+  border-color: var(--app-warning);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--app-muted);
+}
+
+.btn-ghost:not(:disabled):hover {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}

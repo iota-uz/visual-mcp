@@ -1,0 +1,48 @@
+/* Title, subtitle, back link, actions. */
+
+/* --- page header --- */
+.section-header {
+  margin-bottom: var(--section-header-gap, var(--app-space-6));
+}
+
+.section-header-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  color: var(--app-muted);
+  text-decoration: none;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  margin-bottom: var(--app-space-2);
+  transition: color var(--app-transition);
+}
+
+.section-header-back:hover {
+  color: var(--app-accent-text);
+}
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-4);
+  flex-wrap: wrap;
+}
+
+/* The size is a hook rather than a `.container .title` override, so a
+   container can scale the heading without reaching into this rule. */
+.section-header-title {
+  font-size: var(--section-header-title-size, var(--app-text-2xl));
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+.section-header-subtitle {
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  margin: var(--app-space-1) 0 0;
+}

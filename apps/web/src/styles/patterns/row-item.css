@@ -1,0 +1,36 @@
+/* A list row with curator actions on the right. */
+
+/* --- list rows with curator actions (workspaces, versions) --- */
+.row-item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--app-space-3);
+}
+
+.row-item-main {
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.row-item-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+}
+
+.row-item-meta {
+  font-size: var(--app-text-xs);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .row-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

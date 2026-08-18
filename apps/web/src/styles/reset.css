@@ -1,0 +1,29 @@
+/* Element defaults. Nothing here knows what the app is. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--app-paper);
+  color: var(--app-ink);
+  font-size: var(--app-text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--app-font-display);
+  font-weight: 700;
+  margin: 0;
+  color: var(--app-ink);
+}
+
+a {
+  color: var(--app-accent);
+}

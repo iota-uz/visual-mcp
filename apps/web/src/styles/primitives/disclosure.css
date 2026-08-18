@@ -1,0 +1,15 @@
+/* <details>/<summary>. */
+
+/* --- disclosure --- */
+.disclosure > summary {
+  cursor: pointer;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--disclosure-summary-color, var(--app-muted));
+  padding: var(--disclosure-summary-padding, var(--app-space-2) 0);
+  transition: color var(--app-transition);
+}
+
+.disclosure > summary:hover {
+  color: var(--app-ink);
+}

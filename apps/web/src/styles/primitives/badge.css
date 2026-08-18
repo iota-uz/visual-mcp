@@ -1,0 +1,42 @@
+/* A small status word. */
+
+/* --- badges --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px var(--app-space-2);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+
+.badge-neutral {
+  background: var(--app-paper);
+  border-color: var(--app-line);
+  color: var(--app-ink-soft);
+}
+
+.badge-success {
+  background: var(--app-success-soft);
+  color: var(--app-success);
+}
+
+.badge-warning {
+  background: var(--app-warning-soft);
+  color: var(--app-warning);
+}
+
+.badge-danger {
+  background: var(--app-danger-soft);
+  color: var(--app-danger);
+}
+
+.badge-info {
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}

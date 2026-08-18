@@ -1,0 +1,70 @@
+/* /dev/kitchen-sink. Dev builds only. */
+
+/* --- dev: /dev/kitchen-sink --- */
+.ks-section {
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-white);
+  padding: var(--app-space-4);
+}
+
+.ks-section-title {
+  margin: 0 0 var(--app-space-3);
+  font-size: var(--app-text-lg);
+}
+
+.ks-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.ks-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: var(--app-space-3);
+  align-items: start;
+  padding-top: var(--app-space-3);
+  border-top: 1px dashed var(--app-line);
+}
+
+.ks-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ks-row-label {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+  padding-top: 6px;
+}
+
+.ks-row-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-3);
+  min-width: 0;
+}
+
+/* The two floating triggers and the command bar are `position: fixed` /
+   `absolute` where they really live; pinned back into the flow here so the
+   matrix can show them next to everything else. */
+.ks-static-bar,
+.ks-static-trigger {
+  position: static;
+  inset: auto;
+}
+
+.ks-static-bar {
+  width: 100%;
+}
+
+.ks-panel {
+  flex: 1 1 200px;
+  font-size: var(--app-text-sm);
+}

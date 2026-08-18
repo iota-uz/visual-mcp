@@ -1,0 +1,116 @@
+/* The native-<dialog> drawer. See components/ui/Drawer.tsx. */
+
+/* --- drawer --- */
+
+/* The <dialog> is a full-viewport box that exists to catch backdrop
+   presses; the panel inside it is the drawer. Everything a modal dialog
+   normally needs a library for — focus containment, Escape, focus restore,
+   stacking — is showModal()'s job, so none of it appears here. */
+.drawer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.drawer-right {
+  justify-content: flex-end;
+}
+
+.drawer-left {
+  justify-content: flex-start;
+}
+
+.drawer::backdrop {
+  background: rgba(6, 27, 54, 0.34);
+  opacity: 0;
+  transition: opacity var(--app-duration-base) var(--app-ease-out);
+}
+
+.drawer.is-entered::backdrop {
+  opacity: 1;
+}
+
+.drawer-panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--drawer-width, min(392px, calc(100% - 40px)));
+  height: 100%;
+  background: var(--app-white);
+  transition: transform var(--app-duration-base) var(--app-ease-out);
+}
+
+.drawer-right .drawer-panel {
+  border-left: 1px solid var(--app-line);
+  box-shadow: -16px 0 40px rgba(18, 42, 70, 0.16);
+  transform: translateX(100%);
+}
+
+.drawer-left .drawer-panel {
+  border-right: 1px solid var(--app-line);
+  box-shadow: 16px 0 40px rgba(18, 42, 70, 0.16);
+  transform: translateX(-100%);
+}
+
+.drawer.is-entered .drawer-panel {
+  transform: translateX(0);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  flex: none;
+  padding: var(--app-space-3) var(--app-space-4);
+  border-bottom: 1px solid var(--app-line);
+}
+
+/* The eyebrow: this names the drawer, it isn't the title of what's in it. */
+.drawer-title {
+  margin: 0;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+/* Pushed to the right edge even when there is no title to sit beside. */
+.drawer-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  color: var(--app-ink-soft);
+  cursor: pointer;
+  transition:
+    border-color var(--app-transition),
+    color var(--app-transition);
+}
+
+.drawer-close:hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent-text);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--drawer-body-padding, var(--app-space-4));
+}

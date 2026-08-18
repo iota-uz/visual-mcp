@@ -1,0 +1,79 @@
+/* The app's one feedback channel. */
+
+/* --- toasts --- */
+.toast-region {
+  position: fixed;
+  z-index: 100;
+  right: var(--app-space-4);
+  bottom: var(--app-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  width: min(420px, calc(100vw - var(--app-space-8)));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-md);
+  font-size: var(--app-text-sm);
+  color: var(--app-ink);
+  pointer-events: auto;
+  animation: toast-in var(--app-transition) ease-out;
+}
+
+.toast-success {
+  border-color: var(--app-success);
+  background: var(--app-success-soft);
+}
+
+.toast-error {
+  border-color: var(--app-danger);
+  background: var(--app-danger-soft);
+}
+
+.toast-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast-success .toast-icon {
+  color: var(--app-success);
+}
+
+.toast-error .toast-icon {
+  color: var(--app-danger);
+}
+
+.toast-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: var(--app-disabled-opacity);
+}
+
+.toast-dismiss:hover {
+  opacity: 1;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

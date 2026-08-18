@@ -1,0 +1,61 @@
+/* The list and grid every collection in the app is rendered as. */
+
+/* --- card list / canvas grid --- */
+.card-list,
+.canvas-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--app-space-3);
+}
+
+/* Hooks, so a container can scroll or inset the list without reaching in
+   with a `.container .card-list` selector of its own. */
+.card-list {
+  margin-top: var(--card-list-inset, 0);
+  max-height: var(--card-list-max-height, none);
+  overflow-y: var(--card-list-overflow, visible);
+}
+
+.canvas-grid {
+  /* 220px cards left a mostly-empty page and gave the thumbnail — the only
+     way to recognise a canvas at a glance — barely any pixels. */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.card-list-item,
+.canvas-card {
+  display: flex;
+  /* A container that wants a different row shape — the version list wants
+     one line, not a stack — sets these rather than writing a
+     `.container .card-list-item` selector it doesn't own. */
+  flex-direction: var(--card-list-item-direction, column);
+  align-items: var(--card-list-item-align, stretch);
+  justify-content: var(--card-list-item-justify, flex-start);
+  font-size: var(--card-list-item-font-size, inherit);
+  gap: var(--card-list-item-gap, var(--app-space-1));
+  padding: var(--app-space-3) var(--app-space-4);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-white);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    box-shadow var(--app-transition),
+    transform var(--app-transition),
+    border-color var(--app-transition);
+}
+
+.card-list-item:hover,
+.canvas-card:hover {
+  box-shadow: var(--app-shadow-md);
+  border-color: var(--app-accent);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .canvas-grid {
+    grid-template-columns: 1fr;
+  }
+}

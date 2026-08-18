@@ -1,0 +1,139 @@
+/* The navigation rail. */
+
+.app-sidebar {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--app-white);
+  border-right: 1px solid var(--app-line);
+  padding: var(--app-space-4) var(--app-space-3);
+  overflow-y: auto;
+}
+
+.app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  font-family: var(--app-font-display);
+  font-weight: 700;
+  font-size: var(--app-text-base);
+  text-decoration: none;
+  color: var(--app-ink);
+  padding: var(--app-space-2);
+  margin-bottom: var(--app-space-4);
+}
+
+.app-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  flex: 1;
+}
+
+.app-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  color: var(--app-muted);
+  text-decoration: none;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-md);
+  transition:
+    color var(--app-transition),
+    background var(--app-transition);
+}
+
+.app-sidebar-link:hover {
+  color: var(--app-ink);
+  background: var(--app-paper);
+}
+
+.app-sidebar-link.active {
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
+}
+
+.app-sidebar-workspaces {
+  list-style: none;
+  margin: 0 0 var(--app-space-2) 0;
+  padding: 0 0 0 var(--app-space-4);
+}
+
+.app-sidebar-workspaces .app-sidebar-link {
+  font-weight: 500;
+  font-size: var(--app-text-xs);
+  padding: var(--app-space-1) var(--app-space-3);
+}
+
+.app-sidebar-workspaces span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar-footer {
+  border-top: 1px solid var(--app-line);
+  padding-top: var(--app-space-3);
+  margin-top: var(--app-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+}
+
+.app-sidebar-email {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+  padding: 0 var(--app-space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar-canvas-drawer {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border-right: 0;
+}
+
+@media (max-width: 960px) {
+  .app-sidebar {
+    flex-basis: 176px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-sidebar {
+    flex-basis: 64px;
+    padding: var(--app-space-3) var(--app-space-2);
+    align-items: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-sidebar-brand,
+  .app-sidebar-link {
+    justify-content: center;
+    padding: var(--app-space-2);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-sidebar-brand span,
+  .app-sidebar-link span,
+  .app-sidebar-email {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Workspace links are text-only, so hiding their span leaves an empty
+       target. Drop the list entirely on the icon rail. */
+
+  .app-sidebar-workspaces {
+    display: none;
+  }
+}

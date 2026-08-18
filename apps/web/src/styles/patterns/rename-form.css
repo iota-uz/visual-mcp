@@ -1,0 +1,18 @@
+/* A title swapped in place for a field. */
+
+/* --- inline rename --- */
+
+/* Compact and already-accented, because the field replaces a title in
+   place: it has to read as "this text is now editable", not as a form. */
+.rename-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+  width: 100%;
+  --field-flex: 1;
+  --field-min-width: 120px;
+  --field-font-size: var(--app-text-sm);
+  --field-border-color: var(--app-accent);
+  --field-padding: var(--app-space-1) var(--app-space-2);
+}

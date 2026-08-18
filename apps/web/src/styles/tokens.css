@@ -1,0 +1,114 @@
+/*
+ * Design tokens mirror packages/canvas/src/theme.css's ink/paper palette,
+ * shadow ladder, and type system (see that file's header comment) so the
+ * app chrome and the canvas viewer read as one product. Duplicated, not
+ * imported, so apps/web has no build-time dependency on the canvas
+ * package's CSS internals — keep values in sync by hand if theme.css's
+ * palette changes.
+ */
+:root {
+  color-scheme: light;
+
+  --app-ink: #061b36;
+  --app-ink-soft: #18314d;
+  --app-paper: #f4f7fb;
+  --app-white: #ffffff;
+  --app-line: #dce4ed;
+  /* Was #6b7e94 — ~4.0:1 on white, below WCAG AA, and it carries every
+     11-13px hint in the app. Darkened to clear 4.5:1. */
+  --app-muted: #5b6e85;
+
+  --app-accent: #2f6df6;
+  --app-accent-soft: #eaf0fe;
+  /* --app-accent as *text* is 4.21:1 on paper and 3.96:1 on accent-soft:
+     both below WCAG AA. Fills, borders and focus rings keep --app-accent;
+     anything that has to be read switches to this. */
+  --app-accent-text: #1d4fd7;
+  --app-danger: #c0392b;
+  --app-danger-soft: #fdecea;
+  --app-success: #186b4a;
+  --app-success-soft: #e8f6ef;
+  --app-warning: #8d6210;
+  --app-warning-soft: #fff5e2;
+
+  /* The chrome paints the viewer's own dot grid (packages/canvas
+     .vc-viewport::before). Quieter than the canvas's 48% dots, because here
+     it sits under text rather than behind nodes. */
+  --app-grid-dot: rgba(6, 27, 54, 0.06);
+  --app-grid-size: 24px;
+
+  /* Canvas kind, borrowed from the viewer's --vc-role-* lane colours, so a
+     kind is recognisable before its label is read. */
+  --app-kind-canvas: #2f6df6;
+  --app-kind-html: #7a56b2;
+  --app-kind-image: #2f9f6e;
+  --app-kind-pdf: #d38f21;
+
+  --app-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --app-font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --app-font-display: "Unbounded", var(--app-font-body);
+
+  --app-text-xs: 11px;
+  --app-text-sm: 13px;
+  --app-text-base: 15px;
+  --app-text-lg: 18px;
+  --app-text-xl: 24px;
+  --app-text-2xl: 32px;
+
+  /* The eyebrow: packages/canvas's .vc-lane-label treatment, promoted to
+     the app's section-labelling device. */
+  --app-eyebrow-size: 10px;
+  --app-eyebrow-weight: 650;
+  --app-eyebrow-tracking: 0.11em;
+
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-6: 24px;
+  --app-space-8: 32px;
+
+  --app-radius-sm: 7px;
+  --app-radius-md: 8px;
+  --app-radius-xl: 11px;
+  --app-radius-lg: 13px;
+
+  --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
+  --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
+  --app-shadow-lg: 0 18px 50px rgba(18, 42, 70, 0.14);
+
+  /* Was the same duration literal repeated at five call sites. */
+  --app-transition: 0.15s;
+  --app-duration-fast: 0.12s;
+  --app-duration-base: 0.2s;
+  --app-duration-slow: 0.32s;
+  --app-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --app-ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  /* Everything that translates reads this instead of a literal, so the
+     reduced-motion block can collapse travel to 0 while opacity fades
+     survive — and without `animation: none`, which would kill the
+     transitionend/animationend the drawer and toast exits wait on. */
+  --app-motion-distance: 8px;
+
+  --app-disabled-opacity: 0.5;
+
+  /* One ladder, so a new overlay doesn't have to guess. */
+  --app-z-chrome: 20;
+  --app-z-scrim: 30;
+  --app-z-drawer-trigger: 40;
+  --app-z-drawer: 50;
+  --app-z-toast: 100;
+  --app-z-skip-link: 200;
+
+  /* `left: 64px` appears at three call sites and has to stay in step with
+     the trigger's own box; nothing enforced that. */
+  --app-sidebar-w: 220px;
+  --app-page-max: 1040px;
+  --app-trigger-size: 40px;
+  /* Mirrors the Lucide `size=` values used at the call sites; the search
+     input's left padding used to hardcode 14px to match one of them. */
+  --app-icon-sm: 14px;
+  --app-icon-md: 16px;
+
+  font-family: var(--app-font-body);
+}

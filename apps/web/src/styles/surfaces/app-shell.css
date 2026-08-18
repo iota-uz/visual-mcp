@@ -1,0 +1,23 @@
+/* The signed-in frame: rail plus content. */
+
+/* --- app shell: fixed-height sidebar + scrollable content column, so a
+   canvas page (below) can stretch its viewport to the full remaining
+   viewport height instead of living in normal padded document flow --- */
+.app-shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* A canvas is an immersive workspace, not another document page. Its
+   navigation becomes a drawer so it never consumes width until requested. */
+.app-shell-canvas .app-content {
+  width: 100%;
+}

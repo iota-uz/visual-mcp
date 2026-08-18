@@ -1,0 +1,40 @@
+/* How to point an agent at this deployment. */
+
+/* --- connect panel (home empty state + post-mint token reveal) --- */
+.connect-panel {
+  margin-top: var(--connect-panel-gap, var(--app-space-6));
+  margin-bottom: var(--connect-panel-bottom-gap, 0);
+}
+
+.connect-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  font-size: var(--app-text-lg);
+}
+
+.connect-panel-lead {
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  margin: var(--app-space-2) 0 0;
+}
+
+.connect-panel-block {
+  margin-top: var(--app-space-4);
+}
+
+.connect-panel-hint {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  margin: var(--app-space-2) 0 0;
+}
+
+.connect-panel-hint code {
+  font-family: var(--app-font-mono);
+}
+
+/* Folded-away connect instructions on Home once the account has data. */
+.connect-disclosure {
+  margin-top: var(--app-space-6);
+  --connect-panel-gap: var(--app-space-2);
+}

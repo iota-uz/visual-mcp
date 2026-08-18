@@ -1,0 +1,55 @@
+/*
+ * The app's stylesheet, as a layer manifest.
+ *
+ * The order below is the cascade, once and in one place: a rule in
+ * `surfaces` beats a rule in `primitives` no matter how specific either is,
+ * and no matter which file the bundler happens to emit first. That is what
+ * replaced the block of margin-cancelling overrides this file used to end
+ * with, and it is why splitting one 1,800-line stylesheet into thirty-five
+ * doesn't reintroduce the ordering problem the single file had.
+ *
+ * `utilities` sits last on purpose: a utility is applied precisely when the
+ * thing it is applied to should look different from its own rules.
+ *
+ * packages/canvas's theme.css and the compiled Tailwind fetched at runtime
+ * stay deliberately unlayered, so they win over everything here. They style
+ * canvas content, which is not ours to override.
+ */
+@layer reset, tokens, base, primitives, patterns, surfaces, utilities;
+
+@import "./tokens.css" layer(tokens);
+@import "./reset.css" layer(reset);
+@import "./base.css" layer(base);
+@import "./utilities.css" layer(utilities);
+@import "./primitives/button.css" layer(primitives);
+@import "./primitives/field.css" layer(primitives);
+@import "./primitives/badge.css" layer(primitives);
+@import "./primitives/panel.css" layer(primitives);
+@import "./primitives/disclosure.css" layer(primitives);
+@import "./primitives/table.css" layer(primitives);
+@import "./primitives/copyable.css" layer(primitives);
+@import "./primitives/drawer.css" layer(primitives);
+@import "./primitives/section-header.css" layer(primitives);
+@import "./primitives/empty-state.css" layer(primitives);
+@import "./primitives/loading.css" layer(primitives);
+@import "./primitives/skeleton.css" layer(primitives);
+@import "./primitives/toast.css" layer(primitives);
+@import "./patterns/card-list.css" layer(patterns);
+@import "./patterns/canvas-card.css" layer(patterns);
+@import "./patterns/row-item.css" layer(patterns);
+@import "./patterns/confirm-inline.css" layer(patterns);
+@import "./patterns/rename-form.css" layer(patterns);
+@import "./patterns/inline-form.css" layer(patterns);
+@import "./patterns/connect-panel.css" layer(patterns);
+@import "./patterns/error-boundary.css" layer(patterns);
+@import "./patterns/publish-control.css" layer(patterns);
+@import "./patterns/version-history.css" layer(patterns);
+@import "./surfaces/app-shell.css" layer(surfaces);
+@import "./surfaces/sidebar.css" layer(surfaces);
+@import "./surfaces/page.css" layer(surfaces);
+@import "./surfaces/auth.css" layer(surfaces);
+@import "./surfaces/public-shell.css" layer(surfaces);
+@import "./surfaces/home.css" layer(surfaces);
+@import "./surfaces/tokens-page.css" layer(surfaces);
+@import "./surfaces/canvas.css" layer(surfaces);
+@import "./surfaces/kitchen-sink.css" layer(surfaces);

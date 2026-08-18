@@ -1,0 +1,6 @@
+/* Text shown while something is on its way. */
+
+.loading-state {
+  color: var(--app-muted);
+  animation: app-pulse 1.6s ease-in-out infinite;
+}

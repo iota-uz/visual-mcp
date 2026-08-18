@@ -1,0 +1,21 @@
+/* One field and one button on a line. */
+
+/* --- forms --- */
+.inline-form {
+  display: flex;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-4);
+  /* The field is the row's elastic member; the button keeps its own width. */
+  --field-flex: 1 1 auto;
+  /* Matches `.node-search-field`, so the two controls stacked above the
+     list share one left and right edge instead of ending at two arbitrary
+     widths an input's default size apart. */
+  max-width: 420px;
+}
+
+@media (max-width: 640px) {
+  .inline-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

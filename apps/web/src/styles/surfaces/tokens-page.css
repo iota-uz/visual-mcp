@@ -1,0 +1,28 @@
+/* MCP tokens. */
+
+/* Inside the post-mint reveal the panel is one step of a flow, not the
+   page's own section — it needs to clear the "Done" button below it. */
+.token-reveal {
+  --connect-panel-bottom-gap: var(--app-space-4);
+}
+
+/* --- token table --- */
+.token-filter {
+  margin-top: var(--app-space-4);
+}
+
+.token-table-wrap {
+  margin-top: var(--app-space-4);
+}
+
+.token-reveal {
+  margin-bottom: var(--app-space-4);
+}
+
+.token-reveal-row {
+  margin: var(--app-space-2) 0;
+  /* The token's box sits directly on the reveal's warning fill, so it has
+     to be white. The commands below it sit inside ConnectPanel, which is
+     already white, and keep the paper tint. */
+  --copyable-surface: var(--app-white);
+}
