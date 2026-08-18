@@ -275,6 +275,13 @@ a {
   border-radius: 10px;
 }
 
+/* Artifact canvases own the top edge themselves. Keep Visual Canvas's
+   navigation in the quiet lower-left corner, adjacent to Details. */
+.is-artifact-canvas-view .canvas-navigation-trigger {
+  top: auto;
+  bottom: var(--app-space-4);
+}
+
 .canvas-navigation-trigger:hover,
 .canvas-command-back:hover,
 .canvas-command-details:hover,
@@ -1356,6 +1363,33 @@ a {
   font-weight: 700;
 }
 
+.canvas-artifact-details-trigger {
+  position: absolute;
+  z-index: 20;
+  bottom: var(--app-space-4);
+  left: 64px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  height: 40px;
+  padding: 0 var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--app-ink-soft);
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: blur(12px);
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.canvas-artifact-details-trigger:hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
 .canvas-details-panel {
   position: absolute;
   z-index: 35;
@@ -1532,6 +1566,10 @@ a {
 
   .canvas-command-details span {
     display: none;
+  }
+
+  .canvas-artifact-details-trigger {
+    left: 60px;
   }
 
   .canvas-command-details {
