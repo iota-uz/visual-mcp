@@ -1,5 +1,5 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Blocks, KeyRound, LayoutGrid, LogOut, Menu, X } from "lucide-react";
+import { Blocks, KeyRound, LayoutGrid, LogOut, Menu } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -9,6 +9,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
 import { toastError, useToast } from "./components/Toast";
 import { Button } from "./components/ui/Button";
+import { Drawer } from "./components/ui/Drawer";
 import { IconButton } from "./components/ui/IconButton";
 import { CanvasPage } from "./routes/Canvas";
 import { HomePage } from "./routes/Home";
@@ -80,13 +81,7 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
 // Left sidebar, not a top bar — a canvas page (below) needs the full
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
-function Sidebar({
-  canvasDrawer = false,
-  onClose,
-}: {
-  canvasDrawer?: boolean;
-  onClose?: () => void;
-}) {
+function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   const sessionUser = useSessionUser();
   const signOut = useSignOut();
   // Switching workspaces used to be a three-hop trip: canvas → workspace →
@@ -101,21 +96,20 @@ function Sidebar({
     void signOut();
   }
 
+  /*
+   * Inside the canvas drawer this is a plain <div>, not the <aside> it is
+   * on every other page: the drawer is itself a labelled dialog, and a
+   * `complementary` landmark nested inside it is a second name for the same
+   * region. The drawer also owns the close button, so the sidebar has no
+   * onClose of its own to wire up any more.
+   */
+  const Root = canvasDrawer ? "div" : "aside";
+
   return (
-    <aside
-      id={canvasDrawer ? "canvas-navigation" : undefined}
+    <Root
       className={`app-sidebar${canvasDrawer ? " app-sidebar-canvas-drawer" : ""}`}
-      aria-label="Navigation"
+      aria-label={canvasDrawer ? undefined : "Navigation"}
     >
-      {canvasDrawer && (
-        <IconButton
-          icon={X}
-          label="Close navigation"
-          iconSize={18}
-          className="app-sidebar-close"
-          onClick={onClose}
-        />
-      )}
       <Link to="/" className="app-sidebar-brand" aria-label="Visual Canvas — home">
         <Blocks size={20} aria-hidden="true" />
         <span>Visual Canvas</span>
@@ -153,7 +147,7 @@ function Sidebar({
           <span>Sign out</span>
         </Button>
       </div>
-    </aside>
+    </Root>
   );
 }
 
@@ -215,15 +209,6 @@ function AuthenticatedApp() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => setNavigationOpen(false), [pathname]);
 
-  useEffect(() => {
-    if (!navigationOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setNavigationOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [navigationOpen]);
-
   return (
     <div className={`app-shell${isCanvasRoute ? " app-shell-canvas" : ""}`}>
       <a href="#main" className="skip-link">
@@ -240,17 +225,17 @@ function AuthenticatedApp() {
             aria-expanded={navigationOpen}
             aria-controls="canvas-navigation"
           />
-          {navigationOpen && (
-            <>
-              <button
-                type="button"
-                className="canvas-navigation-scrim"
-                onClick={() => setNavigationOpen(false)}
-                aria-label="Close navigation"
-              />
-              <Sidebar canvasDrawer onClose={() => setNavigationOpen(false)} />
-            </>
-          )}
+          <Drawer
+            id="canvas-navigation"
+            className="canvas-navigation-drawer"
+            side="left"
+            open={navigationOpen}
+            onClose={() => setNavigationOpen(false)}
+            label="Navigation"
+            closeLabel="Close navigation"
+          >
+            <Sidebar canvasDrawer />
+          </Drawer>
         </>
       ) : (
         <Sidebar />

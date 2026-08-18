@@ -25,6 +25,7 @@ import { Button, ButtonLink, type ButtonVariant } from "../components/ui/Button"
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { DataTable } from "../components/ui/DataTable";
 import { Disclosure } from "../components/ui/Disclosure";
+import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { Panel } from "../components/ui/Panel";
 import { SectionHeader } from "../components/ui/SectionHeader";
@@ -64,6 +65,7 @@ export function KitchenSinkPage() {
   const [search, setSearch] = useState("europrotocol");
   const [checked, setChecked] = useState(true);
   const [renaming, setRenaming] = useState(false);
+  const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
 
   return (
     <div className="page-stack">
@@ -391,6 +393,48 @@ export function KitchenSinkPage() {
       <Section title="Skeleton">
         <ListSkeleton rows={2} />
         <CardGridSkeleton cards={3} />
+      </Section>
+
+      <Section title="Drawer">
+        <Row label="right">
+          <Button variant="secondary" icon={Info} onClick={() => setDrawer("right")}>
+            Open details
+          </Button>
+        </Row>
+        <Row label="left">
+          <Button variant="secondary" icon={Menu} onClick={() => setDrawer("left")}>
+            Open navigation
+          </Button>
+        </Row>
+        <Drawer
+          open={drawer !== null}
+          side={drawer ?? "right"}
+          onClose={() => setDrawer(null)}
+          title="Canvas details"
+          closeLabel="Close canvas details"
+        >
+          <SectionHeader
+            as="h3"
+            title="Fast Settlement"
+            subtitle="v3 · 2 hours ago"
+            back={{ to: "/", label: "osago" }}
+            actions={
+              <Button variant="ghost" size="sm" icon={Pencil}>
+                Rename
+              </Button>
+            }
+          />
+          <RefChip refValue="osago/fast-settlement" />
+          <CopyableValue
+            as="link"
+            value="https://visual.iota.uz/s/a8f24c1e9b"
+            copyLabel="Copy link"
+          />
+          <ConfirmButton
+            description="Deletes this canvas and every version of it. Permanent."
+            onConfirm={async () => {}}
+          />
+        </Drawer>
       </Section>
 
       <Section title="Connect panel">

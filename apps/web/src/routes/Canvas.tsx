@@ -6,22 +6,22 @@ import {
   mountViewport,
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, ExternalLink, History, Info, Lock, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, History, Info, Lock, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ConfirmButton } from "../components/ConfirmButton";
-import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
-import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
 import { CopyableValue } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
+import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { SectionHeader } from "../components/ui/SectionHeader";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 
@@ -354,15 +354,6 @@ export function CanvasPage() {
     return () => document.documentElement.classList.remove("is-artifact-canvas-view");
   }, [canvas?.kind]);
 
-  useEffect(() => {
-    if (!detailsOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDetailsOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [detailsOpen]);
-
   if (canvas === undefined) {
     return (
       <div className="canvas-page-full">
@@ -420,109 +411,92 @@ export function CanvasPage() {
         />
       )}
 
-      {detailsOpen && (
-        <>
-          <button
-            type="button"
-            className="canvas-details-scrim"
-            onClick={() => setDetailsOpen(false)}
-            aria-label="Close canvas details"
-          />
-          <aside id="canvas-details" className="canvas-details-panel" aria-label="Canvas details">
-            <header className="canvas-details-panel-header">
-              <span>Canvas details</span>
-              <IconButton
-                icon={X}
-                label="Close canvas details"
-                iconSize={18}
-                onClick={() => setDetailsOpen(false)}
-              />
-            </header>
-            {/* The rename form replaces the header rather than nesting inside
+      <Drawer
+        id="canvas-details"
+        className="canvas-details"
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        title="Canvas details"
+        closeLabel="Close canvas details"
+      >
+        {/* The rename form replaces the header rather than nesting inside
             it: PageHeader's title is an <h1>, which may only contain
             phrasing content — a <form> in there is invalid markup. */}
-            {editing ? (
-              <RenameForm
-                initial={canvas.title}
-                label="Canvas title"
-                onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
-                onDone={() => setEditing(false)}
-              />
-            ) : (
-              <PageHeader
-                title={canvas.title}
-                back={{ to: backTo, label: backLabel }}
-                /* Which version am I looking at, and when did an agent last
+        {editing ? (
+          <RenameForm
+            initial={canvas.title}
+            label="Canvas title"
+            onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
+            onDone={() => setEditing(false)}
+          />
+        ) : (
+          <SectionHeader
+            as="h3"
+            title={canvas.title}
+            back={{ to: backTo, label: backLabel }}
+            /* Which version am I looking at, and when did an agent last
                touch it? Both were already in the payload; you had to expand
                the version history to learn either. */
-                subtitle={
-                  <>
-                    {canvas.version !== undefined && `v${canvas.version} · `}
-                    {formatRelativeTime(canvas.updated_at)}
-                    {canvas.description && ` · ${canvas.description}`}
-                  </>
-                }
-                actions={
-                  <>
-                    {canvas.kind !== "canvas" && canvas.entry_url && (
-                      // Guaranteed path to the artifact. The in-page preview can
-                      // legitimately come up blank (see the iframe note below),
-                      // and without this the user is simply stuck.
-                      <ButtonLink
-                        href={canvas.entry_public_url ?? canvas.entry_url}
-                        variant="ghost"
-                        size="sm"
-                        icon={ExternalLink}
-                      >
-                        Open
-                      </ButtonLink>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={Pencil}
-                      onClick={() => setEditing(true)}
-                    >
-                      Rename
-                    </Button>
-                    {/* Navigate in the same tick the delete resolves: `getMine`
+            subtitle={
+              <>
+                {canvas.version !== undefined && `v${canvas.version} · `}
+                {formatRelativeTime(canvas.updated_at)}
+                {canvas.description && ` · ${canvas.description}`}
+              </>
+            }
+            actions={
+              <>
+                {canvas.kind !== "canvas" && canvas.entry_url && (
+                  // Guaranteed path to the artifact. The in-page preview can
+                  // legitimately come up blank (see the iframe note below),
+                  // and without this the user is simply stuck.
+                  <ButtonLink
+                    href={canvas.entry_public_url ?? canvas.entry_url}
+                    variant="ghost"
+                    size="sm"
+                    icon={ExternalLink}
+                  >
+                    Open
+                  </ButtonLink>
+                )}
+                <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+                  Rename
+                </Button>
+                {/* Navigate in the same tick the delete resolves: `getMine`
                     is reactive and would otherwise flip to null under us and
                     flash "Canvas not found." */}
-                    <ConfirmButton
-                      description="Deletes this canvas and every version of it. Permanent."
-                      onConfirm={async () => {
-                        const result = await remove({ canvasId: canvas.canvas_id });
-                        navigate(backTo);
-                        notify({
-                          message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
-                        });
-                      }}
-                    />
-                  </>
-                }
-              />
-            )}
-            {canvas.kind !== "canvas" && canvas.entry_url && (
-              // Verified live: agent-authored HTML that measures itself at
-              // parse time computes a degenerate layout inside a
-              // cross-origin frame and comes up blank here, while the same
-              // URL renders instantly at top level. Nothing in this app can
-              // fix someone else's document, so say so and point at Open.
-              <p className="canvas-preview-hint">
-                The preview is a live frame — some artifacts only lay out correctly at top level. If
-                it looks blank, use <strong>Open</strong>.
-              </p>
-            )}
-            <PublishControl
-              canvasId={canvas.canvas_id}
-              visibility={canvas.visibility}
-              publicSlug={canvas.public_slug}
-            />
-            <VersionHistory canvasId={canvas.canvas_id} />
-          </aside>
-        </>
-      )}
-
+                <ConfirmButton
+                  description="Deletes this canvas and every version of it. Permanent."
+                  onConfirm={async () => {
+                    const result = await remove({ canvasId: canvas.canvas_id });
+                    navigate(backTo);
+                    notify({
+                      message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
+                    });
+                  }}
+                />
+              </>
+            }
+          />
+        )}
+        {canvas.kind !== "canvas" && canvas.entry_url && (
+          // Verified live: agent-authored HTML that measures itself at parse
+          // time computes a degenerate layout inside a cross-origin frame and
+          // comes up blank here, while the same URL renders instantly at top
+          // level. Nothing in this app can fix someone else's document, so
+          // say so and point at Open.
+          <p className="canvas-preview-hint">
+            The preview is a live frame — some artifacts only lay out correctly at top level. If it
+            looks blank, use <strong>Open</strong>.
+          </p>
+        )}
+        <PublishControl
+          canvasId={canvas.canvas_id}
+          visibility={canvas.visibility}
+          publicSlug={canvas.public_slug}
+        />
+        <VersionHistory canvasId={canvas.canvas_id} />
+      </Drawer>
       {canvas.kind === "canvas" ? (
         <>
           {docError && <p className="error-text canvas-page-loading">{docError}</p>}
