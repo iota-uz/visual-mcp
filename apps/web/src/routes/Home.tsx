@@ -12,6 +12,7 @@ import { RenameForm } from "../components/RenameForm";
 import { ListSkeleton } from "../components/Skeleton";
 import { toastError, useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
+import { Disclosure } from "../components/ui/Disclosure";
 import { IconButton } from "../components/ui/IconButton";
 import { TextInput } from "../components/ui/TextInput";
 import { formatBytes } from "../lib/formatBytes";
@@ -244,10 +245,13 @@ export function HomePage() {
           Open by default while there is nothing to look at, folded away
           once there is. */}
       {workspaces !== undefined && (
-        <details className="connect-disclosure" open={workspaces.length === 0}>
-          <summary>Connect an agent</summary>
+        <Disclosure
+          className="connect-disclosure"
+          summary="Connect an agent"
+          open={workspaces.length === 0}
+        >
           <ConnectPanel />
-        </details>
+        </Disclosure>
       )}
     </div>
   );

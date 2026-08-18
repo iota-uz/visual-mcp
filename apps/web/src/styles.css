@@ -573,6 +573,165 @@ a {
   color: var(--app-ink);
 }
 
+/* --- panels --- */
+
+/* A bordered surface holding one thing. The connect instructions, the
+   version list, the post-mint reveal and the kitchen-sink sections were
+   four separate rules with three different radii between them. */
+.panel {
+  border: 1px solid var(--panel-border, var(--app-line));
+  border-radius: var(--app-radius-lg);
+  background: var(--panel-surface, var(--app-white));
+  padding: var(--panel-padding, var(--app-space-4));
+  box-shadow: var(--panel-shadow, var(--app-shadow-sm));
+}
+
+.panel-accent {
+  --panel-surface: var(--app-accent-soft);
+  --panel-border: var(--app-accent);
+  --panel-shadow: none;
+}
+
+.panel-warning {
+  --panel-surface: var(--app-warning-soft);
+  --panel-border: var(--app-warning);
+  --panel-shadow: none;
+}
+
+/* --- disclosure --- */
+
+.disclosure > summary {
+  cursor: pointer;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--disclosure-summary-color, var(--app-muted));
+  padding: var(--disclosure-summary-padding, var(--app-space-2) 0);
+  transition: color var(--app-transition);
+}
+
+.disclosure > summary:hover {
+  color: var(--app-ink);
+}
+
+/* --- table --- */
+
+.table-wrap {
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--app-text-sm);
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: var(--app-space-2) var(--app-space-3);
+  border-bottom: 1px solid var(--app-line);
+  white-space: nowrap;
+}
+
+.data-table th {
+  background: var(--app-paper);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:nth-child(even) {
+  background: var(--app-paper);
+}
+
+.data-table code {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+}
+
+.data-table-caption {
+  text-align: left;
+  padding: var(--app-space-2) var(--app-space-3);
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+}
+
+/* --- copyable values --- */
+
+/* A string that has to leave the screen intact: a canvas ref, the MCP
+   endpoint, a share link, a token, a shell command. There were four
+   hand-built rows of this, differing only in whether the value was boxed
+   and what it sat on — and they had drifted, two truncating and two
+   wrapping. */
+.copyable {
+  min-width: 0;
+}
+
+.copyable-label {
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.copyable-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
+.copyable-label + .copyable-row {
+  margin-top: var(--app-space-2);
+}
+
+.copyable-value {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-sm);
+}
+
+/* Boxed, for a command or a token copied whole. Wraps rather than scrolls:
+   with overflow alone the codex line ran off the right edge under macOS's
+   overlay scrollbar, so half of it was simply invisible. */
+.copyable-block .copyable-value {
+  background: var(--copyable-surface, var(--app-paper));
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  padding: var(--app-space-2) var(--app-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Bare, for a ref printed inside something that is already a box. */
+.copyable-code .copyable-value {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyable-link .copyable-value {
+  font-size: var(--app-text-xs);
+  color: var(--app-accent-text);
+  overflow-wrap: anywhere;
+}
+
 /* --- badges --- */
 
 .badge {
@@ -617,11 +776,11 @@ a {
 
 /* --- page header --- */
 
-.page-header {
-  margin-bottom: var(--app-space-6);
+.section-header {
+  margin-bottom: var(--section-header-gap, var(--app-space-6));
 }
 
-.page-header-back {
+.section-header-back {
   display: inline-flex;
   align-items: center;
   gap: var(--app-space-1);
@@ -633,11 +792,11 @@ a {
   transition: color var(--app-transition);
 }
 
-.page-header-back:hover {
-  color: var(--app-accent);
+.section-header-back:hover {
+  color: var(--app-accent-text);
 }
 
-.page-header-row {
+.section-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -645,17 +804,19 @@ a {
   flex-wrap: wrap;
 }
 
-.page-header-title {
-  font-size: var(--app-text-2xl);
+/* The size is a hook rather than a `.container .title` override, so a
+   container can scale the heading without reaching into this rule. */
+.section-header-title {
+  font-size: var(--section-header-title-size, var(--app-text-2xl));
 }
 
-.page-header-actions {
+.section-header-actions {
   display: flex;
   align-items: center;
   gap: var(--app-space-2);
 }
 
-.page-header-subtitle {
+.section-header-subtitle {
   color: var(--app-muted);
   font-size: var(--app-text-sm);
   margin: var(--app-space-1) 0 0;
@@ -915,20 +1076,7 @@ a {
 
 /* The "workspace-slug/canvas-slug" ref an agent addresses this canvas by. */
 .canvas-card-ref {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--app-space-2);
   margin-top: var(--app-space-2);
-  min-width: 0;
-}
-
-.canvas-card-ref code {
-  font-size: var(--app-text-xs);
-  color: var(--app-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .canvas-card-status {
@@ -1037,12 +1185,8 @@ a {
 /* --- connect panel (home empty state + post-mint token reveal) --- */
 
 .connect-panel {
-  margin-top: var(--app-space-6);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-lg);
-  background: var(--app-white);
-  padding: var(--app-space-4);
-  box-shadow: var(--app-shadow-sm);
+  margin-top: var(--connect-panel-gap, var(--app-space-6));
+  margin-bottom: var(--connect-panel-bottom-gap, 0);
 }
 
 .connect-panel-title {
@@ -1060,40 +1204,6 @@ a {
 
 .connect-panel-block {
   margin-top: var(--app-space-4);
-}
-
-.connect-panel-label {
-  display: block;
-  font-size: var(--app-text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--app-muted);
-}
-
-.connect-panel-row {
-  display: flex;
-  align-items: center;
-  gap: var(--app-space-2);
-  margin-top: var(--app-space-2);
-}
-
-.connect-panel-row code,
-.connect-panel-row pre {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-family: var(--app-font-mono);
-  font-size: var(--app-text-sm);
-  background: var(--app-paper);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  padding: var(--app-space-2) var(--app-space-3);
-  /* Wrap rather than scroll. These are commands the user reads before
-     running: with overflow alone the codex line ran off the right edge
-     under macOS's overlay scrollbar, so half of it was simply invisible. */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .canvas-preview-hint {
@@ -1114,29 +1224,14 @@ a {
 
 /* Inside the post-mint reveal the panel is one step of a flow, not the
    page's own section — it needs to clear the "Done" button below it. */
-.token-reveal .connect-panel {
-  margin-bottom: var(--app-space-4);
+.token-reveal {
+  --connect-panel-bottom-gap: var(--app-space-4);
 }
 
 /* Folded-away connect instructions on Home once the account has data. */
 .connect-disclosure {
   margin-top: var(--app-space-6);
-}
-
-.connect-disclosure > summary {
-  cursor: pointer;
-  font-size: var(--app-text-sm);
-  font-weight: 600;
-  color: var(--app-muted);
-  padding: var(--app-space-2) 0;
-}
-
-.connect-disclosure > summary:hover {
-  color: var(--app-ink);
-}
-
-.connect-disclosure > .connect-panel {
-  margin-top: var(--app-space-2);
+  --connect-panel-gap: var(--app-space-2);
 }
 
 /* --- forms --- */
@@ -1289,77 +1384,18 @@ a {
 
 .token-table-wrap {
   margin-top: var(--app-space-4);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-lg);
-  overflow: hidden;
-  overflow-x: auto;
-}
-
-.token-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--app-text-sm);
-}
-
-.token-table th,
-.token-table td {
-  text-align: left;
-  padding: var(--app-space-2) var(--app-space-3);
-  border-bottom: 1px solid var(--app-line);
-  white-space: nowrap;
-}
-
-.token-table th {
-  background: var(--app-paper);
-  color: var(--app-muted);
-  font-size: var(--app-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-}
-
-.token-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.token-table tbody tr:nth-child(even) {
-  background: var(--app-paper);
-}
-
-.token-table code {
-  font-family: var(--app-font-mono);
-  font-size: var(--app-text-xs);
 }
 
 .token-reveal {
-  background: var(--app-warning-soft);
-  border: 1px solid var(--app-warning);
-  border-radius: var(--app-radius-lg);
-  padding: var(--app-space-4);
   margin-bottom: var(--app-space-4);
 }
 
 .token-reveal-row {
-  display: flex;
-  align-items: center;
-  gap: var(--app-space-2);
   margin: var(--app-space-2) 0;
-}
-
-/* Scoped to the reveal *row*, not the whole reveal: unscoped, it also hit
-   the inline <code> inside ConnectPanel's footnote and gave it `flex: 1`
-   plus box padding, so the env-var name rendered as a giant pill floating
-   over the sentence it belonged to. */
-.token-reveal-row code,
-.token-reveal-row pre {
-  font-family: var(--app-font-mono);
-  font-size: var(--app-text-sm);
-  background: var(--app-white);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  padding: var(--app-space-2) var(--app-space-3);
-  flex: 1;
-  overflow-x: auto;
+  /* The token's box sits directly on the reveal's warning fill, so it has
+     to be white. The commands below it sit inside ConnectPanel, which is
+     already white, and keep the paper tint. */
+  --copyable-surface: var(--app-white);
 }
 
 /* --- canvas page: the map stays visually primary; chrome is reduced to a
@@ -1475,6 +1511,9 @@ a {
 }
 
 .canvas-details-panel {
+  /* Its header is a section inside an overlay, not a page title. */
+  --section-header-gap: var(--app-space-4);
+  --section-header-title-size: var(--app-text-xl);
   position: absolute;
   z-index: 35;
   top: 0;
@@ -1507,14 +1546,6 @@ a {
   border-radius: 8px;
 }
 
-.canvas-details-panel .page-header {
-  margin-bottom: var(--app-space-4);
-}
-
-.canvas-details-panel .page-header-title {
-  font-size: 24px;
-}
-
 .canvas-page-loading {
   position: absolute;
   inset: 0;
@@ -1536,35 +1567,17 @@ a {
 }
 
 .share-link-row {
-  display: flex;
-  align-items: center;
-  gap: var(--app-space-2);
   width: 100%;
-  min-width: 0;
-}
-
-.share-link {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--app-font-mono);
-  font-size: var(--app-text-xs);
-  color: var(--app-accent);
-  overflow-wrap: anywhere;
 }
 
 .version-history {
   margin-top: var(--app-space-3);
+  padding: var(--app-space-3) var(--app-space-4);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-lg);
   background: var(--app-white);
-  padding: var(--app-space-3) var(--app-space-4);
-}
-
-.version-history summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: var(--app-text-sm);
-  color: var(--app-ink-soft);
+  --disclosure-summary-color: var(--app-ink-soft);
+  --disclosure-summary-padding: 0;
 }
 
 .version-history .card-list {
@@ -1681,8 +1694,7 @@ a {
     align-items: stretch;
   }
 
-  .token-reveal-row,
-  .connect-panel-row {
+  .copyable-row {
     flex-direction: column;
     align-items: stretch;
   }
@@ -1715,7 +1727,7 @@ a {
    needs no specificity games (and Biome's noDescendingSpecificity stays
    quiet). */
 
-.page-stack > .page-header,
+.page-stack > .section-header,
 .page-stack > .node-search {
   margin-bottom: 0;
 }
@@ -1788,4 +1800,9 @@ a {
 
 .ks-static-bar {
   width: 100%;
+}
+
+.ks-panel {
+  flex: 1 1 200px;
+  font-size: var(--app-text-sm);
 }

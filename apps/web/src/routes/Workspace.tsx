@@ -13,7 +13,6 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { Badge } from "../components/Badge";
 import { ConfirmButton } from "../components/ConfirmButton";
-import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
@@ -21,6 +20,7 @@ import { RenameForm } from "../components/RenameForm";
 import { CardGridSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
+import { RefChip } from "../components/ui/CopyableValue";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 
@@ -79,10 +79,7 @@ function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspac
           </Badge>
         </span>
       </Link>
-      <div className="canvas-card-ref">
-        <code>{ref}</code>
-        <CopyButton value={ref} label="Copy ref" />
-      </div>
+      <RefChip refValue={ref} className="canvas-card-ref" />
       {editing ? (
         <RenameForm
           initial={canvas.title}

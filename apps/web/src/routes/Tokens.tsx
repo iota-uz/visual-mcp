@@ -5,12 +5,14 @@ import { api } from "../../../../convex/_generated/api";
 import { Badge } from "../components/Badge";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConnectPanel } from "../components/ConnectPanel";
-import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { toastError, useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
+import { CopyableValue } from "../components/ui/CopyableValue";
+import { DataTable } from "../components/ui/DataTable";
+import { Panel } from "../components/ui/Panel";
 import { Checkbox, TextInput } from "../components/ui/TextInput";
 
 export function TokensPage() {
@@ -52,20 +54,17 @@ export function TokensPage() {
       />
 
       {justMinted && (
-        <div className="token-reveal" role="status">
+        <Panel tone="warning" className="token-reveal">
           <p>
             <strong>Copy this now — it won't be shown again:</strong>
           </p>
-          <div className="token-reveal-row">
-            <code>{justMinted.token}</code>
-            <CopyButton value={justMinted.token} />
-          </div>
+          <CopyableValue className="token-reveal-row" as="block" value={justMinted.token} />
           <p className="muted">Expires {new Date(justMinted.expiresAt).toLocaleDateString()}</p>
           <ConnectPanel token={justMinted.token} showTokenLink={false} />
           <Button variant="secondary" onClick={() => setJustMinted(null)}>
             Done
           </Button>
-        </div>
+        </Panel>
       )}
 
       <form onSubmit={handleMint} className="inline-form">
@@ -105,60 +104,61 @@ export function TokensPage() {
         />
       )}
       {visible.length > 0 && (
-        <div className="token-table-wrap">
-          <table className="token-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Prefix</th>
-                <th>Expires</th>
-                <th>Last used</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((t) => (
-                <tr key={t.tokenId}>
-                  <td>{t.name}</td>
-                  <td>
-                    <code>{t.prefix}…</code>
-                  </td>
-                  <td>{new Date(t.expiresAt).toLocaleDateString()}</td>
-                  <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString() : "never"}</td>
-                  <td>
-                    {t.revokedAt ? (
-                      <Badge tone="danger">revoked</Badge>
-                    ) : t.expiresAt <= Date.now() ? (
-                      <Badge tone="warning">expired</Badge>
-                    ) : (
-                      <Badge tone="success">active</Badge>
-                    )}
-                  </td>
-                  <td>
-                    {!t.revokedAt && (
-                      // Was a one-click bare button with no confirmation and
-                      // a floating promise — one stray click silently killed
-                      // a live agent connection. Every other destructive
-                      // action in the app arms first; this one now does too.
-                      <ConfirmButton
-                        label="Revoke"
-                        confirmLabel="Really revoke?"
-                        busyLabel="Revoking…"
-                        icon={Ban}
-                        description={`Any agent still using "${t.name}" stops working immediately.`}
-                        onConfirm={async () => {
-                          await revoke({ tokenId: t.tokenId });
-                          notify({ message: `Revoked "${t.name}".` });
-                        }}
-                      />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          className="token-table-wrap"
+          caption="MCP tokens"
+          head={
+            <tr>
+              <th>Name</th>
+              <th>Prefix</th>
+              <th>Expires</th>
+              <th>Last used</th>
+              <th>Status</th>
+              {/* The revoke cell. Named, because a screen reader reading
+                  across the row announces the column it is in. */}
+              <th>Actions</th>
+            </tr>
+          }
+        >
+          {visible.map((t) => (
+            <tr key={t.tokenId}>
+              <td>{t.name}</td>
+              <td>
+                <code>{t.prefix}…</code>
+              </td>
+              <td>{new Date(t.expiresAt).toLocaleDateString()}</td>
+              <td>{t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString() : "never"}</td>
+              <td>
+                {t.revokedAt ? (
+                  <Badge tone="danger">revoked</Badge>
+                ) : t.expiresAt <= Date.now() ? (
+                  <Badge tone="warning">expired</Badge>
+                ) : (
+                  <Badge tone="success">active</Badge>
+                )}
+              </td>
+              <td>
+                {!t.revokedAt && (
+                  // Was a one-click bare button with no confirmation and
+                  // a floating promise — one stray click silently killed
+                  // a live agent connection. Every other destructive
+                  // action in the app arms first; this one now does too.
+                  <ConfirmButton
+                    label="Revoke"
+                    confirmLabel="Really revoke?"
+                    busyLabel="Revoking…"
+                    icon={Ban}
+                    description={`Any agent still using "${t.name}" stops working immediately.`}
+                    onConfirm={async () => {
+                      await revoke({ tokenId: t.tokenId });
+                      notify({ message: `Revoked "${t.name}".` });
+                    }}
+                  />
+                )}
+              </td>
+            </tr>
+          ))}
+        </DataTable>
       )}
     </div>
   );

@@ -19,6 +19,8 @@ import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
+import { CopyableValue } from "../components/ui/CopyableValue";
+import { Disclosure } from "../components/ui/Disclosure";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
@@ -145,12 +147,12 @@ function PublishControl({
           {/* The whole point of publishing is handing someone a URL. This
               used to be dead muted text printing a *relative* path, so the
               one thing a human came here for had to be retyped by hand. */}
-          <div className="share-link-row">
-            <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="share-link">
-              {shareUrl}
-            </a>
-            <CopyButton value={shareUrl} label="Copy link" />
-          </div>
+          <CopyableValue
+            className="share-link-row"
+            as="link"
+            value={shareUrl}
+            copyLabel="Copy link"
+          />
           <ConfirmButton
             label="Rotate link"
             confirmLabel="Really rotate?"
@@ -211,8 +213,7 @@ function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
   if (versions.length === 0) return null;
 
   return (
-    <details className="version-history">
-      <summary>Version history ({versions.length})</summary>
+    <Disclosure className="version-history" summary={`Version history (${versions.length})`}>
       <ul className="card-list">
         {versions.map((v) => (
           <li key={v.versionId} className="card-list-item">
@@ -236,7 +237,7 @@ function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
           </li>
         ))}
       </ul>
-    </details>
+    </Disclosure>
   );
 }
 

@@ -22,7 +22,12 @@ import { RenameForm } from "../components/RenameForm";
 import { CardGridSkeleton, ListSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Button, ButtonLink, type ButtonVariant } from "../components/ui/Button";
+import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
+import { DataTable } from "../components/ui/DataTable";
+import { Disclosure } from "../components/ui/Disclosure";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { Panel } from "../components/ui/Panel";
+import { SectionHeader } from "../components/ui/SectionHeader";
 import { Checkbox, Select, TextInput } from "../components/ui/TextInput";
 
 /*
@@ -266,12 +271,101 @@ export function KitchenSinkPage() {
         </Row>
       </Section>
 
-      <Section title="Copy">
-        <Row label="ref">
+      <Section title="Copyable">
+        <Row label="button">
           <CopyButton value="osago/fast-settlement" label="Copy ref" />
-          <CopyButton value="https://example.com/s/a8f2" label="Copy link" />
           <CopyButton value="secret" />
         </Row>
+        <Row label="ref">
+          <RefChip refValue="osago/fast-settlement" />
+        </Row>
+        <Row label="labelled ref">
+          <RefChip refValue="osago/fast-settlement" label="Canvas ref" />
+        </Row>
+        <Row label="block">
+          <CopyableValue
+            as="block"
+            label="Claude Code"
+            value="claude mcp add --transport http visual-canvas https://example.convex.site/mcp --header 'Authorization: Bearer vct_…'"
+            copyLabel="Copy command"
+          />
+        </Row>
+        <Row label="link">
+          <CopyableValue
+            as="link"
+            value="https://visual.iota.uz/s/a8f24c1e9b"
+            copyLabel="Copy link"
+          />
+        </Row>
+      </Section>
+
+      <Section title="Panel">
+        <Row label="tones">
+          <Panel className="ks-panel">Plain — the default surface.</Panel>
+          <Panel tone="accent" className="ks-panel">
+            Accent — something that just succeeded.
+          </Panel>
+          <Panel tone="warning" className="ks-panel">
+            Warning — something breaks outside the app.
+          </Panel>
+        </Row>
+        <Row label="disclosure">
+          <Disclosure summary="Connect an agent">
+            <p className="muted">Folded-away detail.</p>
+          </Disclosure>
+        </Row>
+      </Section>
+
+      <Section title="Table">
+        <DataTable
+          caption="MCP tokens"
+          captionVisible
+          head={
+            <tr>
+              <th>Name</th>
+              <th>Prefix</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          }
+        >
+          <tr>
+            <td>laptop</td>
+            <td>
+              <code>vct_a8f2…</code>
+            </td>
+            <td>
+              <Badge tone="success">active</Badge>
+            </td>
+            <td>
+              <ConfirmButton label="Revoke" tone="warning" icon={Ban} onConfirm={async () => {}} />
+            </td>
+          </tr>
+          <tr>
+            <td>ci</td>
+            <td>
+              <code>vct_31bd…</code>
+            </td>
+            <td>
+              <Badge tone="danger">revoked</Badge>
+            </td>
+            <td />
+          </tr>
+        </DataTable>
+      </Section>
+
+      <Section title="Section header">
+        <SectionHeader
+          as="h3"
+          title="Fast Settlement"
+          subtitle="v3 · 2 hours ago"
+          back={{ to: "/", label: "osago" }}
+          actions={
+            <Button variant="ghost" size="sm" icon={Pencil}>
+              Rename
+            </Button>
+          }
+        />
       </Section>
 
       <Section title="Feedback">

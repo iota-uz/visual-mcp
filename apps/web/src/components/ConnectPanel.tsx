@@ -6,7 +6,8 @@ import {
   codexMcpCommand,
   currentMcpEndpointUrl,
 } from "../lib/mcpUrl";
-import { CopyButton } from "./CopyButton";
+import { CopyableValue } from "./ui/CopyableValue";
+import { Panel } from "./ui/Panel";
 
 interface ConnectPanelProps {
   /** Real token right after minting; omitted on the home empty state. */
@@ -28,22 +29,22 @@ export function ConnectPanel({ token, showTokenLink = true }: ConnectPanelProps)
   const codex = codexMcpCommand(endpoint, displayToken);
 
   return (
-    <section className="connect-panel">
+    <Panel as="section" className="connect-panel">
       <h2 className="connect-panel-title">
-        <Plug size={16} /> Connect your agent
+        <Plug size={16} aria-hidden="true" /> Connect your agent
       </h2>
       <p className="connect-panel-lead">
         Canvases are authored over MCP — point Claude Code or Codex at this endpoint and ask it to
         create one.
       </p>
 
-      <div className="connect-panel-block">
-        <span className="connect-panel-label">MCP endpoint</span>
-        <div className="connect-panel-row">
-          <code>{endpoint}</code>
-          <CopyButton value={endpoint} label="Copy URL" />
-        </div>
-      </div>
+      <CopyableValue
+        className="connect-panel-block"
+        as="block"
+        label="MCP endpoint"
+        value={endpoint}
+        copyLabel="Copy URL"
+      />
 
       {showTokenLink && (
         <p className="connect-panel-lead">
@@ -52,26 +53,22 @@ export function ConnectPanel({ token, showTokenLink = true }: ConnectPanelProps)
         </p>
       )}
 
-      <div className="connect-panel-block">
-        <span className="connect-panel-label">Claude Code</span>
-        <div className="connect-panel-row">
-          <pre>{claude}</pre>
-          <CopyButton value={claude} label="Copy command" />
-        </div>
-      </div>
+      <CopyableValue
+        className="connect-panel-block"
+        as="block"
+        label="Claude Code"
+        value={claude}
+        copyLabel="Copy command"
+      />
 
       <div className="connect-panel-block">
-        <span className="connect-panel-label">Codex</span>
-        <div className="connect-panel-row">
-          <pre>{codex}</pre>
-          <CopyButton value={codex} label="Copy commands" />
-        </div>
+        <CopyableValue as="block" label="Codex" value={codex} copyLabel="Copy commands" />
         <p className="connect-panel-hint">
           Codex reads the bearer token from an env var, so keep the{" "}
           <code>{CODEX_TOKEN_ENV_VAR}</code> export in your shell profile (~/.zshrc) — otherwise the
           server stops authenticating in new shells.
         </p>
       </div>
-    </section>
+    </Panel>
   );
 }
