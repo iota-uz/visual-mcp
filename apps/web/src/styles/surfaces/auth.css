@@ -1,8 +1,5 @@
 /* The sign-in wall. */
 
-/* The per-block margins these rules cancel live further down the file; the
-   cancelling half sits at the very bottom, under "stack overrides". */
-
 /* Genuinely centred. `margin: 15vh auto` put the sign-in card near the top
    of a laptop viewport with a screenful of white under it; min-height +
    centring keeps it optically centred at any height, and `justify-content`
@@ -34,4 +31,36 @@
   margin-top: var(--app-space-4);
   display: flex;
   justify-content: center;
+}
+
+/* The one surface someone outside the org ever sees, so it has to say what
+   this is before it asks them to sign in. */
+.centered-page-lead {
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  margin: 0;
+  max-width: 34ch;
+}
+
+.centered-page-note {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  margin: var(--app-space-3) 0 0;
+}
+
+/* Above the button, not below it: a failure printed under the control that
+   caused it is read after the second attempt has already started. */
+.signin-warning {
+  display: flex;
+  gap: var(--app-space-2);
+  text-align: left;
+  padding: var(--app-space-3);
+  font-size: var(--app-text-sm);
+  color: var(--app-warning);
+  margin-bottom: var(--app-space-2);
+}
+
+.signin-warning svg {
+  flex: none;
+  margin-top: 2px;
 }

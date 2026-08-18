@@ -26,7 +26,6 @@
 @import "./primitives/badge.css" layer(primitives);
 @import "./primitives/panel.css" layer(primitives);
 @import "./primitives/disclosure.css" layer(primitives);
-@import "./primitives/table.css" layer(primitives);
 @import "./primitives/copyable.css" layer(primitives);
 @import "./primitives/drawer.css" layer(primitives);
 @import "./primitives/section-header.css" layer(primitives);

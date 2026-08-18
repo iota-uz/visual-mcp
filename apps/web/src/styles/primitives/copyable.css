@@ -11,6 +11,8 @@
   min-width: 0;
 }
 
+/* The eyebrow — see utilities.css. Repeated rather than composed because a
+   primitive can't depend on a layer that comes after it. */
 .copyable-label {
   display: block;
   font-family: var(--app-font-mono);

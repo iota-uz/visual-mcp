@@ -6,9 +6,20 @@
   box-sizing: border-box;
 }
 
+/*
+ * The paper: the same 24px dot grid the canvas viewport paints behind its
+ * nodes (packages/canvas .vc-viewport::before), at a sixth of the ink,
+ * because here it sits under text rather than behind cards. It is the one
+ * bold move in the app's chrome — the surface a canvas is drafted on,
+ * carried out from the viewer into the pages around it. Fixed rather than
+ * scrolling: the grid is the desk, not the document.
+ */
 body {
   margin: 0;
-  background: var(--app-paper);
+  background-color: var(--app-paper);
+  background-image: radial-gradient(circle, var(--app-grid-dot) 1px, transparent 1.2px);
+  background-size: var(--app-grid-size) var(--app-grid-size);
+  background-attachment: fixed;
   color: var(--app-ink);
   font-size: var(--app-text-base);
   line-height: 1.5;
@@ -25,5 +36,7 @@ h3 {
 }
 
 a {
-  color: var(--app-accent);
+  /* Not --app-accent: that is a fill colour, and as text it measures
+     4.21:1 on the paper — under WCAG AA. */
+  color: var(--app-accent-text);
 }

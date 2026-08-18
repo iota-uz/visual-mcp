@@ -1,6 +1,43 @@
 /* A canvas in the workspace gallery. */
 
+/* Kind is carried by colour as well as by an icon: the tint is the lane
+   role the viewer itself paints this kind of node with. */
+.canvas-card-canvas {
+  --canvas-card-kind: var(--app-kind-canvas);
+}
+
+.canvas-card-html {
+  --canvas-card-kind: var(--app-kind-html);
+}
+
+.canvas-card-image {
+  --canvas-card-kind: var(--app-kind-image);
+}
+
+.canvas-card-pdf {
+  --canvas-card-kind: var(--app-kind-pdf);
+}
+
+/* The card container is the <li>, not the <a>, so curator actions can sit
+   inside the card without nesting buttons in an anchor. */
+.canvas-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Positions the kind and share marks against the image rather than the
+   card, so they stay on the artwork whatever the title wraps to. */
+.canvas-card-frame {
+  position: relative;
+  display: block;
+  margin-bottom: var(--app-space-2);
+}
+
 .canvas-card-thumbnail {
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
@@ -19,6 +56,42 @@
   font-size: var(--app-text-xs);
 }
 
+.canvas-card-kind,
+.canvas-card-shared {
+  position: absolute;
+  top: var(--app-space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.canvas-card-kind {
+  left: var(--app-space-2);
+  color: var(--canvas-card-kind, var(--app-muted));
+}
+
+.canvas-card-shared {
+  right: var(--app-space-2);
+  color: var(--app-success);
+}
+
+.canvas-card-title {
+  font-size: var(--app-text-base);
+  line-height: 1.3;
+}
+
+/* Recency is the reason anyone opens a page sorted by it, so it reads as
+   the card's subtitle rather than as the smallest grey thing on it. */
+.canvas-card-meta {
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+}
+
 .canvas-card-description {
   font-size: var(--app-text-sm);
   color: var(--app-muted);
@@ -29,36 +102,37 @@
   overflow: hidden;
 }
 
-/* The "workspace-slug/canvas-slug" ref an agent addresses this canvas by. */
-.canvas-card-ref {
-  margin-top: var(--app-space-2);
-}
-
-.canvas-card-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--app-space-1);
-  margin-top: var(--app-space-1);
-}
-
-/* The card container moved from the <a> to the <li> so curator actions
-   (rename/delete) can sit inside the card without nesting buttons in an
-   anchor — the link keeps the stacking/typography it used to own. */
-.canvas-card-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--app-space-1);
-  text-decoration: none;
-  color: inherit;
-}
-
-.canvas-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--app-space-2);
+/*
+ * The ref and the curator actions, revealed on hover or focus. 0fr → 1fr
+ * animates the height directly — no measuring, no JS — and because the row
+ * stays in the DOM it stays in the tab order, so it is reachable by keyboard
+ * whether or not it happens to be visible.
+ */
+.canvas-card-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
   margin-top: auto;
+  transition: grid-template-rows var(--app-duration-base) var(--app-ease-out);
+}
+
+.canvas-card:hover .canvas-card-reveal,
+.canvas-card:focus-within .canvas-card-reveal {
+  grid-template-rows: 1fr;
+}
+
+.canvas-card-reveal-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.canvas-card-ref {
   padding-top: var(--app-space-2);
   border-top: 1px solid var(--app-line);
+}
+
+/* Touch has no hover, so there is nothing to reveal *from*: show it. */
+@media (hover: none) {
+  .canvas-card-reveal {
+    grid-template-rows: 1fr;
+  }
 }

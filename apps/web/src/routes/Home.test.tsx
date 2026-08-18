@@ -41,6 +41,9 @@ describe("HomePage", () => {
   test("renders a link per workspace, using its slug", () => {
     useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
       if (args && typeof args === "object" && "query" in args) return [];
+      // The lane's preview strip subscribes per row; an empty workspace has
+      // nothing to preview.
+      if (args && typeof args === "object" && "workspaceId" in args) return [];
       return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
     });
     renderHome();

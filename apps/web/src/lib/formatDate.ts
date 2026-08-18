@@ -21,3 +21,31 @@ export function formatRelativeTime(timestamp: number, now: number = Date.now()):
     day: "numeric",
   });
 }
+
+/**
+ * The full, unambiguous form — for `title=` beside a relative label, and
+ * for the places that were printing a raw `toLocaleString()` inline.
+ */
+export function formatAbsoluteTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * "in 12 days" / "3 days ago" — for an expiry, where the direction matters
+ * and the answer is usually "is this still good?".
+ */
+export function formatTimeUntil(timestamp: number, now: number = Date.now()): string {
+  const delta = timestamp - now;
+  if (!Number.isFinite(timestamp)) return "";
+  if (delta <= 0) return "expired";
+  if (delta < HOUR) return `in ${Math.max(1, Math.floor(delta / MINUTE))}m`;
+  if (delta < DAY) return `in ${Math.floor(delta / HOUR)}h`;
+  return `in ${Math.floor(delta / DAY)}d`;
+}

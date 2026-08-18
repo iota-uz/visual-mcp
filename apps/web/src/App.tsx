@@ -59,7 +59,12 @@ function AuthGate({ children }: { children: ReactNode }) {
     return (
       <div className="centered-page">
         <h1>Visual Canvas</h1>
-        <p>Sign in with your @iota.uz Google account to continue.</p>
+        {/* This is the only surface someone outside the org ever reaches,
+            and it used to say nothing at all about what they had reached. */}
+        <p className="centered-page-lead">
+          Your agents draw here. Diagrams, dashboards and reports, authored over MCP and kept at a
+          link you can share.
+        </p>
         <div className="centered-page-signin">
           {/* Accounts outside the org are rejected server-side during the
               OAuth exchange, so the "signed in as someone else" state can no
@@ -67,6 +72,7 @@ function AuthGate({ children }: { children: ReactNode }) {
               which is why SignInButton reconstructs it from a marker. */}
           <SignInButton />
         </div>
+        <p className="centered-page-note">@iota.uz Google accounts only.</p>
       </div>
     );
   }

@@ -20,3 +20,19 @@
 .error-text {
   color: var(--app-danger);
 }
+
+/*
+ * The eyebrow: packages/canvas's .vc-lane-label treatment — the letterspaced
+ * mono the viewport labels its lanes with — promoted to the app's way of
+ * naming a section. Used only where it names something true; it is not a
+ * decoration to sprinkle on headings.
+ */
+.eyebrow {
+  display: block;
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+}

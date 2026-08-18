@@ -42,16 +42,30 @@
   text-decoration: none;
   color: inherit;
   transition:
-    box-shadow var(--app-transition),
-    transform var(--app-transition),
-    border-color var(--app-transition);
+    box-shadow var(--app-duration-fast) var(--app-ease-out),
+    border-color var(--app-duration-fast) var(--app-ease-out);
 }
 
-.card-list-item:hover,
-.canvas-card:hover {
-  box-shadow: var(--app-shadow-md);
+/*
+ * The viewport's own selection idiom — a ring, drawn outside the border —
+ * rather than the shadow-and-lift every card on the web does. The lift also
+ * latched after a tap on touch, leaving a row looking permanently picked,
+ * hence the hover guard.
+ */
+@media (hover: hover) {
+  .card-list-item:hover,
+  .canvas-card:hover {
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 3px var(--app-accent-soft);
+  }
+}
+
+/* Keyboard parity: the ring appears for whatever is focused inside a row,
+   which is how a row is "hovered" without a pointer. */
+.card-list-item:focus-within,
+.canvas-card:focus-within {
   border-color: var(--app-accent);
-  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px var(--app-accent-soft);
 }
 
 @media (max-width: 640px) {

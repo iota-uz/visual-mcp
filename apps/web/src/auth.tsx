@@ -17,9 +17,11 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
+import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "./components/ui/Button";
+import { Panel } from "./components/ui/Panel";
 
 /*
  * A rejected sign-in is silent on the wire, so we have to remember that one
@@ -38,8 +40,8 @@ const SIGNIN_ATTEMPT_KEY = "visual-canvas:signin-attempt";
 // rejection, abandoning Google's account chooser, and a redirect that never
 // reached the deployment at all all land here.
 const BOUNCED_MESSAGE =
-  "Sign-in didn't complete. Try again — if it keeps failing, check that the " +
-  "account is @iota.uz, since no other Google account can sign in here.";
+  "Sign-in didn't complete. Try again — and if it keeps failing, check the " +
+  "account is @iota.uz. No other Google account can sign in here.";
 
 function forgetSignInAttempt() {
   // Safari's "block all cookies" makes even sessionStorage throw.
@@ -141,6 +143,15 @@ export function SignInButton() {
 
   return (
     <>
+      {/* Above the button, not below it. Underneath, the explanation of why
+          the last attempt failed sat below the control you were already
+          clicking again. */}
+      {error && (
+        <Panel tone="warning" className="signin-warning" role="alert">
+          <TriangleAlert size={16} aria-hidden="true" />
+          <span>{error}</span>
+        </Panel>
+      )}
       <Button variant="google" onClick={handleSignIn} busy={busy}>
         <GoogleMark />
         {/* The label stays put while the redirect is in flight: Google's
@@ -148,11 +159,6 @@ export function SignInButton() {
             "Opening Google…" also made the button change width mid-click. */}
         Sign in with Google
       </Button>
-      {error && (
-        <p className="error-text" role="alert">
-          {error}
-        </p>
-      )}
     </>
   );
 }

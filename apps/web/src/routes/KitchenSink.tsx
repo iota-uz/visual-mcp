@@ -23,7 +23,6 @@ import { CardGridSkeleton, ListSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Button, ButtonLink, type ButtonVariant } from "../components/ui/Button";
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
-import { DataTable } from "../components/ui/DataTable";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
@@ -316,44 +315,6 @@ export function KitchenSinkPage() {
             <p className="muted">Folded-away detail.</p>
           </Disclosure>
         </Row>
-      </Section>
-
-      <Section title="Table">
-        <DataTable
-          caption="MCP tokens"
-          captionVisible
-          head={
-            <tr>
-              <th>Name</th>
-              <th>Prefix</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          }
-        >
-          <tr>
-            <td>laptop</td>
-            <td>
-              <code>vct_a8f2…</code>
-            </td>
-            <td>
-              <Badge tone="success">active</Badge>
-            </td>
-            <td>
-              <ConfirmButton label="Revoke" tone="warning" icon={Ban} onConfirm={async () => {}} />
-            </td>
-          </tr>
-          <tr>
-            <td>ci</td>
-            <td>
-              <code>vct_31bd…</code>
-            </td>
-            <td>
-              <Badge tone="danger">revoked</Badge>
-            </td>
-            <td />
-          </tr>
-        </DataTable>
       </Section>
 
       <Section title="Section header">
