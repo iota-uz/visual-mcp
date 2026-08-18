@@ -1,7 +1,6 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 
-const LOD_THRESHOLD = 0.3;
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 1.35;
 const FIT_PADDING = 56;
@@ -74,7 +73,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function applyView(): void {
     world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
-    container.classList.toggle("is-lod", view.scale < LOD_THRESHOLD);
     updateMinimapViewport();
   }
 

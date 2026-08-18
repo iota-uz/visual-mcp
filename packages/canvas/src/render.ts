@@ -1,7 +1,7 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
 import type { EdgePath } from "./router.js";
 import { routeEdges } from "./router.js";
-import type { LegendGroup, LodCard, NodeContent } from "./types.js";
+import type { LegendGroup, NodeContent } from "./types.js";
 
 export function escapeHtml(input: string): string {
   return input
@@ -140,39 +140,6 @@ function renderLegend(groups: LegendGroup[] | undefined): string {
   return `<div class="vc-legend">${body}</div>`;
 }
 
-const LOD_CARD_WIDTH = 340;
-const LOD_CARD_HEIGHT = 220;
-
-/**
- * One card per slot in a horizontal row centered on the canvas — evenly
- * spaced across canvas.width. When card count equals stage count (the
- * common "derived from stages" case) and stages share one width, this
- * lines up with stage centers without needing a stage lookup.
- */
-function renderLodCards(cards: LodCard[] | undefined, canvas: PositionedCanvas): string {
-  const resolved: LodCard[] =
-    cards && cards.length > 0
-      ? cards
-      : canvas.stages.map((s) => ({ id: s.id, label: s.label, summary: s.summary }));
-  if (resolved.length === 0) return `<div class="vc-lod-layer"></div>`;
-
-  const slotWidth = canvas.width / resolved.length;
-  const y = canvas.height / 2 - LOD_CARD_HEIGHT / 2;
-
-  return `<div class="vc-lod-layer">${resolved
-    .map((card, i) => {
-      const summary = card.summary
-        ? `<div class="vc-lod-summary">${escapeHtml(card.summary)}</div>`
-        : "";
-      const x = i * slotWidth + slotWidth / 2 - LOD_CARD_WIDTH / 2;
-      return `<div class="vc-lod-card" data-lod-id="${escapeHtml(card.id)}" style="left:${x}px;top:${y}px">
-          <div class="vc-lod-title">${escapeHtml(card.label)}</div>
-          ${summary}
-        </div>`;
-    })
-    .join("\n")}</div>`;
-}
-
 export interface RenderedCanvas {
   html: string;
   width: number;
@@ -181,7 +148,7 @@ export interface RenderedCanvas {
 
 /**
  * Renders the world contents only — lanes, stage frames, node cards, the SVG
- * edge layer, legend, and the LOD card layer. Caller mounts this into a
+ * edge layer, and legend. Caller mounts this into a
  * container that already has theme.css loaded (the browser viewport, or a
  * static page assembled by the render pipeline in a later milestone).
  */
@@ -196,7 +163,6 @@ export function renderCanvas(canvas: PositionedCanvas): RenderedCanvas {
         ${edges.map(renderEdge).join("\n")}
       </svg>
     </div>
-    ${renderLegend(canvas.doc.legend)}
-    ${renderLodCards(canvas.doc.lod, canvas)}`;
+    ${renderLegend(canvas.doc.legend)}`;
   return { html, width: canvas.width, height: canvas.height };
 }

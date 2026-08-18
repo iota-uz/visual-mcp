@@ -7,13 +7,14 @@ import {
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
 import {
-  ChevronDown,
-  ChevronUp,
+  ArrowLeft,
   ExternalLink,
   History,
+  Info,
   Lock,
   Pencil,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -348,16 +349,21 @@ export function CanvasPage() {
   const { notify } = useToast();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
-  // Collapsed by default on a phone, where the card covers most of the
-  // artifact it is supposed to be controls for. Read once at mount: a
-  // resize past the breakpoint shouldn't yank the panel out from under
-  // someone who has already opened or closed it by hand.
-  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 640);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // Labelled with the workspace's real name once it resolves. It used to
   // always read "Workspace" and point at "/" until the query landed — so an
   // early click sent you Home, and a fast delete navigated there too.
   const backTo = workspace ? `/w/${workspace.slug}` : "/";
   const backLabel = workspace ? workspace.name : "Workspaces";
+
+  useEffect(() => {
+    if (!detailsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetailsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [detailsOpen]);
 
   if (canvas === undefined) {
     return (
@@ -380,7 +386,42 @@ export function CanvasPage() {
 
   return (
     <div className="canvas-page-full">
-      <div className="canvas-floating-header">
+      <div className="canvas-command-bar">
+        <Link to={backTo} className="canvas-command-back" aria-label={`Back to ${backLabel}`}>
+          <ArrowLeft size={16} aria-hidden="true" />
+        </Link>
+        <div className="canvas-command-title">
+          <span>{canvas.title}</span>
+          {canvas.version !== undefined && <small>v{canvas.version}</small>}
+        </div>
+        <button
+          type="button"
+          className="canvas-command-details"
+          onClick={() => setDetailsOpen(true)}
+          aria-label="Open canvas details"
+          aria-expanded={detailsOpen}
+          aria-controls="canvas-details"
+        >
+          <Info size={17} aria-hidden="true" />
+          <span>Details</span>
+        </button>
+      </div>
+
+      {detailsOpen && (
+        <>
+          <button
+            type="button"
+            className="canvas-details-scrim"
+            onClick={() => setDetailsOpen(false)}
+            aria-label="Close canvas details"
+          />
+          <aside id="canvas-details" className="canvas-details-panel" aria-label="Canvas details">
+            <header className="canvas-details-panel-header">
+              <span>Canvas details</span>
+              <button type="button" onClick={() => setDetailsOpen(false)} aria-label="Close canvas details">
+                <X size={18} aria-hidden="true" />
+              </button>
+            </header>
         {/* The rename form replaces the header rather than nesting inside
             it: PageHeader's title is an <h1>, which may only contain
             phrasing content — a <form> in there is invalid markup. */}
@@ -444,11 +485,6 @@ export function CanvasPage() {
             }
           />
         )}
-        {/* Collapsible: this panel is pinned over the artifact it describes,
-            and with publish controls plus an expanded version history it can
-            cover most of a laptop screen. */}
-        {panelOpen && (
-          <>
             {canvas.kind !== "canvas" && canvas.entry_url && (
               // Verified live: agent-authored HTML that measures itself at
               // parse time computes a degenerate layout inside a
@@ -466,22 +502,9 @@ export function CanvasPage() {
               publicSlug={canvas.public_slug}
             />
             <VersionHistory canvasId={canvas.canvas_id} />
-          </>
-        )}
-        <button
-          type="button"
-          className="canvas-header-toggle"
-          onClick={() => setPanelOpen((v) => !v)}
-          aria-expanded={panelOpen}
-        >
-          {panelOpen ? (
-            <ChevronUp size={14} aria-hidden="true" />
-          ) : (
-            <ChevronDown size={14} aria-hidden="true" />
-          )}
-          {panelOpen ? "Hide controls" : "Show controls"}
-        </button>
-      </div>
+          </aside>
+        </>
+      )}
 
       {canvas.kind === "canvas" ? (
         <>

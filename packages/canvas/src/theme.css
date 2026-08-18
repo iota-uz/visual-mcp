@@ -515,48 +515,6 @@
   pointer-events: none;
 }
 
-/* --- LOD layer: hidden by default, swapped in below LOD_THRESHOLD via one class toggle --- */
-.vc-lod-layer {
-  position: absolute;
-  z-index: 5;
-  inset: 0;
-  display: none;
-  pointer-events: none;
-}
-.vc-viewport.is-lod .vc-lod-layer {
-  display: block;
-}
-.vc-viewport.is-lod .vc-nodes,
-.vc-viewport.is-lod .vc-lanes,
-.vc-viewport.is-lod .vc-edge-label {
-  display: none;
-}
-.vc-viewport.is-lod .vc-edges {
-  opacity: 0.12;
-}
-.vc-lod-card {
-  position: absolute;
-  width: 340px;
-  height: 220px;
-  box-sizing: border-box;
-  border-radius: 24px;
-  background: var(--vc-white);
-  border: 3px solid var(--vc-line);
-  box-shadow: 0 26px 70px rgba(19, 43, 71, 0.12);
-  padding: 24px;
-  pointer-events: auto;
-}
-.vc-lod-title {
-  font: 750 24px / 1.1 var(--vc-display);
-  letter-spacing: -0.02em;
-  color: var(--vc-ink);
-}
-.vc-lod-summary {
-  margin-top: 12px;
-  font: 400 13px / 1.4 var(--vc-body);
-  color: var(--vc-ink-soft);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .vc-node,
   .vc-inspector {

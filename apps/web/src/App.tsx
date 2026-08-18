@@ -1,7 +1,7 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Blocks, KeyRound, LayoutGrid, LogOut } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { Blocks, KeyRound, LayoutGrid, LogOut, Menu, X } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
 import { clearSignInAttempt, SignInButton, useSessionUser, useSignOut } from "./auth";
 import { EmptyState } from "./components/EmptyState";
@@ -77,7 +77,7 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
 // Left sidebar, not a top bar — a canvas page (below) needs the full
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
-function Sidebar() {
+function Sidebar({ canvasDrawer = false, onClose }: { canvasDrawer?: boolean; onClose?: () => void }) {
   const sessionUser = useSessionUser();
   const signOut = useSignOut();
   // Switching workspaces used to be a three-hop trip: canvas → workspace →
@@ -93,7 +93,16 @@ function Sidebar() {
   }
 
   return (
-    <aside className="app-sidebar">
+    <aside
+      id={canvasDrawer ? "canvas-navigation" : undefined}
+      className={`app-sidebar${canvasDrawer ? " app-sidebar-canvas-drawer" : ""}`}
+      aria-label="Navigation"
+    >
+      {canvasDrawer && (
+        <button type="button" className="app-sidebar-close" onClick={onClose} aria-label="Close navigation">
+          <X size={18} aria-hidden="true" />
+        </button>
+      )}
       <Link to="/" className="app-sidebar-brand" aria-label="Visual Canvas — home">
         <Blocks size={20} aria-hidden="true" />
         <span>Visual Canvas</span>
@@ -158,69 +167,114 @@ export function App() {
         path="*"
         element={
           <AuthGate>
-            <div className="app-shell">
-              <a href="#main" className="skip-link">
-                Skip to content
-              </a>
-              <Sidebar />
-              {/* tabIndex -1: without it the skip link moves the viewport
-                  but not focus in Safari and Chrome, so the next Tab goes
-                  back to the sidebar the link just skipped. */}
-              <div className="app-content" id="main" tabIndex={-1}>
-                <Routes>
-                  <Route
-                    path="/"
-                    element={
-                      <div className="page-container">
-                        <HomePage />
-                      </div>
-                    }
-                  />
-                  <Route
-                    path="/w/:wsSlug"
-                    element={
-                      <div className="page-container">
-                        <WorkspacePage />
-                      </div>
-                    }
-                  />
-                  <Route
-                    path="/c/:canvasId"
-                    element={
-                      // Its own boundary: a stored CanvasDoc that fails to
-                      // lay out should cost you the canvas, not the app.
-                      <ErrorBoundary label="This canvas failed to render.">
-                        <CanvasPage />
-                      </ErrorBoundary>
-                    }
-                  />
-                  <Route
-                    path="/settings/tokens"
-                    element={
-                      <div className="page-container">
-                        <TokensPage />
-                      </div>
-                    }
-                  />
-                  {/* Without this an unknown path rendered the shell with a
-                      blank content column and no explanation. */}
-                  <Route
-                    path="*"
-                    element={
-                      <div className="page-container">
-                        <EmptyState
-                          title="There's nothing at this address."
-                          hint={<Link to="/">Back to workspaces</Link>}
-                        />
-                      </div>
-                    }
-                  />
-                </Routes>
-              </div>
-            </div>
+            <AuthenticatedApp />
           </AuthGate>
         }
       />
     </Routes>
+  );
+}
+
+function AuthenticatedApp() {
+  const { pathname } = useLocation();
+  const isCanvasRoute = pathname.startsWith("/c/");
+  const [navigationOpen, setNavigationOpen] = useState(false);
+
+  // A canvas owns the whole workspace. If its drawer was open and the user
+  // navigates elsewhere, leave the next page in its conventional layout.
+  useEffect(() => setNavigationOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [navigationOpen]);
+
+  return (
+    <div className={`app-shell${isCanvasRoute ? " app-shell-canvas" : ""}`}>
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
+      {isCanvasRoute ? (
+        <>
+          <button
+            type="button"
+            className="canvas-navigation-trigger"
+            onClick={() => setNavigationOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={navigationOpen}
+            aria-controls="canvas-navigation"
+          >
+            <Menu size={19} aria-hidden="true" />
+          </button>
+          {navigationOpen && (
+            <>
+              <button
+                type="button"
+                className="canvas-navigation-scrim"
+                onClick={() => setNavigationOpen(false)}
+                aria-label="Close navigation"
+              />
+              <Sidebar canvasDrawer onClose={() => setNavigationOpen(false)} />
+            </>
+          )}
+        </>
+      ) : (
+        <Sidebar />
+      )}
+      {/* tabIndex -1: without it the skip link moves the viewport but not
+          focus in Safari and Chrome, so the next Tab goes back to the
+          navigation the link just skipped. */}
+      <div className="app-content" id="main" tabIndex={-1}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <div className="page-container">
+                <HomePage />
+              </div>
+            }
+          />
+          <Route
+            path="/w/:wsSlug"
+            element={
+              <div className="page-container">
+                <WorkspacePage />
+              </div>
+            }
+          />
+          <Route
+            path="/c/:canvasId"
+            element={
+              <ErrorBoundary label="This canvas failed to render.">
+                <CanvasPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/settings/tokens"
+            element={
+              <div className="page-container">
+                <TokensPage />
+              </div>
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <div className="page-container">
+                <EmptyState
+                  title="There's nothing at this address."
+                  hint={<Link to="/">Back to workspaces</Link>}
+                />
+              </div>
+            }
+          />
+        </Routes>
+      </div>
+    </div>
   );
 }

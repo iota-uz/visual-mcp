@@ -141,13 +141,6 @@ export const LegendGroupSchema = z.object({
 });
 export type LegendGroup = z.infer<typeof LegendGroupSchema>;
 
-export const LodCardSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  summary: z.string().optional(),
-});
-export type LodCard = z.infer<typeof LodCardSchema>;
-
 /**
  * A theme id is opaque here — packages/canvas stays decoupled from
  * packages/runtime's theme registry (PLAN.md section 3: both packages stay
@@ -173,7 +166,6 @@ export const CanvasDocSchema = z.object({
   nodes: z.array(CanvasNodeSchema),
   edges: z.array(CanvasEdgeSchema),
   legend: z.array(LegendGroupSchema).optional(),
-  lod: z.array(LodCardSchema).optional(),
 });
 export type CanvasDoc = z.infer<typeof CanvasDocSchema>;
 

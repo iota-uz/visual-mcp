@@ -4,7 +4,6 @@ import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
-import { PageHeader } from "../components/PageHeader";
 import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 
 // The anonymous /s/:slug viewer (PLAN.md Part 1 section 1/8, decision #4):
@@ -67,8 +66,11 @@ export function PublicCanvasPage() {
 
   return (
     <div className="canvas-page-full">
-      <div className="canvas-floating-header">
-        <PageHeader title={canvas.title} />
+      <div className="canvas-command-bar canvas-command-bar-public">
+        <div className="canvas-command-title">
+          <span>{canvas.title}</span>
+          {canvas.version !== undefined && <small>v{canvas.version}</small>}
+        </div>
       </div>
 
       {canvas.kind === "canvas" ? (
