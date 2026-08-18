@@ -1,5 +1,6 @@
 import { type LucideIcon, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Button } from "./ui/Button";
 
 interface ConfirmButtonProps {
   /** Label of the resting (unarmed) button. */
@@ -98,13 +99,11 @@ export function ConfirmButton({
     }
   }
 
-  const btnClass = tone === "warning" ? "btn btn-warning btn-sm" : "btn btn-danger btn-sm";
-
   if (!armed) {
     return (
-      <button type="button" ref={restRef} className={btnClass} onClick={() => setArmed(true)}>
-        <Icon size={14} aria-hidden="true" /> {label}
-      </button>
+      <Button ref={restRef} variant={tone} size="sm" icon={Icon} onClick={() => setArmed(true)}>
+        {label}
+      </Button>
     );
   }
 
@@ -115,23 +114,12 @@ export function ConfirmButton({
           {description}
         </span>
       )}
-      <button
-        type="button"
-        ref={confirmRef}
-        className={btnClass}
-        onClick={handleConfirm}
-        disabled={busy}
-      >
+      <Button ref={confirmRef} variant={tone} size="sm" onClick={handleConfirm} busy={busy}>
         {busy ? busyLabel : confirmLabel}
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={() => setArmed(false)}
-        disabled={busy}
-      >
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setArmed(false)} disabled={busy}>
         Cancel
-      </button>
+      </Button>
       {error && (
         <span className="error-text confirm-inline-text" role="alert">
           {error}

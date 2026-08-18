@@ -1019,29 +1019,19 @@ a {
 
 /* --- inline rename --- */
 
+/* Compact and already-accented, because the field replaces a title in
+   place: it has to read as "this text is now editable", not as a form. */
 .rename-form {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--app-space-2);
   width: 100%;
-}
-
-.rename-form input {
-  flex: 1;
-  min-width: 120px;
-  font-family: var(--app-font-body);
-  font-size: var(--app-text-sm);
-  border: 1px solid var(--app-accent);
-  border-radius: var(--app-radius-md);
-  padding: var(--app-space-1) var(--app-space-2);
-  background: var(--app-white);
-  color: var(--app-ink);
-}
-
-.rename-form input:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--app-accent-soft);
+  --field-flex: 1;
+  --field-min-width: 120px;
+  --field-font-size: var(--app-text-sm);
+  --field-border-color: var(--app-accent);
+  --field-padding: var(--app-space-1) var(--app-space-2);
 }
 
 /* --- connect panel (home empty state + post-mint token reveal) --- */
@@ -1155,24 +1145,40 @@ a {
   display: flex;
   gap: var(--app-space-2);
   margin-top: var(--app-space-4);
+  /* The field is the row's elastic member; the button keeps its own width. */
+  --field-flex: 1 1 auto;
   /* Matches `.node-search-field`, so the two controls stacked above the
      list share one left and right edge instead of ending at two arbitrary
      widths an input's default size apart. */
   max-width: 420px;
 }
 
-.inline-form input {
-  flex: 1 1 auto;
-  min-width: 0;
+/* --- fields --- */
+
+/* The wrapper is what the leading icon and the trailing action are
+   positioned against. Anchored to the containing block instead — which is
+   what the search field used to do — they slid to the vertical middle of
+   the results list underneath. */
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* How the field behaves as a flex *item* is the container's business, so
+     the container sets a hook rather than writing a `.x .field` selector it
+     doesn't own. That kind of descendant override is what put the cascade
+     out of order in the first place. */
+  flex: var(--field-flex, 0 1 auto);
+  min-width: var(--field-min-width, 0);
 }
 
-.inline-form input,
-.node-search input {
+.field input,
+.field-select {
+  width: 100%;
   font-family: var(--app-font-body);
-  font-size: var(--app-text-base);
-  border: 1px solid var(--app-line);
+  font-size: var(--field-font-size, var(--app-text-base));
+  border: 1px solid var(--field-border-color, var(--app-line));
   border-radius: var(--app-radius-md);
-  padding: var(--app-space-2) var(--app-space-3);
+  padding: var(--field-padding, var(--app-space-2) var(--app-space-3));
   background: var(--app-white);
   color: var(--app-ink);
   transition:
@@ -1180,23 +1186,25 @@ a {
     box-shadow var(--app-transition);
 }
 
-.inline-form input:focus,
-.node-search input:focus {
+.field input:focus,
+.field-select:focus {
   outline: none;
   border-color: var(--app-accent);
   box-shadow: 0 0 0 3px var(--app-accent-soft);
 }
 
-.node-search {
-  margin-bottom: var(--app-space-6);
+/* Padding follows the decoration rather than being hardcoded per field:
+   the search input used to carry a literal left padding that had to be
+   kept in step with the icon's own offset by hand. */
+.field:has(.field-icon) input {
+  padding-left: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
 }
 
-.node-search-field {
-  position: relative;
-  max-width: 420px;
+.field:has(.field-action) input {
+  padding-right: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
 }
 
-.node-search-icon {
+.field-icon {
   position: absolute;
   left: var(--app-space-3);
   top: 50%;
@@ -1205,13 +1213,7 @@ a {
   pointer-events: none;
 }
 
-.node-search input {
-  width: 100%;
-  padding-left: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
-  padding-right: calc(var(--app-space-3) * 2 + var(--app-icon-sm));
-}
-
-.node-search-clear {
+.field-action {
   position: absolute;
   right: var(--app-space-3);
   top: 50%;
@@ -1224,8 +1226,50 @@ a {
   display: flex;
 }
 
-.node-search-clear:hover {
+.field-action:hover {
   color: var(--app-ink);
+}
+
+.field-group {
+  flex: var(--field-flex, 0 1 auto);
+  min-width: 0;
+}
+
+.field-label {
+  display: block;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--app-ink-soft);
+  margin-bottom: var(--app-space-1);
+}
+
+.field input:disabled,
+.field-select:disabled {
+  background: var(--app-paper);
+  color: var(--app-muted);
+  cursor: not-allowed;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+.node-search {
+  margin-bottom: var(--app-space-6);
+}
+
+.node-search-field {
+  max-width: 420px;
 }
 
 .node-search-results {
@@ -1240,18 +1284,7 @@ a {
 /* --- token table --- */
 
 .token-filter {
-  display: flex;
-  align-items: center;
-  gap: var(--app-space-2);
   margin-top: var(--app-space-4);
-  color: var(--app-muted);
-  font-size: var(--app-text-sm);
-  cursor: pointer;
-}
-
-.token-filter input {
-  width: auto;
-  margin: 0;
 }
 
 .token-table-wrap {
@@ -1690,4 +1723,69 @@ a {
 .page-stack > .inline-form,
 .page-stack > .connect-disclosure {
   margin-top: 0;
+}
+
+/* --- dev: /dev/kitchen-sink --- */
+
+.ks-section {
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-white);
+  padding: var(--app-space-4);
+}
+
+.ks-section-title {
+  margin: 0 0 var(--app-space-3);
+  font-size: var(--app-text-lg);
+}
+
+.ks-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.ks-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: var(--app-space-3);
+  align-items: start;
+  padding-top: var(--app-space-3);
+  border-top: 1px dashed var(--app-line);
+}
+
+.ks-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.ks-row-label {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+  padding-top: 6px;
+}
+
+.ks-row-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-3);
+  min-width: 0;
+}
+
+/* The two floating triggers and the command bar are `position: fixed` /
+   `absolute` where they really live; pinned back into the flow here so the
+   matrix can show them next to everything else. */
+.ks-static-bar,
+.ks-static-trigger {
+  position: static;
+  inset: auto;
+}
+
+.ks-static-bar {
+  width: 100%;
 }

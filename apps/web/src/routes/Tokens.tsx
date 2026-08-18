@@ -10,6 +10,8 @@ import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { toastError, useToast } from "../components/Toast";
+import { Button } from "../components/ui/Button";
+import { Checkbox, TextInput } from "../components/ui/TextInput";
 
 export function TokensPage() {
   const tokens = useQuery(api.tokens.listMine, {});
@@ -60,26 +62,24 @@ export function TokensPage() {
           </div>
           <p className="muted">Expires {new Date(justMinted.expiresAt).toLocaleDateString()}</p>
           <ConnectPanel token={justMinted.token} showTokenLink={false} />
-          <button type="button" className="btn btn-secondary" onClick={() => setJustMinted(null)}>
+          <Button variant="secondary" onClick={() => setJustMinted(null)}>
             Done
-          </button>
+          </Button>
         </div>
       )}
 
       <form onSubmit={handleMint} className="inline-form">
-        <label className="visually-hidden" htmlFor="token-name">
-          Token name
-        </label>
-        <input
+        <TextInput
           id="token-name"
+          label="Token name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Token name (e.g. laptop)"
           disabled={minting}
         />
-        <button type="submit" className="btn btn-primary" disabled={minting || !name.trim()}>
+        <Button type="submit" variant="primary" busy={minting} disabled={!name.trim()}>
           {minting ? "Minting…" : "Mint token"}
-        </button>
+        </Button>
       </form>
 
       {tokens === undefined && <LoadingState label="Loading tokens…" />}
@@ -91,14 +91,12 @@ export function TokensPage() {
           by default, one click away, count shown so nothing is a surprise.
           (The real fix is filtering server-side; this is the UI half.) */}
       {tokens && tokens.length > 0 && deadCount > 0 && (
-        <label className="token-filter">
-          <input
-            type="checkbox"
-            checked={showDead}
-            onChange={(e) => setShowDead(e.target.checked)}
-          />
-          Show {deadCount} revoked or expired {deadCount === 1 ? "token" : "tokens"}
-        </label>
+        <Checkbox
+          className="token-filter"
+          checked={showDead}
+          onChange={(e) => setShowDead(e.target.checked)}
+          label={`Show ${deadCount} revoked or expired ${deadCount === 1 ? "token" : "tokens"}`}
+        />
       )}
       {tokens && visible.length === 0 && tokens.length > 0 && (
         <EmptyState

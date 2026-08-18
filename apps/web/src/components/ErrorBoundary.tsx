@@ -1,6 +1,7 @@
 import { TriangleAlert } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { EmptyState } from "./EmptyState";
+import { Button } from "./ui/Button";
 
 /*
  * There was no boundary anywhere in the tree, so a Convex query that threw —
@@ -42,20 +43,12 @@ export class ErrorBoundary extends Component<Props, State> {
           hint={error.message}
         />
         <div className="error-boundary-actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => this.setState({ error: null })}
-          >
+          <Button variant="secondary" onClick={() => this.setState({ error: null })}>
             Try again
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => window.location.reload()}
-          >
+          </Button>
+          <Button variant="primary" onClick={() => window.location.reload()}>
             Reload
-          </button>
+          </Button>
         </div>
       </div>
     );

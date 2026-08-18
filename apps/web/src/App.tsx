@@ -8,8 +8,11 @@ import { EmptyState } from "./components/EmptyState";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
 import { toastError, useToast } from "./components/Toast";
+import { Button } from "./components/ui/Button";
+import { IconButton } from "./components/ui/IconButton";
 import { CanvasPage } from "./routes/Canvas";
 import { HomePage } from "./routes/Home";
+import { KitchenSinkPage } from "./routes/KitchenSink";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
 import { WorkspacePage } from "./routes/Workspace";
@@ -105,14 +108,13 @@ function Sidebar({
       aria-label="Navigation"
     >
       {canvasDrawer && (
-        <button
-          type="button"
+        <IconButton
+          icon={X}
+          label="Close navigation"
+          iconSize={18}
           className="app-sidebar-close"
           onClick={onClose}
-          aria-label="Close navigation"
-        >
-          <X size={18} aria-hidden="true" />
-        </button>
+        />
       )}
       <Link to="/" className="app-sidebar-brand" aria-label="Visual Canvas — home">
         <Blocks size={20} aria-hidden="true" />
@@ -147,9 +149,9 @@ function Sidebar({
             {sessionUser.email}
           </span>
         )}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={handleSignOut}>
-          <LogOut size={14} /> <span>Sign out</span>
-        </button>
+        <Button variant="ghost" size="sm" icon={LogOut} onClick={handleSignOut}>
+          <span>Sign out</span>
+        </Button>
       </div>
     </aside>
   );
@@ -174,6 +176,20 @@ export function App() {
           </div>
         }
       />
+      {/* Outside <AuthGate> on purpose: it renders no data, and the point
+          is to be able to look at every primitive without a session. Vite
+          folds `import.meta.env.DEV` to false in a production build, so the
+          route and the module behind it are dropped from the bundle. */}
+      {import.meta.env.DEV && (
+        <Route
+          path="/dev/kitchen-sink"
+          element={
+            <div className="page-container">
+              <KitchenSinkPage />
+            </div>
+          }
+        />
+      )}
       <Route
         path="*"
         element={
@@ -215,16 +231,15 @@ function AuthenticatedApp() {
       </a>
       {isCanvasRoute ? (
         <>
-          <button
-            type="button"
+          <IconButton
+            icon={Menu}
+            label="Open navigation"
+            iconSize={19}
             className="canvas-navigation-trigger"
             onClick={() => setNavigationOpen(true)}
-            aria-label="Open navigation"
             aria-expanded={navigationOpen}
             aria-controls="canvas-navigation"
-          >
-            <Menu size={19} aria-hidden="true" />
-          </button>
+          />
           {navigationOpen && (
             <>
               <button

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Button } from "./ui/Button";
+import { TextInput } from "./ui/TextInput";
 
 interface RenameFormProps {
   initial: string;
@@ -20,6 +22,9 @@ export function RenameForm({ initial, label, onSave, onDone }: RenameFormProps) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Two rows in the same list can be editing at once, so the field's id has
+  // to be unique per instance rather than per component.
+  const id = useId();
 
   // Focus via ref rather than the autoFocus attribute: autoFocus steals
   // focus on hydration in ways screen readers announce badly (and biome's
@@ -50,9 +55,10 @@ export function RenameForm({ initial, label, onSave, onDone }: RenameFormProps) 
 
   return (
     <form className="rename-form" onSubmit={handleSubmit}>
-      <input
-        ref={inputRef}
-        aria-label={label}
+      <TextInput
+        id={id}
+        label={label}
+        inputRef={inputRef}
         value={value}
         disabled={busy}
         onChange={(e) => setValue(e.target.value)}
@@ -60,12 +66,12 @@ export function RenameForm({ initial, label, onSave, onDone }: RenameFormProps) 
           if (e.key === "Escape") onDone();
         }}
       />
-      <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !value.trim()}>
+      <Button type="submit" variant="primary" size="sm" disabled={busy || !value.trim()}>
         Save
-      </button>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={onDone} disabled={busy}>
+      </Button>
+      <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>
         Cancel
-      </button>
+      </Button>
       {error && <span className="error-text">{error}</span>}
     </form>
   );

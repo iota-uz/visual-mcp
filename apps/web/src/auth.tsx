@@ -19,6 +19,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
+import { Button } from "./components/ui/Button";
 
 /*
  * A rejected sign-in is silent on the wire, so we have to remember that one
@@ -140,13 +141,13 @@ export function SignInButton() {
 
   return (
     <>
-      <button type="button" className="btn btn-google" onClick={handleSignIn} disabled={busy}>
+      <Button variant="google" onClick={handleSignIn} busy={busy}>
         <GoogleMark />
         {/* The label stays put while the redirect is in flight: Google's
             guidelines allow no other wording, and swapping it for
             "Opening Google…" also made the button change width mid-click. */}
         Sign in with Google
-      </button>
+      </Button>
       {error && (
         <p className="error-text" role="alert">
           {error}

@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "./Toast";
+import { Button } from "./ui/Button";
 
 export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
@@ -34,9 +35,8 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
   }
 
   return (
-    <button type="button" className="btn btn-secondary btn-sm" onClick={handleCopy}>
-      {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+    <Button variant="secondary" size="sm" icon={copied ? Check : Copy} onClick={handleCopy}>
       <span aria-live="polite">{copied ? "Copied" : label}</span>
-    </button>
+    </Button>
   );
 }

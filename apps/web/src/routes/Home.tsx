@@ -11,6 +11,9 @@ import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { ListSkeleton } from "../components/Skeleton";
 import { toastError, useToast } from "../components/Toast";
+import { Button } from "../components/ui/Button";
+import { IconButton } from "../components/ui/IconButton";
+import { TextInput } from "../components/ui/TextInput";
 import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 
@@ -45,35 +48,30 @@ function NodeSearch() {
 
   return (
     <div className="node-search">
-      <label className="visually-hidden" htmlFor="node-search-input">
-        Search canvas nodes
-      </label>
-      {/* The icon and clear button are absolutely positioned against this
-          wrapper, not the whole block — anchoring them to the block meant
-          they slid to the vertical middle of the results list. */}
-      <div className="node-search-field">
-        <Search className="node-search-icon" size={14} aria-hidden="true" />
-        <input
-          id="node-search-input"
-          ref={inputRef}
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") clear();
-          }}
-          placeholder="Search canvas nodes…"
-        />
-        {term && (
-          <button
-            type="button"
-            className="node-search-clear"
-            onClick={clear}
-            aria-label="Clear search"
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        )}
-      </div>
+      <TextInput
+        id="node-search-input"
+        label="Search canvas nodes"
+        className="node-search-field"
+        inputRef={inputRef}
+        leadingIcon={Search}
+        value={term}
+        onChange={(e) => setTerm(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") clear();
+        }}
+        placeholder="Search canvas nodes…"
+        trailingSlot={
+          term && (
+            <IconButton
+              icon={X}
+              label="Clear search"
+              iconSize={14}
+              className="field-action"
+              onClick={clear}
+            />
+          )
+        }
+      />
       {query && (
         <div className="node-search-results" aria-live="polite">
           {results === undefined && <p className="muted">Searching…</p>}
@@ -154,9 +152,9 @@ function WorkspaceRow({ workspace }: { workspace: WorkspaceSummary }) {
             {count} {count === 1 ? "canvas" : "canvases"}
           </span>
         )}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
-          <Pencil size={14} /> Rename
-        </button>
+        <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+          Rename
+        </Button>
         <ConfirmButton
           description={
             count === undefined
@@ -210,19 +208,17 @@ export function HomePage() {
           was below the fold, so the one action on the page was the one
           thing you had to scroll to find. */}
       <form onSubmit={handleCreate} className="inline-form">
-        <label className="visually-hidden" htmlFor="new-workspace-name">
-          New workspace name
-        </label>
-        <input
+        <TextInput
           id="new-workspace-name"
+          label="New workspace name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="New workspace name"
           disabled={creating}
         />
-        <button type="submit" className="btn btn-primary" disabled={creating || !name.trim()}>
+        <Button type="submit" variant="primary" busy={creating} disabled={!name.trim()}>
           {creating ? "Creating…" : "Create"}
-        </button>
+        </Button>
       </form>
       {workspaces === undefined && <ListSkeleton rows={3} />}
       {workspaces?.length === 0 && (

@@ -20,6 +20,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { CardGridSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
+import { Button } from "../components/ui/Button";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 
@@ -96,9 +97,9 @@ function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspac
               agent touched most recently. */}
           <span className="muted row-item-meta">{formatRelativeTime(canvas.updated_at)}</span>
           <div className="row-item-actions">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
-              <Pencil size={14} /> Rename
-            </button>
+            <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+              Rename
+            </Button>
             <ConfirmButton
               description="Deletes this canvas and every version of it. Permanent."
               onConfirm={async () => {

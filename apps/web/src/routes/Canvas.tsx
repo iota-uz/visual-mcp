@@ -18,6 +18,8 @@ import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { toastError, useToast } from "../components/Toast";
+import { Button, ButtonLink } from "../components/ui/Button";
+import { IconButton, IconLink } from "../components/ui/IconButton";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 
@@ -134,9 +136,9 @@ function PublishControl({
           onConfirm={unpublish}
         />
       ) : (
-        <button type="button" className="btn btn-primary" onClick={publishNow} disabled={busy}>
+        <Button variant="primary" onClick={publishNow} busy={busy}>
           {busy ? "Publishing…" : "Publish"}
-        </button>
+        </Button>
       )}
       {visibility === "public" && shareUrl && (
         <>
@@ -188,14 +190,9 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
 
   return (
     <>
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        onClick={handleRestore}
-        disabled={busy}
-      >
-        <History size={14} /> {busy ? "Restoring…" : "Restore"}
-      </button>
+      <Button variant="secondary" size="sm" icon={History} onClick={handleRestore} busy={busy}>
+        {busy ? "Restoring…" : "Restore"}
+      </Button>
       {error && <span className="error-text">{error}</span>}
     </>
   );
@@ -388,37 +385,38 @@ export function CanvasPage() {
     <div className="canvas-page-full">
       {canvas.kind === "canvas" ? (
         <div className="canvas-command-bar">
-          <Link to={backTo} className="canvas-command-back" aria-label={`Back to ${backLabel}`}>
-            <ArrowLeft size={16} aria-hidden="true" />
-          </Link>
+          <IconLink
+            to={backTo}
+            icon={ArrowLeft}
+            label={`Back to ${backLabel}`}
+            className="canvas-command-back"
+          />
           <div className="canvas-command-title">
             <span>{canvas.title}</span>
             {canvas.version !== undefined && <small>v{canvas.version}</small>}
           </div>
-          <button
-            type="button"
+          <IconButton
+            icon={Info}
+            label="Open canvas details"
+            showLabel
+            iconSize={17}
             className="canvas-command-details"
             onClick={() => setDetailsOpen(true)}
-            aria-label="Open canvas details"
             aria-expanded={detailsOpen}
             aria-controls="canvas-details"
-          >
-            <Info size={17} aria-hidden="true" />
-            <span>Details</span>
-          </button>
+          />
         </div>
       ) : (
-        <button
-          type="button"
+        <IconButton
+          icon={Info}
+          label="Open canvas details"
+          showLabel
+          iconSize={18}
           className="canvas-artifact-details-trigger"
           onClick={() => setDetailsOpen(true)}
-          aria-label="Open canvas details"
           aria-expanded={detailsOpen}
           aria-controls="canvas-details"
-        >
-          <Info size={18} aria-hidden="true" />
-          <span>Details</span>
-        </button>
+        />
       )}
 
       {detailsOpen && (
@@ -432,13 +430,12 @@ export function CanvasPage() {
           <aside id="canvas-details" className="canvas-details-panel" aria-label="Canvas details">
             <header className="canvas-details-panel-header">
               <span>Canvas details</span>
-              <button
-                type="button"
+              <IconButton
+                icon={X}
+                label="Close canvas details"
+                iconSize={18}
                 onClick={() => setDetailsOpen(false)}
-                aria-label="Close canvas details"
-              >
-                <X size={18} aria-hidden="true" />
-              </button>
+              />
             </header>
             {/* The rename form replaces the header rather than nesting inside
             it: PageHeader's title is an <h1>, which may only contain
@@ -470,22 +467,23 @@ export function CanvasPage() {
                       // Guaranteed path to the artifact. The in-page preview can
                       // legitimately come up blank (see the iframe note below),
                       // and without this the user is simply stuck.
-                      <a
+                      <ButtonLink
                         href={canvas.entry_public_url ?? canvas.entry_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-ghost btn-sm"
+                        variant="ghost"
+                        size="sm"
+                        icon={ExternalLink}
                       >
-                        <ExternalLink size={14} /> Open
-                      </a>
+                        Open
+                      </ButtonLink>
                     )}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={Pencil}
                       onClick={() => setEditing(true)}
                     >
-                      <Pencil size={14} /> Rename
-                    </button>
+                      Rename
+                    </Button>
                     {/* Navigate in the same tick the delete resolves: `getMine`
                     is reactive and would otherwise flip to null under us and
                     flash "Canvas not found." */}
