@@ -356,6 +356,15 @@ export function CanvasPage() {
   const backTo = workspace ? `/w/${workspace.slug}` : "/";
   const backLabel = workspace ? workspace.name : "Workspaces";
 
+  // HTML canvases bring their own app chrome (including their own zoom
+  // controls). Keep Visual Canvas controls out of that header so two toolbars
+  // never compete for the same pixels.
+  useEffect(() => {
+    const isArtifact = canvas?.kind !== undefined && canvas.kind !== "canvas";
+    document.documentElement.classList.toggle("is-artifact-canvas-view", isArtifact);
+    return () => document.documentElement.classList.remove("is-artifact-canvas-view");
+  }, [canvas?.kind]);
+
   useEffect(() => {
     if (!detailsOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -386,26 +395,40 @@ export function CanvasPage() {
 
   return (
     <div className="canvas-page-full">
-      <div className="canvas-command-bar">
-        <Link to={backTo} className="canvas-command-back" aria-label={`Back to ${backLabel}`}>
-          <ArrowLeft size={16} aria-hidden="true" />
-        </Link>
-        <div className="canvas-command-title">
-          <span>{canvas.title}</span>
-          {canvas.version !== undefined && <small>v{canvas.version}</small>}
+      {canvas.kind === "canvas" ? (
+        <div className="canvas-command-bar">
+          <Link to={backTo} className="canvas-command-back" aria-label={`Back to ${backLabel}`}>
+            <ArrowLeft size={16} aria-hidden="true" />
+          </Link>
+          <div className="canvas-command-title">
+            <span>{canvas.title}</span>
+            {canvas.version !== undefined && <small>v{canvas.version}</small>}
+          </div>
+          <button
+            type="button"
+            className="canvas-command-details"
+            onClick={() => setDetailsOpen(true)}
+            aria-label="Open canvas details"
+            aria-expanded={detailsOpen}
+            aria-controls="canvas-details"
+          >
+            <Info size={17} aria-hidden="true" />
+            <span>Details</span>
+          </button>
         </div>
+      ) : (
         <button
           type="button"
-          className="canvas-command-details"
+          className="canvas-artifact-details-trigger"
           onClick={() => setDetailsOpen(true)}
           aria-label="Open canvas details"
           aria-expanded={detailsOpen}
           aria-controls="canvas-details"
         >
-          <Info size={17} aria-hidden="true" />
+          <Info size={18} aria-hidden="true" />
           <span>Details</span>
         </button>
-      </div>
+      )}
 
       {detailsOpen && (
         <>
