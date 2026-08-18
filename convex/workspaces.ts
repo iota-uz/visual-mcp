@@ -38,16 +38,56 @@ async function createWorkspace(
   return { workspaceId, slug };
 }
 
+/** Thumbnails a workspace lane previews on the home page. */
+const RECENT_PER_WORKSPACE = 4;
+
+/*
+ * Each row carries what the home page's lane actually shows: how many
+ * canvases are in it, and a strip of the few an agent touched most recently.
+ *
+ * This replaces a per-row `listForWorkspace` subscription in the SPA, which
+ * fetched every canvas in every workspace — minting a signed
+ * `storage.getUrl()` for each one — and then discarded all of it but
+ * `.length`. Twenty workspaces of twenty canvases was four hundred signed
+ * URLs to print twenty integers.
+ */
 async function listWorkspaces(ctx: QueryCtx) {
-  const rows = await ctx.db.query("workspaces").take(200);
-  return rows
-    .filter((w) => w.archivedAt === undefined)
-    .map((w) => ({
-      workspace_id: w._id,
-      slug: w.slug,
-      name: w.name,
-      description: w.description,
-    }));
+  const rows = (await ctx.db.query("workspaces").take(200)).filter(
+    (w) => w.archivedAt === undefined,
+  );
+
+  return Promise.all(
+    rows.map(async (w) => {
+      // `by_workspace_updated` is ordered, so `take` walks only as far as it
+      // needs to; the count still has to see every row, but it reads no
+      // storage and mints nothing.
+      const canvases = (
+        await ctx.db
+          .query("canvases")
+          .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", w._id))
+          .order("desc")
+          .take(200)
+      ).filter((c) => c.archivedAt === undefined);
+
+      const recent = await Promise.all(
+        canvases.slice(0, RECENT_PER_WORKSPACE).map(async (c) => ({
+          canvas_id: c._id,
+          title: c.title,
+          kind: c.kind,
+          thumbnail_url: c.thumbnailId ? await ctx.storage.getUrl(c.thumbnailId) : null,
+        })),
+      );
+
+      return {
+        workspace_id: w._id,
+        slug: w.slug,
+        name: w.name,
+        description: w.description,
+        canvas_count: canvases.length,
+        recent,
+      };
+    }),
+  );
 }
 
 export const create = internalMutation({

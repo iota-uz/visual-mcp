@@ -22,9 +22,6 @@ import { useDocumentTitle } from "../lib/useDocumentTitle";
 /** Backend cap on `searchNodes` — results are silently truncated at this. */
 const SEARCH_LIMIT = 20;
 
-/** Thumbnails in a workspace lane's strip. Four fits the row at any width. */
-const LANE_PREVIEW = 4;
-
 interface SearchResult {
   canvasId: string;
   canvasTitle: string;
@@ -149,24 +146,26 @@ interface WorkspaceSummary {
   slug: string;
   name: string;
   description?: string;
+  canvas_count?: number;
+  recent?: Array<{
+    canvas_id: string;
+    title: string;
+    kind: string;
+    thumbnail_url: string | null;
+  }>;
 }
 
 function WorkspaceLane({ workspace }: { workspace: WorkspaceSummary }) {
-  // `listMine` returns no canvas count, and convex/ is off-limits here, so
-  // the count is derived client-side from the same query the workspace page
-  // uses. Accurate (it already filters archived rows) at the cost of one
-  // extra subscription per row; the alternative — printing nothing — would
-  // also leave the delete confirmation unable to say what is being lost.
-  const canvases = useQuery(api.canvases.listForWorkspace, {
-    workspaceId: workspace.workspace_id,
-  });
   const rename = useMutation(api.workspaces.renameMine);
   const remove = useMutation(api.workspaces.deleteMine);
   const { notify } = useToast();
   const [editing, setEditing] = useState(false);
 
-  const count = canvases?.length;
-  const recent = canvases?.slice(0, LANE_PREVIEW) ?? [];
+  // Both come from `listMine`'s own projection. They used to come from a
+  // per-row `listForWorkspace` subscription that fetched every canvas in
+  // every workspace, signed a URL for each thumbnail, and kept `.length`.
+  const count = workspace.canvas_count;
+  const recent = workspace.recent ?? [];
 
   if (editing) {
     return (

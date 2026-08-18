@@ -41,10 +41,16 @@ describe("HomePage", () => {
   test("renders a link per workspace, using its slug", () => {
     useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
       if (args && typeof args === "object" && "query" in args) return [];
-      // The lane's preview strip subscribes per row; an empty workspace has
-      // nothing to preview.
-      if (args && typeof args === "object" && "workspaceId" in args) return [];
-      return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+      return [
+        {
+          workspace_id: "ws1",
+          slug: "osago",
+          name: "OSAGO",
+          description: undefined,
+          canvas_count: 0,
+          recent: [],
+        },
+      ];
     });
     renderHome();
     const link = screen.getByRole("link", { name: /OSAGO/ });
@@ -101,8 +107,16 @@ describe("HomePage", () => {
   test("connect instructions stay reachable once workspaces exist", () => {
     useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
       if (args && typeof args === "object" && "query" in args) return [];
-      if (args && typeof args === "object" && "workspaceId" in args) return [];
-      return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+      return [
+        {
+          workspace_id: "ws1",
+          slug: "osago",
+          name: "OSAGO",
+          description: undefined,
+          canvas_count: 0,
+          recent: [],
+        },
+      ];
     });
     renderHome();
 
@@ -118,11 +132,22 @@ describe("HomePage", () => {
   describe("workspace deletion", () => {
     function mockOneWorkspaceWithTwoCanvases() {
       useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
-        if (args && typeof args === "object") {
-          if ("query" in args) return [];
-          if ("workspaceId" in args) return [{ canvas_id: "c1" }, { canvas_id: "c2" }];
-        }
-        return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+        if (args && typeof args === "object" && "query" in args) return [];
+        // The count and the preview strip come from `listMine`'s own
+        // projection; there is no per-row subscription any more.
+        return [
+          {
+            workspace_id: "ws1",
+            slug: "osago",
+            name: "OSAGO",
+            description: undefined,
+            canvas_count: 2,
+            recent: [
+              { canvas_id: "c1", title: "One", kind: "canvas", thumbnail_url: null },
+              { canvas_id: "c2", title: "Two", kind: "canvas", thumbnail_url: null },
+            ],
+          },
+        ];
       });
     }
 
@@ -162,8 +187,16 @@ describe("HomePage", () => {
     useMutationMock.mockReturnValue(mutation);
     useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
       if (args && typeof args === "object" && "query" in args) return [];
-      if (args && typeof args === "object" && "workspaceId" in args) return [];
-      return [{ workspace_id: "ws1", slug: "osago", name: "OSAGO", description: undefined }];
+      return [
+        {
+          workspace_id: "ws1",
+          slug: "osago",
+          name: "OSAGO",
+          description: undefined,
+          canvas_count: 0,
+          recent: [],
+        },
+      ];
     });
     renderHome();
 
