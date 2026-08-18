@@ -17,6 +17,7 @@ import { IconButton } from "../components/ui/IconButton";
 import { TextInput } from "../components/ui/TextInput";
 import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 /** Backend cap on `searchNodes` — results are silently truncated at this. */
 const SEARCH_LIMIT = 20;
@@ -244,6 +245,7 @@ function WorkspaceLane({ workspace }: { workspace: WorkspaceSummary }) {
 }
 
 export function HomePage() {
+  useDocumentTitle("Workspaces");
   const workspaces = useQuery(api.workspaces.listMine, {});
   const createWorkspace = useMutation(api.workspaces.createMine);
   const { notify } = useToast();

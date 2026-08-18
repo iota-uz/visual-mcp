@@ -1,29 +1,40 @@
 /* The version list inside the canvas drawer. */
 
-.version-history {
-  /* A version is one line: number, when, who, and a Restore button — not
-     the stacked block a workspace row is. */
+.version-list {
+  /* A version is one line: number, when, who, and Restore — not the
+     stacked block a workspace lane is. */
   --card-list-item-direction: row;
   --card-list-item-align: center;
   --card-list-item-justify: space-between;
   --card-list-item-gap: var(--app-space-2);
   --card-list-item-font-size: var(--app-text-sm);
-  /* Long histories scroll inside the drawer rather than pushing the delete
-     button off the bottom of it. */
-  --card-list-inset: var(--app-space-3);
-  --card-list-max-height: 240px;
+  /* Long histories scroll inside the drawer rather than pushing Delete off
+     the bottom of it. */
+  --card-list-max-height: 260px;
   --card-list-overflow: auto;
-  margin-top: var(--app-space-3);
-  padding: var(--app-space-3) var(--app-space-4);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-lg);
-  background: var(--app-white);
-  --disclosure-summary-color: var(--app-ink-soft);
-  --disclosure-summary-padding: 0;
+}
+
+.version-row-main {
+  min-width: 0;
+}
+
+.version-row-current {
+  margin-left: var(--app-space-2);
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-success);
+}
+
+.version-row-meta {
+  display: block;
+  font-size: var(--app-text-xs);
 }
 
 @media (max-width: 640px) {
-  .version-history {
+  .version-list {
     --card-list-item-direction: column;
     --card-list-item-align: stretch;
   }

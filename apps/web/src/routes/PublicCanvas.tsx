@@ -1,9 +1,13 @@
 import { useQuery } from "convex/react";
+import { Unplug } from "lucide-react";
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
+import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 
 // The anonymous /s/:slug viewer (PLAN.md Part 1 section 1/8, decision #4):
@@ -13,6 +17,7 @@ export function PublicCanvasPage() {
   const { slug } = useParams<{ slug: string }>();
   const canvas = useQuery(api.canvases.getPublic, slug ? { publicSlug: slug } : "skip");
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
+  useDocumentTitle(canvas?.title);
 
   /*
    * html/pdf artifacts are handed to the browser as the page rather than
@@ -55,10 +60,17 @@ export function PublicCanvasPage() {
     );
   }
   if (canvas === null) {
+    // Deliberately not "no longer available": `getPublic` returns null for a
+    // link that never existed, one that was replaced, and one whose canvas
+    // was made private. Saying which of those happened would be a guess.
     return (
       <div className="canvas-page-full">
         <div className="canvas-page-loading">
-          <EmptyState title="This link is no longer available." />
+          <EmptyState
+            icon={Unplug}
+            title="This link doesn't work."
+            hint="It may have been replaced or made private. Ask whoever shared it for a current one."
+          />
         </div>
       </div>
     );
@@ -66,11 +78,23 @@ export function PublicCanvasPage() {
 
   return (
     <div className="canvas-page-full">
+      {/* One bar, not two. This used to be a wordmark on its own white
+          strip with a floating title pill under it — two layers of chrome
+          for one line of text, on the only surface outsiders ever see. */}
       <div className="canvas-command-bar canvas-command-bar-public">
+        <span className="public-shell-brand">Visual Canvas</span>
         <div className="canvas-command-title">
           <span>{canvas.title}</span>
           {canvas.version !== undefined && <small>v{canvas.version}</small>}
         </div>
+        {/* `updated_at` and `description` have always been in the payload
+            and were rendered nowhere. */}
+        <span className="public-shell-meta" title={formatAbsoluteTime(canvas.updated_at)}>
+          <time dateTime={new Date(canvas.updated_at).toISOString()}>
+            {formatRelativeTime(canvas.updated_at)}
+          </time>
+        </span>
+        <CopyButton value={window.location.href} label="Copy link" />
       </div>
 
       {canvas.kind === "canvas" ? (

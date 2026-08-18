@@ -9,18 +9,31 @@
   background: var(--app-paper);
 }
 
-.public-shell-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: var(--app-space-3) var(--app-space-6);
-  border-bottom: 1px solid var(--app-line);
-  background: var(--app-white);
-}
-
 .public-shell-brand {
+  flex: none;
   font-family: var(--app-font-display);
   font-weight: 700;
-  font-size: var(--app-text-base);
+  font-size: var(--app-text-sm);
   color: var(--app-ink);
+}
+
+.public-shell-meta {
+  flex: none;
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+}
+
+/* Says where this came from without asking for anything. */
+.public-shell-footer {
+  flex: 0 0 auto;
+  padding: var(--app-space-2) var(--app-space-6);
+  border-top: 1px solid var(--app-line);
+  background: var(--app-white);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  text-align: center;
+}
+
+.public-shell-footer strong {
+  color: var(--app-ink-soft);
 }

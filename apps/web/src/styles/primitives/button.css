@@ -16,10 +16,13 @@
   border-radius: var(--app-radius-md);
   border: 1px solid transparent;
   cursor: pointer;
+  /* `color` was missing, and four of the six variants change it on hover —
+     so the border eased over 150ms while the label snapped. */
   transition:
     background var(--app-transition),
     border-color var(--app-transition),
     box-shadow var(--app-transition),
+    color var(--app-transition),
     opacity var(--app-transition);
   line-height: 1.2;
 }

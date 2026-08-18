@@ -3,7 +3,7 @@
 /* --- toasts --- */
 .toast-region {
   position: fixed;
-  z-index: 100;
+  z-index: var(--app-z-toast);
   right: var(--app-space-4);
   bottom: var(--app-space-4);
   display: flex;
@@ -11,6 +11,26 @@
   gap: var(--app-space-2);
   width: min(420px, calc(100vw - var(--app-space-8)));
   pointer-events: none;
+}
+
+/*
+ * The collapsing shell around each row, so the stack closes the gap a
+ * leaving toast leaves behind instead of the rows below it jumping. 1fr → 0fr
+ * animates the height directly; FLIP would be far more machinery for a
+ * column that never holds more than about three rows.
+ */
+.toast-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--app-duration-base) var(--app-ease-in);
+}
+
+.toast-slot.is-leaving {
+  grid-template-rows: 0fr;
+}
+
+.toast-slot > .toast {
+  min-height: 0;
 }
 
 .toast {
@@ -25,7 +45,12 @@
   font-size: var(--app-text-sm);
   color: var(--app-ink);
   pointer-events: auto;
-  animation: toast-in var(--app-transition) ease-out;
+  animation: toast-in var(--app-duration-base) var(--app-ease-out);
+}
+
+.toast.is-leaving {
+  animation: toast-out var(--app-duration-base) var(--app-ease-in) forwards;
+  pointer-events: none;
 }
 
 .toast-success {
@@ -65,6 +90,7 @@
   cursor: pointer;
   color: inherit;
   opacity: var(--app-disabled-opacity);
+  transition: opacity var(--app-transition);
 }
 
 .toast-dismiss:hover {
@@ -74,6 +100,13 @@
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(var(--app-motion-distance));
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--app-motion-distance));
   }
 }

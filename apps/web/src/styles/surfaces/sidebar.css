@@ -1,7 +1,7 @@
 /* The navigation rail. */
 
 .app-sidebar {
-  flex: 0 0 220px;
+  flex: 0 0 var(--app-sidebar-w);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -51,9 +51,12 @@
   background: var(--app-paper);
 }
 
+/* A rule down the active edge, so which page you are on survives a glance
+   rather than needing the fill to be read as "selected". */
 .app-sidebar-link.active {
-  color: var(--app-accent);
+  color: var(--app-accent-text);
   background: var(--app-accent-soft);
+  box-shadow: inset 2px 0 0 var(--app-accent);
 }
 
 .app-sidebar-workspaces {
@@ -62,10 +65,40 @@
   padding: 0 0 0 var(--app-space-4);
 }
 
+/* Same weight as the index link above: these are the more common
+   destination and used to be rendered smaller than the thing they hang
+   off. */
 .app-sidebar-workspaces .app-sidebar-link {
-  font-weight: 500;
-  font-size: var(--app-text-xs);
   padding: var(--app-space-1) var(--app-space-3);
+}
+
+.app-sidebar-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--app-muted);
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  padding: var(--app-space-2) var(--app-space-3);
+  transition: color var(--app-transition);
+}
+
+.app-sidebar-more:hover {
+  color: var(--app-ink);
+}
+
+/* Settings sit below a divider, not in the same run as the places your work
+   actually lives. */
+.app-sidebar-group {
+  margin-top: auto;
+  padding-top: var(--app-space-3);
+  border-top: 1px solid var(--app-line);
 }
 
 .app-sidebar-workspaces span {
@@ -124,7 +157,8 @@
 @media (max-width: 640px) {
   .app-sidebar-brand span,
   .app-sidebar-link span,
-  .app-sidebar-email {
+  .app-sidebar-email,
+  .app-sidebar-more {
     display: none;
   }
 }

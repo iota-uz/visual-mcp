@@ -14,6 +14,7 @@ import { CopyableValue } from "../components/ui/CopyableValue";
 import { Panel } from "../components/ui/Panel";
 import { Checkbox, TextInput } from "../components/ui/TextInput";
 import { formatAbsoluteTime, formatRelativeTime, formatTimeUntil } from "../lib/formatDate";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 interface TokenRow {
   tokenId: string;
@@ -108,6 +109,7 @@ function TokenItem({
 }
 
 export function TokensPage() {
+  useDocumentTitle("MCP tokens");
   const tokens = useQuery(api.tokens.listMine, {});
   const mint = useMutation(api.tokens.mintMine);
   const revoke = useMutation(api.tokens.revokeMine);

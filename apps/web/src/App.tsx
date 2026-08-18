@@ -1,5 +1,5 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Blocks, KeyRound, LayoutGrid, LogOut, Menu } from "lucide-react";
+import { Blocks, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -84,12 +84,16 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
   return isActive ? "app-sidebar-link active" : "app-sidebar-link";
 }
 
+/** Enough to navigate by; beyond this the rail becomes a scrolling list. */
+const VISIBLE_WORKSPACES = 8;
+
 // Left sidebar, not a top bar — a canvas page (below) needs the full
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
 function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   const sessionUser = useSessionUser();
   const signOut = useSignOut();
+  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
   // Switching workspaces used to be a three-hop trip: canvas → workspace →
   // home → other workspace. This is the same subscription Home already
   // holds, so the list costs nothing extra.
@@ -129,19 +133,37 @@ function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
         </NavLink>
         {workspaces && workspaces.length > 0 && (
           <ul className="app-sidebar-workspaces">
-            {workspaces.map((w) => (
+            {/* The workspace links carry the same weight as the index link
+                above them — they are the more common destination, and used
+                to be rendered smaller than the thing they hang off. */}
+            {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map((w) => (
               <li key={w.workspace_id}>
                 <NavLink to={`/w/${w.slug}`} className={sidebarLinkClass} title={w.name}>
                   <span>{w.name}</span>
                 </NavLink>
               </li>
             ))}
+            {/* A long list would otherwise push sign-out off the bottom of
+                the rail and turn navigation into scrolling. */}
+            {workspaces.length > VISIBLE_WORKSPACES && !showAllWorkspaces && (
+              <li>
+                <button
+                  type="button"
+                  className="app-sidebar-more"
+                  onClick={() => setShowAllWorkspaces(true)}
+                >
+                  {workspaces.length - VISIBLE_WORKSPACES} more
+                </button>
+              </li>
+            )}
           </ul>
         )}
-        <NavLink to="/settings/tokens" className={sidebarLinkClass} aria-label="MCP tokens">
-          <KeyRound size={16} aria-hidden="true" />
-          <span>MCP tokens</span>
-        </NavLink>
+        <div className="app-sidebar-group">
+          <NavLink to="/settings/tokens" className={sidebarLinkClass} aria-label="MCP tokens">
+            <KeyRound size={16} aria-hidden="true" />
+            <span>MCP tokens</span>
+          </NavLink>
+        </div>
       </nav>
       <div className="app-sidebar-footer">
         {sessionUser?.email && (
@@ -168,11 +190,16 @@ export function App() {
       <Route
         path="/s/:slug"
         element={
+          // The brand moved into the canvas's own command bar: two strips of
+          // chrome for one line of text was one too many on the only page
+          // outsiders ever see.
           <div className="public-shell">
-            <header className="public-shell-header">
-              <span className="public-shell-brand">Visual Canvas</span>
-            </header>
-            <PublicCanvasPage />
+            <ErrorBoundary label="This canvas failed to render.">
+              <PublicCanvasPage />
+            </ErrorBoundary>
+            <footer className="public-shell-footer">
+              Shared from <strong>Visual Canvas</strong> — canvases authored by agents over MCP.
+            </footer>
           </div>
         }
       />
@@ -199,6 +226,20 @@ export function App() {
         }
       />
     </Routes>
+  );
+}
+
+/*
+ * A routed page, with its own boundary. There used to be exactly one, around
+ * the canvas viewer, so a Convex query that threw on Home, Workspace or
+ * Tokens took the whole shell down with it — sidebar included, leaving no
+ * way to navigate anywhere else.
+ */
+function Page({ label, children }: { label?: string; children: ReactNode }) {
+  return (
+    <ErrorBoundary label={label}>
+      <div className="page-container">{children}</div>
+    </ErrorBoundary>
   );
 }
 
@@ -254,17 +295,17 @@ function AuthenticatedApp() {
           <Route
             path="/"
             element={
-              <div className="page-container">
+              <Page label="Workspaces failed to load.">
                 <HomePage />
-              </div>
+              </Page>
             }
           />
           <Route
             path="/w/:wsSlug"
             element={
-              <div className="page-container">
+              <Page label="This workspace failed to load.">
                 <WorkspacePage />
-              </div>
+              </Page>
             }
           />
           <Route
@@ -278,20 +319,21 @@ function AuthenticatedApp() {
           <Route
             path="/settings/tokens"
             element={
-              <div className="page-container">
+              <Page label="Your tokens failed to load.">
                 <TokensPage />
-              </div>
+              </Page>
             }
           />
           <Route
             path="*"
             element={
-              <div className="page-container">
+              <Page>
                 <EmptyState
-                  title="There's nothing at this address."
+                  icon={Unplug}
+                  title="Nothing at this address."
                   hint={<Link to="/">Back to workspaces</Link>}
                 />
-              </div>
+              </Page>
             }
           />
         </Routes>

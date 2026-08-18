@@ -5,11 +5,6 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--app-space-2);
-  margin-top: var(--app-space-3);
-}
-
-.publish-control .muted {
-  overflow-wrap: anywhere;
 }
 
 .share-link-row {

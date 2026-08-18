@@ -35,6 +35,6 @@
 
 /* Folded-away connect instructions on Home once the account has data. */
 .connect-disclosure {
-  margin-top: var(--app-space-6);
+  margin-top: var(--connect-disclosure-gap, var(--app-space-6));
   --connect-panel-gap: var(--app-space-2);
 }

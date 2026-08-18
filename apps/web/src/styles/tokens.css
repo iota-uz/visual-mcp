@@ -92,11 +92,11 @@
 
   --app-disabled-opacity: 0.5;
 
-  /* One ladder, so a new overlay doesn't have to guess. */
+  /* One ladder, so a new overlay doesn't have to guess. Drawers are absent
+     on purpose: they are <dialog>s in the top layer, which sits above every
+     z-index there is. */
   --app-z-chrome: 20;
-  --app-z-scrim: 30;
   --app-z-drawer-trigger: 40;
-  --app-z-drawer: 50;
   --app-z-toast: 100;
   --app-z-skip-link: 200;
 

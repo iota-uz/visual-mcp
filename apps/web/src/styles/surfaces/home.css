@@ -1,7 +1,7 @@
 /* Workspaces. */
 
 .node-search {
-  margin-bottom: var(--app-space-4);
+  margin-bottom: var(--node-search-gap, var(--app-space-4));
 }
 
 .node-search-field {

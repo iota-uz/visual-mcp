@@ -42,12 +42,16 @@ export class ErrorBoundary extends Component<Props, State> {
           title={this.props.label ?? "Something broke while rendering this page."}
           hint={error.message}
         />
+        {/* Reload first: what threw here is almost always a query, and a
+            query that threw once will throw again the moment this remounts.
+            "Try again" stays, because a transient network failure is the one
+            case where it works. */}
         <div className="error-boundary-actions">
-          <Button variant="secondary" onClick={() => this.setState({ error: null })}>
-            Try again
-          </Button>
           <Button variant="primary" onClick={() => window.location.reload()}>
             Reload
+          </Button>
+          <Button variant="secondary" onClick={() => this.setState({ error: null })}>
+            Try again
           </Button>
         </div>
       </div>

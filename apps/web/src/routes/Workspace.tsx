@@ -24,6 +24,7 @@ import { Button } from "../components/ui/Button";
 import { RefChip } from "../components/ui/CopyableValue";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 interface CanvasSummary {
   canvas_id: Id<"canvases">;
@@ -146,6 +147,7 @@ function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspac
 export function WorkspacePage() {
   const { wsSlug } = useParams<{ wsSlug: string }>();
   const workspace = useQuery(api.workspaces.getBySlug, wsSlug ? { slug: wsSlug } : "skip");
+  useDocumentTitle(workspace?.name);
   const canvases = useQuery(
     api.canvases.listForWorkspace,
     workspace ? { workspaceId: workspace.workspace_id } : "skip",

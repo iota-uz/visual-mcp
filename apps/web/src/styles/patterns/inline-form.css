@@ -4,7 +4,7 @@
 .inline-form {
   display: flex;
   gap: var(--app-space-2);
-  margin-top: var(--app-space-4);
+  margin-top: var(--inline-form-gap, var(--app-space-4));
   /* The field is the row's elastic member; the button keeps its own width. */
   --field-flex: 1 1 auto;
   /* Matches `.node-search-field`, so the two controls stacked above the

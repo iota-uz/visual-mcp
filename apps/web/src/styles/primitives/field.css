@@ -61,6 +61,7 @@
 }
 
 .field-action {
+  transition: color var(--app-transition);
   position: absolute;
   right: var(--app-space-3);
   top: 50%;

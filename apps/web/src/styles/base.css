@@ -18,7 +18,7 @@
   position: absolute;
   left: var(--app-space-3);
   top: -100px;
-  z-index: 200;
+  z-index: var(--app-z-skip-link);
   background: var(--app-white);
   color: var(--app-ink);
   border: 1px solid var(--app-line);
@@ -33,16 +33,32 @@
   top: var(--app-space-3);
 }
 
+/*
+ * Reduced motion, once, for the whole app — replacing a list of specific
+ * selectors that every new animation was an opportunity to forget, and that
+ * had already missed buttons, sidebar links and input focus.
+ *
+ * It collapses the duration *tokens* rather than setting `animation: none`,
+ * and 0.01ms rather than 0s, and that detail is load-bearing: the drawer's
+ * exit and the toast's removal both wait on transitionend/animationend, and
+ * a duration of zero means those events never fire — the drawer would stay
+ * mounted forever and toasts would never leave. Travel collapses to nothing
+ * so things stop sliding; opacity fades survive, because a cross-fade is
+ * not what the setting is asking to be spared.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .loading-state,
-  .skeleton-row,
-  .skeleton-card,
-  .toast {
-    animation: none;
+  :root {
+    --app-transition: 0.01ms;
+    --app-duration-fast: 0.01ms;
+    --app-duration-base: 0.01ms;
+    --app-duration-slow: 0.01ms;
+    --app-motion-distance: 0px;
   }
 
-  .card-list-item,
-  .canvas-card {
-    transition: none;
+  /* The two indefinite loops. Nothing waits on their events. */
+  .loading-state,
+  .skeleton-bar,
+  .skeleton-thumb {
+    animation: none;
   }
 }

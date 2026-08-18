@@ -30,6 +30,8 @@ export interface ToastOptions {
 interface Toast extends ToastOptions {
   id: number;
   tone: ToastTone;
+  /** Marked on the way out; removed once the exit animation ends. */
+  leaving?: boolean;
 }
 
 interface ToastApi {
@@ -62,7 +64,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
 
+  /*
+   * Marks rather than removes: a toast that is filtered out of the array
+   * vanishes mid-frame, so the stack had a considered entrance and simply
+   * blinked out of existence. The row's own animationend takes it out of the
+   * array for good.
+   */
   const dismiss = useCallback((id: number) => {
+    setToasts((current) => current.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+  }, []);
+
+  const remove = useCallback((id: number) => {
     setToasts((current) => current.filter((t) => t.id !== id));
   }, []);
 
@@ -80,15 +92,36 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-region">
         {toasts.map((toast) => (
-          <ToastRow key={toast.id} toast={toast} onDismiss={dismiss} />
+          // The slot is what collapses when a toast leaves, so the stack
+          // closes the gap instead of the rows below it jumping.
+          <div key={toast.id} className={`toast-slot${toast.leaving ? " is-leaving" : ""}`}>
+            <ToastRow toast={toast} onDismiss={dismiss} onRemove={remove} />
+          </div>
         ))}
       </div>
     </ToastContext.Provider>
   );
 }
 
-function ToastRow({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number) => void }) {
-  const { id, tone } = toast;
+function ToastRow({
+  toast,
+  onDismiss,
+  onRemove,
+}: {
+  toast: Toast;
+  onDismiss: (id: number) => void;
+  onRemove: (id: number) => void;
+}) {
+  const { id, tone, leaving } = toast;
+
+  // Backstop for the animationend below: with `prefers-reduced-motion` the
+  // duration collapses to 0.01ms, which still fires — but an interrupted
+  // animation, or a tab that was backgrounded mid-exit, may not.
+  useEffect(() => {
+    if (!leaving) return;
+    const timer = window.setTimeout(() => onRemove(id), 400);
+    return () => window.clearTimeout(timer);
+  }, [leaving, id, onRemove]);
 
   useEffect(() => {
     // Errors are the ones worth reading twice, and they carry server text
@@ -102,7 +135,15 @@ function ToastRow({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number) 
   const Icon = tone === "error" ? XCircle : CheckCircle2;
 
   return (
-    <output className={`toast toast-${tone}`} aria-live={tone === "error" ? "assertive" : "polite"}>
+    <output
+      className={`toast toast-${tone}${leaving ? " is-leaving" : ""}`}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+      onAnimationEnd={(event) => {
+        // Only the row's own exit — the icon and anything inside it bubble
+        // their animations here too.
+        if (leaving && event.target === event.currentTarget) onRemove(id);
+      }}
+    >
       <Icon size={16} aria-hidden="true" className="toast-icon" />
       <span className="toast-message">{toast.message}</span>
       <button

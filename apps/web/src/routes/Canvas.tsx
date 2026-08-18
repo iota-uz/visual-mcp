@@ -6,8 +6,17 @@ import {
   mountViewport,
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, ExternalLink, History, Info, Lock, Pencil, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ExternalLink,
+  History,
+  Info,
+  Lock,
+  Pencil,
+  RefreshCw,
+  Unplug,
+} from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -17,13 +26,12 @@ import { LoadingState } from "../components/LoadingState";
 import { RenameForm } from "../components/RenameForm";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
-import { CopyableValue } from "../components/ui/CopyableValue";
-import { Disclosure } from "../components/ui/Disclosure";
+import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
-import { SectionHeader } from "../components/ui/SectionHeader";
 import { formatBytes } from "../lib/formatBytes";
-import { formatRelativeTime } from "../lib/formatDate";
+import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
+import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
 // minimap/?node= deep-linking) directly against the fetched CanvasDoc —
@@ -86,6 +94,41 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
   return <div ref={containerRef} className="vc-viewport-host" />;
 }
 
+interface CanvasVersion {
+  versionId: string;
+  version: number;
+  note?: string;
+  createdAt: number;
+  createdByEmail: string | null;
+  isCurrent: boolean;
+}
+
+/*
+ * One eyebrow-labelled section of the details drawer. The drawer used to be
+ * six unrelated things in a single unstructured column, with the share link
+ * — the entire point of publishing — fourth from the bottom, under a caveat
+ * about iframes.
+ */
+function DrawerSection({
+  label,
+  aside,
+  children,
+}: {
+  label: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="drawer-section">
+      <header className="drawer-section-head">
+        <span className="eyebrow">{label}</span>
+        {aside && <span className="drawer-section-aside">{aside}</span>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 function PublishControl({
   canvasId,
   visibility,
@@ -105,7 +148,7 @@ function PublishControl({
     setBusy(true);
     try {
       await publish({ canvasId, visibility: "public" });
-      notify({ message: "Published — the share link is live." });
+      notify({ message: "Published." });
     } catch (err: unknown) {
       notify(toastError(err, "Couldn't publish"));
     } finally {
@@ -113,37 +156,24 @@ function PublishControl({
     }
   }
 
-  // Unpublishing and rotating both kill every link already in circulation,
-  // instantly and with no way back — so both arm first, same as a delete.
+  // Unpublishing and replacing the link both kill every link already in
+  // circulation, instantly and with no way back — so both arm first, same
+  // as a delete.
   async function unpublish() {
     await publish({ canvasId, visibility: "private" });
-    notify({ message: "Now private — the old share link no longer resolves." });
+    notify({ message: "Made private. The old share link no longer resolves." });
   }
 
-  async function rotate() {
+  async function replaceLink() {
     await rotateSlug({ canvasId });
-    notify({ message: "New share link generated — the old one is dead." });
+    notify({ message: "Replaced the link. The old one is dead." });
   }
 
   return (
-    <div className="publish-control">
-      {visibility === "public" ? (
-        <ConfirmButton
-          label="Make private"
-          confirmLabel="Really make private?"
-          busyLabel="Updating…"
-          tone="warning"
-          icon={Lock}
-          description="Every link you have shared stops working."
-          onConfirm={unpublish}
-        />
-      ) : (
-        <Button variant="primary" onClick={publishNow} busy={busy}>
-          {busy ? "Publishing…" : "Publish"}
-        </Button>
-      )}
-      {visibility === "public" && shareUrl && (
+    <DrawerSection label="Share">
+      {visibility === "public" && shareUrl ? (
         <>
+          <p className="drawer-section-note">Anyone with this link can open it. No sign-in.</p>
           {/* The whole point of publishing is handing someone a URL. This
               used to be dead muted text printing a *relative* path, so the
               one thing a human came here for had to be retyped by hand. */}
@@ -153,18 +183,42 @@ function PublishControl({
             value={shareUrl}
             copyLabel="Copy link"
           />
-          <ConfirmButton
-            label="Rotate link"
-            confirmLabel="Really rotate?"
-            busyLabel="Rotating…"
-            tone="warning"
-            icon={RefreshCw}
-            description="Mints a new link and permanently breaks the current one."
-            onConfirm={rotate}
-          />
+          <div className="publish-control">
+            <ConfirmButton
+              label="Make private"
+              confirmLabel="Really make private?"
+              busyLabel="Updating…"
+              tone="warning"
+              icon={Lock}
+              description="Every link you have shared stops working."
+              onConfirm={unpublish}
+            />
+            {/* "Rotate" is security jargon for what the user experiences as
+                swapping one URL for another. */}
+            <ConfirmButton
+              label="Replace link"
+              confirmLabel="Really replace?"
+              busyLabel="Replacing…"
+              tone="warning"
+              icon={RefreshCw}
+              description="Mints a new link and permanently breaks the current one."
+              onConfirm={replaceLink}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="drawer-section-note">
+            Private. Only signed-in @iota.uz accounts can open it.
+          </p>
+          <div className="publish-control">
+            <Button variant="primary" onClick={publishNow} busy={busy}>
+              {busy ? "Publishing…" : "Publish"}
+            </Button>
+          </div>
         </>
       )}
-    </div>
+    </DrawerSection>
   );
 }
 
@@ -182,7 +236,7 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
       // Restoring just re-points `currentVersionId` — nothing is destroyed
       // and no new version is minted — so without this the only signal is
       // the document quietly changing underneath you.
-      notify({ message: `v${version} is now the current version.` });
+      notify({ message: `Restored v${version}.` });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -206,26 +260,34 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
 // existing version, minting nothing and discarding nothing — so unlike delete
 // it needs no armed confirmation. Only the current version's row has no
 // button, since restoring it would be a no-op.
-function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
-  const versions = useQuery(api.canvases.listVersionsMine, { canvasId });
-
+function VersionHistory({
+  canvasId,
+  versions,
+}: {
+  canvasId: Id<"canvases">;
+  versions: CanvasVersion[] | undefined;
+}) {
   if (versions === undefined) return <LoadingState label="Loading version history…" />;
   if (versions.length === 0) return null;
 
   return (
-    <Disclosure className="version-history" summary={`Version history (${versions.length})`}>
-      <ul className="card-list">
+    <DrawerSection label="Versions" aside={`${versions.length} kept`}>
+      <ul className="card-list version-list">
         {versions.map((v) => (
           <li key={v.versionId} className="card-list-item">
-            <div>
+            <div className="version-row-main">
               <strong>
                 v{v.version}
-                {v.isCurrent && " (current)"}
+                {v.isCurrent && <span className="version-row-current">current</span>}
               </strong>
               {v.note && <span className="muted"> — {v.note}</span>}
-              <span className="muted">
-                {" "}
-                · {new Date(v.createdAt).toLocaleString()}
+              <span className="muted version-row-meta">
+                <time
+                  dateTime={new Date(v.createdAt).toISOString()}
+                  title={formatAbsoluteTime(v.createdAt)}
+                >
+                  {formatRelativeTime(v.createdAt)}
+                </time>
                 {v.createdByEmail && ` · ${v.createdByEmail}`}
               </span>
             </div>
@@ -237,7 +299,7 @@ function VersionHistory({ canvasId }: { canvasId: Id<"canvases"> }) {
           </li>
         ))}
       </ul>
-    </Disclosure>
+    </DrawerSection>
   );
 }
 
@@ -327,6 +389,7 @@ export function CanvasPage() {
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
+  useDocumentTitle(canvas?.title);
 
   const workspace = useQuery(
     api.workspaces.getById,
@@ -339,6 +402,17 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /*
+   * Held here rather than inside VersionHistory so the "by …" attribution
+   * above can reuse it: one subscription, not two, and with exactly the
+   * same lifetime it had before — the drawer unmounts when it closes, so
+   * this unsubscribes with it.
+   */
+  const versions = useQuery(
+    api.canvases.listVersionsMine,
+    detailsOpen && canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
+  );
+  const lastAuthor = versions?.find((v) => v.isCurrent)?.createdByEmail ?? null;
   // Labelled with the workspace's real name once it resolves. It used to
   // always read "Workspace" and point at "/" until the query landed — so an
   // early click sent you Home, and a fast delete navigated there too.
@@ -367,7 +441,11 @@ export function CanvasPage() {
     return (
       <div className="canvas-page-full">
         <div className="canvas-page-loading">
-          <EmptyState title="Canvas not found." hint={<Link to="/">Back to workspaces</Link>} />
+          <EmptyState
+            icon={Unplug}
+            title="No canvas at this address."
+            hint={<Link to="/">Back to workspaces</Link>}
+          />
         </div>
       </div>
     );
@@ -416,86 +494,101 @@ export function CanvasPage() {
         className="canvas-details"
         open={detailsOpen}
         onClose={() => setDetailsOpen(false)}
-        title="Canvas details"
+        title="Details"
         closeLabel="Close canvas details"
       >
-        {/* The rename form replaces the header rather than nesting inside
-            it: PageHeader's title is an <h1>, which may only contain
-            phrasing content — a <form> in there is invalid markup. */}
-        {editing ? (
-          <RenameForm
-            initial={canvas.title}
-            label="Canvas title"
-            onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
-            onDone={() => setEditing(false)}
-          />
-        ) : (
-          <SectionHeader
-            as="h3"
-            title={canvas.title}
-            back={{ to: backTo, label: backLabel }}
-            /* Which version am I looking at, and when did an agent last
-               touch it? Both were already in the payload; you had to expand
-               the version history to learn either. */
-            subtitle={
-              <>
-                {canvas.version !== undefined && `v${canvas.version} · `}
-                {formatRelativeTime(canvas.updated_at)}
-                {canvas.description && ` · ${canvas.description}`}
-              </>
-            }
-            actions={
-              <>
-                {canvas.kind !== "canvas" && canvas.entry_url && (
-                  // Guaranteed path to the artifact. The in-page preview can
-                  // legitimately come up blank (see the iframe note below),
-                  // and without this the user is simply stuck.
-                  <ButtonLink
-                    href={canvas.entry_public_url ?? canvas.entry_url}
-                    variant="ghost"
-                    size="sm"
-                    icon={ExternalLink}
-                  >
-                    Open
-                  </ButtonLink>
-                )}
-                <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
-                  Rename
-                </Button>
-                {/* Navigate in the same tick the delete resolves: `getMine`
-                    is reactive and would otherwise flip to null under us and
-                    flash "Canvas not found." */}
-                <ConfirmButton
-                  description="Deletes this canvas and every version of it. Permanent."
-                  onConfirm={async () => {
-                    const result = await remove({ canvasId: canvas.canvas_id });
-                    navigate(backTo);
-                    notify({
-                      message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
-                    });
-                  }}
-                />
-              </>
-            }
-          />
-        )}
-        {canvas.kind !== "canvas" && canvas.entry_url && (
-          // Verified live: agent-authored HTML that measures itself at parse
-          // time computes a degenerate layout inside a cross-origin frame and
-          // comes up blank here, while the same URL renders instantly at top
-          // level. Nothing in this app can fix someone else's document, so
-          // say so and point at Open.
-          <p className="canvas-preview-hint">
-            The preview is a live frame — some artifacts only lay out correctly at top level. If it
-            looks blank, use <strong>Open</strong>.
+        <div className="canvas-details-identity">
+          {/* The rename form replaces the title rather than nesting inside
+              it: a heading may only contain phrasing content, so a <form> in
+              there is invalid markup. */}
+          {editing ? (
+            <RenameForm
+              initial={canvas.title}
+              label="Canvas title"
+              onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
+              onDone={() => setEditing(false)}
+            />
+          ) : (
+            <div className="canvas-details-title-row">
+              <h3 className="canvas-details-title">{canvas.title}</h3>
+              <IconButton
+                icon={Pencil}
+                label="Rename canvas"
+                iconSize={15}
+                className="canvas-details-rename"
+                onClick={() => setEditing(true)}
+              />
+            </div>
+          )}
+          {/* Which version am I looking at, when did an agent last touch it,
+              and which agent? The first two were already in the payload; the
+              third comes from the version list this drawer already holds. */}
+          <p className="muted canvas-details-meta">
+            {canvas.version !== undefined && `v${canvas.version} · `}
+            <time
+              dateTime={new Date(canvas.updated_at).toISOString()}
+              title={formatAbsoluteTime(canvas.updated_at)}
+            >
+              {formatRelativeTime(canvas.updated_at)}
+            </time>
+            {lastAuthor && ` · by ${lastAuthor}`}
           </p>
-        )}
+          {canvas.description && <p className="muted">{canvas.description}</p>}
+          {/* The ref an agent addresses this canvas by — this is where you
+              are standing when one asks which canvas you mean. */}
+          {workspace && <RefChip refValue={`${workspace.slug}/${canvas.slug}`} />}
+        </div>
+
         <PublishControl
           canvasId={canvas.canvas_id}
           visibility={canvas.visibility}
           publicSlug={canvas.public_slug}
         />
-        <VersionHistory canvasId={canvas.canvas_id} />
+
+        <VersionHistory canvasId={canvas.canvas_id} versions={versions} />
+
+        {canvas.kind !== "canvas" && canvas.entry_url && (
+          <DrawerSection label="Open">
+            {/* Guaranteed path to the artifact. The in-page preview can
+                legitimately come up blank (see below), and without this the
+                user is simply stuck. */}
+            <ButtonLink
+              href={canvas.entry_public_url ?? canvas.entry_url}
+              variant="secondary"
+              icon={ExternalLink}
+            >
+              Open in a new tab
+            </ButtonLink>
+            {/* Verified live: agent-authored HTML that measures itself at
+                parse time computes a degenerate layout inside a cross-origin
+                frame and comes up blank here, while the same URL renders
+                instantly at top level. Nothing in this app can fix someone
+                else's document, so say so — quietly, at the bottom, rather
+                than above the share link as it used to be. */}
+            <p className="canvas-preview-hint">
+              Some artifacts only lay out correctly at top level. If the frame behind this looks
+              blank, that is why.
+            </p>
+          </DrawerSection>
+        )}
+
+        {/* Alone, at the bottom, away from everything reversible. */}
+        <div className="canvas-details-danger">
+          {/* Navigate in the same tick the delete resolves: `getMine` is
+              reactive and would otherwise flip to null under us and flash
+              "Canvas not found." */}
+          <ConfirmButton
+            label="Delete canvas"
+            description="Deletes this canvas and every version of it. Permanent."
+            onConfirm={async () => {
+              const result = await remove({ canvasId: canvas.canvas_id });
+              navigate(backTo);
+              notify({
+                message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
+              });
+            }}
+          />
+        </div>
       </Drawer>
       {canvas.kind === "canvas" ? (
         <>
@@ -534,7 +627,7 @@ export function CanvasPage() {
         </div>
       ) : (
         <div className="canvas-page-loading">
-          <EmptyState title="No render yet." hint="Ask Claude to render this canvas." />
+          <EmptyState title="No render yet." hint="Ask your agent to render this canvas." />
         </div>
       )}
     </div>
