@@ -133,9 +133,20 @@ function NodeSearch({
       </div>
       {/* Results *replace* the list rather than stacking above it. Stacked,
           searching left the whole unfiltered list sitting underneath the
-          thing you were searching for. */}
-      <div className="node-search-region" aria-live="polite">
-        {query ? <SearchResults results={results} workspaceNames={workspaceNames} /> : children}
+          thing you were searching for.
+
+          `aria-live` is on the results branch only, never around the
+          workspace list: the list is a live Convex subscription, and an
+          announcement on every re-render would narrate an agent saving a
+          canvas somewhere else in the org. */}
+      <div className="node-search-region">
+        {query ? (
+          <div className="node-search-results" aria-live="polite">
+            <SearchResults results={results} workspaceNames={workspaceNames} />
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </>
   );

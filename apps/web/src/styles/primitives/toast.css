@@ -29,11 +29,11 @@
   grid-template-rows: 0fr;
 }
 
-.toast-slot > .toast {
-  min-height: 0;
-}
-
 .toast {
+  /* Folded in rather than written as `.toast-slot > .toast`: every toast
+     renders inside a slot, and the descendant form was one file reaching
+     into another's element. Without it the grid row can't collapse. */
+  min-height: 0;
   display: flex;
   align-items: flex-start;
   gap: var(--app-space-2);

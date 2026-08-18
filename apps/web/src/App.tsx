@@ -236,10 +236,13 @@ export function App() {
  * way to navigate anywhere else.
  */
 function Page({ label, children }: { label?: string; children: ReactNode }) {
+  // The boundary is inside the container, not around it, so a route that
+  // throws still gets the page's own gutters instead of painting flush
+  // against the viewport edge.
   return (
-    <ErrorBoundary label={label}>
-      <div className="page-container">{children}</div>
-    </ErrorBoundary>
+    <div className="page-container">
+      <ErrorBoundary label={label}>{children}</ErrorBoundary>
+    </div>
   );
 }
 

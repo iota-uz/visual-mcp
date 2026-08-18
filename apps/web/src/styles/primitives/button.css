@@ -78,7 +78,9 @@
 
 .btn-secondary:not(:disabled):hover {
   border-color: var(--app-accent);
-  color: var(--app-accent);
+  /* The border may be the fill blue; the label may not — --app-accent is
+     4.53:1 on white, a rounding error away from failing. */
+  color: var(--app-accent-text);
 }
 
 .btn-danger {

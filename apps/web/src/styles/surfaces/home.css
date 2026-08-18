@@ -18,7 +18,8 @@
  * never both. Stacked, a search left the entire unfiltered list sitting
  * underneath the thing you were looking for.
  */
-.node-search-region {
+.node-search-region,
+.node-search-results {
   display: flex;
   flex-direction: column;
   gap: var(--app-space-3);

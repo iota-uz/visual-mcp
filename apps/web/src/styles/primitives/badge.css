@@ -38,5 +38,6 @@
 
 .badge-info {
   background: var(--app-accent-soft);
-  color: var(--app-accent);
+  /* Not --app-accent: it measures 3.96:1 on accent-soft, below AA. */
+  color: var(--app-accent-text);
 }
