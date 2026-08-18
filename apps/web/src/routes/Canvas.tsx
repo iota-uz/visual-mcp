@@ -6,16 +6,7 @@ import {
   mountViewport,
 } from "@visual-canvas/canvas";
 import { useMutation, useQuery } from "convex/react";
-import {
-  ArrowLeft,
-  ExternalLink,
-  History,
-  Info,
-  Lock,
-  Pencil,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ExternalLink, History, Info, Lock, Pencil, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
@@ -441,73 +432,77 @@ export function CanvasPage() {
           <aside id="canvas-details" className="canvas-details-panel" aria-label="Canvas details">
             <header className="canvas-details-panel-header">
               <span>Canvas details</span>
-              <button type="button" onClick={() => setDetailsOpen(false)} aria-label="Close canvas details">
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(false)}
+                aria-label="Close canvas details"
+              >
                 <X size={18} aria-hidden="true" />
               </button>
             </header>
-        {/* The rename form replaces the header rather than nesting inside
+            {/* The rename form replaces the header rather than nesting inside
             it: PageHeader's title is an <h1>, which may only contain
             phrasing content — a <form> in there is invalid markup. */}
-        {editing ? (
-          <RenameForm
-            initial={canvas.title}
-            label="Canvas title"
-            onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
-            onDone={() => setEditing(false)}
-          />
-        ) : (
-          <PageHeader
-            title={canvas.title}
-            back={{ to: backTo, label: backLabel }}
-            /* Which version am I looking at, and when did an agent last
+            {editing ? (
+              <RenameForm
+                initial={canvas.title}
+                label="Canvas title"
+                onSave={(title) => rename({ canvasId: canvas.canvas_id, title })}
+                onDone={() => setEditing(false)}
+              />
+            ) : (
+              <PageHeader
+                title={canvas.title}
+                back={{ to: backTo, label: backLabel }}
+                /* Which version am I looking at, and when did an agent last
                touch it? Both were already in the payload; you had to expand
                the version history to learn either. */
-            subtitle={
-              <>
-                {canvas.version !== undefined && `v${canvas.version} · `}
-                {formatRelativeTime(canvas.updated_at)}
-                {canvas.description && ` · ${canvas.description}`}
-              </>
-            }
-            actions={
-              <>
-                {canvas.kind !== "canvas" && canvas.entry_url && (
-                  // Guaranteed path to the artifact. The in-page preview can
-                  // legitimately come up blank (see the iframe note below),
-                  // and without this the user is simply stuck.
-                  <a
-                    href={canvas.entry_public_url ?? canvas.entry_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-ghost btn-sm"
-                  >
-                    <ExternalLink size={14} /> Open
-                  </a>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil size={14} /> Rename
-                </button>
-                {/* Navigate in the same tick the delete resolves: `getMine`
+                subtitle={
+                  <>
+                    {canvas.version !== undefined && `v${canvas.version} · `}
+                    {formatRelativeTime(canvas.updated_at)}
+                    {canvas.description && ` · ${canvas.description}`}
+                  </>
+                }
+                actions={
+                  <>
+                    {canvas.kind !== "canvas" && canvas.entry_url && (
+                      // Guaranteed path to the artifact. The in-page preview can
+                      // legitimately come up blank (see the iframe note below),
+                      // and without this the user is simply stuck.
+                      <a
+                        href={canvas.entry_public_url ?? canvas.entry_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-ghost btn-sm"
+                      >
+                        <ExternalLink size={14} /> Open
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil size={14} /> Rename
+                    </button>
+                    {/* Navigate in the same tick the delete resolves: `getMine`
                     is reactive and would otherwise flip to null under us and
                     flash "Canvas not found." */}
-                <ConfirmButton
-                  description="Deletes this canvas and every version of it. Permanent."
-                  onConfirm={async () => {
-                    const result = await remove({ canvasId: canvas.canvas_id });
-                    navigate(backTo);
-                    notify({
-                      message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
-                    });
-                  }}
-                />
-              </>
-            }
-          />
-        )}
+                    <ConfirmButton
+                      description="Deletes this canvas and every version of it. Permanent."
+                      onConfirm={async () => {
+                        const result = await remove({ canvasId: canvas.canvas_id });
+                        navigate(backTo);
+                        notify({
+                          message: `Deleted "${canvas.title}" — ${formatBytes(result.bytes_reclaimed)} freed.`,
+                        });
+                      }}
+                    />
+                  </>
+                }
+              />
+            )}
             {canvas.kind !== "canvas" && canvas.entry_url && (
               // Verified live: agent-authored HTML that measures itself at
               // parse time computes a degenerate layout inside a

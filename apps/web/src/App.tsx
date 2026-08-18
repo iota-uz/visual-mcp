@@ -77,7 +77,13 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }) {
 // Left sidebar, not a top bar — a canvas page (below) needs the full
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
-function Sidebar({ canvasDrawer = false, onClose }: { canvasDrawer?: boolean; onClose?: () => void }) {
+function Sidebar({
+  canvasDrawer = false,
+  onClose,
+}: {
+  canvasDrawer?: boolean;
+  onClose?: () => void;
+}) {
   const sessionUser = useSessionUser();
   const signOut = useSignOut();
   // Switching workspaces used to be a three-hop trip: canvas → workspace →
@@ -99,7 +105,12 @@ function Sidebar({ canvasDrawer = false, onClose }: { canvasDrawer?: boolean; on
       aria-label="Navigation"
     >
       {canvasDrawer && (
-        <button type="button" className="app-sidebar-close" onClick={onClose} aria-label="Close navigation">
+        <button
+          type="button"
+          className="app-sidebar-close"
+          onClick={onClose}
+          aria-label="Close navigation"
+        >
           <X size={18} aria-hidden="true" />
         </button>
       )}
@@ -182,6 +193,10 @@ function AuthenticatedApp() {
 
   // A canvas owns the whole workspace. If its drawer was open and the user
   // navigates elsewhere, leave the next page in its conventional layout.
+  // `pathname` is the trigger, not an input: the effect reads nothing, it
+  // fires *because* the route changed. Biome's offered autofix drops the
+  // dependency, and the drawer then stays open across navigations.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => setNavigationOpen(false), [pathname]);
 
   useEffect(() => {
