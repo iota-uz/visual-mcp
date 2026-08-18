@@ -248,6 +248,60 @@ function toSummary(c: Doc<"canvases">) {
   };
 }
 
+/**
+ * A canvas's primary artifact is its gallery face, not necessarily the file
+ * that can be opened as the canvas. HTML canvases commonly render both an
+ * interactive HTML page and a primary PNG thumbnail. Treating the primary
+ * PNG as `entry_url` turns the signed-in viewer into a static screenshot.
+ *
+ * Prefer a matching primary when one exists; otherwise use the most recently
+ * registered artifact whose media type matches the canvas kind. Re-rendering
+ * replaces an artifact row, so `_creationTime` is the current row's freshness
+ * signal without loading every historical version.
+ */
+function selectViewerArtifact(
+  kind: Doc<"canvases">["kind"],
+  artifacts: Doc<"artifacts">[],
+): Doc<"artifacts"> | undefined {
+  if (kind === "canvas") return undefined;
+
+  const matchesKind = (artifact: Doc<"artifacts">) => {
+    switch (kind) {
+      case "html":
+        return artifact.mimeType === "text/html";
+      case "pdf":
+        return artifact.type === "pdf" || artifact.mimeType === "application/pdf";
+      case "image":
+        return artifact.type === "image" || artifact.type === "svg";
+    }
+  };
+
+  const matching = artifacts.filter(matchesKind);
+  return (
+    matching.find((artifact) => artifact.role === "primary") ??
+    matching.reduce<Doc<"artifacts"> | undefined>(
+      (latest, artifact) =>
+        !latest || artifact._creationTime > latest._creationTime ? artifact : latest,
+      undefined,
+    )
+  );
+}
+
+async function getViewerArtifact(
+  ctx: QueryCtx,
+  canvas: Doc<"canvases">,
+): Promise<Doc<"artifacts"> | undefined> {
+  if (canvas.kind === "canvas") return undefined;
+  const artifacts = await ctx.db
+    .query("artifacts")
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+    .take(500);
+  return (
+    selectViewerArtifact(canvas.kind, artifacts) ??
+    artifacts.find((artifact) => artifact.role === "primary")
+  );
+}
+
 export const create = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -324,13 +378,17 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
     cssStorageId = currentVersion?.cssStorageId;
     version = currentVersion?.version;
   }
+  const viewerArtifact = await getViewerArtifact(ctx, canvas);
+  const viewerStorageId = viewerArtifact?.storageId ?? entryStorageId;
   // Signed, time-limited URLs — cheap to mint per query, never stored.
   // `doc_url` feeds the SPA's client-side canvas viewer (kind="canvas");
-  // `entry_url` is the primary artifact for html/image/pdf kinds; `css_url`
-  // is the compiled Tailwind stylesheet for the doc's HTML nodes (PLAN.md
-  // section 2), null when the doc has no content.type='html' nodes.
+  // `entry_url` is the artifact matching the canvas kind. It is deliberately
+  // independent from the primary artifact: an HTML canvas usually has a PNG
+  // primary for its gallery thumbnail. `css_url` is the compiled Tailwind
+  // stylesheet for the doc's HTML nodes (PLAN.md section 2), null when the
+  // doc has no content.type='html' nodes.
   const docUrl = docStorageId ? await ctx.storage.getUrl(docStorageId) : null;
-  const entryUrl = entryStorageId ? await ctx.storage.getUrl(entryStorageId) : null;
+  const entryUrl = viewerStorageId ? await ctx.storage.getUrl(viewerStorageId) : null;
   const cssUrl = cssStorageId ? await ctx.storage.getUrl(cssStorageId) : null;
   const thumbnailUrl = canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null;
   return {
@@ -338,7 +396,7 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
     doc_storage_id: docStorageId,
     doc_url: docUrl,
     entry_url: entryUrl,
-    entry_public_url: await publicEntryUrl(ctx, canvas, entryStorageId),
+    entry_public_url: await publicEntryUrl(ctx, canvas, viewerStorageId),
     css_url: cssUrl,
     thumbnail_url: thumbnailUrl,
     version,
@@ -787,12 +845,14 @@ export const resolvePublicArtifact = internalQuery({
         )
         .unique();
     } else {
-      const primaryRows = await ctx.db
+      const artifacts = await ctx.db
         .query("artifacts")
         .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
-        .filter((q) => q.eq(q.field("role"), "primary"))
-        .take(1);
-      row = primaryRows[0] ?? null;
+        .take(500);
+      row =
+        selectViewerArtifact(canvas.kind, artifacts) ??
+        artifacts.find((artifact) => artifact.role === "primary") ??
+        null;
     }
 
     // Fall back to the canvas's own /assets. A shared HTML artifact is a

@@ -90,6 +90,90 @@ describe("canvases.create", () => {
   });
 });
 
+describe("viewer artifact selection", () => {
+  test("an HTML canvas opens its HTML artifact when a PNG is primary", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await t.run(async (ctx) => {
+      const createdBy = await ctx.db.insert("users", {
+        googleSub: "bootstrap:viewer@iota.uz",
+        email: "viewer@iota.uz",
+        name: "Viewer",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "viewer-ws",
+        name: "Viewer WS",
+        createdBy,
+      });
+      const canvasId = await ctx.db.insert("canvases", {
+        workspaceId,
+        slug: "interactive-flow",
+        title: "Interactive flow",
+        kind: "html",
+        visibility: "public",
+        publicSlug: "interactive-flow-public",
+        createdBy,
+        updatedAt: 2,
+      });
+      const htmlStorageId = await ctx.storage.store(
+        new Blob(["<button>Interactive</button>"], { type: "text/html" }),
+      );
+      const htmlVersionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy,
+        entryStorageId: htmlStorageId,
+      });
+      await ctx.db.insert("artifacts", {
+        canvasId,
+        versionId: htmlVersionId,
+        relPath: "/output/index.html",
+        type: "source",
+        role: "supporting",
+        mimeType: "text/html",
+        size: 28,
+        storageId: htmlStorageId,
+      });
+
+      const pngStorageId = await ctx.storage.store(new Blob(["png"], { type: "image/png" }));
+      const pngVersionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 2,
+        createdBy,
+        entryStorageId: pngStorageId,
+      });
+      await ctx.db.insert("artifacts", {
+        canvasId,
+        versionId: pngVersionId,
+        relPath: "/output/index.png",
+        type: "image",
+        role: "primary",
+        mimeType: "image/png",
+        size: 3,
+        storageId: pngStorageId,
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: pngVersionId, thumbnailId: pngStorageId });
+      return { htmlStorageId };
+    });
+
+    const expectedHtmlUrl = await t.run((ctx) => ctx.storage.getUrl(seeded.htmlStorageId));
+    const publicCanvas = await t.query(api.canvases.getPublic, {
+      publicSlug: "interactive-flow-public",
+    });
+    expect(publicCanvas?.entry_url).toBe(expectedHtmlUrl);
+    if (publicCanvas?.entry_public_url) {
+      expect(publicCanvas.entry_public_url).toMatch(/\/output\/index\.html$/);
+    }
+
+    const rawEntry = await t.query(internal.canvases.resolvePublicArtifact, {
+      publicSlug: "interactive-flow-public",
+    });
+    expect(rawEntry?.storageId).toBe(seeded.htmlStorageId);
+    expect(rawEntry?.relPath).toBe("/output/index.html");
+    expect(rawEntry?.mimeType).toBe("text/html");
+  });
+});
+
 describe("canvases.publish", () => {
   async function seedCanvas(t: ReturnType<typeof convexTest>) {
     const createdBy = await seedUser(t);
