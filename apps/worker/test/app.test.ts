@@ -56,6 +56,17 @@ test("/compile-css without a bearer token is rejected", async () => {
   assert.equal(res.status, 401);
 });
 
+test("/asset-import requires auth and validates its body", async () => {
+  const unauthorized = await app.request("/asset-import", { method: "POST", body: "{}" });
+  assert.equal(unauthorized.status, 401);
+  const invalid = await app.request("/asset-import", {
+    method: "POST",
+    headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("/compile-css with a valid token and empty fragments returns 200 with empty css", async () => {
   const res = await app.request("/compile-css", {
     method: "POST",

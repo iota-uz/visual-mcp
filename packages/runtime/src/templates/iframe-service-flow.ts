@@ -1,6 +1,9 @@
 import type { Template } from "../types.js";
 
-const exampleCode = `canvas_save({
+const exampleCode = `// Optional: reuse an existing library asset without uploading it again.
+// const { assets } = asset_list({ scope: "workspace", workspace: "demo", query: "brand" })
+
+canvas_save({
   ref: "demo/interactive-flow",
   kind: "canvas",
   doc: {
@@ -19,7 +22,10 @@ const exampleCode = `canvas_save({
     ],
     edges: [{ id: "handoff", source: { nodeId: "phone", anchorId: "out" }, target: { nodeId: "browser", anchorId: "in" }, kind: "main", route: { type: "orthogonal" }, label: { text: "QR" } }]
   },
-  files: [{ path: "/src/screens/runtime.html", text: "<!doctype html><button>Interactive screen</button><script>document.querySelector('button').onclick=()=>alert('works')</script>" }],
+  files: [
+    { path: "/src/screens/runtime.html", text: "<!doctype html><button>Interactive screen</button><script>document.querySelector('button').onclick=()=>alert('works')</script>" }
+    // { path: "/assets/logo.svg", asset_ref: assets[0].asset_ref }
+  ],
   renders: [{ target: { type: "canvas" }, format: "png" }]
 })`;
 

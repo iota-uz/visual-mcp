@@ -49,6 +49,7 @@
 @import "./surfaces/auth.css" layer(surfaces);
 @import "./surfaces/public-shell.css" layer(surfaces);
 @import "./surfaces/home.css" layer(surfaces);
+@import "./surfaces/assets.css" layer(surfaces);
 @import "./surfaces/tokens-page.css" layer(surfaces);
 @import "./surfaces/canvas.css" layer(surfaces);
 @import "./surfaces/kitchen-sink.css" layer(surfaces);

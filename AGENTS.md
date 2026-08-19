@@ -12,6 +12,23 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Project posture: green-field
+
+Treat this repository as a green-field project unless the user explicitly
+requires compatibility for a specific change.
+
+- Do not preserve backwards compatibility by default.
+- Do not add compatibility layers, legacy adapters, dual reads/writes, schema
+  fallbacks, or automatic migrations for superseded models.
+- Prefer the clean target architecture, make breaking schema/API changes when
+  they improve it, remove obsolete implementations, and update every internal
+  caller, validator, fixture, template, document, and test in the same change.
+- Existing persisted development data may be discarded or recreated. Preserve
+  particular production data only when the task explicitly puts it in scope.
+- Audit trails and detailed change-history logging are not product priorities.
+  Do not build them unless they are required for correctness, security,
+  debugging, or an explicit user/compliance requirement.
+
 ## Local stack
 
 Every authenticated surface sits behind Google OAuth restricted to `@iota.uz`,

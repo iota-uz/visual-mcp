@@ -1,4 +1,5 @@
 import { CanvasDocSchema, RectSchema } from "@visual-canvas/canvas/types.js";
+import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -413,14 +414,13 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
     entry_public_url: await publicEntryUrl(ctx, canvas, viewerStorageId),
     css_url: cssUrl,
     thumbnail_url: thumbnailUrl,
-    artifacts: artifactRows
-      .map((artifact) => ({
-        path: artifact.relPath,
-        type: artifact.type,
-        role: artifact.role,
-        mime_type: artifact.mimeType,
-        size_bytes: artifact.size,
-      })),
+    artifacts: artifactRows.map((artifact) => ({
+      path: artifact.relPath,
+      type: artifact.type,
+      role: artifact.role,
+      mime_type: artifact.mimeType,
+      size_bytes: artifact.size,
+    })),
     version,
   };
 }
@@ -703,11 +703,459 @@ export const putDoc = internalMutation({
       });
     }
 
+    const assetBindings = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    for (const binding of assetBindings) {
+      await ctx.db.insert("canvasVersionAssets", {
+        canvasId: args.canvasId,
+        versionId,
+        logicalPath: binding.logicalPath,
+        assetId: binding.assetId,
+        assetVersionId: binding.assetVersionId,
+      });
+    }
+
     for (const node of args.nodes) {
       await ctx.db.insert("canvasNodes", { canvasId: args.canvasId, versionId, ...node });
     }
 
     await ctx.db.patch(args.canvasId, { currentVersionId: versionId, updatedAt: Date.now() });
+    return { versionId, version };
+  },
+});
+
+/** Atomically binds one immutable asset revision and creates a canvas snapshot. */
+export const bindAssetAndVersion = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    logicalPath: v.string(),
+    assetId: v.id("assets"),
+    assetVersionId: v.id("assetVersions"),
+    expectedVersion: v.number(),
+    createdBy: v.id("users"),
+  },
+  returns: v.object({ versionId: v.id("canvasVersions"), version: v.number(), path: v.string() }),
+  handler: async (ctx, args) => {
+    const normalized = normalizeCanvasPath(args.logicalPath, "write", "path").displayPath;
+    if (!normalized.startsWith("/assets/"))
+      throw new Error("Asset bindings must live under /assets/");
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas?.currentVersionId) throw new Error("Canvas has no current version");
+    const current = await ctx.db.get(canvas.currentVersionId);
+    if (!current || current.version !== args.expectedVersion) {
+      throw new Error(
+        `Canvas version conflict: expected ${args.expectedVersion}, current ${current?.version ?? 0}`,
+      );
+    }
+    const asset = await ctx.db.get(args.assetId);
+    const assetVersion = await ctx.db.get(args.assetVersionId);
+    if (!asset || !assetVersion || assetVersion.assetId !== asset._id)
+      throw new Error("Invalid asset revision");
+    const existing = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) =>
+        q.eq("canvasId", args.canvasId).eq("logicalPath", normalized),
+      )
+      .unique();
+    if (existing)
+      await ctx.db.patch(existing._id, { assetId: asset._id, assetVersionId: assetVersion._id });
+    else
+      await ctx.db.insert("canvasAssetBindings", {
+        canvasId: args.canvasId,
+        logicalPath: normalized,
+        assetId: asset._id,
+        assetVersionId: assetVersion._id,
+      });
+    const replacedFile = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) =>
+        q.eq("canvasId", args.canvasId).eq("relPath", normalized),
+      )
+      .unique();
+    if (replacedFile) {
+      await ctx.db.delete(replacedFile._id);
+      const stillReferenced = await isStorageReferenced(ctx, args.canvasId, replacedFile.storageId);
+      if (!stillReferenced) {
+        try {
+          await ctx.storage.delete(replacedFile.storageId);
+          await releaseCanvasStorage(ctx, args.canvasId, replacedFile.size);
+        } catch {
+          // The new asset binding remains the current path owner.
+        }
+      }
+    }
+
+    const version = current.version + 1;
+    const versionId = await ctx.db.insert("canvasVersions", {
+      canvasId: args.canvasId,
+      version,
+      note: `Asset: ${normalized}`,
+      createdBy: args.createdBy,
+      docStorageId: current.docStorageId,
+      cssStorageId: current.cssStorageId,
+      entryStorageId: current.entryStorageId,
+      iframeEntrypoints: current.iframeEntrypoints,
+    });
+    const files = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    for (const file of files) {
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId: args.canvasId,
+        versionId,
+        relPath: file.relPath,
+        storageId: file.storageId,
+        size: file.size,
+        contentHash: file.contentHash,
+      });
+    }
+    const bindings = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    for (const binding of bindings) {
+      await ctx.db.insert("canvasVersionAssets", {
+        canvasId: args.canvasId,
+        versionId,
+        logicalPath: binding.logicalPath,
+        assetId: binding.assetId,
+        assetVersionId: binding.assetVersionId,
+      });
+    }
+    const oldNodes = await ctx.db
+      .query("canvasNodes")
+      .withIndex("by_version", (q) => q.eq("versionId", current._id))
+      .take(1000);
+    for (const node of oldNodes) {
+      await ctx.db.insert("canvasNodes", {
+        canvasId: args.canvasId,
+        versionId,
+        nodeId: node.nodeId,
+        title: node.title,
+        eyebrow: node.eyebrow,
+        searchText: node.searchText,
+      });
+      await ctx.db.delete(node._id);
+    }
+    await ctx.db.patch(canvas._id, { currentVersionId: versionId, updatedAt: Date.now() });
+    return { versionId, version, path: normalized };
+  },
+});
+
+export const upsertAssetBinding = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    logicalPath: v.string(),
+    assetId: v.id("assets"),
+    assetVersionId: v.id("assetVersions"),
+  },
+  returns: v.object({ path: v.string() }),
+  handler: async (ctx, args) => {
+    const path = normalizeCanvasPath(args.logicalPath, "write", "path").displayPath;
+    if (!path.startsWith("/assets/")) throw new Error("Asset bindings must live under /assets/");
+    const version = await ctx.db.get(args.assetVersionId);
+    if (!version || version.assetId !== args.assetId) throw new Error("Invalid asset revision");
+    const existing = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId).eq("logicalPath", path))
+      .unique();
+    if (existing)
+      await ctx.db.patch(existing._id, {
+        assetId: args.assetId,
+        assetVersionId: args.assetVersionId,
+      });
+    else
+      await ctx.db.insert("canvasAssetBindings", {
+        canvasId: args.canvasId,
+        logicalPath: path,
+        assetId: args.assetId,
+        assetVersionId: args.assetVersionId,
+      });
+    const replacedFile = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId).eq("relPath", path))
+      .unique();
+    if (replacedFile) {
+      await ctx.db.delete(replacedFile._id);
+      const stillReferenced = await isStorageReferenced(ctx, args.canvasId, replacedFile.storageId);
+      if (!stillReferenced) {
+        try {
+          await ctx.storage.delete(replacedFile.storageId);
+          await releaseCanvasStorage(ctx, args.canvasId, replacedFile.size);
+        } catch {
+          // The binding is authoritative even when an already-missing old blob cannot be reclaimed.
+        }
+      }
+    }
+    return { path };
+  },
+});
+
+export const removeAssetBinding = internalMutation({
+  args: { canvasId: v.id("canvases"), logicalPath: v.string() },
+  returns: v.object({ removed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const path = normalizeCanvasPath(args.logicalPath, "write", "path").displayPath;
+    const existing = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId).eq("logicalPath", path))
+      .unique();
+    if (existing) await ctx.db.delete(existing._id);
+    return { removed: Boolean(existing) };
+  },
+});
+
+export const listAssetBindingPaths = internalQuery({
+  args: { canvasId: v.id("canvases") },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const bindings = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    return bindings.map((binding) => binding.logicalPath);
+  },
+});
+
+export const listAssetSourcesForCanvas = internalQuery({
+  args: { canvasId: v.id("canvases") },
+  returns: v.array(
+    v.object({
+      relPath: v.string(),
+      objectKey: v.string(),
+      size: v.number(),
+      mimeType: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const bindings = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    const sources = [];
+    for (const binding of bindings) {
+      const version = await ctx.db.get(binding.assetVersionId);
+      if (!version) continue;
+      sources.push({
+        relPath: binding.logicalPath,
+        objectKey: version.deliveryObjectKey,
+        size: version.size,
+        mimeType: version.mimeType,
+      });
+    }
+    return sources;
+  },
+});
+
+export const getEditableFileByRef = internalQuery({
+  args: { ref: v.string(), path: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      canvasId: v.id("canvases"),
+      version: v.number(),
+      kind: KindValidator,
+      path: v.string(),
+      size: v.number(),
+      contentHash: v.string(),
+      fileUrl: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const canvas = await findCanvasByRef(ctx, args.ref);
+    if (!canvas?.currentVersionId || canvas.archivedAt !== undefined) return null;
+    const version = await ctx.db.get(canvas.currentVersionId);
+    if (!version) return null;
+    const path = normalizeCanvasPath(args.path, "write", "path").displayPath;
+    const file = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id).eq("relPath", path))
+      .unique();
+    if (!file) return null;
+    const fileUrl = await ctx.storage.getUrl(file.storageId);
+    if (!fileUrl) throw new Error("File blob is unavailable");
+    return {
+      canvasId: canvas._id,
+      version: version.version,
+      kind: canvas.kind,
+      path,
+      size: file.size,
+      contentHash: file.contentHash,
+      fileUrl,
+    };
+  },
+});
+
+export const commitFilePatch = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    expectedVersion: v.number(),
+    changes: v.array(
+      v.union(
+        v.object({
+          type: v.literal("write"),
+          path: v.string(),
+          expectedHash: v.optional(v.string()),
+          storageId: v.id("_storage"),
+          size: v.number(),
+          contentHash: v.string(),
+        }),
+        v.object({
+          type: v.literal("delete"),
+          path: v.string(),
+          expectedHash: v.string(),
+        }),
+        v.object({
+          type: v.literal("move"),
+          path: v.string(),
+          toPath: v.string(),
+          expectedHash: v.string(),
+        }),
+      ),
+    ),
+    createdBy: v.id("users"),
+    note: v.optional(v.string()),
+  },
+  returns: v.object({ versionId: v.id("canvasVersions"), version: v.number() }),
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas?.currentVersionId) throw new Error("Canvas has no current version");
+    const current = await ctx.db.get(canvas.currentVersionId);
+    if (!current || current.version !== args.expectedVersion) {
+      throw new Error(
+        `Canvas version conflict: expected ${args.expectedVersion}, current ${current?.version ?? 0}`,
+      );
+    }
+    if (args.changes.length === 0) throw new Error("Patch has no file changes");
+    const paths = new Set<string>();
+    for (const change of args.changes) {
+      const path = normalizeCanvasPath(change.path, "write", "path").displayPath;
+      if (paths.has(path)) throw new Error(`Patch changes ${path} more than once`);
+      paths.add(path);
+      const file = await ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId).eq("relPath", path))
+        .unique();
+      if (change.type === "write") {
+        if (change.expectedHash === undefined && file)
+          throw new Error(`File already exists: ${path}`);
+        if (change.expectedHash !== undefined && !file) throw new Error(`File not found: ${path}`);
+        if (file && file.contentHash !== change.expectedHash) {
+          throw new Error(
+            `File hash conflict for ${path}: expected ${change.expectedHash}, current ${file.contentHash}`,
+          );
+        }
+      } else {
+        if (!file) throw new Error(`File not found: ${path}`);
+        if (file.contentHash !== change.expectedHash) {
+          throw new Error(
+            `File hash conflict for ${path}: expected ${change.expectedHash}, current ${file.contentHash}`,
+          );
+        }
+        if (change.type === "move") {
+          const toPath = normalizeCanvasPath(change.toPath, "write", "toPath").displayPath;
+          if (paths.has(toPath)) throw new Error(`Patch target conflicts at ${toPath}`);
+          const target = await ctx.db
+            .query("canvasFiles")
+            .withIndex("by_canvas_relPath", (q) =>
+              q.eq("canvasId", args.canvasId).eq("relPath", toPath),
+            )
+            .unique();
+          if (target) throw new Error(`Move target already exists: ${toPath}`);
+        }
+      }
+    }
+    const incomingBytes = args.changes.reduce(
+      (total, change) => total + (change.type === "write" ? change.size : 0),
+      0,
+    );
+    if (incomingBytes > 0) await reserveCanvasStorage(ctx, args.canvasId, incomingBytes);
+    for (const change of args.changes) {
+      const path = normalizeCanvasPath(change.path, "write", "path").displayPath;
+      const file = await ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId).eq("relPath", path))
+        .unique();
+      if (change.type === "write") {
+        if (file) {
+          await ctx.db.patch(file._id, {
+            storageId: change.storageId,
+            size: change.size,
+            contentHash: change.contentHash,
+          });
+        } else {
+          await ctx.db.insert("canvasFiles", {
+            canvasId: args.canvasId,
+            relPath: path,
+            storageId: change.storageId,
+            size: change.size,
+            contentHash: change.contentHash,
+          });
+        }
+      } else if (change.type === "delete") {
+        if (file) await ctx.db.delete(file._id);
+      } else if (file) {
+        const toPath = normalizeCanvasPath(change.toPath, "write", "toPath").displayPath;
+        await ctx.db.patch(file._id, { relPath: toPath });
+      }
+    }
+    const version = current.version + 1;
+    const versionId = await ctx.db.insert("canvasVersions", {
+      canvasId: args.canvasId,
+      version,
+      note: args.note ?? `Edit ${args.changes.length} file${args.changes.length === 1 ? "" : "s"}`,
+      createdBy: args.createdBy,
+      docStorageId: current.docStorageId,
+      cssStorageId: current.cssStorageId,
+      entryStorageId: current.entryStorageId,
+      iframeEntrypoints: current.iframeEntrypoints,
+    });
+    const files = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    for (const currentFile of files) {
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId: args.canvasId,
+        versionId,
+        relPath: currentFile.relPath,
+        storageId: currentFile.storageId,
+        size: currentFile.size,
+        contentHash: currentFile.contentHash,
+      });
+    }
+    const bindings = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId))
+      .take(500);
+    for (const binding of bindings) {
+      await ctx.db.insert("canvasVersionAssets", {
+        canvasId: args.canvasId,
+        versionId,
+        logicalPath: binding.logicalPath,
+        assetId: binding.assetId,
+        assetVersionId: binding.assetVersionId,
+      });
+    }
+    const oldNodes = await ctx.db
+      .query("canvasNodes")
+      .withIndex("by_version", (q) => q.eq("versionId", current._id))
+      .take(1000);
+    for (const node of oldNodes) {
+      await ctx.db.insert("canvasNodes", {
+        canvasId: args.canvasId,
+        versionId,
+        nodeId: node.nodeId,
+        title: node.title,
+        eyebrow: node.eyebrow,
+        searchText: node.searchText,
+      });
+      await ctx.db.delete(node._id);
+    }
+    await ctx.db.patch(canvas._id, { currentVersionId: versionId, updatedAt: Date.now() });
     return { versionId, version };
   },
 });
@@ -770,9 +1218,7 @@ export const patchNodeRectMine = action({
     );
     const patched = CanvasDocSchema.parse({ ...doc, nodes });
     const bytes = new TextEncoder().encode(JSON.stringify(patched));
-    const docStorageId = await ctx.storage.store(
-      new Blob([bytes], { type: "application/json" }),
-    );
+    const docStorageId = await ctx.storage.store(new Blob([bytes], { type: "application/json" }));
     try {
       const result = await ctx.runMutation(internal.canvases.putDoc, {
         canvasId: args.canvasId,
@@ -889,6 +1335,14 @@ export const upsertFile = internalMutation({
         q.eq("canvasId", args.canvasId).eq("relPath", args.relPath),
       )
       .unique();
+
+    const replacedBinding = await ctx.db
+      .query("canvasAssetBindings")
+      .withIndex("by_canvas_path", (q) =>
+        q.eq("canvasId", args.canvasId).eq("logicalPath", args.relPath),
+      )
+      .unique();
+    if (replacedBinding) await ctx.db.delete(replacedBinding._id);
 
     // Re-declaring the identical blob at the identical path (a retried
     // canvas_save replaying its upload_ids) must not charge the quota twice
@@ -1035,6 +1489,29 @@ export const resolvePublicArtifact = internalQuery({
             storageId: file.storageId,
             iframe: isEntrypoint,
           };
+        }
+        if (args.relPath.startsWith("/assets/")) {
+          const binding = await ctx.db
+            .query("canvasVersionAssets")
+            .withIndex("by_version_path", (q) =>
+              q.eq("versionId", currentVersionId).eq("logicalPath", relPath),
+            )
+            .unique();
+          if (binding) {
+            const assetVersion = await ctx.db.get(binding.assetVersionId);
+            if (assetVersion) {
+              return {
+                relPath,
+                type:
+                  assetVersion.mimeType === "image/svg+xml" ? ("svg" as const) : ("image" as const),
+                mimeType: assetVersion.mimeType,
+                size: assetVersion.size,
+                objectKey: assetVersion.deliveryObjectKey,
+                libraryAsset: true,
+                iframe: false,
+              };
+            }
+          }
         }
       }
     }
@@ -1304,6 +1781,25 @@ export const resolveIframeCapability = internalQuery({
         q.eq("versionId", capability.versionId).eq("relPath", args.relPath),
       )
       .unique();
+    if (!file && args.relPath.startsWith("/assets/")) {
+      const binding = await ctx.db
+        .query("canvasVersionAssets")
+        .withIndex("by_version_path", (q) =>
+          q.eq("versionId", capability.versionId).eq("logicalPath", args.relPath),
+        )
+        .unique();
+      if (!binding) return null;
+      const assetVersion = await ctx.db.get(binding.assetVersionId);
+      if (!assetVersion) return null;
+      return {
+        objectKey: assetVersion.deliveryObjectKey,
+        size: assetVersion.size,
+        relPath: args.relPath,
+        mimeType: assetVersion.mimeType,
+        iframe: false,
+        libraryAsset: true,
+      };
+    }
     if (!file) return null;
     const classified = classifyAssetPath(file.relPath);
     return {

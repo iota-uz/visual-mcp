@@ -333,6 +333,43 @@
   background: var(--app-white);
 }
 
+.canvas-asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-asset-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  padding: var(--app-space-2);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+}
+
+.canvas-asset-list li div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.canvas-asset-list strong {
+  font-size: var(--app-text-sm);
+}
+.canvas-asset-list span,
+.canvas-asset-list small {
+  overflow: hidden;
+  color: var(--app-muted);
+  font: 10px / 1.45 var(--app-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .canvas-artifact-full {
   position: absolute;
   inset: 0;

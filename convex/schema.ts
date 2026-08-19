@@ -69,6 +69,88 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
   }).index("by_slug", ["slug"]),
 
+  assets: defineTable({
+    scope: v.union(v.literal("personal"), v.literal("workspace")),
+    ownerUserId: v.optional(v.id("users")),
+    workspaceId: v.optional(v.id("workspaces")),
+    slug: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    tags: v.array(v.string()),
+    kind: v.union(
+      v.literal("image"),
+      v.literal("svg"),
+      v.literal("font"),
+      v.literal("video"),
+      v.literal("audio"),
+      v.literal("data"),
+    ),
+    searchText: v.string(),
+    createdBy: v.id("users"),
+    updatedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+  })
+    .index("by_owner_updated", ["ownerUserId", "updatedAt"])
+    .index("by_workspace_updated", ["workspaceId", "updatedAt"])
+    .index("by_owner_slug", ["ownerUserId", "slug"])
+    .index("by_workspace_slug", ["workspaceId", "slug"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["scope", "ownerUserId", "workspaceId", "kind"],
+    }),
+
+  assetVersions: defineTable({
+    assetId: v.id("assets"),
+    revision: v.number(),
+    sourceObjectKey: v.string(),
+    deliveryObjectKey: v.string(),
+    previewObjectKey: v.string(),
+    contentHash: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    originalFilename: v.string(),
+    sourceType: v.union(v.literal("upload"), v.literal("url"), v.literal("canvas-import")),
+    sourceUrl: v.optional(v.string()),
+    createdBy: v.id("users"),
+  })
+    .index("by_asset_revision", ["assetId", "revision"])
+    .index("by_content_hash", ["contentHash"]),
+
+  assetUploads: defineTable({
+    scope: v.union(v.literal("personal"), v.literal("workspace")),
+    ownerUserId: v.optional(v.id("users")),
+    workspaceId: v.optional(v.id("workspaces")),
+    sourceObjectKey: v.string(),
+    filename: v.string(),
+    declaredMimeType: v.string(),
+    expectedSize: v.optional(v.number()),
+    expectedHash: v.optional(v.string()),
+    createdBy: v.id("users"),
+    expiresAt: v.number(),
+  }).index("by_creator", ["createdBy"]),
+
+  canvasAssetBindings: defineTable({
+    canvasId: v.id("canvases"),
+    logicalPath: v.string(),
+    assetId: v.id("assets"),
+    assetVersionId: v.id("assetVersions"),
+  })
+    .index("by_canvas_path", ["canvasId", "logicalPath"])
+    .index("by_asset", ["assetId"]),
+
+  canvasVersionAssets: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    logicalPath: v.string(),
+    assetId: v.id("assets"),
+    assetVersionId: v.id("assetVersions"),
+  })
+    .index("by_version_path", ["versionId", "logicalPath"])
+    .index("by_asset", ["assetId"])
+    .index("by_canvas", ["canvasId"]),
+
   canvases: defineTable({
     workspaceId: v.id("workspaces"),
     slug: v.string(),

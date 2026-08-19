@@ -16,7 +16,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 
 | # | Decision |
 |---|---|
-| 1 | **Gallery, not a mouse editor.** Claude authors; humans view. No tldraw/Excalidraw/React Flow. |
+| 1 | **Agent-authored, with a focused layout editor.** MCP authors content and graph structure; signed-in humans may move/resize nodes. No general-purpose tldraw/Excalidraw layer. |
 | 2 | **Dual format.** Canvas documents (declarative JSON) are first-class, rendered by a first-party engine ported from the osago reference file. Raw HTML/PNG/PDF/SVG artifacts are also hosted, as opaque blobs. |
 | 3 | **Google Sign-In, @iota.uz only**, enforced server-side on the ID token (`hd` + `email_verified`) — never the client-supplied OAuth `hd` hint alone. |
 | 4 | **Two visibility states.** `private` → any signed-in @iota.uz user may view. `public` → unguessable slug, no login. No ACLs, no invites, no roles. |
@@ -42,6 +42,7 @@ version, never destroys the old one.
 | Route | Host | Auth | Purpose | Status |
 |---|---|---|---|---|
 | `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
+| `/assets` · `/w/:wsSlug/assets` | SPA | Convex session | personal/workspace reusable media | ✅ |
 | `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
 | `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |
@@ -55,66 +56,58 @@ what makes these diagrams useful pasted into Slack or Notion.
 
 ## 2. Canvas document format — the core deliverable
 
-Positions and edges are lifted out of imperative JS into a document. Types live in
-`packages/canvas/src/types.ts`, zod-validated on every write (✅ shipped, backs `put_canvas_doc`).
+CanvasDoc v2 is the only supported canvas schema. Geometry and routing are explicit; v1 is rejected
+without conversion. Types live in `packages/canvas/src/types.ts` and are zod-validated on every
+`canvas_save` and semantic patch.
 
 ```ts
 export interface CanvasDoc {
-  version: 1
+  version: 2
   title: string; subtitle?: string
   theme?: ThemeId
-  grid?: { stageWidth?: number; startX?: number }    // defaults 1160 / 120
-  lanes: Lane[]; stages: Stage[]
+  world: { width: number; height: number }
+  lanes: Array<{ id: string; label: string; role: LaneRole; rect: Rect }>
+  stages: Array<{ id: string; index: number; label: string; rect: Rect }>
+  labels: Array<{ id: string; text: string; rect: Rect }>
   nodes: CanvasNode[]; edges: CanvasEdge[]
   legend?: LegendGroup[]
-  lod?: LodCard[]                                    // derived from stages when absent
 }
 
-export interface Lane {
-  id: string; label: string
-  role: 'actors'|'primary'|'secondary'|'automation'
-      | 'exception'|'support'|'system'|'external'    // drives the palette
-  height: number; slots?: number
-}
-export interface Stage { id: string; index: number; label: string; summary?: string }
-
-export interface CanvasNode {
-  id: string; lane: string; stage: string; slot?: number
-  shape: 'screen'|'window'|'actor'|'automation'|'service'|'registry'|'decision'|'note'
-  size?: { w: number; h: number }
+interface BaseNode {
+  id: string; laneId?: string; stageId?: string; rect: Rect
   caption: { title: string; subtitle?: string; tag?: string }
-  badge?: { text: string; tone: 'live'|'partial'|'planned' }
-  content?: NodeContent
+  maturity?: 'live'|'partial'|'to-be'
+  anchors: Array<{ id: string; side: 'top'|'right'|'bottom'|'left'; offset: number }>
   inspector?: { eyebrow: string; title: string; copy: string; points?: string[] }
 }
-export type NodeContent =
-  | { type: 'html'; html: string; frame?: 'phone'|'browser'|'window'|'none'; scale?: number }
-  | { type: 'text'; body: string }
+type CanvasNode =
+  | (BaseNode & { kind: 'native'; shape: NodeShape; body?: { text?: string; points?: string[]; code?: string } })
+  | (BaseNode & {
+      kind: 'iframe'
+      source: { entrypoint: `/src/screens/${string}.html`; route?: `#/${string}` }
+      viewport: { width: number; height: number }
+      frame: { kind: 'phone'|'browser'|'desktop'|'none'; radius?: number }
+      sandbox: Array<'allow-scripts'|'allow-forms'>
+      permissions: Array<'camera'|'microphone'|'geolocation'|'clipboard-write'>
+      activation: 'double-click'
+    })
 
 export interface CanvasEdge {
-  id?: string; from: string; to: string
+  id: string
+  source: { nodeId: string; anchorId: string }
+  target: { nodeId: string; anchorId: string }
   kind: 'main'|'secondary'|'sync'|'actor'|'exception'|'external'
-  label?: string
-  route?: 'auto'|'horizontal'|'vertical'|'orthogonal'|'gutter'
+  route: { type: 'straight'|'bezier'|'orthogonal'; waypoints?: Point[] }
+  label?: { text: string; position?: number; offset?: Point }
   bidirectional?: boolean
 }
 ```
 
-There was a third variant, `{ type: 'image'; assetPath: string }`, removed in v2. It was emitted
-verbatim into `<img src>` with no resolver anywhere, so a canvas-relative path 404'd in the render
-worker and resolved against the app origin in the SPA — a field that silently produced broken
-images. An `<img>` inside a `type: 'html'` node expresses the same thing and actually renders.
-
-**Invariant: `NodeContent.html` is static HTML/CSS/SVG.** No `<script>`, `on*`, `javascript:`,
-`<iframe>`, `<object>`. Validated on write and rejected loudly, not silently stripped, so Claude
-gets a fixable error (✅ enforced on every doc save, covered by `convex/http.test.ts`). This is
-what makes it safe to render canvas nodes on the app origin with working keyboard and pan/zoom,
-instead of trapping them in a sandboxed iframe.
-
-**Node HTML needs compiled Tailwind.** `put_canvas_doc` doesn't call a separate `/compile-css`
-endpoint — the worker's existing `renderFile` already runs the Tailwind v4 build over the
-canvas's node HTML as part of rendering (see `apps/worker/src/app.ts`), so no CDN script runs on
-the app origin. ✅
+Native nodes contain only structured text/points/code. Product UI lives in local iframe entrypoints
+under `/src/screens/`; external iframe URLs, traversal and `allow-same-origin` are rejected. The
+outer node owns rect, selection, resize and connector anchors, so graph geometry never enters the
+iframe. Public and private viewers use version-scoped file snapshots, a restrictive iframe CSP and
+an explicit double-click/Enter interaction mode with Escape/Exit deactivation.
 
 **Engine modules** (`packages/canvas/src/`, isomorphic — same code in Node and browser), all ✅
 shipped:
@@ -122,18 +115,15 @@ shipped:
 | Module | Responsibility |
 |---|---|
 | `types.ts` | schema above + zod |
-| `layout.ts` | `CanvasDoc → PositionedCanvas`; lane/stage/slot → world x/y/w/h |
-| `router.ts` | `CanvasEdge[] + PositionedCanvas → EdgePath[]`; bezier/S/orthogonal/gutter by relative position |
-| `render.ts` | `PositionedCanvas → DOM or HTML string`; lanes, stage frames, node cards, SVG edge layer, LOD cards |
-| `viewport.ts` | browser-only: pan/zoom/pinch/minimap/LOD/keyboard/selection/inspector |
+| `layout.ts` | explicit rects and anchor coordinates |
+| `router.ts` | straight/bezier/orthogonal paths with optional stable waypoints |
+| `render.ts` | lanes, stages, labels, native cards, iframe shells and SVG edge layer |
+| `viewport.ts` | pan/zoom/grid, selection, move/resize and iframe activation/focus |
 | `theme.css` | the ported design system (tokens, shadow ladder, role palettes, caption bar, arrow markers) |
 
-`render.ts` in Node with `viewport.ts` omitted emits a static HTML page, so it feeds the existing
-Playwright renderer and thumbnails/PNG/PDF export come for free. Both thumbnail paths are ✅ (see
-§9's A2/C1 rows): `render_file`'s format="png" path — the one every html/image/pdf-kind canvas
-uses — captures a downscaled thumbnail alongside the primary render and wires it to
-`canvases.thumbnailId`; for kind="canvas", `put_canvas_doc` persists the assembled static page at
-`/src/__canvas.html` and renders it through the worker to produce the same pair.
+`render.ts` also emits the export page. The worker waits for parent fonts plus a readiness bridge
+from every iframe before PNG/PDF capture; never-ready screens return explicit partial/failed
+readiness instead of silently publishing blank rectangles.
 
 ---
 
@@ -141,14 +131,16 @@ uses — captures a downscaled thumbnail alongside the primary render and wires 
 
 ```
 Convex deployment                          Railway project
-├── schema + queries/mutations             └── render-worker  (public domain, WORKER_TOKEN)
-├── file storage (docs, artifacts, thumbs)     Playwright/Chromium · D2 wasm · Tailwind CLI
+├── schema + queries/mutations             ├── render-worker  (public domain, WORKER_TOKEN)
+├── file storage (docs, artifacts, thumbs) │   Playwright/Chromium · D2 wasm · Tailwind CLI
+├── asset metadata + immutable bindings    │   DNS-pinned HTTPS asset import
+├── Convex Auth + /mcp + /s/:slug          ├── Vite + React SPA
+└── crons + capability tokens              └── private S3 source/delivery buckets
 ├── Convex Auth (Google, hd-restricted)        sharp · run_code
 ├── httpAction  /mcp                           creds: NONE — per-request Convex storage URLs
 ├── httpAction  /s/:slug  (artifact proxy)
 └── crons (cache TTL, quota sweep)
 
-Railway  ← Vite + React SPA (static, Dockerfile + `serve -s`)
 ```
 
 **Why the worker still exists:** Convex functions run in a V8/Node sandbox with a 10–30 min
@@ -169,9 +161,9 @@ packages/runtime/   ✅ render pipeline, templates, themes, path normalizer — 
 packages/canvas/    ✅ §2 engine, isomorphic
 convex/             ✅ schema, queries, mutations, actions, http.ts, mcp/tools.ts,
                      auth.config.ts + lib/auth.ts (native Google OIDC, see §7)
-apps/worker/        ✅ Hono + Playwright + D2 + Tailwind + run_code, POST /render, /exec
-apps/web/           ✅ Vite + React SPA — routes, Google sign-in, canvas viewer, publish
-                     toggle, token UI (see §1/§6/§7 status notes for what's stubbed)
+apps/worker/        ✅ Hono + Playwright + D2 + Tailwind + run_code + safe asset import
+apps/web/           ✅ Vite + React SPA — routes, viewer/layout editing, publish, tokens,
+                     personal/workspace Asset Library
 ```
 
 React was the right call once the SPA existed — Convex's client is React-first and reactive
@@ -828,3 +820,16 @@ then call `render_file` once for PDF.
 
 In the hosted product this is unchanged except `entrypoint`/`output_path` are `relPath`s scoped
 to a `canvas_id` rather than a local session directory.
+# Green-field storage and editing
+
+Visual Canvas uses strict incremental editing rather than whole-project regeneration:
+`canvas_edit` mirrors exact old/new string replacement, `canvas_apply_patch` applies an
+atomic multi-file patch, and `canvas_doc_patch` edits CanvasDoc entities by stable id.
+Every successful operation creates an immutable canvas snapshot and uses optimistic
+`expected_version`/content-hash checks.
+
+Reusable media lives in a personal or workspace Asset Library. Convex stores metadata,
+permissions, revisions and canvas bindings; private S3-compatible Railway buckets store
+source and sanitized delivery objects. Canvas versions pin exact asset revisions. Asset
+updates never propagate implicitly, and public/private viewers can only resolve objects
+present in their version manifest.

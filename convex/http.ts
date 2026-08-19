@@ -42,6 +42,7 @@ import { httpAction } from "./_generated/server";
 import { auth as convexAuth } from "./auth";
 import { renderEmbedCard } from "./lib/embedCard";
 import { sha256Hex } from "./lib/hash";
+import { getObject, presignObject } from "./lib/objectStore";
 import { buildInstructions } from "./mcp/instructions";
 import { type McpPrincipal, registerResources, registerTools } from "./mcp/tools";
 
@@ -183,7 +184,11 @@ async function embedPreviewDataUrl(
 ): Promise<string | undefined> {
   if (!storageId) return undefined;
   const blob = await ctx.storage.get(storageId);
-  if (!blob || blob.size > EMBED_PREVIEW_INLINE_LIMIT || !/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) {
+  if (
+    !blob ||
+    blob.size > EMBED_PREVIEW_INLINE_LIMIT ||
+    !/^image\/(png|jpeg|webp|gif)$/.test(blob.type)
+  ) {
     return undefined;
   }
   return `data:${blob.type};base64,${bytesToBase64(new Uint8Array(await blob.arrayBuffer()))}`;
@@ -193,7 +198,8 @@ function embedCardHeaders(pinned: boolean): Headers {
   return new Headers({
     "content-type": "image/svg+xml; charset=utf-8",
     "content-disposition": 'inline; filename="visual-canvas-preview.svg"',
-    "content-security-policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+    "content-security-policy":
+      "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "cross-origin",
     "access-control-allow-origin": "*",
@@ -228,7 +234,8 @@ http.route({
         return new Response("Invalid embed target", { status: 400 });
       }
       const targetId = url.searchParams.get("id") ?? undefined;
-      if (targetId && targetId.length > 500) return new Response("Invalid target id", { status: 400 });
+      if (targetId && targetId.length > 500)
+        return new Response("Invalid target id", { status: 400 });
       const rawVersion = url.searchParams.get("version");
       const version = rawVersion === null ? undefined : Number(rawVersion);
       if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
@@ -268,19 +275,28 @@ http.route({
       headers.set("access-control-allow-origin", "*");
 
     // An SVG is an active document — never served inline on a shared origin.
-    if (artifact.type === "svg") {
+    if (artifact.type === "svg" && !("libraryAsset" in artifact && artifact.libraryAsset)) {
       const filename = artifact.relPath.split("/").pop() ?? "artifact.svg";
       headers.set("content-disposition", `attachment; filename="${filename}"`);
     }
 
     const oversized = artifact.size > PUBLIC_ARTIFACT_INLINE_LIMIT;
-    if (oversized && (artifact.type === "image" || artifact.type === "pdf")) {
-      const directUrl = await ctx.storage.getUrl(artifact.storageId);
+    if (oversized) {
+      const directUrl =
+        typeof artifact.objectKey === "string"
+          ? await presignObject("delivery", artifact.objectKey, "GET", 300)
+          : await ctx.storage.getUrl(artifact.storageId);
       if (!directUrl) return new Response("Not found", { status: 404 });
       return Response.redirect(directUrl, 302);
     }
 
-    let blob = await ctx.storage.get(artifact.storageId);
+    let blob =
+      typeof artifact.objectKey === "string"
+        ? await (async () => {
+            const response = await getObject("delivery", artifact.objectKey);
+            return response.ok ? await response.blob() : null;
+          })()
+        : await ctx.storage.get(artifact.storageId);
     if (!blob) return new Response("Not found", { status: 404 });
     if (isIframe) {
       const html = await blob.text();
@@ -312,7 +328,13 @@ http.route({
       now: Date.now(),
     });
     if (!file) return new Response("Not found", { status: 404 });
-    let blob = await ctx.storage.get(file.storageId);
+    let blob =
+      typeof file.objectKey === "string"
+        ? await (async () => {
+            const response = await getObject("delivery", file.objectKey);
+            return response.ok ? await response.blob() : null;
+          })()
+        : await ctx.storage.get(file.storageId);
     if (!blob) return new Response("Not found", { status: 404 });
     const nonce = crypto.randomUUID().replaceAll("-", "");
     if (file.iframe) {

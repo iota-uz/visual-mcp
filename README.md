@@ -28,14 +28,24 @@ This generates the token locally, hashes it, and registers only the hash
 with Convex via `npx convex run tokens:bootstrap` — the plaintext token is
 printed once, to your terminal only. Tokens expire after 90 days.
 
-Once connected, Claude has six tools. Every one of them is addressed by a
-single `ref`, which is either a canvas id or `workspace-slug/canvas-slug` —
-there are no separate workspace/canvas/slug arguments to thread through.
+Canvas tools use one `ref`, either a canvas id or
+`workspace-slug/canvas-slug`. Asset tools use immutable `asset://` refs.
 
 | Tool | Purpose |
 | --- | --- |
 | `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
 | `canvas_get` | Reads one canvas: metadata and URLs always, plus any of `doc` / `files` / `artifacts` / `versions` / `renders` / `storage`. Bytes come back as links, never inlined. |
+| `canvas_edit` | Exact `old_string` → `new_string` edit of one UTF-8 file with version/hash conflict protection. |
+| `canvas_apply_patch` | Atomic Codex-style Add/Update/Move/Delete patch across multiple files. |
+| `canvas_doc_patch` | Semantic add/update/remove operations for CanvasDoc world, lanes, stages, labels, nodes and edges. |
+| `canvas_find` | Browses and searches workspaces, canvases, and CanvasDoc node text. |
+| `canvas_delete` | Archives or permanently removes a workspace, canvas, file, or artifact. |
+| `canvas_run` | Executes resource-limited JS/TS against canvas files; `/output` becomes artifacts. |
+| `canvas_upload_url` | Existing per-canvas out-of-band upload path. |
+| `asset_list` / `asset_get` | Searches reusable personal/workspace media; `asset_get` can return image content directly to the model. |
+| `asset_upload_url` / `asset_finalize` | Direct-to-S3 binary upload followed by validation and immutable revision creation. |
+| `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
+| `asset_attach` | Pins one immutable asset revision at an `/assets/…` canvas path. |
 
 ### CanvasDoc v2 iframe nodes
 
@@ -49,18 +59,14 @@ Publishing a canvas now exposes a static public preview card for the whole canva
 
 `canvas_save` and `canvas_get` return the same ready-to-paste values as `embed.github_markdown`; requested or newly-rendered artifacts also carry `github_markdown`. The image endpoint is script-free and GitHub-proxy-friendly. Clicking a canvas or node card opens the existing public share view (focused with `?node=` for nodes); clicking an artifact card opens that public file. There is deliberately no website iframe snippet and no separate interactive embed viewer. Making the canvas private or replacing its public link revokes the associated card URLs too.
 
-| `canvas_find` | Browses and searches — workspaces, canvases, and the text inside canvas-document nodes. Every result carries a `ref`. |
-| `canvas_delete` | Archives (reversible) or purges a workspace, canvas, file, or artifact, and reports the bytes reclaimed. |
-| `canvas_run` | Executes JS/TS in a resource-limited sandbox (worker-thread isolated, no shell access). Anything written to `/output` is collected as an artifact. |
-| `canvas_upload_url` | The out-of-band data plane: a short-lived URL to POST raw bytes to, whose `storageId` you pass back as a file's `upload_id`. Large files never enter the conversation. |
-
 The built-in starter templates are MCP **resources**, not a tool —
 `canvas://templates/{id}` — so their source only enters context when read.
 
 ## Architecture
 
-Convex (data, file storage, auth, the `/mcp` and `/s/:slug` HTTP endpoints)
-plus two Railway services: a render worker (Playwright/Chromium, D2,
+Convex is the control plane (metadata, auth, versions, bindings, `/mcp` and
+`/s/:slug`). Private Railway S3-compatible buckets store Asset Library source
+and delivery objects. Two Railway services provide a render worker (Playwright/Chromium, D2,
 Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
 Vite+React SPA (Dockerfile static build, served via `serve -s`) for the
 human-facing gallery/viewer, live at
@@ -76,7 +82,7 @@ packages/runtime/   render pipeline (Playwright, D2, ApexCharts, Tailwind
 packages/canvas/    the canvas-document engine (types, layout, edge
                      routing, render, browser viewport) — isomorphic
 convex/             schema, queries/mutations/actions, /mcp and /s/:slug
-apps/worker/        Hono render worker: POST /render, /exec (Railway)
+apps/worker/        Hono worker: render/exec plus DNS-pinned HTTPS asset import (Railway)
 apps/web/           Vite + React SPA (workspaces, canvas gallery, viewer,
                      MCP token settings) — builds static, deploys to Railway
                      (Dockerfile + serve)

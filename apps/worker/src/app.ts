@@ -20,10 +20,16 @@
  */
 
 import { Hono, type MiddlewareHandler } from "hono";
+import { handleAssetImport } from "./asset-import.js";
 import { handleCompileCss } from "./compile-css.js";
 import { handleExec } from "./exec.js";
 import { handleRender } from "./render.js";
-import { CompileCssRequestSchema, ExecRequestSchema, RenderRequestSchema } from "./schemas.js";
+import {
+  AssetImportRequestSchema,
+  CompileCssRequestSchema,
+  ExecRequestSchema,
+  RenderRequestSchema,
+} from "./schemas.js";
 
 export const app = new Hono();
 
@@ -45,6 +51,7 @@ const requireWorkerToken: MiddlewareHandler = async (c, next) => {
 app.use("/render", requireWorkerToken);
 app.use("/exec", requireWorkerToken);
 app.use("/compile-css", requireWorkerToken);
+app.use("/asset-import", requireWorkerToken);
 
 app.post("/render", async (c) => {
   const parsed = RenderRequestSchema.safeParse(await c.req.json());
@@ -80,6 +87,18 @@ app.post("/compile-css", async (c) => {
   try {
     const result = await handleCompileCss(parsed.data);
     return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});
+
+app.post("/asset-import", async (c) => {
+  const parsed = AssetImportRequestSchema.safeParse(await c.req.json());
+  if (!parsed.success) {
+    return c.json({ error: "invalid request", issues: parsed.error.issues }, 400);
+  }
+  try {
+    return c.json(await handleAssetImport(parsed.data));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }

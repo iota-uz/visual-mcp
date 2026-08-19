@@ -31,9 +31,9 @@ import { Button, ButtonLink } from "../components/ui/Button";
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { canvasViewportStructureKey } from "../lib/canvasViewportKey";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
-import { canvasViewportStructureKey } from "../lib/canvasViewportKey";
 import { mcpBaseUrl } from "../lib/mcpUrl";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
@@ -504,6 +504,10 @@ export function CanvasPage() {
     api.canvases.listVersionsMine,
     detailsOpen && canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
+  const canvasAssets = useQuery(
+    api.assets.listForCanvasMine,
+    detailsOpen && canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
+  );
   const lastAuthor = versions?.find((v) => v.isCurrent)?.createdByEmail ?? null;
   // Labelled with the workspace's real name once it resolves. It used to
   // always read "Workspace" and point at "/" until the query landed — so an
@@ -643,6 +647,33 @@ export function CanvasPage() {
 
         <VersionHistory canvasId={canvas.canvas_id} versions={versions} />
 
+        <DrawerSection
+          label="Assets"
+          aside={
+            workspace ? <Link to={`/w/${workspace.slug}/assets`}>Open library</Link> : undefined
+          }
+        >
+          {canvasAssets === undefined ? (
+            <p className="muted">Loading assets…</p>
+          ) : canvasAssets.length === 0 ? (
+            <p className="muted">No library assets are pinned to this canvas.</p>
+          ) : (
+            <ul className="canvas-asset-list">
+              {canvasAssets.map((asset) => (
+                <li key={asset.path}>
+                  <div>
+                    <strong>{asset.name}</strong>
+                    <span>{asset.path}</span>
+                  </div>
+                  <small>
+                    r{asset.revision} · {formatBytes(asset.size_bytes)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DrawerSection>
+
         {canvas.kind !== "canvas" && canvas.entry_url && (
           <DrawerSection label="Open">
             {/* Guaranteed path to the artifact. The in-page preview can
@@ -696,47 +727,49 @@ export function CanvasPage() {
             !cssReady ||
             (doc.nodes.some((node) => node.kind === "iframe") && !iframeCapability)) &&
             !docError && (
-            <div className="canvas-page-loading">
-              <LoadingState label="Loading canvas…" />
-            </div>
+              <div className="canvas-page-loading">
+                <LoadingState label="Loading canvas…" />
+              </div>
             )}
-          {doc && cssReady && (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapability) && (
-            <CanvasViewport
-              doc={doc}
-              editable
-              onGeometryChange={(nodeId, rect) => {
-                if (!canvasId) return;
-                pendingGeometrySavesRef.current += 1;
-                geometrySaveChainRef.current = geometrySaveChainRef.current
-                  .catch(() => undefined)
-                  .then(async () => {
-                    const expectedVersion = persistedVersionRef.current;
-                    if (expectedVersion === undefined) return;
-                    const result = await patchNodeRect({
-                      canvasId: canvasId as Id<"canvases">,
-                      nodeId,
-                      rect,
-                      expectedVersion,
+          {doc &&
+            cssReady &&
+            (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapability) && (
+              <CanvasViewport
+                doc={doc}
+                editable
+                onGeometryChange={(nodeId, rect) => {
+                  if (!canvasId) return;
+                  pendingGeometrySavesRef.current += 1;
+                  geometrySaveChainRef.current = geometrySaveChainRef.current
+                    .catch(() => undefined)
+                    .then(async () => {
+                      const expectedVersion = persistedVersionRef.current;
+                      if (expectedVersion === undefined) return;
+                      const result = await patchNodeRect({
+                        canvasId: canvasId as Id<"canvases">,
+                        nodeId,
+                        rect,
+                        expectedVersion,
+                      });
+                      persistedVersionRef.current = result.version;
+                    })
+                    .catch((error: unknown) => {
+                      notify({
+                        tone: "error",
+                        message: error instanceof Error ? error.message : "Unable to save layout",
+                      });
+                    })
+                    .finally(() => {
+                      pendingGeometrySavesRef.current -= 1;
                     });
-                    persistedVersionRef.current = result.version;
-                  })
-                  .catch((error: unknown) => {
-                    notify({
-                      tone: "error",
-                      message: error instanceof Error ? error.message : "Unable to save layout",
-                    });
-                  })
-                  .finally(() => {
-                    pendingGeometrySavesRef.current -= 1;
-                  });
-              }}
-              iframeBaseUrl={
-                iframeCapability
-                  ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapability}`
-                  : null
-              }
-            />
-          )}
+                }}
+                iframeBaseUrl={
+                  iframeCapability
+                    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapability}`
+                    : null
+                }
+              />
+            )}
         </>
       ) : canvas.entry_url ? (
         <div

@@ -1,5 +1,5 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Blocks, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
+import { Blocks, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -11,6 +11,7 @@ import { toastError, useToast } from "./components/Toast";
 import { Button } from "./components/ui/Button";
 import { Drawer } from "./components/ui/Drawer";
 import { IconButton } from "./components/ui/IconButton";
+import { AssetsPage } from "./routes/Assets";
 import { CanvasPage } from "./routes/Canvas";
 import { DevSignInPage } from "./routes/DevSignIn";
 import { HomePage } from "./routes/Home";
@@ -131,6 +132,10 @@ function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
         <NavLink to="/" end className={sidebarLinkClass} aria-label="Workspaces">
           <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
+        </NavLink>
+        <NavLink to="/assets" className={sidebarLinkClass} aria-label="Asset Library">
+          <Images size={16} aria-hidden="true" />
+          <span>Assets</span>
         </NavLink>
         {workspaces && workspaces.length > 0 && (
           <ul className="app-sidebar-workspaces">
@@ -313,6 +318,22 @@ function AuthenticatedApp() {
             element={
               <Page label="This workspace failed to load.">
                 <WorkspacePage />
+              </Page>
+            }
+          />
+          <Route
+            path="/w/:wsSlug/assets"
+            element={
+              <Page label="Workspace assets failed to load.">
+                <AssetsPage />
+              </Page>
+            }
+          />
+          <Route
+            path="/assets"
+            element={
+              <Page label="Asset Library failed to load.">
+                <AssetsPage />
               </Page>
             }
           />

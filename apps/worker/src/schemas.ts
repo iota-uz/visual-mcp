@@ -99,3 +99,14 @@ export const CompileCssRequestSchema = z.object({
   htmlFragments: z.array(z.string()),
 });
 export type CompileCssRequest = z.infer<typeof CompileCssRequestSchema>;
+
+export const AssetImportRequestSchema = z.object({
+  url: z.string().url(),
+  maxBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(25 * 1024 * 1024),
+  upload: SignedUploadSchema,
+});
+export type AssetImportRequest = z.infer<typeof AssetImportRequestSchema>;

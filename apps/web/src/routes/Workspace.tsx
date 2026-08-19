@@ -171,6 +171,13 @@ export function WorkspacePage() {
         actions={<RefChip refValue={workspace.slug} className="workspace-ref" />}
       />
 
+      <nav className="workspace-tabs" aria-label="Workspace sections">
+        <Link to={`/w/${workspace.slug}`} className="active">
+          Canvases
+        </Link>
+        <Link to={`/w/${workspace.slug}/assets`}>Assets</Link>
+      </nav>
+
       {canvases === undefined && <CardGridSkeleton cards={3} />}
       {canvases?.length === 0 && (
         <EmptyState

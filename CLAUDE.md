@@ -12,6 +12,16 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Project posture: green-field
+
+Assume green-field development unless the user explicitly requests compatibility
+for a particular change. Do not add legacy adapters, dual reads/writes, schema
+fallbacks, or automatic migrations. Prefer the clean target architecture,
+remove superseded code, and update all call sites, validators, fixtures, docs,
+and tests together. Existing development data may be recreated. Audit trails
+are not a product priority; add them only for correctness, security, debugging,
+or an explicit user/compliance requirement. See `AGENTS.md` for the full rule.
+
 ## Local stack
 
 Do not test against the live deployment and do not ask for a human sign-in.

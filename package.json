@@ -26,6 +26,7 @@
     "@auth/core": "^0.41.1",
     "@convex-dev/auth": "^0.0.95",
     "@modelcontextprotocol/server": "2.0.0",
+    "aws4fetch": "^1.0.20",
     "convex": "1.43.0",
     "zod": "4.4.3"
   },

@@ -1,4 +1,5 @@
 export * from "./layout.js";
+export * from "./patch.js";
 export * from "./render.js";
 export * from "./router.js";
 export * from "./types.js";

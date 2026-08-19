@@ -1,5 +1,6 @@
 /**
- * The v2 MCP tool surface: six tools where v1 had thirteen.
+ * The MCP surface is split between canvas lifecycle, incremental editing,
+ * and the reusable Asset Library.
  *
  * v1's tools mirrored the data model one verb at a time — create_workspace,
  * create_canvas, write_file, render_file, publish_canvas, get_canvas — so
@@ -33,6 +34,7 @@
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { CanvasDoc } from "@visual-canvas/canvas/types.js";
@@ -46,8 +48,12 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { fetchAssetImport, persistAsset } from "../assets";
 import { inferArtifactInfo } from "../lib/artifactInfo";
+import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "../lib/assetSecurity";
 import { sha256Hex, sha256HexBytes } from "../lib/hash";
+import { deleteObject, getObject, presignObject } from "../lib/objectStore";
+import { slugify } from "../lib/slug";
 import {
   canvasUrl,
   embedCardUrl,
@@ -56,6 +62,7 @@ import {
   shareUrl,
 } from "../lib/urls";
 import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
+import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine";
 
 export interface McpPrincipal {
   userId: Id<"users">;
@@ -109,6 +116,16 @@ function result(value: Record<string, unknown>): CallToolResult {
   };
 }
 
+function base64Bytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)),
+    );
+  }
+  return btoa(binary);
+}
+
 /**
  * Turns a thrown value into a message worth reading. v1 joined zod issue
  * messages and *dropped the paths*, so a 40-node CanvasDoc that failed
@@ -146,13 +163,25 @@ async function resolveCanvasSources(
   canvasId: Id<"canvases">,
 ): Promise<Array<{ relPath: string; getUrl: string }>> {
   const files = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
-  const resolved = await Promise.all(
-    files.map(async (f) => {
-      const getUrl = await ctx.storage.getUrl(f.storageId);
-      return getUrl ? { relPath: f.relPath, getUrl } : null;
-    }),
+  const [resolved, assetSources] = await Promise.all([
+    Promise.all(
+      files.map(async (f) => {
+        const getUrl = await ctx.storage.getUrl(f.storageId);
+        return getUrl ? { relPath: f.relPath, getUrl } : null;
+      }),
+    ),
+    ctx.runQuery(internal.canvases.listAssetSourcesForCanvas, { canvasId }),
+  ]);
+  const assets = await Promise.all(
+    assetSources.map(async (asset) => ({
+      relPath: asset.relPath,
+      getUrl: await presignObject("delivery", asset.objectKey, "GET", 3600),
+    })),
   );
-  return resolved.filter((s): s is { relPath: string; getUrl: string } => s !== null);
+  return [
+    ...resolved.filter((source): source is { relPath: string; getUrl: string } => source !== null),
+    ...assets,
+  ];
 }
 
 /** Server-side fetch cap for `FileInput.url`, so one call can't pull a DVD in. */
@@ -168,6 +197,10 @@ const FileInputSchema = z.object({
     .optional()
     .describe("storageId returned by canvas_upload_url. The way to attach large or binary files."),
   url: z.string().optional().describe("Public URL for the server to fetch the bytes from."),
+  asset_ref: z
+    .string()
+    .optional()
+    .describe("Immutable asset:// ref from asset_list. Mounts it without uploading bytes again."),
   delete: z.boolean().optional().describe("Delete this path instead of writing it."),
 });
 
@@ -274,11 +307,16 @@ function scanUnresolvedRefs(
 async function writeOneFile(
   ctx: ActionCtx,
   canvasId: Id<"canvases">,
+  userId: Id<"users">,
   file: FileInput,
 ): Promise<{ path: string; size_bytes: number } | null> {
   const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
 
   if (file.delete) {
+    await ctx.runMutation(internal.canvases.removeAssetBinding, {
+      canvasId,
+      logicalPath: displayPath,
+    });
     await ctx.runMutation(internal.canvases.removeByRef, {
       ref: canvasId,
       target: "file",
@@ -287,14 +325,30 @@ async function writeOneFile(
     return null;
   }
 
-  const provided = [file.text !== undefined, !!file.upload_id, !!file.url].filter(Boolean).length;
+  const provided = [file.text !== undefined, !!file.upload_id, !!file.url, !!file.asset_ref].filter(
+    Boolean,
+  ).length;
   if (provided !== 1) {
     throw new Error(
-      `File "${file.path}" needs exactly one of text, upload_id or url (got ${provided}).`,
+      `File "${file.path}" needs exactly one of text, upload_id, url or asset_ref (got ${provided}).`,
     );
   }
 
   const { mime } = inferArtifactInfo(relPath);
+
+  if (file.asset_ref) {
+    const asset = await ctx.runQuery(internal.assets.resolveRef, {
+      ref: file.asset_ref,
+      userId,
+    });
+    await ctx.runMutation(internal.canvases.upsertAssetBinding, {
+      canvasId,
+      logicalPath: displayPath,
+      assetId: asset.assetId,
+      assetVersionId: asset.assetVersionId,
+    });
+    return { path: displayPath, size_bytes: asset.size };
+  }
 
   // Already-uploaded blob: nothing to move, just verify and attach.
   if (file.upload_id) {
@@ -629,6 +683,7 @@ async function saveDoc(
   principal: McpPrincipal,
   rawDoc: unknown,
   note: string | undefined,
+  expectedVersion?: number,
 ): Promise<{ version: number; warnings: Warning[] }> {
   const warnings: Warning[] = [];
   const doc: CanvasDoc = CanvasDocSchema.parse(rawDoc);
@@ -663,6 +718,7 @@ async function saveDoc(
       iframeEntrypoints,
       note,
       createdBy: principal.userId,
+      expectedVersion,
       nodes: doc.nodes.map((node) => ({
         nodeId: node.id,
         title: node.caption.title,
@@ -729,6 +785,100 @@ async function saveDoc(
 const RefArg = z
   .string()
   .describe('"workspace-slug/canvas-slug" (created on first save) or a canvas id.');
+
+function assertEditableText(path: string, text: string): void {
+  if (!/\.(?:html?|css|m?js|cjs|jsx|tsx?|json|md|txt|svg|xml|ya?ml|d2)$/i.test(path)) {
+    throw new Error(`binary_file: ${path} is not an editable UTF-8 text file`);
+  }
+  if (text.includes("\0")) throw new Error(`binary_file: ${path} contains NUL bytes`);
+}
+
+async function loadEditableFile(
+  ctx: ActionCtx,
+  ref: string,
+  path: string,
+): Promise<{
+  canvasId: Id<"canvases">;
+  version: number;
+  path: string;
+  contentHash: string;
+  content: string;
+}> {
+  const file = await ctx.runQuery(internal.canvases.getEditableFileByRef, { ref, path });
+  if (!file) throw new Error(`file_not_found: ${path}`);
+  const response = await fetch(file.fileUrl);
+  if (!response.ok) throw new Error(`Unable to read ${file.path}: HTTP ${response.status}`);
+  const content = await response.text();
+  assertEditableText(file.path, content);
+  return {
+    canvasId: file.canvasId,
+    version: file.version,
+    path: file.path,
+    contentHash: file.contentHash,
+    content,
+  };
+}
+
+async function commitPreparedFileChanges(
+  ctx: ActionCtx,
+  principal: McpPrincipal,
+  canvasId: Id<"canvases">,
+  expectedVersion: number,
+  prepared: PreparedPatchChange[],
+  note?: string,
+): Promise<{ version: number; files: Array<{ path: string; content_hash?: string }> }> {
+  const stored: Id<"_storage">[] = [];
+  const changes: Array<
+    | {
+        type: "write";
+        path: string;
+        expectedHash?: string;
+        storageId: Id<"_storage">;
+        size: number;
+        contentHash: string;
+      }
+    | { type: "delete"; path: string; expectedHash: string }
+    | { type: "move"; path: string; toPath: string; expectedHash: string }
+  > = [];
+  try {
+    for (const change of prepared) {
+      if (change.type !== "write") {
+        changes.push(change);
+        continue;
+      }
+      assertEditableText(change.path, change.content);
+      const bytes = new TextEncoder().encode(change.content);
+      const mimeType = inferArtifactInfo(change.path).mime;
+      const storageId = await ctx.storage.store(new Blob([bytes], { type: mimeType }));
+      stored.push(storageId);
+      changes.push({
+        type: "write",
+        path: change.path,
+        expectedHash: change.expectedHash,
+        storageId,
+        size: bytes.byteLength,
+        contentHash: await sha256Hex(change.content),
+      });
+    }
+    const committed = await ctx.runMutation(internal.canvases.commitFilePatch, {
+      canvasId,
+      expectedVersion,
+      changes,
+      createdBy: principal.userId,
+      note,
+    });
+    return {
+      version: committed.version,
+      files: changes.map((change) => ({
+        path: change.type === "move" ? change.toPath : change.path,
+        content_hash: change.type === "write" ? change.contentHash : undefined,
+      })),
+    };
+  } catch (error) {
+    await Promise.all(stored.map((storageId) => ctx.storage.delete(storageId)));
+    throw error;
+  }
+}
 
 const SaveOutputSchema = z.object({
   status: z.enum(["ok", "partial"]),
@@ -855,7 +1005,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const writtenText: Array<{ path: string; text: string }> = [];
 
         for (const file of input.files ?? []) {
-          const written = await writeOneFile(ctx, canvasId, file);
+          const written = await writeOneFile(ctx, canvasId, principal.userId, file);
           if (written) {
             filesWritten.push(written);
             if (file.text !== undefined) writtenText.push({ path: written.path, text: file.text });
@@ -863,14 +1013,29 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         }
 
         if (input.doc !== undefined) {
-          const saved = await saveDoc(ctx, canvasId, principal, input.doc, input.note);
+          const saved = await saveDoc(
+            ctx,
+            canvasId,
+            principal,
+            input.doc,
+            input.note,
+            input.expected_version,
+          );
           warnings.push(...saved.warnings);
         }
 
         // --- unresolved-reference scan, before rendering ---
         if (writtenText.length > 0) {
           const present = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
-          warnings.push(...scanUnresolvedRefs(writtenText, new Set(present.map((f) => f.relPath))));
+          const assetPaths = await ctx.runQuery(internal.canvases.listAssetBindingPaths, {
+            canvasId,
+          });
+          warnings.push(
+            ...scanUnresolvedRefs(
+              writtenText,
+              new Set([...present.map((file) => file.relPath), ...assetPaths]),
+            ),
+          );
         }
 
         // --- renders ---
@@ -953,7 +1118,530 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       }),
   );
 
-  /* --- 2. canvas_get -------------------------------------------------- */
+  server.registerTool(
+    "canvas_edit",
+    {
+      title: "Edit one canvas file",
+      description:
+        "Edits one UTF-8 workspace file using the same exact old_string/new_string contract as " +
+        "Claude Code and OpenCode. The match must be unique unless replace_all is explicit. " +
+        "Creates one immutable canvas version and rejects stale expected_version/hash values.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        file_path: z.string(),
+        old_string: z.string(),
+        new_string: z.string(),
+        replace_all: z.boolean().optional(),
+        expected_version: z.number().int().nonnegative(),
+        expected_hash: z.string().optional(),
+        note: z.string().optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const source = await loadEditableFile(ctx, input.ref, input.file_path);
+        if (source.version !== input.expected_version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${source.version}`,
+          );
+        }
+        if (
+          input.expected_hash &&
+          input.expected_hash.replace(/^sha256:/, "") !== source.contentHash
+        ) {
+          throw new Error(
+            `hash_conflict: expected ${input.expected_hash}, current ${source.contentHash}`,
+          );
+        }
+        const edited = applyExactEdit(source.content, {
+          oldString: input.old_string,
+          newString: input.new_string,
+          replaceAll: input.replace_all,
+        });
+        const committed = await commitPreparedFileChanges(
+          ctx,
+          principal,
+          source.canvasId,
+          input.expected_version,
+          [
+            {
+              type: "write",
+              path: source.path,
+              expectedHash: source.contentHash,
+              content: edited.content,
+            },
+          ],
+          input.note,
+        );
+        return result({
+          status: "ok",
+          ref: input.ref,
+          file_path: source.path,
+          replacements: edited.replacements,
+          previous_hash: source.contentHash,
+          content_hash: committed.files[0]?.content_hash,
+          previous_version: input.expected_version,
+          version: committed.version,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "canvas_apply_patch",
+    {
+      title: "Apply a multi-file canvas patch",
+      description:
+        "Atomically applies Codex-style Begin Patch operations (Add, Update, Move, Delete) to " +
+        "UTF-8 workspace files. Every hunk is exact; one failed hunk rolls back the whole patch.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        patch: z.string(),
+        expected_version: z.number().int().nonnegative(),
+        note: z.string().optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        let canvasId: Id<"canvases"> | undefined;
+        const cache = new Map<string, Awaited<ReturnType<typeof loadEditableFile>> | null>();
+        const prepared = await prepareApplyPatch(input.patch, async (path) => {
+          if (cache.has(path)) {
+            const cached = cache.get(path);
+            return cached ? { content: cached.content, hash: cached.contentHash } : null;
+          }
+          try {
+            const file = await loadEditableFile(ctx, input.ref, path);
+            if (file.version !== input.expected_version) {
+              throw new Error(
+                `version_conflict: expected ${input.expected_version}, current ${file.version}`,
+              );
+            }
+            canvasId = file.canvasId;
+            cache.set(path, file);
+            return { content: file.content, hash: file.contentHash };
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("file_not_found:")) {
+              cache.set(path, null);
+              return null;
+            }
+            throw error;
+          }
+        });
+        if (!canvasId) {
+          const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
+          if (!detail) throw new Error(`No canvas found for ref "${input.ref}"`);
+          canvasId = detail.canvas.canvas_id;
+          if ((detail.canvas.version ?? 0) !== input.expected_version) {
+            throw new Error(
+              `version_conflict: expected ${input.expected_version}, current ${detail.canvas.version ?? 0}`,
+            );
+          }
+        }
+        const committed = await commitPreparedFileChanges(
+          ctx,
+          principal,
+          canvasId,
+          input.expected_version,
+          prepared,
+          input.note,
+        );
+        return result({
+          status: "ok",
+          ref: input.ref,
+          previous_version: input.expected_version,
+          version: committed.version,
+          files: committed.files,
+        });
+      }),
+  );
+
+  const docPatchOps = new Set([
+    "world.update",
+    ...(["lanes", "stages", "labels", "nodes", "edges"] as const).flatMap((collection) => [
+      `${collection}.add`,
+      `${collection}.update`,
+      `${collection}.remove`,
+    ]),
+  ]);
+  const docPatchOperationSchema = z
+    .object({
+      op: z.string(),
+      id: z.string().optional(),
+      changes: z.record(z.string(), z.unknown()).optional(),
+      value: z.unknown().optional(),
+    })
+    .superRefine((operation, check) => {
+      if (!docPatchOps.has(operation.op)) {
+        check.addIssue({
+          code: "custom",
+          message: `Unsupported CanvasDoc operation: ${operation.op}`,
+        });
+      }
+      if (operation.op.endsWith(".add") && operation.value === undefined) {
+        check.addIssue({ code: "custom", path: ["value"], message: "add requires value" });
+      }
+      if (
+        (operation.op.endsWith(".update") || operation.op.endsWith(".remove")) &&
+        operation.op !== "world.update" &&
+        !operation.id
+      ) {
+        check.addIssue({ code: "custom", path: ["id"], message: "update/remove requires id" });
+      }
+      if (operation.op.endsWith(".update") && operation.changes === undefined) {
+        check.addIssue({ code: "custom", path: ["changes"], message: "update requires changes" });
+      }
+    });
+
+  server.registerTool(
+    "canvas_doc_patch",
+    {
+      title: "Patch CanvasDoc entities",
+      description:
+        "Atomically adds, updates or removes CanvasDoc v2 world/lanes/stages/labels/nodes/edges " +
+        "by semantic id. The complete resulting graph is strictly validated before a version is created.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        expected_version: z.number().int().nonnegative(),
+        operations: z.array(docPatchOperationSchema).min(1),
+        note: z.string().optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, {
+          ref: input.ref,
+          includeDoc: true,
+        });
+        if (!detail?.canvas.doc_url) throw new Error(`CanvasDoc not found for ref "${input.ref}"`);
+        const currentVersion = detail.canvas.version ?? 0;
+        if (currentVersion !== input.expected_version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${currentVersion}`,
+          );
+        }
+        const response = await fetch(detail.canvas.doc_url);
+        if (!response.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${response.status}`);
+        const current = CanvasDocSchema.parse(await response.json());
+        const patched = applyCanvasDocPatch(current, input.operations as CanvasDocPatchOperation[]);
+        const saved = await saveDoc(
+          ctx,
+          detail.canvas.canvas_id,
+          principal,
+          patched,
+          input.note ?? `CanvasDoc patch (${input.operations.length})`,
+          input.expected_version,
+        );
+        return result({
+          status: saved.warnings.length ? "partial" : "ok",
+          ref: input.ref,
+          previous_version: input.expected_version,
+          version: saved.version,
+          operations: input.operations.length,
+          warnings: saved.warnings,
+        });
+      }),
+  );
+
+  const assetScopeSchema = z.enum(["personal", "workspace"]);
+  const assetKindSchema = z.enum(["image", "svg", "font", "video", "audio", "data"]);
+
+  server.registerTool(
+    "asset_list",
+    {
+      title: "Find reusable media assets",
+      description:
+        "Searches the personal or workspace Asset Library and returns immutable asset:// refs " +
+        "that can be attached to a canvas without uploading the bytes again.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({
+        scope: assetScopeSchema,
+        workspace: z.string().optional(),
+        query: z.string().optional(),
+        kind: assetKindSchema.optional(),
+        limit: z.number().int().positive().max(100).optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        if (input.scope === "workspace" && !input.workspace)
+          throw new Error("workspace is required for workspace assets");
+        const rows = await ctx.runQuery(internal.assets.listInternal, {
+          userId: principal.userId,
+          scope: input.scope,
+          workspaceSlug: input.workspace,
+          query: input.query,
+          kind: input.kind,
+          limit: input.limit ?? 50,
+        });
+        const assets = await Promise.all(
+          rows.map(async ({ preview_object_key, ...asset }) => ({
+            ...asset,
+            preview_url: await presignObject("delivery", preview_object_key, "GET", 900),
+          })),
+        );
+        return result({ assets, count: assets.length });
+      }),
+  );
+
+  server.registerTool(
+    "asset_get",
+    {
+      title: "Inspect one media asset",
+      description:
+        "Returns one immutable asset revision. For visual assets include_preview=true adds the " +
+        "actual image to MCP content so a multimodal caller can inspect it directly.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({
+        asset_ref: z.string(),
+        include_preview: z.boolean().optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const asset = await ctx.runQuery(internal.assets.resolveRef, {
+          ref: input.asset_ref,
+          userId: principal.userId,
+        });
+        const payload = {
+          asset_ref: asset.assetRef,
+          revision: asset.revision,
+          mime_type: asset.mimeType,
+          size_bytes: asset.size,
+          content_hash: asset.contentHash,
+          preview_url: await presignObject("delivery", asset.previewObjectKey, "GET", 900),
+        };
+        if (!input.include_preview || !asset.mimeType.startsWith("image/")) return result(payload);
+        const response = await getObject("delivery", asset.previewObjectKey);
+        if (!response.ok) throw new Error(`Asset preview failed: HTTP ${response.status}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > 5 * 1024 * 1024)
+          throw new Error("Asset preview exceeds the 5MB MCP inline limit");
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(payload, null, 2) },
+            { type: "image", data: base64Bytes(bytes), mimeType: asset.mimeType },
+          ],
+          structuredContent: payload,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "asset_upload_url",
+    {
+      title: "Upload media to the Asset Library",
+      description:
+        "Creates a one-hour presigned PUT URL for direct binary upload to the private source " +
+        "bucket. Call asset_finalize after the PUT completes.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        scope: assetScopeSchema,
+        workspace: z.string().optional(),
+        filename: z.string(),
+        content_type: z.string(),
+        size_bytes: z.number().int().positive().max(ASSET_MAX_BYTES).optional(),
+        sha256: z.string().optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const mime = input.content_type.split(";")[0]?.trim().toLowerCase() ?? "";
+        if (!(mime in ASSET_MIME_TYPES)) throw new Error(`Unsupported asset MIME type: ${mime}`);
+        const workspace =
+          input.scope === "workspace"
+            ? await ctx.runQuery(internal.assets.getWorkspaceBySlug, {
+                slug: input.workspace ?? "",
+              })
+            : null;
+        if (input.scope === "workspace" && !workspace) throw new Error("Workspace not found");
+        const sourceObjectKey = `staging/${principal.userId}/${crypto.randomUUID()}`;
+        const expiresAt = Date.now() + 60 * 60 * 1000;
+        const uploadId = await ctx.runMutation(internal.assets.createUpload, {
+          scope: input.scope,
+          ownerUserId: principal.userId,
+          workspaceId: workspace?.workspaceId,
+          sourceObjectKey,
+          filename: input.filename,
+          declaredMimeType: mime,
+          expectedSize: input.size_bytes,
+          expectedHash: input.sha256,
+          expiresAt,
+        });
+        return result({
+          upload_id: uploadId,
+          upload_url: await presignObject("source", sourceObjectKey, "PUT", 3600),
+          method: "PUT",
+          expires_at: expiresAt,
+          instructions: "PUT the raw bytes to upload_url, then call asset_finalize with upload_id.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "asset_finalize",
+    {
+      title: "Finalize an uploaded asset",
+      description:
+        "Validates MIME/size/hash, sanitizes SVG, stores immutable source and delivery objects, " +
+        "and creates a new Asset Library revision.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        upload_id: z.string(),
+        slug: z.string().optional(),
+        name: z.string(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const uploadId = input.upload_id as Id<"assetUploads">;
+        const upload = await ctx.runQuery(internal.assets.getUpload, {
+          uploadId,
+          userId: principal.userId,
+          now: Date.now(),
+        });
+        if (!upload) throw new Error("Upload does not exist or has expired");
+        const response = await getObject("source", upload.sourceObjectKey);
+        if (!response.ok)
+          throw new Error(`Uploaded object is unavailable: HTTP ${response.status}`);
+        const rawBytes = new Uint8Array(await response.arrayBuffer());
+        if (upload.expectedSize !== undefined && rawBytes.byteLength !== upload.expectedSize)
+          throw new Error("Uploaded asset size does not match the declared size");
+        const rawHash = await sha256HexBytes(rawBytes);
+        if (upload.expectedHash && rawHash !== upload.expectedHash.replace(/^sha256:/, ""))
+          throw new Error("Uploaded asset SHA-256 does not match");
+        const workspace = upload.workspaceId
+          ? await ctx.runQuery(internal.assets.getWorkspace, { workspaceId: upload.workspaceId })
+          : null;
+        const saved = await persistAsset(ctx, {
+          uploadId,
+          scope: upload.scope,
+          ownerUserId: principal.userId,
+          workspaceId: upload.workspaceId,
+          workspaceSlug: workspace?.slug,
+          slug: slugify(input.slug ?? input.name),
+          name: input.name.trim(),
+          description: input.description,
+          tags: [...new Set(input.tags ?? [])],
+          filename: upload.filename,
+          rawBytes,
+          declaredMime: upload.declaredMimeType,
+          sourceType: "upload",
+        });
+        await deleteObject("source", upload.sourceObjectKey);
+        return result({
+          status: "ok",
+          asset_id: saved.assetId,
+          asset_ref: saved.assetRef,
+          revision: saved.revision,
+          mime_type: saved.mimeType,
+          size_bytes: saved.size,
+          content_hash: saved.contentHash,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "asset_import",
+    {
+      title: "Import an external media asset",
+      description:
+        "Downloads an HTTPS asset into the private Asset Library. The canvas never hotlinks the " +
+        "external URL; redirects and private-network targets are rejected.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        scope: assetScopeSchema,
+        workspace: z.string().optional(),
+        url: z.string(),
+        slug: z.string().optional(),
+        name: z.string(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const workspace =
+          input.scope === "workspace"
+            ? await ctx.runQuery(internal.assets.getWorkspaceBySlug, {
+                slug: input.workspace ?? "",
+              })
+            : null;
+        if (input.scope === "workspace" && !workspace) throw new Error("Workspace not found");
+        const imported = await fetchAssetImport(input.url);
+        const saved = await persistAsset(ctx, {
+          scope: input.scope,
+          ownerUserId: principal.userId,
+          workspaceId: workspace?.workspaceId,
+          workspaceSlug: workspace?.slug,
+          slug: slugify(input.slug ?? input.name),
+          name: input.name.trim(),
+          description: input.description,
+          tags: [...new Set(input.tags ?? [])],
+          filename: new URL(imported.finalUrl).pathname.split("/").pop() || "asset",
+          rawBytes: imported.bytes,
+          declaredMime: imported.mimeType,
+          sourceType: "url",
+          sourceUrl: imported.finalUrl.split("?")[0],
+        });
+        return result({
+          status: "ok",
+          asset_id: saved.assetId,
+          asset_ref: saved.assetRef,
+          revision: saved.revision,
+          mime_type: saved.mimeType,
+          size_bytes: saved.size,
+          content_hash: saved.contentHash,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "asset_attach",
+    {
+      title: "Attach a library asset to a canvas",
+      description:
+        "Pins one immutable asset revision at an /assets path and creates a canvas version. " +
+        "Iframe HTML uses the ordinary path; old canvas versions keep their previous revision.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        ref: RefArg,
+        asset_ref: z.string(),
+        path: z.string(),
+        expected_version: z.number().int().nonnegative(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
+        if (!detail) throw new Error(`No canvas found for ref "${input.ref}"`);
+        const asset = await ctx.runQuery(internal.assets.resolveRef, {
+          ref: input.asset_ref,
+          userId: principal.userId,
+        });
+        const attached = await ctx.runMutation(internal.canvases.bindAssetAndVersion, {
+          canvasId: detail.canvas.canvas_id,
+          logicalPath: input.path,
+          assetId: asset.assetId,
+          assetVersionId: asset.assetVersionId,
+          expectedVersion: input.expected_version,
+          createdBy: principal.userId,
+        });
+        return result({
+          status: "ok",
+          ref: input.ref,
+          asset_ref: asset.assetRef,
+          path: attached.path,
+          version: attached.version,
+        });
+      }),
+  );
+
+  /* --- canvas_get ----------------------------------------------------- */
   server.registerTool(
     "canvas_get",
     {
@@ -1026,11 +1714,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           files: detail.files,
           artifacts: detail.artifacts?.map((artifact) => {
             const target = { kind: "artifact" as const, id: artifact.path };
-            const imageUrl = embedCardUrl(
-              detail.canvas.public_slug,
-              target,
-              detail.canvas.version,
-            );
+            const imageUrl = embedCardUrl(detail.canvas.public_slug, target, detail.canvas.version);
             const targetUrl = embedTargetUrl(detail.canvas.public_slug, target);
             return {
               ...artifact,
