@@ -232,7 +232,10 @@ async function renderWithBrowser(
                 preferCSSPageSize: true,
               }
             : { format: pdf?.format ?? "A4" }),
-          landscape: pdf?.orientation === "landscape",
+          // A CanvasDoc world already supplies its exact page geometry. Passing
+          // landscape as well makes Chromium swap those explicit dimensions,
+          // clipping wide canvases into a tall page.
+          landscape: world ? false : pdf?.orientation === "landscape",
           printBackground: pdf?.printBackground ?? true,
           displayHeaderFooter: pdf?.displayHeaderFooter ?? false,
           headerTemplate: pdf?.headerTemplate,

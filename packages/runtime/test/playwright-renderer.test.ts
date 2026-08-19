@@ -159,6 +159,35 @@ test("renderFile: multipage HTML with break-after:page sections renders a multip
   }
 });
 
+test("renderFile: CanvasDoc PDF keeps exact world orientation", async () => {
+  const dir = await mkFixtureDir("pw-canvas-pdf-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{width:1200px;height:500px;background:#fff}</style><div class="vc-world"></div>`,
+      "utf8",
+    );
+
+    const outputPath = path.join(dir, "output", "canvas.pdf");
+    await renderFile({
+      entrypoint,
+      outputPath,
+      format: "pdf",
+      pdf: { orientation: "landscape", printBackground: true },
+    });
+
+    const document = await PDFDocument.load(await fs.readFile(outputPath));
+    const page = document.getPage(0);
+    assert.ok(page.getWidth() > page.getHeight(), "wide CanvasDoc must produce a wide PDF page");
+    assert.ok(Math.abs(page.getWidth() / page.getHeight() - 1202 / 502) < 0.02);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------------------------
  * (c) local workspace assets still resolve via root-relative paths
  *
