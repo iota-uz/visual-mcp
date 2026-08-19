@@ -4,7 +4,11 @@ import { test } from "node:test";
 import { layoutCanvas, patchNodeRect } from "../src/layout.js";
 import { escapeHtml, renderCanvas } from "../src/render.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
-import { cameraGridStyle, iframePrewarmCandidates } from "../src/viewport.js";
+import {
+  cameraGridStyle,
+  iframeActiveCandidates,
+  iframePrewarmCandidates,
+} from "../src/viewport.js";
 import { fixture } from "./fixture.js";
 import { CanvasDocSchema } from "../src/types.js";
 
@@ -81,6 +85,34 @@ test("iframe prewarm is bounded, nearest-first, and disabled at fit-all scale", 
     iframePrewarmCandidates(nodes, { x: 0, y: 0, scale: 0.2 }, { width: 800, height: 600 }),
     [],
   );
+  assert.deepEqual(
+    iframeActiveCandidates(nodes, { x: 0, y: 0, scale: 0.2 }, { width: 800, height: 600 }),
+    [],
+  );
+});
+test("resident iframe lifecycle follows the camera independently of prewarm limits", () => {
+  const nodes = Array.from({ length: 12 }, (_, index) => ({
+    id: `screen-${index}`,
+    kind: "iframe" as const,
+    x: index * 300,
+    y: 100,
+    w: 240,
+    h: 360,
+  }));
+  const nearStart = iframeActiveCandidates(
+    nodes,
+    { x: 0, y: 0, scale: 1 },
+    { width: 800, height: 600 },
+  );
+  const nearEnd = iframeActiveCandidates(
+    nodes,
+    { x: -2_500, y: 0, scale: 1 },
+    { width: 800, height: 600 },
+  );
+  assert.ok(nearStart.includes("screen-0"));
+  assert.ok(!nearStart.includes("screen-11"));
+  assert.ok(!nearEnd.includes("screen-0"));
+  assert.ok(nearEnd.includes("screen-11"));
 });
 test("OSAGO bundle includes participant actors and their screen connections", async () => {
   const source = await readFile(

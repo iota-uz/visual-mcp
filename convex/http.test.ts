@@ -1124,7 +1124,11 @@ describe("GET /s/:slug", () => {
     });
     const allowed = await t.fetch("/s/iframe-public/src/screens/runtime.html");
     expect(allowed.status).toBe(200);
-    expect(await allowed.text()).toMatch(/visual-canvas:readiness/);
+    const html = await allowed.text();
+    expect(html).toMatch(/visual-canvas:readiness/);
+    expect(html).toMatch(/visual-canvas:lifecycle/);
+    expect(html).toMatch(/visual-canvas:suspend/);
+    expect(html).toMatch(/visual-canvas:resume/);
     expect(allowed.headers.get("content-security-policy")).not.toMatch(/allow-same-origin/);
     expect((await t.fetch("/s/iframe-public/src/screens/secret.html")).status).toBe(404);
   });

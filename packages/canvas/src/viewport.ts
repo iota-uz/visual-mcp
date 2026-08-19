@@ -9,7 +9,7 @@ const FIT_PADDING = 56;
 const IFRAME_PREWARM_SCALE = 0.24;
 const IFRAME_OVERSCAN_VIEWPORTS = 0.7;
 const IFRAME_LOAD_IDLE_MS = 90;
-const IFRAME_MAX_WARM = 8;
+const IFRAME_PREWARM_BATCH = 8;
 const IFRAME_MAX_CONCURRENT = 2;
 const IFRAME_LOAD_TIMEOUT_MS = 12_000;
 
@@ -27,16 +27,17 @@ interface ViewportSize {
 type IframePosition = Pick<PositionedNode, "id" | "kind" | "x" | "y" | "w" | "h">;
 
 /**
- * Chooses a bounded nearest-first set of iframe screens around the camera.
+ * Chooses a bounded nearest-first batch of iframe screens around the camera.
  * The lower scale threshold starts warming screens shortly before they become
- * useful, while the hard limit prevents a fit-all view from booting every
- * screen runtime at once.
+ * useful, while the batch limit prevents a camera jump from booting every
+ * nearby screen runtime at once. Already-loaded screens are not part of this
+ * budget: they remain resident for the lifetime of the viewport.
  */
 export function iframePrewarmCandidates(
   nodes: readonly IframePosition[],
   view: ViewState,
   viewport: ViewportSize,
-  limit = IFRAME_MAX_WARM,
+  limit = IFRAME_PREWARM_BATCH,
 ): string[] {
   if (view.scale < IFRAME_PREWARM_SCALE || limit <= 0) return [];
   const marginX = viewport.width * IFRAME_OVERSCAN_VIEWPORTS;
@@ -65,6 +66,36 @@ export function iframePrewarmCandidates(
     .sort((a, b) => a.score - b.score || a.id.localeCompare(b.id))
     .slice(0, limit)
     .map((candidate) => candidate.id);
+}
+
+/**
+ * Screens close enough to the camera to keep doing runtime work. A resident
+ * iframe remains visually painted while suspended, so fit-all can show every
+ * loaded screen without also running every screen's animations and polling.
+ */
+export function iframeActiveCandidates(
+  nodes: readonly IframePosition[],
+  view: ViewState,
+  viewport: ViewportSize,
+): string[] {
+  if (view.scale < IFRAME_PREWARM_SCALE) return [];
+  const marginX = viewport.width * IFRAME_OVERSCAN_VIEWPORTS;
+  const marginY = viewport.height * IFRAME_OVERSCAN_VIEWPORTS;
+  return nodes
+    .filter((node) => node.kind === "iframe")
+    .filter((node) => {
+      const left = view.x + node.x * view.scale;
+      const top = view.y + node.y * view.scale;
+      const right = left + node.w * view.scale;
+      const bottom = top + node.h * view.scale;
+      return (
+        right >= -marginX &&
+        bottom >= -marginY &&
+        left <= viewport.width + marginX &&
+        top <= viewport.height + marginY
+      );
+    })
+    .map((node) => node.id);
 }
 
 export interface CameraGridStyle {
@@ -168,7 +199,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const pendingGeometryIds = new Set<string>();
   const iframeQueue: string[] = [];
   const queuedIframeIds = new Set<string>();
-  const warmIframeIds = new Map<string, number>();
+  // Resident is session-sticky: once an iframe has mounted, camera movement
+  // never replaces its browsing context with a placeholder. This preserves
+  // route, form and JS state while the lifecycle bridge suppresses offscreen
+  // work.
+  const residentIframeIds = new Set<string>();
   const loadingIframeIds = new Set<string>();
   const iframeLoadTimeouts = new Set<number>();
 
@@ -276,6 +311,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     el?.classList.remove("iframe-active");
     el?.querySelector<HTMLIFrameElement>("iframe")?.blur();
     activeIframeId = null;
+    scheduleIframeSync(0);
     container.focus({ preventScroll: true });
   }
 
@@ -284,10 +320,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (node?.kind !== "iframe") return;
     deactivateIframe();
     const el = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
-    if (el && !warmIframeIds.has(id)) {
-      evictWarmIframes(new Set([id]), 1);
-      ensureIframeLoaded(el);
-    }
+    if (el && !residentIframeIds.has(id)) ensureIframeLoaded(el);
+    if (el) setIframeLifecycle(el, "active");
     el?.classList.add("iframe-active");
     activeIframeId = id;
     el?.querySelector<HTMLIFrameElement>("iframe")?.focus({ preventScroll: true });
@@ -324,45 +358,16 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     minimapViewport.style.height = `${vh}px`;
   }
 
-  function restoreIframePlaceholder(owner: HTMLElement): void {
-    const iframe = owner.querySelector<HTMLIFrameElement>("iframe");
-    if (!iframe) return;
-    owner.querySelector(".vc-iframe-loading")?.remove();
-    const placeholder = document.createElement("div");
-    placeholder.className = "vc-iframe-placeholder";
-    placeholder.dataset.src = iframe.src;
-    placeholder.dataset.sandbox = iframe.getAttribute("sandbox") ?? "";
-    placeholder.dataset.allow = iframe.getAttribute("allow") ?? "";
-    placeholder.dataset.entrypoint = iframe.dataset.entrypoint ?? "";
-    const label = document.createElement("span");
-    label.textContent = "Loading screen";
-    placeholder.append(label);
-    iframe.replaceWith(placeholder);
-    const id = owner.dataset.nodeId;
-    if (id) warmIframeIds.delete(id);
-    owner.removeAttribute("data-iframe-load-state");
-    owner.removeAttribute("data-iframe-readiness");
-    owner.removeAttribute("data-iframe-readiness-detail");
-  }
-
-  function evictWarmIframes(keep: ReadonlySet<string>, slotsNeeded = 0): void {
-    const target = Math.max(0, IFRAME_MAX_WARM - slotsNeeded);
-    const evictable = [...warmIframeIds.entries()]
-      .filter(
-        ([id]) =>
-          !keep.has(id) && id !== activeIframeId && !loadingIframeIds.has(id),
-      )
-      .sort((a, b) => a[1] - b[1]);
-    while (warmIframeIds.size > target && evictable.length) {
-      const entry = evictable.shift();
-      if (!entry) break;
-      const [id] = entry;
-      const owner = nodesRoot.querySelector<HTMLElement>(
-        `[data-node-id="${CSS.escape(id)}"]`,
-      );
-      if (owner) restoreIframePlaceholder(owner);
-      else warmIframeIds.delete(id);
-    }
+  function setIframeLifecycle(owner: HTMLElement, state: "active" | "suspended"): void {
+    if (owner.dataset.iframeLifecycle === state) return;
+    owner.dataset.iframeLifecycle = state;
+    owner.querySelector<HTMLIFrameElement>("iframe")?.contentWindow?.postMessage(
+      {
+        type: "visual-canvas:lifecycle",
+        state: state === "active" ? "resume" : "suspend",
+      },
+      "*",
+    );
   }
 
   function pumpIframeQueue(): void {
@@ -370,7 +375,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const id = iframeQueue.shift();
       if (!id) break;
       queuedIframeIds.delete(id);
-      if (warmIframeIds.has(id)) continue;
+      if (residentIframeIds.has(id)) continue;
       const owner = nodesRoot.querySelector<HTMLElement>(
         `[data-node-id="${CSS.escape(id)}"]`,
       );
@@ -397,9 +402,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const loading = document.createElement("div");
     loading.className = "vc-iframe-loading";
     loading.setAttribute("aria-hidden", "true");
-    warmIframeIds.set(id, performance.now());
+    residentIframeIds.add(id);
     loadingIframeIds.add(id);
     owner.dataset.iframeLoadState = "loading";
+    owner.dataset.iframeLifecycle = "active";
 
     let settled = false;
     const finish = (state: "loaded" | "error" | "timeout") => {
@@ -410,6 +416,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (state !== "loaded") loading.remove();
       window.clearTimeout(timeout);
       iframeLoadTimeouts.delete(timeout);
+      if (state === "loaded") scheduleIframeSync(0);
       pumpIframeQueue();
     };
     iframe.addEventListener("load", () => finish("loaded"), { once: true });
@@ -426,19 +433,21 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function syncIframeLoading(): void {
     iframeSyncTimer = null;
     const candidates = iframePrewarmCandidates(liveCanvas.nodes, view, viewportRect);
-    const keep = new Set(candidates);
-    if (activeIframeId) keep.add(activeIframeId);
-    const now = performance.now();
-    for (const id of keep) {
-      if (warmIframeIds.has(id)) warmIframeIds.set(id, now);
+    const active = new Set(iframeActiveCandidates(liveCanvas.nodes, view, viewportRect));
+    if (activeIframeId) active.add(activeIframeId);
+    for (const id of residentIframeIds) {
+      const owner = nodesRoot.querySelector<HTMLElement>(
+        `[data-node-id="${CSS.escape(id)}"]`,
+      );
+      if (owner) setIframeLifecycle(owner, active.has(id) ? "active" : "suspended");
     }
-    const missing = candidates.filter((id) => !warmIframeIds.has(id));
-    evictWarmIframes(keep, missing.length);
+    const missing = candidates.filter(
+      (id) => !residentIframeIds.has(id) && !loadingIframeIds.has(id),
+    );
 
     iframeQueue.length = 0;
     queuedIframeIds.clear();
     for (const id of missing) {
-      if (warmIframeIds.size + queuedIframeIds.size >= IFRAME_MAX_WARM) break;
       iframeQueue.push(id);
       queuedIframeIds.add(id);
     }
