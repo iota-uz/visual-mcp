@@ -88,6 +88,7 @@ export async function validateAssetBytes(
 export function assertSafeImportUrl(raw: string): URL {
   const url = new URL(raw);
   if (url.protocol !== "https:") throw new Error("Asset imports require an HTTPS URL");
+  if (url.username || url.password) throw new Error("Asset import URLs cannot contain credentials");
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (
     host === "localhost" ||
@@ -104,7 +105,5 @@ export function assertSafeImportUrl(raw: string): URL {
   ) {
     throw new Error("Asset import URL resolves to a forbidden host");
   }
-  url.username = "";
-  url.password = "";
   return url;
 }

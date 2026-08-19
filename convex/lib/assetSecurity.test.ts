@@ -8,6 +8,7 @@ describe("asset security", () => {
     expect(() => assertSafeImportUrl("https://169.254.169.254/latest/meta-data")).toThrow(
       /forbidden/,
     );
+    expect(() => assertSafeImportUrl("https://user:pass@example.com/a.png")).toThrow(/credentials/);
   });
 
   it("removes executable and external SVG content", () => {
