@@ -113,6 +113,7 @@ export async function putObject(
     method: "PUT",
     headers: {
       "content-type": contentType,
+      "content-length": String(bytes.byteLength),
       "cache-control": "public, max-age=31536000, immutable",
     },
     body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
