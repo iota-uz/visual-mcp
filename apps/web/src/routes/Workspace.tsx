@@ -1,14 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import {
-  Compass,
-  FileCode,
-  FileText,
-  Globe,
-  Image as ImageIcon,
-  LayoutDashboard,
-  type LucideIcon,
-  Pencil,
-} from "lucide-react";
+import { Compass, Globe, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
@@ -22,6 +13,7 @@ import { CardGridSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
 import { RefChip } from "../components/ui/CopyableValue";
+import { kindIcon } from "../lib/canvasKind";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
@@ -38,16 +30,6 @@ interface CanvasSummary {
   thumbnail_url: string | null;
 }
 
-// A canvas with no render has no thumbnail, and the placeholder used to be
-// an empty grey rectangle — indistinguishable from a broken image. Say what
-// the thing is instead.
-const KIND_ICON: Record<string, LucideIcon> = {
-  canvas: LayoutDashboard,
-  html: FileCode,
-  image: ImageIcon,
-  pdf: FileText,
-};
-
 function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspaceSlug: string }) {
   const rename = useMutation(api.canvases.renameMine);
   const remove = useMutation(api.canvases.deleteMine);
@@ -57,7 +39,7 @@ function CanvasCard({ canvas, workspaceSlug }: { canvas: CanvasSummary; workspac
   // — the placeholder existed for a canvas with *no* render, never for one
   // whose render failed to load, which came up as a broken-image icon.
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const KindIcon = KIND_ICON[canvas.kind] ?? FileCode;
+  const KindIcon = kindIcon(canvas.kind);
   // The ref an agent addresses this canvas by. It was invisible everywhere,
   // so the one string you need to say back to Claude had to be guessed.
   const ref = `${workspaceSlug}/${canvas.slug}`;

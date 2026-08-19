@@ -15,6 +15,7 @@ import { Button } from "../components/ui/Button";
 import { Disclosure } from "../components/ui/Disclosure";
 import { IconButton } from "../components/ui/IconButton";
 import { TextInput } from "../components/ui/TextInput";
+import { kindIcon } from "../lib/canvasKind";
 import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
@@ -152,18 +153,48 @@ function NodeSearch({
   );
 }
 
+/** One entry in `listMine`'s recent-canvas projection. */
+interface RecentCanvas {
+  canvas_id: string;
+  title: string;
+  kind: string;
+  thumbnail_url: string | null;
+}
+
 interface WorkspaceSummary {
   workspace_id: Id<"workspaces">;
   slug: string;
   name: string;
   description?: string;
   canvas_count?: number;
-  recent?: Array<{
-    canvas_id: string;
-    title: string;
-    kind: string;
-    thumbnail_url: string | null;
-  }>;
+  recent?: RecentCanvas[];
+}
+
+/*
+ * One canvas in a lane's preview strip. The no-render placeholder is the
+ * same kind icon the workspace gallery draws — this used to be a blank box,
+ * which read as a broken image rather than as a canvas nobody has rendered.
+ */
+function LaneThumb({ canvas }: { canvas: RecentCanvas }) {
+  const KindIcon = kindIcon(canvas.kind);
+  // A signed thumbnail URL can expire and its storage object can go missing;
+  // the placeholder covers both, not just "never had one".
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <li>
+      <Link to={`/c/${canvas.canvas_id}`} className="workspace-lane-thumb">
+        <span className="workspace-lane-frame">
+          {canvas.thumbnail_url && !failed ? (
+            <img src={canvas.thumbnail_url} alt="" onError={() => setFailed(true)} />
+          ) : (
+            <KindIcon size={18} strokeWidth={1.5} aria-hidden="true" />
+          )}
+        </span>
+        <span className="workspace-lane-thumb-title">{canvas.title}</span>
+      </Link>
+    </li>
+  );
 }
 
 function WorkspaceLane({ workspace }: { workspace: WorkspaceSummary }) {
@@ -233,20 +264,14 @@ function WorkspaceLane({ workspace }: { workspace: WorkspaceSummary }) {
       {workspace.description && (
         <p className="muted workspace-lane-note">{workspace.description}</p>
       )}
-      {/* What is actually in here, without going in. */}
+      {/* What is actually in here, without going in. The titles are visible
+          rather than screen-reader-only: an 84px thumbnail is not legible,
+          and without them a workspace holding one canvas was a name above a
+          stamp-sized picture and a lane of empty paper. */}
       {recent.length > 0 && (
         <ul className="workspace-lane-strip">
           {recent.map((c) => (
-            <li key={c.canvas_id}>
-              <Link to={`/c/${c.canvas_id}`} title={c.title}>
-                {c.thumbnail_url ? (
-                  <img src={c.thumbnail_url} alt="" />
-                ) : (
-                  <span className="workspace-lane-blank" />
-                )}
-                <span className="visually-hidden">{c.title}</span>
-              </Link>
-            </li>
+            <LaneThumb key={c.canvas_id} canvas={c} />
           ))}
         </ul>
       )}

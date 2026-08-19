@@ -158,8 +158,20 @@
   .app-sidebar-brand span,
   .app-sidebar-link span,
   .app-sidebar-email,
-  .app-sidebar-more {
+  .app-sidebar-more,
+  /* Sign out is a Button, so it is not covered by the two rules above and
+     its label spilled out of the 64px rail onto the page beside it. */
+    .app-sidebar-footer
+    .btn
+    span {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-sidebar-footer .btn {
+    justify-content: center;
+    padding: var(--app-space-2);
   }
 }
 
