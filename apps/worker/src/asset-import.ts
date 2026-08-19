@@ -51,12 +51,18 @@ async function downloadOnce(
   const resolved = await resolvePublicAddress(url.hostname);
   return new Promise((resolve, reject) => {
     const req = request(
-      url,
       {
+        protocol: "https:",
+        hostname: resolved.address,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
         method: "GET",
-        headers: { accept: "*/*", "user-agent": "Visual-Canvas-Asset-Importer/1.0" },
-        lookup: (_hostname, _options, callback) =>
-          callback(null, resolved.address, resolved.family),
+        servername: url.hostname,
+        headers: {
+          accept: "*/*",
+          host: url.host,
+          "user-agent": "Visual-Canvas-Asset-Importer/1.0",
+        },
       },
       (response) => {
         const status = response.statusCode ?? 0;
