@@ -12,6 +12,7 @@ import { Button } from "./components/ui/Button";
 import { Drawer } from "./components/ui/Drawer";
 import { IconButton } from "./components/ui/IconButton";
 import { CanvasPage } from "./routes/Canvas";
+import { DevSignInPage } from "./routes/DevSignIn";
 import { HomePage } from "./routes/Home";
 import { KitchenSinkPage } from "./routes/KitchenSink";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
@@ -217,6 +218,10 @@ export function App() {
           }
         />
       )}
+      {/* Sign-in without Google, against the local backend only. Same
+          DEV gate and the same reason it sits outside <AuthGate>: it is
+          the thing that gets you past the gate. See routes/DevSignIn.tsx. */}
+      {import.meta.env.DEV && <Route path="/dev/sign-in" element={<DevSignInPage />} />}
       <Route
         path="*"
         element={

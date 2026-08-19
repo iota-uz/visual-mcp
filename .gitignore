@@ -32,3 +32,6 @@ npm-debug.log*
 # env
 .env
 .env.local
+
+# isolated local stack for headless agents (npm run dev:agent) — see AGENTS.md
+.env.agent

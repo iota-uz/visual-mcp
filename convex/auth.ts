@@ -27,6 +27,7 @@
 import Google from "@auth/core/providers/google";
 import { convexAuth } from "@convex-dev/auth/server";
 import { ALLOWED_HOSTED_DOMAIN, getOrCreateUserIdForProfile, UnauthorizedError } from "./lib/auth";
+import { DevAuth, devAuthSecret } from "./lib/devAuth";
 
 /** Shape of the claims we keep from Google's OIDC profile. */
 interface GoogleOidcProfile {
@@ -40,8 +41,18 @@ interface GoogleOidcProfile {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/*
+ * Sign-in without Google, present only where `DEV_AUTH_SECRET` is set —
+ * which is the local backend `npm run dev:agent` creates, and nothing else.
+ * Deliberately an environment variable rather than a build-time flag: this
+ * project's live deployment IS the dev deployment, so anything keyed on
+ * "dev" ships to production. See ./lib/devAuth.ts.
+ */
+export const devProviders = devAuthSecret() ? [DevAuth()] : [];
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
+    ...devProviders,
     Google({
       authorization: { params: { hd: ALLOWED_HOSTED_DOMAIN, prompt: "select_account" } },
       // The stock Google provider maps the profile down to id/name/email/

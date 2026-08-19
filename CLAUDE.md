@@ -11,3 +11,10 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+## Local stack
+
+Do not test against the live deployment and do not ask for a human sign-in.
+`npm run dev:agent` brings up an isolated local backend with seed data, then
+`http://localhost:5173/dev/sign-in?auto=1` signs you in with one navigation.
+See **Local stack** in `AGENTS.md` for the fixture modes and the rules.

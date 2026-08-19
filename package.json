@@ -19,7 +19,8 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check .",
-    "convex:dev": "convex dev"
+    "convex:dev": "convex dev",
+    "dev:agent": "node scripts/dev-agent.mjs"
   },
   "dependencies": {
     "@auth/core": "^0.41.1",

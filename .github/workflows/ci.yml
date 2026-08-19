@@ -73,5 +73,17 @@ jobs:
             });
           "
 
+      # /dev/sign-in signs in without Google against a backend that has
+      # DEV_AUTH_SECRET set. It is gated on `import.meta.env.DEV`, which Vite
+      # folds to false — but "Vite drops it" is exactly the kind of assumption
+      # that stops being true after a config change nobody connected to auth.
+      - name: Verify the dev sign-in page is absent from the production bundle
+        run: |
+          if grep -rl 'VITE_DEV_AUTH_SECRET\|Local sign-in' apps/web/dist/assets/; then
+            echo 'DEV SIGN-IN LEAKED INTO THE PRODUCTION BUNDLE'
+            exit 1
+          fi
+          echo 'dev sign-in absent from dist — OK'
+
       - name: Test
         run: npm test
