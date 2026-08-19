@@ -51,6 +51,8 @@ Canvas tools use one `ref`, either a canvas id or
 
 Native canvases use `version: 2`, explicit `world` and `rect` geometry, and anchor-to-anchor edges. A node is either structured `native` content or a local interactive `iframe`. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the document via `canvas_save({ kind: "canvas", doc, files })`. External iframe URLs and `allow-same-origin` are rejected.
 
+For a phone screen, use `viewport: { width: 284, height: 642 }` and `frame: { kind: "phone", time: "09:42" }`. The shared canvas renderer supplies the canonical 310×708 OSAGO device shell, notch and status bar in viewer, public share, thumbnail, PNG and PDF. The iframe entrypoint contains only the app screen; adding another bezel or status bar is invalid product output.
+
 In the viewer, an iframe is inert while the canvas is being panned, selected, moved or resized. Double-click or Enter enters interaction mode; Escape or the visible Exit control returns focus to the canvas. Screens load lazily with two concurrent initializations; once mounted, their browsing contexts remain resident for the viewer session instead of being evicted as the camera moves. Distant screens receive `visual-canvas:suspend` / `visual-canvas:resume` lifecycle events and have CSS animations paused while retaining routes, forms and JavaScript state. Export uses `renders: [{ target: { type: "canvas" }, format: "png" | "pdf" }]` and waits for deterministic DOM/font/image/runtime readiness. See the `canvas://templates/iframe-service-flow` MCP resource and [`examples/osago-24/canvas.json`](./examples/osago-24/canvas.json).
 
 ### GitHub and Markdown previews

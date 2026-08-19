@@ -139,11 +139,21 @@ export const IframeNodeSchema = z.object({
   ...BaseNodeFields,
   source: IframeSourceSchema,
   viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }),
-  frame: z.object({
-    kind: z.enum(NODE_FRAMES),
-    radius: z.number().finite().nonnegative().optional(),
-    fit: z.enum(["contain", "cover", "stretch"]).optional(),
-  }),
+  frame: z.discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("phone"),
+        time: z.string().regex(/^(?:[01]\d|2[0-3]|\d):[0-5]\d$/).default("09:42"),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.enum(["browser", "desktop", "none"]),
+        radius: z.number().finite().nonnegative().optional(),
+        fit: z.enum(["contain", "cover", "stretch"]).optional(),
+      })
+      .strict(),
+  ]),
   sandbox: z
     .array(z.enum(SANDBOX_TOKENS))
     .default(["allow-scripts", "allow-forms"])
@@ -153,9 +163,21 @@ export const IframeNodeSchema = z.object({
     .default([])
     .refine((tokens) => new Set(tokens).size === tokens.length, "permissions must be unique"),
   activation: z.literal("double-click").default("double-click"),
+}).superRefine((node, ctx) => {
+  if (node.frame.kind !== "phone") return;
+  if (node.viewport.width !== 284 || node.viewport.height !== 642) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["viewport"],
+      message: "phone iframe viewport must be the canonical 284x642 content area",
+    });
+  }
 });
 export type IframeNode = z.infer<typeof IframeNodeSchema>;
-export const CanvasNodeSchema = z.discriminatedUnion("kind", [NativeNodeSchema, IframeNodeSchema]);
+// IframeNodeSchema carries cross-field viewport validation, so it is a
+// ZodEffects rather than a bare object. A regular union preserves the useful
+// TypeScript discriminant while still running those refinements.
+export const CanvasNodeSchema = z.union([NativeNodeSchema, IframeNodeSchema]);
 export type CanvasNode = z.infer<typeof CanvasNodeSchema>;
 
 export const EdgeEndpointSchema = z.object({

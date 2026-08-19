@@ -300,18 +300,10 @@
     const myidSafeBrand = `<div class="myid-safe-brand"><img src="../../assets/myid-logo.jpg" alt="MyID — safe identification"></div>`;
 
     function phoneFrame(content, time = "09:42") {
-      return `
-        <div class="phone-screen">
-          <div class="phone-status">
-            <span>${time}</span>
-            <span class="status-icons" aria-hidden="true">
-              <svg width="16" height="10" viewBox="0 0 16 10"><rect y="7" width="2.5" height="3" rx="1" fill="#061b36"/><rect x="4.3" y="5" width="2.5" height="5" rx="1" fill="#061b36"/><rect x="8.6" y="2.5" width="2.5" height="7.5" rx="1" fill="#061b36"/><rect x="12.9" width="2.5" height="10" rx="1" fill="#061b36"/></svg>
-              <svg width="14" height="10" viewBox="0 0 14 10" fill="none"><path d="M2 4.5a7.1 7.1 0 0110 0M4.2 6.6a4 4 0 015.6 0" stroke="#061b36" stroke-width="1.3" stroke-linecap="round"/><circle cx="7" cy="8.4" r="1.1" fill="#061b36"/></svg>
-              <svg width="21" height="10" viewBox="0 0 21 10" fill="none"><rect x=".7" y=".7" width="17" height="8.6" rx="2.4" stroke="#061b36" stroke-opacity=".45" stroke-width="1.2"/><rect x="2.2" y="2.2" width="12.8" height="5.6" rx="1.2" fill="#061b36"/><path d="M19 3.3v3.4" stroke="#061b36" stroke-width="1.5" stroke-linecap="round"/></svg>
-            </span>
-          </div>
-          ${content}
-        </div>`;
+      // Device shell and status bar belong to CanvasDoc frame.kind="phone".
+      // Keep this compatibility-shaped helper so every screen declaration
+      // remains content-only without duplicating phone chrome in the iframe.
+      return content;
     }
 
     function myidLoginScreen() {
@@ -1648,13 +1640,13 @@ function extractScreen(html, selector) {
 export function renderReferenceScreen(owner, id) {
   if (owner === "culprit") {
     const key = routeAliases.culprit[id];
-    return key && polishedTemplates[key] ? { mode:"phone", html:'<div class="phone">' + polishedTemplates[key]() + '</div>' } : null;
+    return key && polishedTemplates[key] ? { mode:"phone", html:polishedTemplates[key]() } : null;
   }
   if (owner === "victim") {
-    if (id === "identity") return { mode:"phone", html:'<div class="phone">' + myidLoginScreen() + '</div>' };
-    if (id === "identity-face") return { mode:"phone", html:'<div class="phone">' + myidFaceScreen() + '</div>' };
+    if (id === "identity") return { mode:"phone", html:myidLoginScreen() };
+    if (id === "identity-face") return { mode:"phone", html:myidFaceScreen() };
     const key = routeAliases.victim[id];
-    return key && victimTemplates[key] ? { mode:"phone", html:'<div class="phone">' + victimTemplates[key]() + '</div>' } : null;
+    return key && victimTemplates[key] ? { mode:"phone", html:victimTemplates[key]() } : null;
   }
   if (owner === "granite") {
     const index = Number(id.replace("stage-", "")) - 1;

@@ -38,3 +38,16 @@ test("sandbox and permissions are strict enums", () => {
   if (node.kind === "iframe") (node.sandbox as string[]).push("allow-same-origin");
   assert.equal(CanvasDocSchema.safeParse(doc).success, false);
 });
+test("phone frames require the canonical content viewport and valid canvas-owned status time", () => {
+  const wrongViewport = fixture();
+  const viewportNode = wrongViewport.nodes[1]!;
+  if (viewportNode.kind === "iframe") viewportNode.viewport = { width: 310, height: 708 };
+  const viewportResult = CanvasDocSchema.safeParse(wrongViewport);
+  assert.equal(viewportResult.success, false);
+  assert.match(JSON.stringify(viewportResult), /canonical 284x642 content area/);
+
+  const wrongTime = fixture();
+  const timeNode = wrongTime.nodes[1]!;
+  if (timeNode.kind === "iframe" && timeNode.frame.kind === "phone") timeNode.frame.time = "25:70";
+  assert.equal(CanvasDocSchema.safeParse(wrongTime).success, false);
+});

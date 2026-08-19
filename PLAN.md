@@ -86,7 +86,9 @@ type CanvasNode =
       kind: 'iframe'
       source: { entrypoint: `/src/screens/${string}.html`; route?: `#/${string}` }
       viewport: { width: number; height: number }
-      frame: { kind: 'phone'|'browser'|'desktop'|'none'; radius?: number }
+      frame:
+        | { kind: 'phone'; time: string } // canonical canvas chrome; viewport is exactly 284×642
+        | { kind: 'browser'|'desktop'|'none'; radius?: number; fit?: 'contain'|'cover'|'stretch' }
       sandbox: Array<'allow-scripts'|'allow-forms'>
       permissions: Array<'camera'|'microphone'|'geolocation'|'clipboard-write'>
       activation: 'double-click'

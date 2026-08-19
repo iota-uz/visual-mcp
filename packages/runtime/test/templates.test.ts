@@ -92,6 +92,14 @@ test("HTML-based templates use Tailwind v4 import, not v3 config", () => {
   }
 });
 
+test("phone-frame-screen is content-only because CanvasDoc owns device chrome", () => {
+  const template = getTemplate("phone-frame-screen");
+  assert.ok(template);
+  assert.match(template.description, /284×642/);
+  assert.match(template.description, /canvas supplies/i);
+  assert.doesNotMatch(template.exampleCode, /dynamic island|phone-shell|phone-status|bezel/i);
+});
+
 test("templates with charts load the local apexcharts bundle, never a CDN", () => {
   const chartIds = ["dashboard-overview", "multipage-report", "chart-report"] as const;
 

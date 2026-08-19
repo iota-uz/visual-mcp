@@ -1,4 +1,5 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
+import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
 import type { IframeNode, Rect } from "./types.js";
@@ -467,6 +468,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     el.style.width = `${node.w}px`;
     el.style.height = `${node.h}px`;
     if (node.kind === "iframe") {
+      if (node.frame.kind === "phone") {
+        el.querySelector<HTMLElement>(".vc-phone-shell")?.style.setProperty(
+          "--vc-phone-scale",
+          String(phoneFrameScale(node.w, node.h)),
+        );
+        return;
+      }
       const scale = Math.min(
         node.w / node.viewport.width,
         Math.max(1, node.h - 47) / node.viewport.height,
@@ -637,11 +645,27 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
               x: dragState.originRect.x + wx,
               y: dragState.originRect.y + wy,
             }
-          : {
-              ...dragState.originRect,
-              w: Math.max(80, dragState.originRect.w + wx),
-              h: Math.max(80, dragState.originRect.h + wy),
-            };
+          : node.kind === "iframe" && node.frame.kind === "phone"
+            ? (() => {
+                const widthFromX = Math.max(80, dragState.originRect.w + wx);
+                const widthFromY = Math.max(
+                  80,
+                  ((Math.max(80, dragState.originRect.h + wy) - PHONE_FRAME.captionHeight) *
+                    PHONE_FRAME.width) /
+                    PHONE_FRAME.height,
+                );
+                const width = Math.abs(wx) >= Math.abs(wy) ? widthFromX : widthFromY;
+                return {
+                  ...dragState.originRect,
+                  w: width,
+                  h: phoneNodeHeightForWidth(width),
+                };
+              })()
+            : {
+                ...dragState.originRect,
+                w: Math.max(80, dragState.originRect.w + wx),
+                h: Math.max(80, dragState.originRect.h + wy),
+              };
       Object.assign(node.rect, next, {});
       Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
       scheduleGeometry(node.id);

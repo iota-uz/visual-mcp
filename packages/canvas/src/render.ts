@@ -1,4 +1,5 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
+import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
 import type { IframeNode, LegendGroup } from "./types.js";
 
@@ -49,17 +50,19 @@ function iframeBody(
   const url =
     options.resolveIframeUrl?.(node) ?? `${node.source.entrypoint}${node.source.route ?? ""}`;
   const allow = node.permissions.map((permission) => `${permission} 'none'`).join("; ");
-  const scale = Math.min(
-    node.w / node.viewport.width,
-    Math.max(1, node.h - 47) / node.viewport.height,
-  );
+  const scale = Math.min(node.w / node.viewport.width, Math.max(1, node.h - 47) / node.viewport.height);
   const loading = options.iframeLoading ?? "lazy";
   const sandbox = node.sandbox.map(escapeHtml).join(" ");
   const frame =
     loading === "eager"
       ? `<iframe tabindex="-1" loading="eager" src="${escapeHtml(url)}" sandbox="${sandbox}" allow="${escapeHtml(allow)}" referrerpolicy="no-referrer" data-entrypoint="${escapeHtml(node.source.entrypoint)}"></iframe>`
       : `<div class="vc-iframe-placeholder" data-src="${escapeHtml(url)}" data-sandbox="${sandbox}" data-allow="${escapeHtml(allow)}" data-entrypoint="${escapeHtml(node.source.entrypoint)}"><span>Loading screen</span></div>`;
-  return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${node.frame.radius ?? 16}px;--vc-iframe-scale:${scale}"><div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div><div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
+  const body =
+    node.frame.kind === "phone"
+      ? renderPhoneFrame(frame, node.frame.time, phoneFrameScale(node.w, node.h))
+      : `<div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
+  const radius = node.frame.kind === "phone" ? 0 : node.frame.radius ?? 16;
+  return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${radius}px;--vc-iframe-scale:${scale}">${body}<div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
 }
 function renderNode(node: PositionedNode, options: RenderOptions): string {
   const shape = node.kind === "native" ? node.shape : `iframe-${node.frame.kind}`;

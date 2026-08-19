@@ -946,7 +946,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           .unknown()
           .optional()
           .describe(
-            "CanvasDoc v2 with explicit geometry and native/iframe nodes. May be saved atomically with iframe source/assets in files.",
+            "CanvasDoc v2 with explicit geometry and native/iframe nodes. May be saved atomically with iframe source/assets in files. A phone node must use viewport 284x642 and frame {kind:'phone',time:'09:42'}; its iframe contains screen content only because canvas chrome supplies the bezel, notch and status bar.",
           ),
         files: z.array(FileInputSchema).optional(),
         renders: z.array(RenderInputSchema).max(4).optional(),

@@ -36,6 +36,19 @@
   --vc-edge-actor: #536b84;
   --vc-edge-exception: #c98518;
   --vc-edge-external: #278c61;
+
+  /* Canonical phone chrome from the original OSAGO index.html. */
+  --vc-phone-shell-width: 310px;
+  --vc-phone-shell-height: 708px;
+  --vc-phone-bezel: 9px;
+  --vc-phone-padding: 4px;
+  --vc-phone-radius: 45px;
+  --vc-phone-screen-radius: 33px;
+  --vc-phone-notch-width: 92px;
+  --vc-phone-notch-height: 25px;
+  --vc-phone-notch-radius: 16px;
+  --vc-phone-status-height: 40px;
+  --vc-phone-ink: #07111f;
 }
 
 .vc-viewport {
@@ -418,6 +431,101 @@
 }
 .vc-node[data-iframe-readiness="ready"] .vc-iframe-loading {
   display: none;
+}
+
+/* --- canonical canvas-owned phone chrome --- */
+.vc-node.vc-shape-iframe-phone {
+  contain: layout style;
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.vc-node.vc-shape-iframe-phone > .vc-caption {
+  border: 1px solid var(--vc-line);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(20, 44, 72, 0.08);
+}
+.vc-node.vc-shape-iframe-phone.selected {
+  box-shadow: 0 0 0 5px rgba(47, 109, 246, 0.18);
+}
+.vc-frame-phone.vc-iframe-clip {
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+.vc-phone-shell {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: var(--vc-phone-shell-width);
+  height: var(--vc-phone-shell-height);
+  border: var(--vc-phone-bezel) solid var(--vc-phone-ink);
+  border-radius: var(--vc-phone-radius);
+  padding: var(--vc-phone-padding);
+  background: var(--vc-phone-ink);
+  box-shadow:
+    0 34px 70px rgba(6, 27, 54, 0.21),
+    0 4px 12px rgba(6, 27, 54, 0.13);
+  transform: translate(-50%, -50%) scale(var(--vc-phone-scale));
+  transform-origin: center;
+}
+.vc-phone-shell::before {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  left: 50%;
+  width: var(--vc-phone-notch-width);
+  height: var(--vc-phone-notch-height);
+  border-radius: 0 0 var(--vc-phone-notch-radius) var(--vc-phone-notch-radius);
+  background: var(--vc-phone-ink);
+  content: "";
+  transform: translateX(-50%);
+}
+.vc-phone-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 682px;
+  overflow: hidden;
+  border-radius: var(--vc-phone-screen-radius);
+  background: #f5f8fc;
+}
+.vc-phone-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--vc-phone-status-height);
+  padding: 0 19px;
+  background: #f6f8fb;
+  color: #061b36;
+  font: 700 11px / 1 var(--vc-body);
+}
+.vc-phone-status-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vc-phone-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #f5f8fc;
+}
+.vc-phone-content > .vc-iframe-viewport {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 284px;
+  height: 642px;
+  transform: none;
+}
+.vc-phone-content .vc-iframe-viewport iframe {
+  border-radius: 0;
 }
 
 .vc-node.vc-shape-actor {

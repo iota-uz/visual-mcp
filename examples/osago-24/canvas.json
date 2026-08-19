@@ -266,7 +266,7 @@
         "x": 205,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Оформить ДТП",
@@ -300,15 +300,17 @@
         "route": "#/culprit/scene"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:40"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -321,7 +323,7 @@
         "x": 905,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Безопасность и оферта",
@@ -355,15 +357,17 @@
         "route": "#/culprit/safety"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:41"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -376,7 +380,7 @@
         "x": 1605,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Сотрудничество",
@@ -410,15 +414,17 @@
         "route": "#/culprit/cooperation"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:42"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -431,7 +437,7 @@
         "x": 2305,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "QR потерпевшему",
@@ -465,15 +471,17 @@
         "route": "#/culprit/invite"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:42"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -486,7 +494,7 @@
         "x": 3005,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "QR и web-сессия",
@@ -520,15 +528,17 @@
         "route": "#/culprit/qr"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:42"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -541,7 +551,7 @@
         "x": 4405,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Фото с места",
@@ -575,15 +585,17 @@
         "route": "#/culprit/evidence"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:44"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -596,7 +608,7 @@
         "x": 5105,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "AI-реконструкция",
@@ -630,15 +642,17 @@
         "route": "#/culprit/protocol"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:51"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -651,7 +665,7 @@
         "x": 5805,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Признание вины",
@@ -685,15 +699,17 @@
         "route": "#/culprit/sign"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:55"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -706,7 +722,7 @@
         "x": 7905,
         "y": 545,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Документы D+3",
@@ -740,15 +756,17 @@
         "route": "#/culprit/documents"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "10:22"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -761,7 +779,7 @@
         "x": 3005,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Оферта и web-сессия",
@@ -800,15 +818,17 @@
         "route": "#/victim/qr"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:43"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -821,7 +841,7 @@
         "x": 3705,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "MyID · login",
@@ -860,15 +880,17 @@
         "route": "#/victim/identity"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "1:01"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -881,7 +903,7 @@
         "x": 3975,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "MyID · face",
@@ -915,15 +937,17 @@
         "route": "#/victim/identity-face"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "1:01"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -936,7 +960,7 @@
         "x": 4405,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Повреждения",
@@ -975,15 +999,17 @@
         "route": "#/victim/evidence"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:48"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -996,7 +1022,7 @@
         "x": 5105,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "AI-реконструкция",
@@ -1030,15 +1056,17 @@
         "route": "#/victim/protocol"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "09:51"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1051,7 +1079,7 @@
         "x": 6505,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Сумма и карта",
@@ -1090,15 +1118,17 @@
         "route": "#/victim/decision"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "10:18"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1111,7 +1141,7 @@
         "x": 7205,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Зачисление",
@@ -1150,15 +1180,17 @@
         "route": "#/victim/paid"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "10:21"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1171,7 +1203,7 @@
         "x": 7905,
         "y": 1255,
         "w": 248,
-        "h": 645
+        "h": 614
       },
       "caption": {
         "title": "Документы D+3",
@@ -1210,15 +1242,17 @@
         "route": "#/victim/documents"
       },
       "viewport": {
-        "width": 310,
-        "height": 748
+        "width": 284,
+        "height": 642
       },
       "frame": {
-        "kind": "none",
-        "radius": 0,
-        "fit": "contain"
+        "kind": "phone",
+        "time": "10:24"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1273,7 +1307,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1328,7 +1365,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1383,7 +1423,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1438,7 +1481,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1493,7 +1539,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1548,7 +1597,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1603,7 +1655,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1658,7 +1713,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1713,7 +1771,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1768,7 +1829,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1823,7 +1887,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1878,7 +1945,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1933,7 +2003,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1988,7 +2061,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2043,7 +2119,10 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": ["allow-scripts", "allow-forms"],
+      "sandbox": [
+        "allow-scripts",
+        "allow-forms"
+      ],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2923,7 +3002,10 @@
         "eyebrow": "ЭТАП 4 · ВИНОВНИК",
         "title": "Виновник",
         "copy": "Действие участника на этом этапе: выбирает QR и язык web-сессии.",
-        "points": ["выбирает QR и язык web-сессии", "Работает в авторизованном приложении EAI"]
+        "points": [
+          "выбирает QR и язык web-сессии",
+          "Работает в авторизованном приложении EAI"
+        ]
       }
     },
     {
@@ -3046,7 +3128,10 @@
         "eyebrow": "ЭТАП 5 · ВИНОВНИК",
         "title": "Виновник",
         "copy": "Действие участника на этом этапе: показывает QR из EAI app.",
-        "points": ["показывает QR из EAI app", "Работает в авторизованном приложении EAI"]
+        "points": [
+          "показывает QR из EAI app",
+          "Работает в авторизованном приложении EAI"
+        ]
       }
     },
     {
@@ -3232,7 +3317,10 @@
         "eyebrow": "ЭТАП 7 · ВИНОВНИК",
         "title": "Виновник",
         "copy": "Действие участника на этом этапе: снимает место и авто.",
-        "points": ["снимает место и авто", "Работает в авторизованном приложении EAI"]
+        "points": [
+          "снимает место и авто",
+          "Работает в авторизованном приложении EAI"
+        ]
       }
     },
     {
@@ -3292,7 +3380,10 @@
         "eyebrow": "ЭТАП 9 · ВИНОВНИК",
         "title": "Виновник",
         "copy": "Действие участника на этом этапе: ставит галочку признания вины.",
-        "points": ["ставит галочку признания вины", "Работает в авторизованном приложении EAI"]
+        "points": [
+          "ставит галочку признания вины",
+          "Работает в авторизованном приложении EAI"
+        ]
       }
     },
     {
@@ -3541,7 +3632,10 @@
         "eyebrow": "ЭТАП 12 · ВИНОВНИК",
         "title": "Виновник",
         "copy": "Действие участника на этом этапе: досылает свой пакет до D+3.",
-        "points": ["досылает свой пакет до D+3", "Работает в авторизованном приложении EAI"]
+        "points": [
+          "досылает свой пакет до D+3",
+          "Работает в авторизованном приложении EAI"
+        ]
       }
     }
   ],
@@ -4041,6 +4135,502 @@
       }
     },
     {
+      "id": "qr-victim",
+      "source": {
+        "nodeId": "culprit-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-qr",
+        "anchorId": "left"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "без установки"
+      }
+    },
+    {
+      "id": "s1-actor-culprit-screen",
+      "source": {
+        "nodeId": "s1-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-scene",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "подтверждает, что находится на месте ДТП",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s2-actor-culprit-screen",
+      "source": {
+        "nodeId": "s2-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-safety",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "подтверждает совместимость и принимает оферту",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s3-actor-culprit-screen",
+      "source": {
+        "nodeId": "s3-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-cooperation",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "выбирает совместное оформление с потерпевшим",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s4-actor-culprit-screen",
+      "source": {
+        "nodeId": "s4-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-invite",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "выбирает QR и язык web-сессии",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-victim-screen",
+      "source": {
+        "nodeId": "s5-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-qr",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 3225,
+            "y": 236
+          },
+          {
+            "x": 3017,
+            "y": 236
+          },
+          {
+            "x": 3017,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "сканирует QR → принимает оферту на eai.uz",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-culprit-screen",
+      "source": {
+        "nodeId": "s5-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-qr",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "показывает QR из EAI app",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s6-actor-victim-screen",
+      "source": {
+        "nodeId": "s6-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-identity",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 3925,
+            "y": 236
+          },
+          {
+            "x": 3717,
+            "y": 236
+          },
+          {
+            "x": 3717,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "проходит MyID как получатель выплаты",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-victim-screen",
+      "source": {
+        "nodeId": "s7-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-evidence",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 4625,
+            "y": 236
+          },
+          {
+            "x": 4417,
+            "y": 236
+          },
+          {
+            "x": 4417,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "снимает повреждения",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-culprit-screen",
+      "source": {
+        "nodeId": "s7-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-evidence",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "снимает место и авто",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s9-actor-culprit-screen",
+      "source": {
+        "nodeId": "s9-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-sign",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "ставит галочку признания вины",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s10-actor-victim-screen",
+      "source": {
+        "nodeId": "s10-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-decision",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 6725,
+            "y": 236
+          },
+          {
+            "x": 6517,
+            "y": 236
+          },
+          {
+            "x": 6517,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "получает сумму решения и вводит PAN",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s11-actor-victim-screen",
+      "source": {
+        "nodeId": "s11-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-paid",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 7425,
+            "y": 236
+          },
+          {
+            "x": 7217,
+            "y": 236
+          },
+          {
+            "x": 7217,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "получает деньги на карту",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-victim-screen",
+      "source": {
+        "nodeId": "s12-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-documents",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 8125,
+            "y": 236
+          },
+          {
+            "x": 7917,
+            "y": 236
+          },
+          {
+            "x": 7917,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "досылает свой пакет до D+3",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-culprit-screen",
+      "source": {
+        "nodeId": "s12-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-documents",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "досылает свой пакет до D+3",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-pair",
+      "source": {
+        "nodeId": "s5-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s5-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "показывает QR ↔ открывает web-сессию и принимает оферту",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-pair",
+      "source": {
+        "nodeId": "s7-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s7-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "каждый снимает свою часть материалов",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-pair",
+      "source": {
+        "nodeId": "s12-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s12-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "каждый досылает свой пакет до D+3",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    },
+    {
       "id": "myid-only",
       "source": {
         "nodeId": "victim-qr",
@@ -4295,502 +4885,6 @@
       "label": {
         "text": "retry",
         "position": 0.5
-      }
-    },
-    {
-      "id": "qr-victim",
-      "source": {
-        "nodeId": "culprit-qr",
-        "anchorId": "right"
-      },
-      "target": {
-        "nodeId": "victim-qr",
-        "anchorId": "left"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal"
-      },
-      "label": {
-        "text": "без установки"
-      }
-    },
-    {
-      "id": "s1-actor-culprit-screen",
-      "source": {
-        "nodeId": "s1-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-scene",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "подтверждает, что находится на месте ДТП",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s2-actor-culprit-screen",
-      "source": {
-        "nodeId": "s2-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-safety",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "подтверждает совместимость и принимает оферту",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s3-actor-culprit-screen",
-      "source": {
-        "nodeId": "s3-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-cooperation",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "выбирает совместное оформление с потерпевшим",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s4-actor-culprit-screen",
-      "source": {
-        "nodeId": "s4-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-invite",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "выбирает QR и язык web-сессии",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s5-actor-victim-screen",
-      "source": {
-        "nodeId": "s5-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-qr",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 3225,
-            "y": 236
-          },
-          {
-            "x": 3017,
-            "y": 236
-          },
-          {
-            "x": 3017,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "сканирует QR → принимает оферту на eai.uz",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s5-actor-culprit-screen",
-      "source": {
-        "nodeId": "s5-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-qr",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "показывает QR из EAI app",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s5-actor-pair",
-      "source": {
-        "nodeId": "s5-actor-victim",
-        "anchorId": "bottom"
-      },
-      "target": {
-        "nodeId": "s5-actor-culprit",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "bidirectional": true,
-      "label": {
-        "text": "показывает QR ↔ открывает web-сессию и принимает оферту",
-        "position": 0.5,
-        "offset": {
-          "x": 220,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s6-actor-victim-screen",
-      "source": {
-        "nodeId": "s6-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-identity",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 3925,
-            "y": 236
-          },
-          {
-            "x": 3717,
-            "y": 236
-          },
-          {
-            "x": 3717,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "проходит MyID как получатель выплаты",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s7-actor-victim-screen",
-      "source": {
-        "nodeId": "s7-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-evidence",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 4625,
-            "y": 236
-          },
-          {
-            "x": 4417,
-            "y": 236
-          },
-          {
-            "x": 4417,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "снимает повреждения",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s7-actor-culprit-screen",
-      "source": {
-        "nodeId": "s7-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-evidence",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "снимает место и авто",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s7-actor-pair",
-      "source": {
-        "nodeId": "s7-actor-victim",
-        "anchorId": "bottom"
-      },
-      "target": {
-        "nodeId": "s7-actor-culprit",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "bidirectional": true,
-      "label": {
-        "text": "каждый снимает свою часть материалов",
-        "position": 0.5,
-        "offset": {
-          "x": 220,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s9-actor-culprit-screen",
-      "source": {
-        "nodeId": "s9-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-sign",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "ставит галочку признания вины",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s10-actor-victim-screen",
-      "source": {
-        "nodeId": "s10-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-decision",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 6725,
-            "y": 236
-          },
-          {
-            "x": 6517,
-            "y": 236
-          },
-          {
-            "x": 6517,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "получает сумму решения и вводит PAN",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s11-actor-victim-screen",
-      "source": {
-        "nodeId": "s11-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-paid",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 7425,
-            "y": 236
-          },
-          {
-            "x": 7217,
-            "y": 236
-          },
-          {
-            "x": 7217,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "получает деньги на карту",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s12-actor-victim-screen",
-      "source": {
-        "nodeId": "s12-actor-victim",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "victim-documents",
-        "anchorId": "actor-in"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "orthogonal",
-        "waypoints": [
-          {
-            "x": 8125,
-            "y": 236
-          },
-          {
-            "x": 7917,
-            "y": 236
-          },
-          {
-            "x": 7917,
-            "y": 1325
-          }
-        ]
-      },
-      "label": {
-        "text": "досылает свой пакет до D+3",
-        "position": 0.36,
-        "offset": {
-          "x": 263,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s12-actor-culprit-screen",
-      "source": {
-        "nodeId": "s12-actor-culprit",
-        "anchorId": "screen"
-      },
-      "target": {
-        "nodeId": "culprit-documents",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "label": {
-        "text": "досылает свой пакет до D+3",
-        "position": 0.5,
-        "offset": {
-          "x": 300,
-          "y": 0
-        }
-      }
-    },
-    {
-      "id": "s12-actor-pair",
-      "source": {
-        "nodeId": "s12-actor-victim",
-        "anchorId": "bottom"
-      },
-      "target": {
-        "nodeId": "s12-actor-culprit",
-        "anchorId": "top"
-      },
-      "kind": "actor",
-      "route": {
-        "type": "bezier"
-      },
-      "bidirectional": true,
-      "label": {
-        "text": "каждый досылает свой пакет до D+3",
-        "position": 0.5,
-        "offset": {
-          "x": 220,
-          "y": 0
-        }
       }
     }
   ],

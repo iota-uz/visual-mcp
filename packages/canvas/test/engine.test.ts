@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { layoutCanvas, patchNodeRect } from "../src/layout.js";
 import { escapeHtml, renderCanvas } from "../src/render.js";
+import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "../src/phone-frame.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
 import {
   cameraGridStyle,
@@ -61,6 +62,35 @@ test("renderer escapes native text and emits sandboxed iframe", () => {
 test("exports can eagerly instantiate every iframe", () => {
   const html = renderCanvas(layoutCanvas(fixture()), { iframeLoading: "eager" }).html;
   assert.match(html, /loading="eager"/);
+});
+test("phone iframe renders one canonical canvas-owned shell and clean content viewport", () => {
+  const html = renderCanvas(layoutCanvas(fixture()), { iframeLoading: "eager" }).html;
+  assert.equal((html.match(/class="vc-phone-shell"/g) ?? []).length, 1);
+  assert.equal((html.match(/class="vc-phone-status"/g) ?? []).length, 1);
+  assert.equal((html.match(/class="vc-phone-screen"/g) ?? []).length, 1);
+  assert.match(html, /class="vc-iframe-viewport" style="width:284px;height:642px"/);
+  assert.match(html, /vc-phone-status-icons/);
+  assert.doesNotMatch(html, /class="phone(?:-screen|-status)?"/);
+});
+test("phone frame scales uniformly and keeps its canonical aspect on resize", () => {
+  assert.equal(phoneFrameScale(PHONE_FRAME.width, PHONE_FRAME.height + PHONE_FRAME.captionHeight), 1);
+  assert.equal(phoneFrameScale(PHONE_FRAME.width / 2, 10_000), 0.5);
+  assert.equal(phoneNodeHeightForWidth(155), PHONE_FRAME.height / 2 + PHONE_FRAME.captionHeight);
+});
+test("OSAGO mobile routes all use the same canvas phone chrome", async () => {
+  const source = await readFile(
+    new URL("../../../examples/osago-24/canvas.json", import.meta.url),
+    "utf8",
+  );
+  const doc = CanvasDocSchema.parse(JSON.parse(source));
+  const phoneNodes = doc.nodes.filter(
+    (node) => node.kind === "iframe" && node.frame.kind === "phone",
+  );
+  assert.equal(phoneNodes.length, 17);
+  for (const node of phoneNodes) {
+    assert.deepEqual(node.viewport, { width: 284, height: 642 });
+    assert.match(node.frame.kind === "phone" ? node.frame.time : "", /^(?:[01]\d|2[0-3]|\d):[0-5]\d$/);
+  }
 });
 test("grid follows pan and uses readable zoom levels", () => {
   const before = cameraGridStyle({ x: 28, y: 40, scale: 0.19 });
