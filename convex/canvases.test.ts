@@ -476,6 +476,93 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
   });
 });
 
+describe("canvases.patchNodeRectMine", () => {
+  test("creates an immutable optimistic version containing only the rect patch", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        googleSub: VALID_IDENTITY.subject,
+        email: VALID_IDENTITY.email,
+        name: VALID_IDENTITY.name,
+        lastSeenAt: 0,
+      }),
+    );
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "layout/optimistic",
+      createdBy,
+      kind: "canvas",
+    });
+    const doc = {
+      version: 2,
+      title: "Layout",
+      world: { width: 800, height: 600 },
+      lanes: [
+        {
+          id: "lane",
+          label: "Lane",
+          role: "primary",
+          rect: { x: 0, y: 0, w: 800, h: 600 },
+        },
+      ],
+      stages: [
+        { id: "stage", index: 0, label: "Stage", rect: { x: 0, y: 0, w: 800, h: 600 } },
+      ],
+      labels: [],
+      nodes: [
+        {
+          id: "node",
+          kind: "native",
+          shape: "note",
+          laneId: "lane",
+          stageId: "stage",
+          rect: { x: 10, y: 20, w: 100, h: 80 },
+          caption: { title: "Node" },
+          anchors: [{ id: "right", side: "right", offset: 0.5 }],
+        },
+      ],
+      edges: [],
+    };
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, JSON.stringify(doc)),
+      createdBy,
+      nodes: [{ nodeId: "node", title: "Node", searchText: "Node" }],
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify(doc), { status: 200 }));
+
+    const asMember = t.withIdentity(VALID_IDENTITY);
+    await expect(
+      asMember.action(api.canvases.patchNodeRectMine, {
+        canvasId: created.canvasId,
+        nodeId: "node",
+        rect: { x: 30, y: 40, w: 120, h: 90 },
+        expectedVersion: 1,
+      }),
+    ).resolves.toEqual({ version: 2 });
+
+    const current = await t.query(internal.canvases.get, { canvasId: created.canvasId });
+    expect(current?.version).toBe(2);
+    const versions = await t.run((ctx) =>
+      ctx.db
+        .query("canvasVersions")
+        .withIndex("by_canvas_version", (q) => q.eq("canvasId", created.canvasId))
+        .collect(),
+    );
+    expect(versions).toHaveLength(2);
+    await expect(
+      asMember.action(api.canvases.patchNodeRectMine, {
+        canvasId: created.canvasId,
+        nodeId: "node",
+        rect: { x: 50, y: 60, w: 120, h: 90 },
+        expectedVersion: 1,
+      }),
+    ).rejects.toThrow(/expected 1, current 2/);
+    fetchSpy.mockRestore();
+  });
+});
+
 describe("artifact primary/supporting role inference", () => {
   async function seedCanvas(t: ReturnType<typeof convexTest>) {
     const createdBy = await seedUser(t);

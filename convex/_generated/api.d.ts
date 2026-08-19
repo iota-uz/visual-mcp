@@ -17,6 +17,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_bytes from "../lib/bytes.js";
 import type * as lib_canvasRefs from "../lib/canvasRefs.js";
 import type * as lib_devAuth from "../lib/devAuth.js";
+import type * as lib_embedCard from "../lib/embedCard.js";
 import type * as lib_hash from "../lib/hash.js";
 import type * as lib_purge from "../lib/purge.js";
 import type * as lib_ref from "../lib/ref.js";
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   "lib/bytes": typeof lib_bytes;
   "lib/canvasRefs": typeof lib_canvasRefs;
   "lib/devAuth": typeof lib_devAuth;
+  "lib/embedCard": typeof lib_embedCard;
   "lib/hash": typeof lib_hash;
   "lib/purge": typeof lib_purge;
   "lib/ref": typeof lib_ref;

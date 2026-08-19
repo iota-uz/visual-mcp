@@ -345,11 +345,24 @@ describe("/mcp resources: templates", () => {
 
 describe("/mcp canvas_save", () => {
   const baseDoc = {
-    version: 1,
+    version: 2,
     title: "Test Canvas",
-    lanes: [{ id: "l1", label: "Lane", role: "primary", height: 200 }],
-    stages: [{ id: "s1", index: 0, label: "Stage" }],
-    nodes: [{ id: "n1", lane: "l1", stage: "s1", shape: "note", caption: { title: "Node" } }],
+    world: { width: 800, height: 400 },
+    lanes: [{ id: "l1", label: "Lane", role: "primary", rect: { x: 0, y: 0, w: 800, h: 400 } }],
+    stages: [{ id: "s1", index: 0, label: "Stage", rect: { x: 0, y: 0, w: 800, h: 400 } }],
+    labels: [],
+    nodes: [
+      {
+        id: "n1",
+        kind: "native",
+        laneId: "l1",
+        stageId: "s1",
+        rect: { x: 50, y: 50, w: 200, h: 100 },
+        shape: "note",
+        caption: { title: "Node" },
+        anchors: [{ id: "right", side: "right", offset: 0.5 }],
+      },
+    ],
     edges: [],
   };
 
@@ -414,6 +427,10 @@ describe("/mcp canvas_save", () => {
 
     expect(data.visibility).toBe("public");
     expect(data.share_url).toMatch(/^https:\/\/canvas\.test\/s\/[0-9A-Za-z]+$/);
+    expect(data.embed.image_url).toMatch(
+      /^https:\/\/canvas-api\.test\/s\/[0-9A-Za-z]+\/_embed\/card\.svg\?target=canvas/,
+    );
+    expect(data.embed.github_markdown).toContain("](");
   });
 
   test("an unresolved asset reference is reported instead of rendering silently broken", async () => {
@@ -516,7 +533,7 @@ describe("/mcp canvas_save", () => {
     expect(text).toMatch(/only allowed under \/src, \/output or \/assets/);
   });
 
-  test("a <script> in a doc node is rejected AND the offending node is named", async () => {
+  test("CanvasDoc v1 inline content is rejected at the offending node", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
 
@@ -529,6 +546,7 @@ describe("/mcp canvas_save", () => {
           nodes: [
             {
               ...baseDoc.nodes[0],
+              kind: undefined,
               content: { type: "html", html: "<script>alert(1)</script>" },
             },
           ],
@@ -537,38 +555,79 @@ describe("/mcp canvas_save", () => {
     );
 
     expect(isError).toBe(true);
-    expect(text).toMatch(/script/i);
+    expect(text).toMatch(/nodes\.0/);
     // v1 dropped zod issue paths, so a 40-node doc reported the rule and
     // never said which node broke it.
     expect(text).toMatch(/nodes\.0/);
   });
 
-  test("a doc with HTML nodes compiles Tailwind before storing anything", async () => {
+  test("doc + iframe files are accepted atomically and snapshot the entrypoint", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
-    const worker = await startMockCompileCssWorker(".compiled{color:red}");
-    try {
-      const { isError, data } = parse(
-        await callTool(t, token, "canvas_save", {
-          ref: "osago/doc",
-          kind: "canvas",
-          doc: {
-            ...baseDoc,
-            nodes: [
-              {
-                ...baseDoc.nodes[0],
-                content: { type: "html", html: '<div class="p-4">x</div>' },
-              },
-            ],
-          },
-        }),
-      );
-      expect(isError).toBeFalsy();
-      expect(data.version).toBe(1);
-      expect(worker.requests).toHaveLength(1);
-    } finally {
-      await worker.close();
-    }
+    const { isError, data } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/doc",
+        kind: "canvas",
+        doc: {
+          ...baseDoc,
+          nodes: [
+            {
+              id: "screen",
+              kind: "iframe",
+              laneId: "l1",
+              stageId: "s1",
+              rect: { x: 50, y: 50, w: 300, h: 240 },
+              caption: { title: "Screen" },
+              anchors: [{ id: "right", side: "right", offset: 0.5 }],
+              source: { entrypoint: "/src/screens/runtime.html", route: "#/start" },
+              viewport: { width: 390, height: 844 },
+              frame: { kind: "phone" },
+              sandbox: ["allow-scripts", "allow-forms"],
+              permissions: [],
+              activation: "double-click",
+            },
+          ],
+        },
+        files: [{ path: "/src/screens/runtime.html", text: "<!doctype html><button>ok</button>" }],
+      }),
+    );
+    expect(isError).toBeFalsy();
+    expect(data.version).toBe(1);
+    expect(data.files_written).toHaveLength(1);
+  });
+
+  test("missing iframe entrypoint fails with an actionable path", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const { isError, text } = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/missing",
+        kind: "canvas",
+        doc: {
+          ...baseDoc,
+          nodes: [
+            {
+              id: "screen",
+              kind: "iframe",
+              laneId: "l1",
+              stageId: "s1",
+              rect: { x: 50, y: 50, w: 300, h: 240 },
+              caption: { title: "Screen" },
+              anchors: [{ id: "right", side: "right", offset: 0.5 }],
+              source: { entrypoint: "/src/screens/missing.html" },
+              viewport: { width: 390, height: 844 },
+              frame: { kind: "phone" },
+              sandbox: ["allow-scripts"],
+              permissions: [],
+              activation: "double-click",
+            },
+          ],
+        },
+      }),
+    );
+    expect(isError).toBe(true);
+    expect(text).toMatch(/\/src\/screens\/missing\.html/);
+    expect(text).toMatch(/same canvas_save/i);
   });
 
   test("a doc with no HTML nodes never calls the worker", async () => {
@@ -608,7 +667,13 @@ describe("/mcp canvas_save", () => {
         await callTool(t, token, "canvas_save", {
           ref: "osago/report",
           files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
-          renders: [{ entrypoint: "/src/index.html", format: "png", primary: true }],
+          renders: [
+            {
+              target: { type: "file", entrypoint: "/src/index.html" },
+              format: "png",
+              primary: true,
+            },
+          ],
         }),
       );
 
@@ -635,7 +700,13 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "osago/report",
         files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
-        renders: [{ entrypoint: "/src/index.html", format: "png", output_path: "output/x.png" }],
+        renders: [
+          {
+            target: { type: "file", entrypoint: "/src/index.html" },
+            format: "png",
+            output_path: "output/x.png",
+          },
+        ],
       });
       const sent = worker.requests.render[0] as { outputPath: string };
       // Un-normalized, this recorded an artifact /s/:slug could never serve
@@ -656,7 +727,7 @@ describe("/mcp canvas_save", () => {
         await callTool(t, token, "canvas_save", {
           ref: "osago/report",
           files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
-          renders: [{ entrypoint: "/src/index.html", format: "png" }],
+          renders: [{ target: { type: "file", entrypoint: "/src/index.html" }, format: "png" }],
         }),
       );
 
@@ -678,7 +749,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "osago/report",
         files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
-        renders: [{ entrypoint: "/src/typo.html", format: "png" }],
+        renders: [{ target: { type: "file", entrypoint: "/src/typo.html" }, format: "png" }],
       }),
     );
     const warnings = data.warnings as Array<{ message: string }>;
@@ -817,6 +888,7 @@ describe("GET /s/:slug", () => {
         version: 1,
         createdBy: userId,
       });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
       const storageId = await ctx.storage.store(
         new Blob([overrides.body ?? "<h1>hi</h1>"], {
           type: overrides.artifactMime ?? "text/html",
@@ -862,6 +934,62 @@ describe("GET /s/:slug", () => {
     await seedPublicCanvasWithArtifact(t, { visibility: "private" });
     const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
     expect(res.status).toBe(404);
+  });
+
+  test("serves a script-free pinned GitHub/Markdown preview card", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t);
+
+    const res = await t.fetch(
+      "/s/pub-slug-123/_embed/card.svg?target=artifact&id=%2Foutput%2Findex.html&version=1",
+      { method: "GET" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/^image\/svg\+xml/);
+    expect(res.headers.get("content-disposition")).toMatch(/^inline/);
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+    expect(res.headers.get("cache-control")).toContain("immutable");
+    const svg = await res.text();
+    expect(svg).toContain("index.html");
+    expect(svg).toContain("Public Canvas");
+    expect(svg).not.toContain("<script");
+  });
+
+  test("an image artifact card contains the artifact preview bytes", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t, {
+      artifactType: "image",
+      artifactMime: "image/png",
+      relPath: "/output/screen.png",
+      body: "PNG-preview-bytes",
+    });
+
+    const res = await t.fetch(
+      "/s/pub-slug-123/_embed/card.svg?target=artifact&id=%2Foutput%2Fscreen.png&version=1",
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("data:image/png;base64,");
+  });
+
+  test("latest cards use short caching and unpublishing revokes them", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    const live = await t.fetch("/s/pub-slug-123/_embed/card.svg?target=canvas");
+    expect(live.status).toBe(200);
+    expect(live.headers.get("cache-control")).toContain("max-age=60");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(canvasId, { visibility: "private", publicSlug: undefined });
+    });
+    expect((await t.fetch("/s/pub-slug-123/_embed/card.svg?target=canvas")).status).toBe(404);
+  });
+
+  test("rejects unknown card targets", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t);
+    const res = await t.fetch("/s/pub-slug-123/_embed/card.svg?target=website");
+    expect(res.status).toBe(400);
   });
 
   test("serves an explicit relPath under the slug instead of the primary artifact", async () => {
@@ -945,6 +1073,60 @@ describe("GET /s/:slug", () => {
     expect(await res.text()).toBe("PNGBYTES");
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  test("serves only registered iframe HTML from the current immutable version snapshot", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        googleSub: "u",
+        email: "u@iota.uz",
+        name: "U",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "w",
+        name: "W",
+        createdBy: userId,
+      });
+      const canvasId = await ctx.db.insert("canvases", {
+        workspaceId,
+        slug: "c",
+        title: "C",
+        kind: "canvas",
+        visibility: "public",
+        publicSlug: "iframe-public",
+        createdBy: userId,
+        updatedAt: 0,
+      });
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy: userId,
+        iframeEntrypoints: ["/src/screens/runtime.html"],
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      for (const [relPath, body] of [
+        ["/src/screens/runtime.html", "<!doctype html><button>Live</button>"],
+        ["/src/screens/secret.html", "secret"],
+      ] as const) {
+        const storageId = await ctx.storage.store(new Blob([body]));
+        await ctx.db.insert("canvasVersionFiles", {
+          canvasId,
+          versionId,
+          relPath,
+          storageId,
+          size: body.length,
+          contentHash: "hash",
+        });
+      }
+    });
+    const allowed = await t.fetch("/s/iframe-public/src/screens/runtime.html");
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toMatch(/visual-canvas:readiness/);
+    expect(allowed.headers.get("content-security-policy")).not.toMatch(/allow-same-origin/);
+    expect((await t.fetch("/s/iframe-public/src/screens/secret.html")).status).toBe(404);
   });
 
   test("an /assets SVG still downloads rather than rendering as a document", async () => {

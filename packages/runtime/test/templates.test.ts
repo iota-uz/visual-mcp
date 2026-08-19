@@ -9,7 +9,14 @@ import { test } from "node:test";
 import { getTemplate, listTemplates, TEMPLATES } from "../src/templates/index.js";
 import { TEMPLATE_IDS, type TemplateKind } from "../src/types.js";
 
-const KNOWN_KINDS: TemplateKind[] = ["diagram", "mockup", "report", "chart", "infographic"];
+const KNOWN_KINDS: TemplateKind[] = [
+  "canvas",
+  "diagram",
+  "mockup",
+  "report",
+  "chart",
+  "infographic",
+];
 
 test("registry exposes exactly the ids from TEMPLATE_IDS, in order", () => {
   const ids = TEMPLATES.map((t) => t.id);
@@ -121,6 +128,7 @@ test("listTemplates() with no kind returns all templates", () => {
 
 test("listTemplates(kind) filters correctly for each known kind", () => {
   const expectedByKind: Record<TemplateKind, string[]> = {
+    canvas: ["iframe-service-flow"],
     diagram: ["architecture-overview", "sequence-flow"],
     mockup: ["mobile-app-screen", "phone-frame-screen", "browser-app-screen", "dashboard-overview"],
     infographic: ["one-page-infographic"],

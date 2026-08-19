@@ -34,7 +34,6 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import sharp from "sharp";
 
@@ -81,13 +80,11 @@ export interface RenderFileResult {
    * launches a browser and therefore never resolves a subresource at all.
    */
   unresolvedRefs: string[];
+  readiness: { status: "ready" | "partial"; warnings: string[] };
 }
 
 const DEFAULT_VIEWPORT_WIDTH = 1200;
 const DEFAULT_VIEWPORT_HEIGHT = 800;
-
-/** Settle time after navigation for client-side rendering (ApexCharts render()/animations) to finish before capture. */
-const RENDER_SETTLE_MS = 300;
 
 export async function renderFile(options: RenderFileOptions): Promise<RenderFileResult> {
   const { format } = options;
@@ -136,11 +133,15 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
 
   if (format === "html") {
     await fs.writeFile(absOutputPath, builtHtml, "utf8");
-    return { path: absOutputPath, unresolvedRefs: [] };
+    return {
+      path: absOutputPath,
+      unresolvedRefs: [],
+      readiness: { status: "ready", warnings: [] },
+    };
   }
 
   // format is "png" or "pdf" from here on — both need a real browser.
-  const unresolvedRefs = await renderWithBrowser(
+  const browserResult = await renderWithBrowser(
     builtHtml,
     entrypointDir,
     workspaceRoot,
@@ -149,7 +150,11 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
     options,
   );
 
-  return { path: absOutputPath, unresolvedRefs };
+  return {
+    path: absOutputPath,
+    unresolvedRefs: browserResult.unresolvedRefs,
+    readiness: browserResult.readiness,
+  };
 }
 
 async function buildHtmlWithTailwind(rawHtml: string, scanDir: string): Promise<string> {
@@ -166,7 +171,10 @@ async function renderWithBrowser(
   absOutputPath: string,
   format: "png" | "pdf",
   options: RenderFileOptions,
-): Promise<string[]> {
+): Promise<{
+  unresolvedRefs: string[];
+  readiness: { status: "ready" | "partial"; warnings: string[] };
+}> {
   // Written next to the entrypoint (not in a temp dir elsewhere) so it
   // stays inside `workspaceRoot` and resolves the same way the original
   // entrypoint would under the routing policy in ./routing.ts.
@@ -187,18 +195,43 @@ async function renderWithBrowser(
     try {
       const page = await context.newPage();
       const unresolved = await installLocalResourceRouting(page, workspaceRoot);
-      await page.goto(pathToFileURL(tempHtmlPath).href, { waitUntil: "networkidle" });
-      await page.waitForTimeout(RENDER_SETTLE_MS);
+      const virtualPath = path
+        .relative(workspaceRoot, tempHtmlPath)
+        .split(path.sep)
+        .map(encodeURIComponent)
+        .join("/");
+      await page.goto(`http://canvas.local/${virtualPath}`, { waitUntil: "networkidle" });
+      const iframeCanvasFitsViewport = await expandViewportForIframeCanvas(page);
+      await page.evaluate(() => document.fonts?.ready);
+      const readiness = await waitForCanvasReadiness(page);
+      await warmIframeSurfaces(page);
 
       if (format === "png") {
-        const screenshot = await page.screenshot({ type: "png", fullPage: true });
+        const screenshot = await page.screenshot({
+          type: "png",
+          fullPage: !iframeCanvasFitsViewport,
+        });
         const optimized = await sharp(screenshot).png({ compressionLevel: 9 }).toBuffer();
         await fs.writeFile(absOutputPath, optimized);
       } else {
         const pdf = options.pdf;
+        const world = await page
+          .locator(".vc-world")
+          .first()
+          .evaluate((element) => ({
+            width: (element as HTMLElement).offsetWidth,
+            height: (element as HTMLElement).offsetHeight,
+          }))
+          .catch(() => null);
         await page.pdf({
           path: absOutputPath,
-          format: pdf?.format ?? "A4",
+          ...(world
+            ? {
+                width: `${world.width + 2}px`,
+                height: `${world.height + 2}px`,
+                preferCSSPageSize: true,
+              }
+            : { format: pdf?.format ?? "A4" }),
           landscape: pdf?.orientation === "landscape",
           printBackground: pdf?.printBackground ?? true,
           displayHeaderFooter: pdf?.displayHeaderFooter ?? false,
@@ -211,7 +244,7 @@ async function renderWithBrowser(
       // Read after capture: `networkidle` + the settle timeout mean every
       // subresource the page was going to request has already been decided
       // by the route handler, including ones a late-running script added.
-      return unresolved.list();
+      return { unresolvedRefs: unresolved.list(), readiness };
     } finally {
       await context.close();
     }
@@ -219,4 +252,88 @@ async function renderWithBrowser(
     await browser.close();
     await fs.rm(tempHtmlPath, { force: true });
   }
+}
+
+async function expandViewportForIframeCanvas(page: import("playwright").Page): Promise<boolean> {
+  const dimensions = await page.evaluate(() => {
+    if (!document.querySelector(".vc-kind-iframe")) return null;
+    return {
+      width: Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)),
+      height: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)),
+    };
+  });
+  if (!dimensions) return false;
+  // Chromium can capture this canvas class in a single compositor surface;
+  // keeping all iframe nodes inside that surface avoids blank OOPIF tiles.
+  const width = Math.min(dimensions.width, 16_000);
+  const height = Math.min(dimensions.height, 16_000);
+  await page.setViewportSize({ width, height });
+  return width === dimensions.width && height === dimensions.height;
+}
+
+/**
+ * Chromium does not always allocate a compositor surface for an out-of-view
+ * OOPIF before a full-page capture. Readiness alone proves the screen loaded,
+ * but an iframe that has never intersected the viewport can still be captured
+ * as a blank rectangle. Visit every iframe node and wait for two compositor
+ * frames, then restore the world origin. This is deterministic and tied to
+ * rendering progress rather than an arbitrary settle timeout.
+ */
+async function warmIframeSurfaces(page: import("playwright").Page): Promise<void> {
+  await page.evaluate(async () => {
+    for (const node of document.querySelectorAll<HTMLElement>(".vc-kind-iframe")) {
+      node.scrollIntoView({ block: "center", inline: "center" });
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    }
+    window.scrollTo(0, 0);
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+}
+
+async function waitForCanvasReadiness(
+  page: import("playwright").Page,
+): Promise<{ status: "ready" | "partial"; warnings: string[] }> {
+  const count = await page.locator(".vc-kind-iframe iframe").count();
+  if (count === 0) return { status: "ready", warnings: [] };
+  try {
+    await page.waitForFunction(
+      () => {
+        const nodes = [...document.querySelectorAll<HTMLElement>(".vc-kind-iframe")];
+        return (
+          nodes.length > 0 &&
+          nodes.every((node) =>
+            ["ready", "partial", "failed"].includes(node.dataset.iframeReadiness ?? ""),
+          )
+        );
+      },
+      undefined,
+      { timeout: 15_000 },
+    );
+  } catch {
+    const pending = await page
+      .locator(".vc-kind-iframe:not([data-iframe-readiness])")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLElement).dataset.nodeId ?? "unknown"),
+      );
+    throw new Error(`iframe readiness timeout: ${pending.join(", ")}`);
+  }
+  const states = await page
+    .locator(".vc-kind-iframe")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        id: (node as HTMLElement).dataset.nodeId ?? "unknown",
+        state: (node as HTMLElement).dataset.iframeReadiness ?? "failed",
+        detail: (node as HTMLElement).dataset.iframeReadinessDetail ?? "",
+      })),
+    );
+  const bad = states
+    .filter((state) => state.state !== "ready")
+    .map((state) => `${state.id}: ${state.state}${state.detail ? ` (${state.detail})` : ""}`);
+  if (states.some((state) => state.state === "failed"))
+    throw new Error(`iframe readiness failed: ${bad.join("; ")}`);
+  return { status: bad.length ? "partial" : "ready", warnings: bad };
 }

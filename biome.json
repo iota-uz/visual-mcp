@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/sessions", "!**/*.d.ts", "!convex/_generated"]
+    "includes": ["**", "!**/dist", "!**/sessions", "!**/*.d.ts", "!convex/_generated", "!examples/osago-24/assets", "!examples/osago-24/preview.html", "!examples/osago-24/src/screens/reference-templates.js", "!examples/osago-24/src/screens/runtime.css"]
   },
   "formatter": {
     "enabled": true,

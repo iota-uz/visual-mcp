@@ -1,7 +1,6 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
-import type { EdgePath } from "./router.js";
-import { routeEdges } from "./router.js";
-import type { LegendGroup, NodeContent } from "./types.js";
+import { type EdgePath, routeEdges } from "./router.js";
+import type { IframeNode, LegendGroup } from "./types.js";
 
 export function escapeHtml(input: string): string {
   return input
@@ -11,55 +10,68 @@ export function escapeHtml(input: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-
-function renderContent(content: NodeContent | undefined): string {
-  if (!content) return "";
-  switch (content.type) {
-    case "html": {
-      const frame = content.frame ?? "none";
-      const scaleStyle = content.scale ? ` style="--vc-content-scale:${content.scale}"` : "";
-      if (frame === "none") {
-        return `<div class="vc-content vc-content-html"${scaleStyle}>${content.html}</div>`;
-      }
-      return `<div class="vc-frame vc-frame-${frame}"${scaleStyle}>
-        <div class="vc-frame-chrome"></div>
-        <div class="vc-content vc-content-html">${content.html}</div>
-      </div>`;
-    }
-    case "text":
-      return `<div class="vc-content vc-content-text">${escapeHtml(content.body)}</div>`;
-  }
+export interface RenderOptions {
+  resolveIframeUrl?: (node: IframeNode) => string;
+  editable?: boolean;
+  /** Viewers defer off-screen screen runtimes; deterministic exports opt into eager loading. */
+  iframeLoading?: "lazy" | "eager";
 }
 
-function renderNode(node: PositionedNode): string {
-  const badge = node.badge
-    ? `<span class="vc-badge vc-tone-${node.badge.tone}">${escapeHtml(node.badge.text)}</span>`
-    : "";
-  const subtitle = node.caption.subtitle
-    ? `<div class="vc-caption-subtitle">${escapeHtml(node.caption.subtitle)}</div>`
-    : "";
-  const tag = node.caption.tag
-    ? `<div class="vc-caption-tag">${escapeHtml(node.caption.tag)}</div>`
-    : "";
-
-  return `<div
-      class="vc-node vc-shape-${node.shape}"
-      data-node-id="${escapeHtml(node.id)}"
-      data-lane="${escapeHtml(node.lane)}"
-      data-stage="${escapeHtml(node.stage)}"
-      style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px"
-    >
-      <div class="vc-caption">
-        <div class="vc-caption-title">${escapeHtml(node.caption.title)}</div>
-        ${subtitle}
-        ${tag}
-        ${badge}
-      </div>
-      ${renderContent(node.content)}
-    </div>`;
+function caption(node: PositionedNode): string {
+  return `<div class="vc-caption"><div><div class="vc-caption-title">${escapeHtml(node.caption.title)}</div>${node.caption.subtitle ? `<div class="vc-caption-subtitle">${escapeHtml(node.caption.subtitle)}</div>` : ""}</div>${node.caption.tag ? `<div class="vc-caption-tag">${escapeHtml(node.caption.tag)}</div>` : ""}${node.maturity ? `<span class="vc-badge vc-tone-${node.maturity}">${node.maturity.toUpperCase()}</span>` : ""}</div>`;
 }
-
-const EDGE_MARKER_ID: Record<EdgePath["edge"]["kind"], string> = {
+function nativeBody(node: Extract<PositionedNode, { kind: "native" }>): string {
+  const body = node.body;
+  if (!body) return "";
+  return `<div class="vc-native-body">${body.text ? `<p>${escapeHtml(body.text)}</p>` : ""}${body.points?.length ? `<ul>${body.points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${body.code ? `<pre>${escapeHtml(body.code)}</pre>` : ""}</div>`;
+}
+function actorBody(node: Extract<PositionedNode, { kind: "native" }>): string {
+  const role = node.caption.title === "Потерпевший" ? "victim" : "culprit";
+  const progress = node.body?.progress;
+  const pips = progress
+    ? Array.from({ length: progress.total }, (_, index) => {
+        const step = index + 1;
+        const state =
+          step < progress.value || (step === progress.value && progress.current === false)
+            ? " done"
+            : step === progress.value
+              ? " now"
+              : "";
+        return `<i class="vc-person-pip${state}"></i>`;
+      }).join("")
+    : "";
+  return `<span class="vc-person-icon vc-person-${role}" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"></circle><path d="M5.5 19c.7-4 2.9-6 6.5-6s5.8 2 6.5 6"></path></svg></span><span class="vc-person-copy"><em>${escapeHtml(node.caption.subtitle ?? "")} · ${escapeHtml(node.caption.tag ?? "")}</em><b>${escapeHtml(node.caption.title)}</b>${node.body?.text ? `<small>${escapeHtml(node.body.text)}</small>` : ""}${progress ? `<span class="vc-person-progress">${pips}<span>${progress.value} / ${progress.total}</span></span>` : ""}</span>`;
+}
+function iframeBody(
+  node: Extract<PositionedNode, { kind: "iframe" }>,
+  options: RenderOptions,
+): string {
+  const url =
+    options.resolveIframeUrl?.(node) ?? `${node.source.entrypoint}${node.source.route ?? ""}`;
+  const allow = node.permissions.map((permission) => `${permission} 'none'`).join("; ");
+  const scale = Math.min(
+    node.w / node.viewport.width,
+    Math.max(1, node.h - 47) / node.viewport.height,
+  );
+  const loading = options.iframeLoading ?? "lazy";
+  const sandbox = node.sandbox.map(escapeHtml).join(" ");
+  const frame =
+    loading === "eager"
+      ? `<iframe tabindex="-1" loading="eager" src="${escapeHtml(url)}" sandbox="${sandbox}" allow="${escapeHtml(allow)}" referrerpolicy="no-referrer" data-entrypoint="${escapeHtml(node.source.entrypoint)}"></iframe>`
+      : `<div class="vc-iframe-placeholder" data-src="${escapeHtml(url)}" data-sandbox="${sandbox}" data-allow="${escapeHtml(allow)}" data-entrypoint="${escapeHtml(node.source.entrypoint)}"><span>Loading screen</span></div>`;
+  return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${node.frame.radius ?? 16}px;--vc-iframe-scale:${scale}"><div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div><div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
+}
+function renderNode(node: PositionedNode, options: RenderOptions): string {
+  const shape = node.kind === "native" ? node.shape : `iframe-${node.frame.kind}`;
+  const content =
+    node.kind === "native"
+      ? node.shape === "actor"
+        ? actorBody(node)
+        : `${caption(node)}${nativeBody(node)}`
+      : `${caption(node)}${iframeBody(node, options)}`;
+  return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? `<i class="vc-resize-handle" data-resize="se"></i>` : ""}</div>`;
+}
+const MARKERS: Record<EdgePath["edge"]["kind"], string> = {
   main: "vc-arrow-main",
   secondary: "vc-arrow-secondary",
   sync: "vc-arrow-sync",
@@ -67,77 +79,22 @@ const EDGE_MARKER_ID: Record<EdgePath["edge"]["kind"], string> = {
   exception: "vc-arrow-exception",
   external: "vc-arrow-external",
 };
-
 function renderEdge(path: EdgePath): string {
-  const markerId = EDGE_MARKER_ID[path.edge.kind];
-  const markerEnd = `url(#${markerId})`;
-  const markerStart = path.edge.bidirectional ? `url(#${markerId})` : "";
-  const label = path.edge.label
-    ? `<text class="vc-edge-label" x="${path.labelPoint.x}" y="${path.labelPoint.y}">${escapeHtml(path.edge.label)}</text>`
+  const marker = MARKERS[path.edge.kind];
+  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}" data-edge-id="${escapeHtml(path.edge.id)}"><path d="${path.d}" marker-end="url(#${marker})" ${path.edge.bidirectional ? `marker-start="url(#${marker})"` : ""}/>${path.edge.label ? `<text class="vc-edge-label" x="${path.labelPoint.x}" y="${path.labelPoint.y}">${escapeHtml(path.edge.label.text)}</text>` : ""}</g>`;
+}
+function markerDefs(): string {
+  return `<defs>${Object.entries(MARKERS)
+    .map(
+      ([kind, id]) =>
+        `<marker id="${id}" class="vc-marker vc-marker-${kind}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>`,
+    )
+    .join("")}</defs>`;
+}
+function renderLegend(groups?: LegendGroup[]): string {
+  return groups?.length
+    ? `<div class="vc-legend">${groups.map((group) => `<div class="vc-legend-group">${group.title ? `<div class="vc-legend-title">${escapeHtml(group.title)}</div>` : ""}${group.items.map((item) => `<div class="vc-legend-item ${item.role ? `vc-role-${item.role}` : item.maturity ? `vc-tone-${item.maturity}` : ""}"><span class="vc-legend-swatch"></span>${escapeHtml(item.label)}</div>`).join("")}</div>`).join("")}</div>`
     : "";
-  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}" data-edge-id="${escapeHtml(path.edge.id ?? `${path.edge.from}->${path.edge.to}`)}">
-      <path d="${path.d}" marker-end="${markerEnd}" ${markerStart ? `marker-start="${markerStart}"` : ""} />
-      ${label}
-    </g>`;
-}
-
-function renderMarkerDefs(): string {
-  const kinds = Object.entries(EDGE_MARKER_ID);
-  const markers = kinds
-    .map(
-      ([kind, id]) => `<marker id="${id}" class="vc-marker vc-marker-${kind}" viewBox="0 0 10 10"
-        refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M 0 0 L 10 5 L 0 10 z" />
-      </marker>`,
-    )
-    .join("\n");
-  return `<defs>${markers}</defs>`;
-}
-
-function renderLanes(canvas: PositionedCanvas): string {
-  return canvas.lanes
-    .map(
-      (lane) =>
-        `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="top:${lane.y}px;height:${lane.height}px">
-          <div class="vc-lane-label">${escapeHtml(lane.label)}</div>
-        </div>`,
-    )
-    .join("\n");
-}
-
-function renderStages(canvas: PositionedCanvas): string {
-  return canvas.stages
-    .map((stage) => {
-      const summary = stage.summary
-        ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>`
-        : "";
-      return `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.x}px;width:${stage.width}px;height:${canvas.height}px">
-          <div class="vc-stage-header">
-            <div class="vc-stage-label">${escapeHtml(stage.label)}</div>
-            ${summary}
-          </div>
-        </div>`;
-    })
-    .join("\n");
-}
-
-function renderLegend(groups: LegendGroup[] | undefined): string {
-  if (!groups || groups.length === 0) return "";
-  const body = groups
-    .map((group) => {
-      const title = group.title
-        ? `<div class="vc-legend-title">${escapeHtml(group.title)}</div>`
-        : "";
-      const items = group.items
-        .map((item) => {
-          const cls = item.role ? `vc-role-${item.role}` : item.tone ? `vc-tone-${item.tone}` : "";
-          return `<div class="vc-legend-item ${cls}"><span class="vc-legend-swatch"></span>${escapeHtml(item.label)}</div>`;
-        })
-        .join("\n");
-      return `<div class="vc-legend-group">${title}${items}</div>`;
-    })
-    .join("\n");
-  return `<div class="vc-legend">${body}</div>`;
 }
 
 export interface RenderedCanvas {
@@ -145,24 +102,11 @@ export interface RenderedCanvas {
   width: number;
   height: number;
 }
-
-/**
- * Renders the world contents only — lanes, stage frames, node cards, the SVG
- * edge layer, and legend. Caller mounts this into a
- * container that already has theme.css loaded (the browser viewport, or a
- * static page assembled by the render pipeline in a later milestone).
- */
-export function renderCanvas(canvas: PositionedCanvas): RenderedCanvas {
+export function renderCanvas(
+  canvas: PositionedCanvas,
+  options: RenderOptions = {},
+): RenderedCanvas {
   const edges = routeEdges(canvas);
-  const html = `<div class="vc-world" style="width:${canvas.width}px;height:${canvas.height}px">
-      <div class="vc-lanes">${renderLanes(canvas)}</div>
-      <div class="vc-stages">${renderStages(canvas)}</div>
-      <div class="vc-nodes">${canvas.nodes.map(renderNode).join("\n")}</div>
-      <svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">
-        ${renderMarkerDefs()}
-        ${edges.map(renderEdge).join("\n")}
-      </svg>
-    </div>
-    ${renderLegend(canvas.doc.legend)}`;
+  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
   return { html, width: canvas.width, height: canvas.height };
 }

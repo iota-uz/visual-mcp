@@ -4,8 +4,9 @@ import {
   CanvasDocSchema,
   layoutCanvas,
   mountViewport,
+  type ViewportController,
 } from "@visual-canvas/canvas";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   ExternalLink,
@@ -21,6 +22,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ConfirmButton } from "../components/ConfirmButton";
+import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { RenameForm } from "../components/RenameForm";
@@ -31,6 +33,8 @@ import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
+import { canvasViewportStructureKey } from "../lib/canvasViewportKey";
+import { mcpBaseUrl } from "../lib/mcpUrl";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
@@ -38,8 +42,21 @@ import { useDocumentTitle } from "../lib/useDocumentTitle";
 // this is the client-side rendering path (PLAN.md Part 1 section 2/8),
 // distinct from the worker's server-side render used for PNG/PDF export
 // and for html/image/pdf-kind canvases (rendered via `entry_url` below).
-export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
+export function CanvasViewport({
+  doc,
+  iframeBaseUrl,
+  editable = false,
+  onGeometryChange,
+}: {
+  doc: CanvasDoc;
+  iframeBaseUrl?: string | null;
+  editable?: boolean;
+  onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<ViewportController | null>(null);
+  const docRef = useRef(doc);
+  docRef.current = doc;
   const setSearchParams = useSearchParams()[1];
   /*
    * Held in a ref, and deliberately out of the effect's dep array below.
@@ -51,14 +68,24 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
    */
   const setSearchParamsRef = useRef(setSearchParams);
   setSearchParamsRef.current = setSearchParams;
+  const onGeometryChangeRef = useRef(onGeometryChange);
+  onGeometryChangeRef.current = onGeometryChange;
+
+  // Rects are mutable layout state. Keeping them out of the mount key lets
+  // the immutable persisted version reconcile into the live DOM without
+  // destroying 32 iframe browsing contexts or resetting the camera.
+  const structureKey = canvasViewportStructureKey(doc);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    // Reading the key here documents and enforces that structural changes,
+    // unlike rect-only changes, are mount boundaries.
+    if (canvasViewportStructureKey(docRef.current) !== structureKey) return;
 
     let positioned: ReturnType<typeof layoutCanvas>;
     try {
-      positioned = layoutCanvas(doc);
+      positioned = layoutCanvas(docRef.current);
     } catch (err) {
       container.textContent = `Layout error: ${err instanceof Error ? err.message : String(err)}`;
       return;
@@ -67,6 +94,10 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
     const controller = mountViewport({
       container,
       canvas: positioned,
+      editable,
+      resolveIframeUrl: iframeBaseUrl
+        ? (node) => `${iframeBaseUrl}${node.source.entrypoint}${node.source.route ?? ""}`
+        : undefined,
       onSelect: (nodeId) => {
         /*
          * `replace`, not push. Selection is view state, not navigation: the
@@ -78,8 +109,9 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
          */
         setSearchParamsRef.current(nodeId ? { node: nodeId } : {}, { replace: true });
       },
+      onGeometryChange: (nodeId, rect) => onGeometryChangeRef.current?.(nodeId, rect),
     });
-    controller.fitAll();
+    controllerRef.current = controller;
 
     // Read the deep-linked node directly from the URL rather than the
     // reactive `useSearchParams` value on purpose — this effect should only
@@ -88,7 +120,18 @@ export function CanvasViewport({ doc }: { doc: CanvasDoc }) {
     const initialNode = new URLSearchParams(window.location.search).get("node");
     if (initialNode) controller.selectNode(initialNode, true);
 
-    return () => controller.dispose();
+    return () => {
+      controllerRef.current = null;
+      controller.dispose();
+    };
+  }, [structureKey, iframeBaseUrl, editable]);
+
+  useEffect(() => {
+    try {
+      controllerRef.current?.updateCanvas(layoutCanvas(doc));
+    } catch {
+      // A structural change is handled by the keyed mount effect above.
+    }
   }, [doc]);
 
   return <div ref={containerRef} className="vc-viewport-host" />;
@@ -133,10 +176,22 @@ function PublishControl({
   canvasId,
   visibility,
   publicSlug,
+  title,
+  version,
+  doc,
+  artifacts,
 }: {
   canvasId: Id<"canvases">;
   visibility: "private" | "public";
   publicSlug: string | undefined;
+  title: string;
+  version: number | undefined;
+  doc: CanvasDoc | null;
+  artifacts: Array<{
+    path: string;
+    type: "pdf" | "image" | "svg" | "source";
+    role: "primary" | "supporting";
+  }>;
 }) {
   const publish = useMutation(api.canvases.publishMine);
   const rotateSlug = useMutation(api.canvases.rotateMySlug);
@@ -170,7 +225,7 @@ function PublishControl({
   }
 
   return (
-    <DrawerSection label="Share">
+    <DrawerSection label="Share & Embed">
       {visibility === "public" && shareUrl ? (
         <>
           <p className="drawer-section-note">Anyone with this link can open it. No sign-in.</p>
@@ -205,6 +260,13 @@ function PublishControl({
               onConfirm={replaceLink}
             />
           </div>
+          <EmbedControl
+            title={title}
+            publicSlug={publicSlug as string}
+            version={version}
+            doc={doc}
+            artifacts={artifacts}
+          />
         </>
       ) : (
         <>
@@ -323,9 +385,11 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
   const docUrl = canvas?.doc_url ?? null;
 
   useEffect(() => {
-    setDoc(null);
     setDocError(null);
-    if (kind !== "canvas" || !docUrl) return;
+    if (kind !== "canvas" || !docUrl) {
+      setDoc(null);
+      return;
+    }
     let cancelled = false;
     fetch(docUrl)
       .then((res) => res.json())
@@ -388,6 +452,27 @@ export function CanvasPage() {
     api.canvases.getMine,
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
+  const mintIframeCapability = useMutation(api.canvases.mintIframeCapabilityMine);
+  const patchNodeRect = useAction(api.canvases.patchNodeRectMine);
+  const [iframeCapability, setIframeCapability] = useState<string | null>(null);
+  const canvasVersion = canvas?.version;
+  useEffect(() => {
+    if (!canvasId || canvas?.kind !== "canvas") {
+      setIframeCapability(null);
+      return;
+    }
+    let cancelled = false;
+    mintIframeCapability({ canvasId: canvasId as Id<"canvases"> })
+      .then(({ token }) => {
+        if (!cancelled) setIframeCapability(token);
+      })
+      .catch(() => {
+        if (!cancelled) setIframeCapability(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasId, canvas?.kind, mintIframeCapability]);
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
   useDocumentTitle(canvas?.title);
 
@@ -402,6 +487,13 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const persistedVersionRef = useRef<number | undefined>(canvasVersion);
+  const pendingGeometrySavesRef = useRef(0);
+  const geometrySaveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    if (pendingGeometrySavesRef.current === 0) persistedVersionRef.current = canvasVersion;
+  }, [canvasVersion]);
   /*
    * Held here rather than inside VersionHistory so the "by …" attribution
    * above can reuse it: one subscription, not two, and with exactly the
@@ -543,6 +635,10 @@ export function CanvasPage() {
           canvasId={canvas.canvas_id}
           visibility={canvas.visibility}
           publicSlug={canvas.public_slug}
+          title={canvas.title}
+          version={canvas.version}
+          doc={doc}
+          artifacts={canvas.artifacts}
         />
 
         <VersionHistory canvasId={canvas.canvas_id} versions={versions} />
@@ -596,12 +692,51 @@ export function CanvasPage() {
           {/* `!doc` alone left a genuinely blank page in the window where
               the doc had landed but its compiled CSS had not: the loading
               text was gone and the viewport had not mounted yet. */}
-          {(!doc || !cssReady) && !docError && (
+          {(!doc ||
+            !cssReady ||
+            (doc.nodes.some((node) => node.kind === "iframe") && !iframeCapability)) &&
+            !docError && (
             <div className="canvas-page-loading">
               <LoadingState label="Loading canvas…" />
             </div>
+            )}
+          {doc && cssReady && (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapability) && (
+            <CanvasViewport
+              doc={doc}
+              editable
+              onGeometryChange={(nodeId, rect) => {
+                if (!canvasId) return;
+                pendingGeometrySavesRef.current += 1;
+                geometrySaveChainRef.current = geometrySaveChainRef.current
+                  .catch(() => undefined)
+                  .then(async () => {
+                    const expectedVersion = persistedVersionRef.current;
+                    if (expectedVersion === undefined) return;
+                    const result = await patchNodeRect({
+                      canvasId: canvasId as Id<"canvases">,
+                      nodeId,
+                      rect,
+                      expectedVersion,
+                    });
+                    persistedVersionRef.current = result.version;
+                  })
+                  .catch((error: unknown) => {
+                    notify({
+                      tone: "error",
+                      message: error instanceof Error ? error.message : "Unable to save layout",
+                    });
+                  })
+                  .finally(() => {
+                    pendingGeometrySavesRef.current -= 1;
+                  });
+              }}
+              iframeBaseUrl={
+                iframeCapability
+                  ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapability}`
+                  : null
+              }
+            />
           )}
-          {doc && cssReady && <CanvasViewport doc={doc} />}
         </>
       ) : canvas.entry_url ? (
         <div

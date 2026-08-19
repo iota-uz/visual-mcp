@@ -116,7 +116,7 @@ export type ThemeName = (typeof THEME_NAMES)[number];
  * Template contract (PLAN.md section 10)
  * ---------------------------------------------------------------------- */
 
-export type TemplateKind = "diagram" | "mockup" | "report" | "chart" | "infographic";
+export type TemplateKind = "canvas" | "diagram" | "mockup" | "report" | "chart" | "infographic";
 
 export interface Template {
   id: string;
@@ -138,6 +138,7 @@ export const TEMPLATE_IDS = [
   "one-page-infographic",
   "multipage-report",
   "chart-report",
+  "iframe-service-flow",
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 

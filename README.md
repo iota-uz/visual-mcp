@@ -36,6 +36,19 @@ there are no separate workspace/canvas/slug arguments to thread through.
 | --- | --- |
 | `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
 | `canvas_get` | Reads one canvas: metadata and URLs always, plus any of `doc` / `files` / `artifacts` / `versions` / `renders` / `storage`. Bytes come back as links, never inlined. |
+
+### CanvasDoc v2 iframe nodes
+
+Native canvases use `version: 2`, explicit `world` and `rect` geometry, and anchor-to-anchor edges. A node is either structured `native` content or a local interactive `iframe`. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the document via `canvas_save({ kind: "canvas", doc, files })`. External iframe URLs and `allow-same-origin` are rejected.
+
+In the viewer, an iframe is inert while the canvas is being panned, selected, moved or resized. Double-click or Enter enters interaction mode; Escape or the visible Exit control returns focus to the canvas. Export uses `renders: [{ target: { type: "canvas" }, format: "png" | "pdf" }]` and waits for deterministic DOM/font/image/runtime readiness. See the `canvas://templates/iframe-service-flow` MCP resource and [`examples/osago-24/canvas.json`](./examples/osago-24/canvas.json).
+
+### GitHub and Markdown previews
+
+Publishing a canvas now exposes a static public preview card for the whole canvas, any CanvasDoc node/screen, and every output artifact. In the signed-in viewer, open **Details → Share & Embed**, choose the target and either the current pinned version or **Always latest**, then copy the ready `[![preview](image)](link)` Markdown into a GitHub issue, pull request, README, or any Markdown surface.
+
+`canvas_save` and `canvas_get` return the same ready-to-paste values as `embed.github_markdown`; requested or newly-rendered artifacts also carry `github_markdown`. The image endpoint is script-free and GitHub-proxy-friendly. Clicking a canvas or node card opens the existing public share view (focused with `?node=` for nodes); clicking an artifact card opens that public file. There is deliberately no website iframe snippet and no separate interactive embed viewer. Making the canvas private or replacing its public link revokes the associated card URLs too.
+
 | `canvas_find` | Browses and searches — workspaces, canvases, and the text inside canvas-document nodes. Every result carries a `ref`. |
 | `canvas_delete` | Archives (reversible) or purges a workspace, canvas, file, or artifact, and reports the bytes reclaimed. |
 | `canvas_run` | Executes JS/TS in a resource-limited sandbox (worker-thread isolated, no shell access). Anything written to `/output` is collected as an artifact. |

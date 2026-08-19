@@ -1,0 +1,4816 @@
+{
+  "version": 2,
+  "title": "OSAGO Fast Settlement",
+  "subtitle": "OSAGO 24 · native service blueprint with interactive product screens",
+  "theme": "osago-24",
+  "world": {
+    "width": 8700,
+    "height": 3690
+  },
+  "lanes": [
+    {
+      "id": "people",
+      "label": "Участники · кто действует на этом шаге",
+      "role": "actors",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 8700,
+        "h": 490
+      }
+    },
+    {
+      "id": "culprit",
+      "label": "Виновник · EAI app",
+      "role": "primary",
+      "rect": {
+        "x": 0,
+        "y": 500,
+        "w": 8700,
+        "h": 700
+      }
+    },
+    {
+      "id": "victim",
+      "label": "Потерпевший · web eai.uz",
+      "role": "secondary",
+      "rect": {
+        "x": 0,
+        "y": 1210,
+        "w": 8700,
+        "h": 700
+      }
+    },
+    {
+      "id": "automation",
+      "label": "Автоматизация EAI",
+      "role": "automation",
+      "rect": {
+        "x": 0,
+        "y": 1920,
+        "w": 8700,
+        "h": 280
+      }
+    },
+    {
+      "id": "support",
+      "label": "Поддержка / call-центр",
+      "role": "support",
+      "rect": {
+        "x": 0,
+        "y": 2210,
+        "w": 8700,
+        "h": 400
+      }
+    },
+    {
+      "id": "granite",
+      "label": "Granite",
+      "role": "system",
+      "rect": {
+        "x": 0,
+        "y": 2620,
+        "w": 8700,
+        "h": 440
+      }
+    },
+    {
+      "id": "external",
+      "label": "Внешние системы",
+      "role": "external",
+      "rect": {
+        "x": 0,
+        "y": 3070,
+        "w": 8700,
+        "h": 280
+      }
+    },
+    {
+      "id": "exceptions",
+      "label": "Исключения / retry / регресс",
+      "role": "exception",
+      "rect": {
+        "x": 0,
+        "y": 3360,
+        "w": 8700,
+        "h": 310
+      }
+    }
+  ],
+  "stages": [
+    {
+      "id": "s1",
+      "index": 0,
+      "label": "ДТП",
+      "rect": {
+        "x": 180,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s2",
+      "index": 1,
+      "label": "Безопасность + оферта",
+      "rect": {
+        "x": 880,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s3",
+      "index": 2,
+      "label": "Сотрудничество",
+      "rect": {
+        "x": 1580,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s4",
+      "index": 3,
+      "label": "Приглашение",
+      "rect": {
+        "x": 2280,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s5",
+      "index": 4,
+      "label": "Web consent",
+      "rect": {
+        "x": 2980,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s6",
+      "index": 5,
+      "label": "MyID",
+      "rect": {
+        "x": 3680,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s7",
+      "index": 6,
+      "label": "Evidence",
+      "rect": {
+        "x": 4380,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s8",
+      "index": 7,
+      "label": "AI-протокол",
+      "rect": {
+        "x": 5080,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s9",
+      "index": 8,
+      "label": "Признание вины",
+      "rect": {
+        "x": 5780,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s10",
+      "index": 9,
+      "label": "Решение + карта",
+      "rect": {
+        "x": 6480,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s11",
+      "index": 10,
+      "label": "Выплата",
+      "rect": {
+        "x": 7180,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    },
+    {
+      "id": "s12",
+      "index": 11,
+      "label": "Документы D+3",
+      "rect": {
+        "x": 7880,
+        "y": 0,
+        "w": 690,
+        "h": 3690
+      }
+    }
+  ],
+  "labels": [
+    {
+      "id": "title",
+      "text": "OSAGO 24 · FAST SETTLEMENT",
+      "rect": {
+        "x": 20,
+        "y": 510,
+        "w": 150,
+        "h": 40
+      },
+      "tone": "info"
+    },
+    {
+      "id": "d3",
+      "text": "D+3 / REGRESS",
+      "rect": {
+        "x": 8000,
+        "y": 3615,
+        "w": 500,
+        "h": 45
+      },
+      "tone": "warning",
+      "align": "center"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "culprit-scene",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s1",
+      "rect": {
+        "x": 205,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Оформить ДТП",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/scene"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-safety",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s2",
+      "rect": {
+        "x": 905,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Безопасность и оферта",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/safety"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-cooperation",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s3",
+      "rect": {
+        "x": 1605,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Сотрудничество",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/cooperation"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-invite",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s4",
+      "rect": {
+        "x": 2305,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "QR потерпевшему",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/invite"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-qr",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s5",
+      "rect": {
+        "x": 3005,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "QR и web-сессия",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/qr"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-evidence",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s7",
+      "rect": {
+        "x": 4405,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Фото с места",
+        "tag": "CULPRIT"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/evidence"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-protocol",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s8",
+      "rect": {
+        "x": 5105,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "AI-реконструкция",
+        "tag": "CULPRIT"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/protocol"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-sign",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s9",
+      "rect": {
+        "x": 5805,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Признание вины",
+        "tag": "CULPRIT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/sign"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "culprit-documents",
+      "kind": "iframe",
+      "laneId": "culprit",
+      "stageId": "s12",
+      "rect": {
+        "x": 7905,
+        "y": 545,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Документы D+3",
+        "tag": "CULPRIT"
+      },
+      "maturity": "to-be",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/culprit/documents"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-qr",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s5",
+      "rect": {
+        "x": 3005,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Оферта и web-сессия",
+        "tag": "WEB"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/qr"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-identity",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s6",
+      "rect": {
+        "x": 3705,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "MyID · login",
+        "tag": "WEB"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/identity"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-identity-face",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s6",
+      "rect": {
+        "x": 3975,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "MyID · face",
+        "tag": "WEB"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/identity-face"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-evidence",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s7",
+      "rect": {
+        "x": 4405,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Повреждения",
+        "tag": "WEB"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/evidence"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-protocol",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s8",
+      "rect": {
+        "x": 5105,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "AI-реконструкция",
+        "tag": "WEB"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/protocol"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-decision",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s10",
+      "rect": {
+        "x": 6505,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Сумма и карта",
+        "tag": "WEB"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/decision"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-paid",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s11",
+      "rect": {
+        "x": 7205,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Зачисление",
+        "tag": "WEB"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/paid"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "victim-documents",
+      "kind": "iframe",
+      "laneId": "victim",
+      "stageId": "s12",
+      "rect": {
+        "x": 7905,
+        "y": 1255,
+        "w": 248,
+        "h": 645
+      },
+      "caption": {
+        "title": "Документы D+3",
+        "tag": "WEB"
+      },
+      "maturity": "to-be",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "actor-in",
+          "side": "left",
+          "offset": 0.10852713178294573
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/victim/documents"
+      },
+      "viewport": {
+        "width": 310,
+        "height": 748
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-1",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s1",
+      "rect": {
+        "x": 205,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · ДТП",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-1"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-2",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s2",
+      "rect": {
+        "x": 905,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Безопасность + оферта",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-2"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-3",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s3",
+      "rect": {
+        "x": 1605,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Сотрудничество",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-3"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-4",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s4",
+      "rect": {
+        "x": 2305,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Приглашение",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-4"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-5",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s5",
+      "rect": {
+        "x": 3005,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Web consent",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-5"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-6",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s6",
+      "rect": {
+        "x": 3705,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · MyID",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-6"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-7",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s7",
+      "rect": {
+        "x": 4405,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Evidence",
+        "tag": "GRANITE"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-7"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-8",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s8",
+      "rect": {
+        "x": 5105,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · AI-протокол",
+        "tag": "GRANITE"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-8"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-9",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s9",
+      "rect": {
+        "x": 5805,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Признание вины",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-9"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-10",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s10",
+      "rect": {
+        "x": 6505,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Решение + карта",
+        "tag": "GRANITE"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-10"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-11",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s11",
+      "rect": {
+        "x": 7205,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Выплата",
+        "tag": "GRANITE"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-11"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "granite-stage-12",
+      "kind": "iframe",
+      "laneId": "granite",
+      "stageId": "s12",
+      "rect": {
+        "x": 7905,
+        "y": 2635,
+        "w": 650,
+        "h": 422
+      },
+      "caption": {
+        "title": "Granite · Документы D+3",
+        "tag": "GRANITE"
+      },
+      "maturity": "to-be",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/granite/stage-12"
+      },
+      "viewport": {
+        "width": 1040,
+        "height": 602
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "support-qr",
+      "kind": "iframe",
+      "laneId": "support",
+      "stageId": "s5",
+      "rect": {
+        "x": 3005,
+        "y": 2225,
+        "w": 600,
+        "h": 373
+      },
+      "caption": {
+        "title": "QR support",
+        "tag": "SUPPORT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/support/qr"
+      },
+      "viewport": {
+        "width": 1000,
+        "height": 543
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "support-evidence",
+      "kind": "iframe",
+      "laneId": "support",
+      "stageId": "s7",
+      "rect": {
+        "x": 4405,
+        "y": 2225,
+        "w": 600,
+        "h": 373
+      },
+      "caption": {
+        "title": "Evidence support",
+        "tag": "SUPPORT"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/support/evidence"
+      },
+      "viewport": {
+        "width": 1000,
+        "height": 543
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "support-payout",
+      "kind": "iframe",
+      "laneId": "support",
+      "stageId": "s11",
+      "rect": {
+        "x": 7205,
+        "y": 2225,
+        "w": 600,
+        "h": 373
+      },
+      "caption": {
+        "title": "Payout support",
+        "tag": "SUPPORT"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "source": {
+        "entrypoint": "/src/screens/runtime.html",
+        "route": "#/support/payout"
+      },
+      "viewport": {
+        "width": 1000,
+        "height": 543
+      },
+      "frame": {
+        "kind": "none",
+        "radius": 0,
+        "fit": "contain"
+      },
+      "sandbox": ["allow-scripts", "allow-forms"],
+      "permissions": [],
+      "activation": "double-click"
+    },
+    {
+      "id": "policy-check",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s2",
+      "rect": {
+        "x": 915,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Policy engine"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Покрытие, лимиты, критерии европротокола"
+      }
+    },
+    {
+      "id": "session-orchestrator",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s4",
+      "rect": {
+        "x": 2315,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Session orchestrator"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "QR → браузерная сессия без установки"
+      }
+    },
+    {
+      "id": "identity-gate",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s6",
+      "rect": {
+        "x": 3715,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Identity gate"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "MyID применяется только к потерпевшему"
+      }
+    },
+    {
+      "id": "evidence-ai",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s7",
+      "rect": {
+        "x": 4415,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Evidence quality"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Camera-only, GPS и контроль ракурсов"
+      }
+    },
+    {
+      "id": "reconstruction-ai",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s8",
+      "rect": {
+        "x": 5115,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Reconstruction AI"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Схема ДТП и проверка согласованности"
+      }
+    },
+    {
+      "id": "damage-ai",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s10",
+      "rect": {
+        "x": 6515,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Damage AI"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Оценка ущерба, antifraud и решение"
+      }
+    },
+    {
+      "id": "auto-payout",
+      "kind": "native",
+      "shape": "automation",
+      "laneId": "automation",
+      "stageId": "s11",
+      "rect": {
+        "x": 7215,
+        "y": 1980,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Automatic payout"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Токен карты и автоматическое перечисление"
+      }
+    },
+    {
+      "id": "ersp",
+      "kind": "native",
+      "shape": "registry",
+      "laneId": "external",
+      "stageId": "s2",
+      "rect": {
+        "x": 915,
+        "y": 3135,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "ERSP НАПП"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Проверка полиса и регистрация события"
+      }
+    },
+    {
+      "id": "uzum",
+      "kind": "native",
+      "shape": "service",
+      "laneId": "external",
+      "stageId": "s11",
+      "rect": {
+        "x": 7215,
+        "y": 3135,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Uzum"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Токенизация и карточная выплата"
+      }
+    },
+    {
+      "id": "one-c",
+      "kind": "native",
+      "shape": "service",
+      "laneId": "external",
+      "stageId": "s11",
+      "rect": {
+        "x": 7215,
+        "y": 3135,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "1C"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Проводки и сверка"
+      }
+    },
+    {
+      "id": "d3-archive",
+      "kind": "native",
+      "shape": "registry",
+      "laneId": "external",
+      "stageId": "s12",
+      "rect": {
+        "x": 7915,
+        "y": 3135,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Архив документов"
+      },
+      "maturity": "to-be",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Пакет документов формируется D+3"
+      }
+    },
+    {
+      "id": "qr-retry",
+      "kind": "native",
+      "shape": "note",
+      "laneId": "exceptions",
+      "stageId": "s4",
+      "rect": {
+        "x": 2315,
+        "y": 3425,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "QR retry"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Повторная ссылка / помощь оператора"
+      }
+    },
+    {
+      "id": "photo-retry",
+      "kind": "native",
+      "shape": "note",
+      "laneId": "exceptions",
+      "stageId": "s7",
+      "rect": {
+        "x": 4415,
+        "y": 3425,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Evidence retry"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Пересъёмка некачественного ракурса"
+      }
+    },
+    {
+      "id": "payment-retry",
+      "kind": "native",
+      "shape": "note",
+      "laneId": "exceptions",
+      "stageId": "s11",
+      "rect": {
+        "x": 7215,
+        "y": 3425,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Payment retry"
+      },
+      "maturity": "partial",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Повтор выплаты и ручная сверка"
+      }
+    },
+    {
+      "id": "regress",
+      "kind": "native",
+      "shape": "note",
+      "laneId": "exceptions",
+      "stageId": "s12",
+      "rect": {
+        "x": 7915,
+        "y": 3425,
+        "w": 600,
+        "h": 165
+      },
+      "caption": {
+        "title": "Регресс"
+      },
+      "maturity": "to-be",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "Если условия D+3 не выполнены — регрессная ветка"
+      }
+    },
+    {
+      "id": "s1-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s1",
+      "rect": {
+        "x": 399,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 1",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "подтверждает, что находится на месте ДТП",
+        "progress": {
+          "value": 1,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 1 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: подтверждает, что находится на месте ДТП.",
+        "points": [
+          "подтверждает, что находится на месте ДТП",
+          "Работает в авторизованном приложении EAI"
+        ]
+      }
+    },
+    {
+      "id": "s2-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s2",
+      "rect": {
+        "x": 1099,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 2",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "подтверждает совместимость и принимает оферту",
+        "progress": {
+          "value": 2,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 2 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: подтверждает совместимость и принимает оферту.",
+        "points": [
+          "подтверждает совместимость и принимает оферту",
+          "Работает в авторизованном приложении EAI"
+        ]
+      }
+    },
+    {
+      "id": "s3-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s3",
+      "rect": {
+        "x": 1799,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 3",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "выбирает совместное оформление с потерпевшим",
+        "progress": {
+          "value": 3,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 3 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: выбирает совместное оформление с потерпевшим.",
+        "points": [
+          "выбирает совместное оформление с потерпевшим",
+          "Работает в авторизованном приложении EAI"
+        ]
+      }
+    },
+    {
+      "id": "s4-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s4",
+      "rect": {
+        "x": 2499,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 4",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "выбирает QR и язык web-сессии",
+        "progress": {
+          "value": 4,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 4 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: выбирает QR и язык web-сессии.",
+        "points": ["выбирает QR и язык web-сессии", "Работает в авторизованном приложении EAI"]
+      }
+    },
+    {
+      "id": "s5-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s5",
+      "rect": {
+        "x": 3199,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 5",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "сканирует QR → принимает оферту на eai.uz",
+        "progress": {
+          "value": 1,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 5 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: сканирует QR → принимает оферту на eai.uz.",
+        "points": [
+          "сканирует QR → принимает оферту на eai.uz",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s5-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s5",
+      "rect": {
+        "x": 3199,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 5",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "показывает QR из EAI app",
+        "progress": {
+          "value": 5,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 5 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: показывает QR из EAI app.",
+        "points": ["показывает QR из EAI app", "Работает в авторизованном приложении EAI"]
+      }
+    },
+    {
+      "id": "s6-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s6",
+      "rect": {
+        "x": 3899,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 6",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "проходит MyID как получатель выплаты",
+        "progress": {
+          "value": 2,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 6 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: проходит MyID как получатель выплаты.",
+        "points": [
+          "проходит MyID как получатель выплаты",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s7-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s7",
+      "rect": {
+        "x": 4599,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 7",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "снимает повреждения",
+        "progress": {
+          "value": 3,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 7 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: снимает повреждения.",
+        "points": [
+          "снимает повреждения",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s7-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s7",
+      "rect": {
+        "x": 4599,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 7",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "снимает место и авто",
+        "progress": {
+          "value": 6,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 7 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: снимает место и авто.",
+        "points": ["снимает место и авто", "Работает в авторизованном приложении EAI"]
+      }
+    },
+    {
+      "id": "s9-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s9",
+      "rect": {
+        "x": 5999,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 9",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "ставит галочку признания вины",
+        "progress": {
+          "value": 8,
+          "total": 9,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 9 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: ставит галочку признания вины.",
+        "points": ["ставит галочку признания вины", "Работает в авторизованном приложении EAI"]
+      }
+    },
+    {
+      "id": "s10-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s10",
+      "rect": {
+        "x": 6699,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 10",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "получает сумму решения и вводит PAN",
+        "progress": {
+          "value": 5,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 10 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: получает сумму решения и вводит PAN.",
+        "points": [
+          "получает сумму решения и вводит PAN",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s11-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s11",
+      "rect": {
+        "x": 7399,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 11",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "получает деньги на карту",
+        "progress": {
+          "value": 6,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 11 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: получает деньги на карту.",
+        "points": [
+          "получает деньги на карту",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s12-actor-victim",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s12",
+      "rect": {
+        "x": 8099,
+        "y": 82,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Потерпевший",
+        "subtitle": "Этап 12",
+        "tag": "web eai.uz"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.08666666666666667
+        }
+      ],
+      "body": {
+        "text": "досылает свой пакет до D+3",
+        "progress": {
+          "value": 7,
+          "total": 8,
+          "current": true
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 12 · ПОТЕРПЕВШИЙ",
+        "title": "Потерпевший",
+        "copy": "Действие участника на этом этапе: досылает свой пакет до D+3.",
+        "points": [
+          "досылает свой пакет до D+3",
+          "Работает в браузере на eai.uz, приложение не устанавливает"
+        ]
+      }
+    },
+    {
+      "id": "s12-actor-culprit",
+      "kind": "native",
+      "shape": "actor",
+      "laneId": "people",
+      "stageId": "s12",
+      "rect": {
+        "x": 8099,
+        "y": 242,
+        "w": 300,
+        "h": 132
+      },
+      "caption": {
+        "title": "Виновник",
+        "subtitle": "Этап 12",
+        "tag": "EAI app"
+      },
+      "maturity": "live",
+      "anchors": [
+        {
+          "id": "top",
+          "side": "top",
+          "offset": 0.5
+        },
+        {
+          "id": "right",
+          "side": "right",
+          "offset": 0.5
+        },
+        {
+          "id": "bottom",
+          "side": "bottom",
+          "offset": 0.5
+        },
+        {
+          "id": "left",
+          "side": "left",
+          "offset": 0.5
+        },
+        {
+          "id": "screen",
+          "side": "bottom",
+          "offset": 0.5
+        }
+      ],
+      "body": {
+        "text": "досылает свой пакет до D+3",
+        "progress": {
+          "value": 8,
+          "total": 9,
+          "current": false
+        }
+      },
+      "inspector": {
+        "eyebrow": "ЭТАП 12 · ВИНОВНИК",
+        "title": "Виновник",
+        "copy": "Действие участника на этом этапе: досылает свой пакет до D+3.",
+        "points": ["досылает свой пакет до D+3", "Работает в авторизованном приложении EAI"]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "culprit-flow-0",
+      "source": {
+        "nodeId": "culprit-scene",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-safety",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-1",
+      "source": {
+        "nodeId": "culprit-safety",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-cooperation",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-2",
+      "source": {
+        "nodeId": "culprit-cooperation",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-invite",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-3",
+      "source": {
+        "nodeId": "culprit-invite",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-qr",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-4",
+      "source": {
+        "nodeId": "culprit-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-evidence",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-5",
+      "source": {
+        "nodeId": "culprit-evidence",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-protocol",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-6",
+      "source": {
+        "nodeId": "culprit-protocol",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-sign",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "culprit-flow-7",
+      "source": {
+        "nodeId": "culprit-sign",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "culprit-documents",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-0",
+      "source": {
+        "nodeId": "victim-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-identity",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "QR → web",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-1",
+      "source": {
+        "nodeId": "victim-identity",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-identity-face",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-2",
+      "source": {
+        "nodeId": "victim-identity-face",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-evidence",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-3",
+      "source": {
+        "nodeId": "victim-evidence",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-protocol",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-4",
+      "source": {
+        "nodeId": "victim-protocol",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-decision",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-5",
+      "source": {
+        "nodeId": "victim-decision",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-paid",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "victim-flow-6",
+      "source": {
+        "nodeId": "victim-paid",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-documents",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-0",
+      "source": {
+        "nodeId": "granite-stage-1",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-2",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-1",
+      "source": {
+        "nodeId": "granite-stage-2",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-3",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-2",
+      "source": {
+        "nodeId": "granite-stage-3",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-4",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-3",
+      "source": {
+        "nodeId": "granite-stage-4",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-5",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-4",
+      "source": {
+        "nodeId": "granite-stage-5",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-6",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-5",
+      "source": {
+        "nodeId": "granite-stage-6",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-7",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-6",
+      "source": {
+        "nodeId": "granite-stage-7",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-8",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-7",
+      "source": {
+        "nodeId": "granite-stage-8",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-9",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-8",
+      "source": {
+        "nodeId": "granite-stage-9",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-10",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-9",
+      "source": {
+        "nodeId": "granite-stage-10",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-11",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "granite-flow-10",
+      "source": {
+        "nodeId": "granite-stage-11",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "granite-stage-12",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "next",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "myid-only",
+      "source": {
+        "nodeId": "victim-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "identity-gate",
+        "anchorId": "left"
+      },
+      "kind": "sync",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "MyID только потерпевшему",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "identity-result",
+      "source": {
+        "nodeId": "identity-gate",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-identity",
+        "anchorId": "left"
+      },
+      "kind": "sync",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "KYC",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "photos-ai",
+      "source": {
+        "nodeId": "culprit-evidence",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "evidence-ai",
+        "anchorId": "left"
+      },
+      "kind": "sync",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "camera-only",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "reconstruct",
+      "source": {
+        "nodeId": "evidence-ai",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "reconstruction-ai",
+        "anchorId": "left"
+      },
+      "kind": "sync",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "AI",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "guilt-signed",
+      "source": {
+        "nodeId": "culprit-sign",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "damage-ai",
+        "anchorId": "left"
+      },
+      "kind": "sync",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "вина признана",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "tokenize",
+      "source": {
+        "nodeId": "victim-decision",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "uzum",
+        "anchorId": "left"
+      },
+      "kind": "external",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "token",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "pay",
+      "source": {
+        "nodeId": "auto-payout",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-paid",
+        "anchorId": "left"
+      },
+      "kind": "main",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "автовыплата",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "accounting",
+      "source": {
+        "nodeId": "uzum",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "one-c",
+        "anchorId": "left"
+      },
+      "kind": "external",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "сверка",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "documents",
+      "source": {
+        "nodeId": "culprit-documents",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "d3-archive",
+        "anchorId": "left"
+      },
+      "kind": "external",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "D+3",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "regress-path",
+      "source": {
+        "nodeId": "d3-archive",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "regress",
+        "anchorId": "left"
+      },
+      "kind": "exception",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 8350,
+            "y": 3540
+          },
+          {
+            "x": 7940,
+            "y": 3540
+          }
+        ]
+      },
+      "label": {
+        "text": "условия не выполнены",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "qr-exception",
+      "source": {
+        "nodeId": "culprit-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "qr-retry",
+        "anchorId": "left"
+      },
+      "kind": "exception",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "retry",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "photo-exception",
+      "source": {
+        "nodeId": "evidence-ai",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "photo-retry",
+        "anchorId": "left"
+      },
+      "kind": "exception",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "пересъёмка",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "payment-exception",
+      "source": {
+        "nodeId": "uzum",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "payment-retry",
+        "anchorId": "left"
+      },
+      "kind": "exception",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "retry",
+        "position": 0.5
+      }
+    },
+    {
+      "id": "qr-victim",
+      "source": {
+        "nodeId": "culprit-qr",
+        "anchorId": "right"
+      },
+      "target": {
+        "nodeId": "victim-qr",
+        "anchorId": "left"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal"
+      },
+      "label": {
+        "text": "без установки"
+      }
+    },
+    {
+      "id": "s1-actor-culprit-screen",
+      "source": {
+        "nodeId": "s1-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-scene",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "подтверждает, что находится на месте ДТП",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s2-actor-culprit-screen",
+      "source": {
+        "nodeId": "s2-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-safety",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "подтверждает совместимость и принимает оферту",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s3-actor-culprit-screen",
+      "source": {
+        "nodeId": "s3-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-cooperation",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "выбирает совместное оформление с потерпевшим",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s4-actor-culprit-screen",
+      "source": {
+        "nodeId": "s4-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-invite",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "выбирает QR и язык web-сессии",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-victim-screen",
+      "source": {
+        "nodeId": "s5-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-qr",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 3225,
+            "y": 236
+          },
+          {
+            "x": 3017,
+            "y": 236
+          },
+          {
+            "x": 3017,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "сканирует QR → принимает оферту на eai.uz",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-culprit-screen",
+      "source": {
+        "nodeId": "s5-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-qr",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "показывает QR из EAI app",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s5-actor-pair",
+      "source": {
+        "nodeId": "s5-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s5-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "показывает QR ↔ открывает web-сессию и принимает оферту",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s6-actor-victim-screen",
+      "source": {
+        "nodeId": "s6-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-identity",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 3925,
+            "y": 236
+          },
+          {
+            "x": 3717,
+            "y": 236
+          },
+          {
+            "x": 3717,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "проходит MyID как получатель выплаты",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-victim-screen",
+      "source": {
+        "nodeId": "s7-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-evidence",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 4625,
+            "y": 236
+          },
+          {
+            "x": 4417,
+            "y": 236
+          },
+          {
+            "x": 4417,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "снимает повреждения",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-culprit-screen",
+      "source": {
+        "nodeId": "s7-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-evidence",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "снимает место и авто",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s7-actor-pair",
+      "source": {
+        "nodeId": "s7-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s7-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "каждый снимает свою часть материалов",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s9-actor-culprit-screen",
+      "source": {
+        "nodeId": "s9-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-sign",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "ставит галочку признания вины",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s10-actor-victim-screen",
+      "source": {
+        "nodeId": "s10-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-decision",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 6725,
+            "y": 236
+          },
+          {
+            "x": 6517,
+            "y": 236
+          },
+          {
+            "x": 6517,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "получает сумму решения и вводит PAN",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s11-actor-victim-screen",
+      "source": {
+        "nodeId": "s11-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-paid",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 7425,
+            "y": 236
+          },
+          {
+            "x": 7217,
+            "y": 236
+          },
+          {
+            "x": 7217,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "получает деньги на карту",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-victim-screen",
+      "source": {
+        "nodeId": "s12-actor-victim",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "victim-documents",
+        "anchorId": "actor-in"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "orthogonal",
+        "waypoints": [
+          {
+            "x": 8125,
+            "y": 236
+          },
+          {
+            "x": 7917,
+            "y": 236
+          },
+          {
+            "x": 7917,
+            "y": 1325
+          }
+        ]
+      },
+      "label": {
+        "text": "досылает свой пакет до D+3",
+        "position": 0.36,
+        "offset": {
+          "x": 263,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-culprit-screen",
+      "source": {
+        "nodeId": "s12-actor-culprit",
+        "anchorId": "screen"
+      },
+      "target": {
+        "nodeId": "culprit-documents",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "label": {
+        "text": "досылает свой пакет до D+3",
+        "position": 0.5,
+        "offset": {
+          "x": 300,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "s12-actor-pair",
+      "source": {
+        "nodeId": "s12-actor-victim",
+        "anchorId": "bottom"
+      },
+      "target": {
+        "nodeId": "s12-actor-culprit",
+        "anchorId": "top"
+      },
+      "kind": "actor",
+      "route": {
+        "type": "bezier"
+      },
+      "bidirectional": true,
+      "label": {
+        "text": "каждый досылает свой пакет до D+3",
+        "position": 0.5,
+        "offset": {
+          "x": 220,
+          "y": 0
+        }
+      }
+    }
+  ],
+  "legend": [
+    {
+      "title": "Maturity",
+      "items": [
+        {
+          "label": "LIVE",
+          "maturity": "live"
+        },
+        {
+          "label": "PARTIAL",
+          "maturity": "partial"
+        },
+        {
+          "label": "TO-BE",
+          "maturity": "to-be"
+        }
+      ]
+    }
+  ]
+}

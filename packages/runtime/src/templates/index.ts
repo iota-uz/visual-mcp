@@ -13,6 +13,7 @@ import { architectureOverviewTemplate } from "./architecture-overview.js";
 import { browserAppScreenTemplate } from "./browser-app-screen.js";
 import { chartReportTemplate } from "./chart-report.js";
 import { dashboardOverviewTemplate } from "./dashboard-overview.js";
+import { iframeServiceFlowTemplate } from "./iframe-service-flow.js";
 import { mobileAppScreenTemplate } from "./mobile-app-screen.js";
 import { multipageReportTemplate } from "./multipage-report.js";
 import { onePageInfographicTemplate } from "./one-page-infographic.js";
@@ -33,6 +34,7 @@ export const TEMPLATES: readonly Template[] = [
   onePageInfographicTemplate,
   multipageReportTemplate,
   chartReportTemplate,
+  iframeServiceFlowTemplate,
 ];
 
 /**
@@ -58,6 +60,7 @@ export {
   browserAppScreenTemplate,
   chartReportTemplate,
   dashboardOverviewTemplate,
+  iframeServiceFlowTemplate,
   mobileAppScreenTemplate,
   multipageReportTemplate,
   onePageInfographicTemplate,

@@ -112,7 +112,29 @@ export default defineSchema({
     docStorageId: v.optional(v.id("_storage")),
     cssStorageId: v.optional(v.id("_storage")),
     entryStorageId: v.optional(v.id("_storage")),
+    iframeEntrypoints: v.optional(v.array(v.string())),
   }).index("by_canvas_version", ["canvasId", "version"]),
+
+  // Immutable source manifest for a CanvasDoc version. Current canvasFiles
+  // may move on; iframe URLs always resolve through this snapshot.
+  canvasVersionFiles: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    relPath: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    contentHash: v.string(),
+  })
+    .index("by_version_relPath", ["versionId", "relPath"])
+    .index("by_canvas", ["canvasId"]),
+
+  iframeCapabilities: defineTable({
+    token: v.string(),
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    userId: v.id("users"),
+    expiresAt: v.number(),
+  }).index("by_token", ["token"]),
 
   // One small document per canvas node — what makes `#node=` resolution and
   // full-text search index lookups instead of full-document scans (PLAN.md
@@ -161,7 +183,12 @@ export default defineSchema({
     entrypoint: v.string(),
     // Matches packages/runtime's RenderFormatSchema (src/types.ts).
     format: v.union(v.literal("png"), v.literal("svg"), v.literal("pdf"), v.literal("html")),
-    status: v.union(v.literal("pending"), v.literal("success"), v.literal("error")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("success"),
+      v.literal("partial"),
+      v.literal("error"),
+    ),
     durationMs: v.optional(v.number()),
     errorText: v.optional(v.string()),
     createdBy: v.id("users"),

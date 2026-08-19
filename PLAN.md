@@ -27,7 +27,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 | 9 | **Writes are org-wide**, not creator-scoped — any signed-in @iota.uz user (and any valid MCP token) may write to any workspace, attributed via `createdBy`. Consistent with "no ACLs, no roles." |
 | 10 | **MCP tokens expire after 90 days**, non-configurable in v1 — the mechanism that makes a departed employee's access actually die, independent of their Google account's state. |
 | 11 | **UI is English-only.** No i18n in v1. |
-| 12 | **Embeds are explicitly deferred.** No `/embed/:slug` route in v1 — a shared link is enough. |
+| 12 | **Static public preview cards are supported; embedded viewers remain deferred.** GitHub/Markdown receives a script-free image linked to the existing share view or artifact. No website iframe snippet and no separate `/embed/:slug` viewer. |
 | 13 | **No custom domain *requirement* for v1** — a platform-generated subdomain would have been acceptable; `*.convex.site` is used as-is for `/mcp` and artifacts. In practice the SPA got one anyway: `canvas.iota.uz`, CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
 
 ---
@@ -593,7 +593,7 @@ Recorded because they were consciously chosen.
    dedicated one, per a human's explicit choice; `https://canvas.iota.uz` has been added to that
    client's Authorized JavaScript origins (Google notes propagation can take 5 minutes to a few
    hours).
-3. **Embeds** — resolved as decision #12: deferred, no `/embed/:slug` route in v1.
+3. **Interactive embeds** — resolved as decision #12: no `/embed/:slug` viewer. Static GitHub/Markdown preview cards live under the revocable `/s/:slug/_embed/card.svg` boundary and link back to the existing share view or artifact.
 4. **Retention & quotas** — ✅ shipped (tracked in C2/§9): a per-canvas 250MB soft storage quota
    (`convex/canvases.ts`'s `reserveCanvasStorage`, enforced on every render/exec/write) tracked as
    a running counter (`canvases.storageBytesUsed`) rather than a scan of current `artifacts`/

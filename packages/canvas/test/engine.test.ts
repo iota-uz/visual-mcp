@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+import { layoutCanvas, patchNodeRect } from "../src/layout.js";
+import { escapeHtml, renderCanvas } from "../src/render.js";
+import { anchorPoint, routeEdges } from "../src/router.js";
+import { cameraGridStyle, iframePrewarmCandidates } from "../src/viewport.js";
+import { fixture } from "./fixture.js";
+import { CanvasDocSchema } from "../src/types.js";
+
+test("explicit geometry is deterministic", () => {
+  const a = layoutCanvas(fixture());
+  const b = layoutCanvas(fixture());
+  assert.deepEqual(a, b);
+  assert.equal(a.width, 1000);
+});
+test("move/resize changes anchor coordinates and edge path", () => {
+  const doc = fixture();
+  const before = routeEdges(layoutCanvas(doc))[0]!.d;
+  const changed = patchNodeRect(doc, "b", { x: 650, y: 200, w: 300, h: 350 });
+  const canvas = layoutCanvas(changed);
+  assert.notEqual(routeEdges(canvas)[0]!.d, before);
+  const node = canvas.nodes[1]!;
+  assert.deepEqual(anchorPoint(node, node.anchors[0]!), { x: 650, y: 375 });
+});
+test("waypoint routing is preserved", () => {
+  const doc = fixture();
+  doc.edges[0]!.route.waypoints = [
+    { x: 400, y: 30 },
+    { x: 600, y: 30 },
+  ];
+  assert.match(routeEdges(layoutCanvas(doc))[0]!.d, /400 30 L 600 30/);
+});
+test("bezier routing follows the endpoint anchor directions", () => {
+  const doc = fixture();
+  doc.nodes[0]!.anchors.push({ id: "bottom", side: "bottom", offset: 0.5 });
+  doc.nodes[1]!.anchors.push({ id: "top", side: "top", offset: 0.5 });
+  doc.edges[0]!.route = { type: "bezier" };
+  doc.edges[0]!.source = { nodeId: "a", anchorId: "bottom" };
+  doc.edges[0]!.target = { nodeId: "b", anchorId: "top" };
+  const path = routeEdges(layoutCanvas(doc))[0]!.d;
+  assert.match(path, /^M 160 180 C 160 /);
+  assert.match(path, /, 800 [-\d.]+, 800 100$/);
+});
+test("renderer escapes native text and emits sandboxed iframe", () => {
+  const doc = fixture();
+  doc.nodes[0]!.caption.title = "<script>x</script>";
+  const html = renderCanvas(layoutCanvas(doc), { resolveIframeUrl: () => "/safe/screen" }).html;
+  assert.ok(!html.includes("<script>"));
+  assert.match(html, /sandbox="allow-scripts allow-forms"/);
+  assert.match(html, /data-src="\/safe\/screen"/);
+  assert.match(html, /class="vc-iframe-placeholder"/);
+  assert.match(html, />Loading screen<\/span>/);
+  assert.doesNotMatch(html, /<iframe/);
+  assert.equal((html.match(/class="vc-node /g) ?? []).length, 2);
+});
+test("exports can eagerly instantiate every iframe", () => {
+  const html = renderCanvas(layoutCanvas(fixture()), { iframeLoading: "eager" }).html;
+  assert.match(html, /loading="eager"/);
+});
+test("grid follows pan and uses readable zoom levels", () => {
+  const before = cameraGridStyle({ x: 28, y: 40, scale: 0.19 });
+  const after = cameraGridStyle({ x: 218, y: -30, scale: 0.19 });
+  assert.ok(before.size >= 18 && before.size <= 72);
+  assert.equal(before.size, after.size);
+  assert.notEqual(before.x, after.x);
+  assert.notEqual(before.y, after.y);
+});
+test("iframe prewarm is bounded, nearest-first, and disabled at fit-all scale", () => {
+  const nodes = [
+    { id: "visible", kind: "iframe" as const, x: 100, y: 100, w: 200, h: 300 },
+    { id: "nearby", kind: "iframe" as const, x: 1_800, y: 100, w: 200, h: 300 },
+    { id: "native", kind: "native" as const, x: 200, y: 100, w: 200, h: 300 },
+    { id: "far", kind: "iframe" as const, x: 5_000, y: 100, w: 200, h: 300 },
+  ];
+  assert.deepEqual(
+    iframePrewarmCandidates(nodes, { x: 0, y: 0, scale: 0.5 }, { width: 800, height: 600 }, 2),
+    ["visible", "nearby"],
+  );
+  assert.deepEqual(
+    iframePrewarmCandidates(nodes, { x: 0, y: 0, scale: 0.2 }, { width: 800, height: 600 }),
+    [],
+  );
+});
+test("OSAGO bundle includes participant actors and their screen connections", async () => {
+  const source = await readFile(
+    new URL("../../../examples/osago-24/canvas.json", import.meta.url),
+    "utf8",
+  );
+  const doc = CanvasDocSchema.parse(JSON.parse(source));
+  assert.equal(doc.lanes.find((lane) => lane.id === "people")?.role, "actors");
+  assert.equal(
+    doc.nodes.filter((node) => node.kind === "native" && node.shape === "actor").length,
+    14,
+  );
+  const actorEdges = doc.edges.filter((edge) => edge.kind === "actor");
+  assert.equal(actorEdges.length, 18);
+  assert.ok(actorEdges.some((edge) => edge.target.nodeId === "culprit-scene"));
+  assert.ok(actorEdges.some((edge) => edge.target.nodeId === "victim-qr"));
+  assert.ok(actorEdges.some((edge) => edge.bidirectional));
+  const victim = doc.nodes.find((node) => node.id === "s5-actor-victim");
+  assert.equal(victim?.rect.x, 3199);
+  assert.equal(victim?.rect.y, 82);
+  assert.deepEqual(victim?.kind === "native" ? victim.body?.progress : undefined, {
+    value: 1,
+    total: 8,
+    current: true,
+  });
+  const victimEdge = doc.edges.find((edge) => edge.id === "s5-actor-victim-screen");
+  assert.equal(victimEdge?.source.anchorId, "screen");
+  assert.equal(victimEdge?.target.anchorId, "actor-in");
+  assert.equal(victimEdge?.route.waypoints?.length, 3);
+});
+test("actor renderer preserves the reference card composition", async () => {
+  const source = await readFile(
+    new URL("../../../examples/osago-24/canvas.json", import.meta.url),
+    "utf8",
+  );
+  const doc = CanvasDocSchema.parse(JSON.parse(source));
+  const html = renderCanvas(layoutCanvas(doc)).html;
+  assert.match(html, /vc-person-icon vc-person-victim/);
+  assert.match(html, /vc-person-progress/);
+  assert.match(html, />1 \/ 8<\/span>/);
+  assert.doesNotMatch(
+    html.match(/data-node-id="s5-actor-victim"[\s\S]*?<\/div>/)?.[0] ?? "",
+    /vc-badge/,
+  );
+});
+test("escapeHtml escapes markup", () =>
+  assert.equal(escapeHtml(`<b>"it's"</b> &`), "&lt;b&gt;&quot;it&#39;s&quot;&lt;/b&gt; &amp;"));

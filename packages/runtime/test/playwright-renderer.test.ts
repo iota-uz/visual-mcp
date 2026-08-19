@@ -27,6 +27,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright";
+import sharp from "sharp";
 import { findTailwindStyleBlock, injectBuiltCss } from "../src/render/playwright-renderer/html.js";
 import {
   buildTailwindCss,
@@ -289,6 +290,89 @@ test("renderFile: unresolvedRefs is empty when nothing is missing", async () => 
     });
 
     assert.deepEqual(result.unresolvedRefs, []);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderFile: waits for deterministic iframe readiness before capture", async () => {
+  const dir = await mkFixtureDir("pw-ready-");
+  try {
+    await fs.mkdir(path.join(dir, "src", "screens"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "src", "screens", "runtime.html"),
+      `<script>setTimeout(()=>parent.postMessage({type:'visual-canvas:readiness',state:'ready'},'*'),120)</script><h1>loaded</h1>`,
+    );
+    const entrypoint = path.join(dir, "src", "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<div class="vc-kind-iframe" data-node-id="screen"><iframe sandbox="allow-scripts" src="/src/screens/runtime.html"></iframe></div><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(f.contentWindow===e.source)f.closest('.vc-kind-iframe').dataset.iframeReadiness=e.data.state})</script>`,
+    );
+    const result = await renderFile({
+      entrypoint,
+      outputPath: path.join(dir, "output", "ready.png"),
+      format: "png",
+      workspaceRoot: dir,
+    });
+    assert.deepEqual(result.readiness, { status: "ready", warnings: [] });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderFile: paints iframe content that starts outside the viewport", async () => {
+  const dir = await mkFixtureDir("pw-offscreen-iframe-");
+  try {
+    await fs.mkdir(path.join(dir, "src", "screens"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "src", "screens", "runtime.html"),
+      `<style>html,body{margin:0;width:100%;height:100%;background:#e11d48}</style><script>parent.postMessage({type:'visual-canvas:readiness',state:'ready'},'*')</script>`,
+    );
+    const entrypoint = path.join(dir, "src", "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<style>html,body{margin:0;width:4000px;height:600px}.vc-kind-iframe{position:absolute;left:3500px;top:100px;width:300px;height:300px}.vc-kind-iframe iframe{width:100%;height:100%;border:0}</style><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(f.contentWindow===e.source)f.closest('.vc-kind-iframe').dataset.iframeReadiness=e.data.state})</script><div class="vc-kind-iframe" data-node-id="offscreen"><iframe sandbox="allow-scripts" src="/src/screens/runtime.html"></iframe></div>`,
+    );
+    const result = await renderFile({
+      entrypoint,
+      outputPath: path.join(dir, "output", "offscreen.png"),
+      format: "png",
+      workspaceRoot: dir,
+      viewport: { width: 800, height: 600 },
+    });
+    const pixels = await sharp(result.path)
+      .extract({ left: 3500, top: 100, width: 300, height: 300 })
+      .raw()
+      .toBuffer();
+    let redPixels = 0;
+    for (let index = 0; index < pixels.length; index += 3)
+      if (pixels[index] > 180 && pixels[index + 1] < 80) redPixels += 1;
+    assert.ok(redPixels > 80_000, `offscreen iframe painted only ${redPixels} red pixels`);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderFile: never-ready iframe fails with its node id", async () => {
+  const dir = await mkFixtureDir("pw-never-ready-");
+  try {
+    await fs.mkdir(path.join(dir, "src", "screens"), { recursive: true });
+    await fs.writeFile(path.join(dir, "src", "screens", "runtime.html"), `<h1>never signals</h1>`);
+    const entrypoint = path.join(dir, "src", "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<div class="vc-kind-iframe" data-node-id="missing-ready"><iframe sandbox="allow-scripts" src="/src/screens/runtime.html"></iframe></div>`,
+    );
+    await assert.rejects(
+      () =>
+        renderFile({
+          entrypoint,
+          outputPath: path.join(dir, "output", "never.png"),
+          format: "png",
+          workspaceRoot: dir,
+        }),
+      /iframe readiness timeout: missing-ready/,
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

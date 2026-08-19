@@ -1,14 +1,93 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
 import { escapeHtml, renderCanvas } from "./render.js";
+import { routeEdges } from "./router.js";
+import type { IframeNode, Rect } from "./types.js";
 
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 1.35;
 const FIT_PADDING = 56;
+const IFRAME_PREWARM_SCALE = 0.24;
+const IFRAME_OVERSCAN_VIEWPORTS = 0.7;
+const IFRAME_LOAD_IDLE_MS = 90;
+const IFRAME_MAX_WARM = 8;
+const IFRAME_MAX_CONCURRENT = 2;
+const IFRAME_LOAD_TIMEOUT_MS = 12_000;
 
-interface ViewState {
+export interface ViewState {
   x: number;
   y: number;
   scale: number;
+}
+
+interface ViewportSize {
+  width: number;
+  height: number;
+}
+
+type IframePosition = Pick<PositionedNode, "id" | "kind" | "x" | "y" | "w" | "h">;
+
+/**
+ * Chooses a bounded nearest-first set of iframe screens around the camera.
+ * The lower scale threshold starts warming screens shortly before they become
+ * useful, while the hard limit prevents a fit-all view from booting every
+ * screen runtime at once.
+ */
+export function iframePrewarmCandidates(
+  nodes: readonly IframePosition[],
+  view: ViewState,
+  viewport: ViewportSize,
+  limit = IFRAME_MAX_WARM,
+): string[] {
+  if (view.scale < IFRAME_PREWARM_SCALE || limit <= 0) return [];
+  const marginX = viewport.width * IFRAME_OVERSCAN_VIEWPORTS;
+  const marginY = viewport.height * IFRAME_OVERSCAN_VIEWPORTS;
+  const centerX = viewport.width / 2;
+  const centerY = viewport.height / 2;
+
+  return nodes
+    .filter((node) => node.kind === "iframe")
+    .map((node) => {
+      const left = view.x + node.x * view.scale;
+      const top = view.y + node.y * view.scale;
+      const right = left + node.w * view.scale;
+      const bottom = top + node.h * view.scale;
+      const visible = right >= 0 && bottom >= 0 && left <= viewport.width && top <= viewport.height;
+      const nearby =
+        right >= -marginX &&
+        bottom >= -marginY &&
+        left <= viewport.width + marginX &&
+        top <= viewport.height + marginY;
+      const dx = (left + right) / 2 - centerX;
+      const dy = (top + bottom) / 2 - centerY;
+      return { id: node.id, nearby, score: dx * dx + dy * dy + (visible ? -1e12 : 0) };
+    })
+    .filter((candidate) => candidate.nearby)
+    .sort((a, b) => a.score - b.score || a.id.localeCompare(b.id))
+    .slice(0, limit)
+    .map((candidate) => candidate.id);
+}
+
+export interface CameraGridStyle {
+  size: number;
+  x: number;
+  y: number;
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+/** Projects the infinite world grid through the current camera with a stable LOD. */
+export function cameraGridStyle(view: ViewState): CameraGridStyle {
+  let worldGrid = 24;
+  while (worldGrid * view.scale < 18) worldGrid *= 4;
+  while (worldGrid > 24 && worldGrid * view.scale > 72) worldGrid /= 4;
+  const size = worldGrid * view.scale;
+  return {
+    size,
+    x: positiveModulo(view.x, size),
+    y: positiveModulo(view.y, size),
+  };
 }
 
 export interface ViewportOptions {
@@ -16,6 +95,9 @@ export interface ViewportOptions {
   canvas: PositionedCanvas;
   initialScale?: number;
   onSelect?: (nodeId: string | null) => void;
+  resolveIframeUrl?: (node: IframeNode) => string;
+  editable?: boolean;
+  onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
 }
 
 export interface ViewportController {
@@ -23,6 +105,10 @@ export interface ViewportController {
   resetView(): void;
   selectNode(id: string | null, focus?: boolean): void;
   zoomAt(clientX: number, clientY: number, factor: number): void;
+  activateIframe(id: string): void;
+  deactivateIframe(): void;
+  /** Reconciles persisted rects without rebuilding the world or its iframes. */
+  updateCanvas(canvas: PositionedCanvas): void;
   dispose(): void;
 }
 
@@ -41,7 +127,11 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
 
 export function mountViewport(opts: ViewportOptions): ViewportController {
   const { container, canvas, onSelect } = opts;
-  const rendered = renderCanvas(canvas);
+  let liveCanvas = canvas;
+  const rendered = renderCanvas(liveCanvas, {
+    resolveIframeUrl: opts.resolveIframeUrl,
+    editable: opts.editable,
+  });
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
@@ -65,15 +155,40 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorPoints = must(".vc-inspector-points");
   const inspectorClose = must(".vc-inspector-close");
 
-  const nodeById = new Map(canvas.nodes.map((n) => [n.id, n]));
+  let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
+  let activeIframeId: string | null = null;
   const view: ViewState = { x: 40, y: 40, scale: opts.initialScale ?? 0.6 };
   let miniScale = 1;
   let miniOffsetX = 0;
   let miniOffsetY = 0;
+  let viewportRect = container.getBoundingClientRect();
+  let viewFrame: number | null = null;
+  let geometryFrame: number | null = null;
+  let iframeSyncTimer: number | null = null;
+  const pendingGeometryIds = new Set<string>();
+  const iframeQueue: string[] = [];
+  const queuedIframeIds = new Set<string>();
+  const warmIframeIds = new Map<string, number>();
+  const loadingIframeIds = new Set<string>();
+  const iframeLoadTimeouts = new Set<number>();
+
+  function paintView(): void {
+    viewFrame = null;
+    world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
+
+    // The grid lives in screen space, so explicitly project a world-space
+    // interval through the camera. The power-of-four LOD keeps dots legible
+    // at fit-all scale without letting them appear pinned to the glass.
+    const grid = cameraGridStyle(view);
+    container.style.setProperty("--grid-size", `${grid.size}px`);
+    container.style.setProperty("--grid-x", `${grid.x}px`);
+    container.style.setProperty("--grid-y", `${grid.y}px`);
+    updateMinimapViewport();
+    scheduleIframeSync();
+  }
 
   function applyView(): void {
-    world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
-    updateMinimapViewport();
+    if (viewFrame === null) viewFrame = requestAnimationFrame(paintView);
   }
 
   function clampScale(scale: number): number {
@@ -81,9 +196,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function zoomAt(clientX: number, clientY: number, factor: number): void {
-    const rect = container.getBoundingClientRect();
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
+    const localX = clientX - viewportRect.left;
+    const localY = clientY - viewportRect.top;
     const worldX = (localX - view.x) / view.scale;
     const worldY = (localY - view.y) / view.scale;
     const nextScale = clampScale(view.scale * factor);
@@ -94,18 +208,20 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function frameBounds(bounds: { x: number; y: number; w: number; h: number }): void {
-    const rect = container.getBoundingClientRect();
     const scale = clampScale(
-      Math.min((rect.width - FIT_PADDING) / bounds.w, (rect.height - FIT_PADDING) / bounds.h),
+      Math.min(
+        (viewportRect.width - FIT_PADDING) / bounds.w,
+        (viewportRect.height - FIT_PADDING) / bounds.h,
+      ),
     );
     view.scale = scale;
-    view.x = (rect.width - bounds.w * scale) / 2 - bounds.x * scale;
-    view.y = (rect.height - bounds.h * scale) / 2 - bounds.y * scale;
+    view.x = (viewportRect.width - bounds.w * scale) / 2 - bounds.x * scale;
+    view.y = (viewportRect.height - bounds.h * scale) / 2 - bounds.y * scale;
     applyView();
   }
 
   function fitAll(): void {
-    frameBounds({ x: 0, y: 0, w: canvas.width, h: canvas.height });
+    frameBounds({ x: 0, y: 0, w: liveCanvas.width, h: liveCanvas.height });
   }
 
   function resetView(): void {
@@ -116,11 +232,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function focusNode(node: PositionedNode): void {
-    const rect = container.getBoundingClientRect();
     const targetScale = Math.max(0.48, Math.min(0.78, view.scale));
     view.scale = targetScale;
-    view.x = rect.width / 2 - (node.x + node.w / 2) * targetScale;
-    view.y = rect.height / 2 - (node.y + node.h / 2) * targetScale;
+    view.x = viewportRect.width / 2 - (node.x + node.w / 2) * targetScale;
+    view.y = viewportRect.height / 2 - (node.y + node.h / 2) * targetScale;
     applyView();
   }
 
@@ -136,7 +251,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
     for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
       el.classList.toggle("selected", el.dataset.nodeId === id);
-      el.classList.toggle("dimmed", el.dataset.stage !== node.stage);
+      el.classList.toggle("dimmed", el.dataset.stage !== node.stageId);
     }
     inspectorEyebrow.textContent = node.inspector?.eyebrow ?? "";
     inspectorTitle.textContent = node.inspector?.title ?? node.caption.title;
@@ -153,14 +268,39 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     onSelect?.(id);
   }
 
+  function deactivateIframe(): void {
+    if (!activeIframeId) return;
+    const el = nodesRoot.querySelector<HTMLElement>(
+      `[data-node-id="${CSS.escape(activeIframeId)}"]`,
+    );
+    el?.classList.remove("iframe-active");
+    el?.querySelector<HTMLIFrameElement>("iframe")?.blur();
+    activeIframeId = null;
+    container.focus({ preventScroll: true });
+  }
+
+  function activateIframe(id: string): void {
+    const node = nodeById.get(id);
+    if (node?.kind !== "iframe") return;
+    deactivateIframe();
+    const el = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
+    if (el && !warmIframeIds.has(id)) {
+      evictWarmIframes(new Set([id]), 1);
+      ensureIframeLoaded(el);
+    }
+    el?.classList.add("iframe-active");
+    activeIframeId = id;
+    el?.querySelector<HTMLIFrameElement>("iframe")?.focus({ preventScroll: true });
+  }
+
   function renderMinimap(): void {
     const rect = minimap.getBoundingClientRect();
     const innerW = Math.max(1, rect.width - 12);
     const innerH = Math.max(1, rect.height - 12);
-    miniScale = Math.min(innerW / canvas.width, innerH / canvas.height);
-    miniOffsetX = (rect.width - canvas.width * miniScale) / 2;
-    miniOffsetY = (rect.height - canvas.height * miniScale) / 2;
-    minimapNodes.innerHTML = canvas.nodes
+    miniScale = Math.min(innerW / liveCanvas.width, innerH / liveCanvas.height);
+    miniOffsetX = (rect.width - liveCanvas.width * miniScale) / 2;
+    miniOffsetY = (rect.height - liveCanvas.height * miniScale) / 2;
+    minimapNodes.innerHTML = liveCanvas.nodes
       .map((node) => {
         const w = Math.max(2, node.w * miniScale);
         const h = Math.max(2, node.h * miniScale);
@@ -172,17 +312,204 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function updateMinimapViewport(): void {
     if (!miniScale) return;
-    const rect = container.getBoundingClientRect();
     const worldX = -view.x / view.scale;
     const worldY = -view.y / view.scale;
-    const visibleW = rect.width / view.scale;
-    const visibleH = rect.height / view.scale;
+    const visibleW = viewportRect.width / view.scale;
+    const visibleH = viewportRect.height / view.scale;
     const vw = Math.max(8, visibleW * miniScale);
     const vh = Math.max(8, visibleH * miniScale);
     minimapViewport.style.left = `${miniOffsetX + worldX * miniScale}px`;
     minimapViewport.style.top = `${miniOffsetY + worldY * miniScale}px`;
     minimapViewport.style.width = `${vw}px`;
     minimapViewport.style.height = `${vh}px`;
+  }
+
+  function restoreIframePlaceholder(owner: HTMLElement): void {
+    const iframe = owner.querySelector<HTMLIFrameElement>("iframe");
+    if (!iframe) return;
+    owner.querySelector(".vc-iframe-loading")?.remove();
+    const placeholder = document.createElement("div");
+    placeholder.className = "vc-iframe-placeholder";
+    placeholder.dataset.src = iframe.src;
+    placeholder.dataset.sandbox = iframe.getAttribute("sandbox") ?? "";
+    placeholder.dataset.allow = iframe.getAttribute("allow") ?? "";
+    placeholder.dataset.entrypoint = iframe.dataset.entrypoint ?? "";
+    const label = document.createElement("span");
+    label.textContent = "Loading screen";
+    placeholder.append(label);
+    iframe.replaceWith(placeholder);
+    const id = owner.dataset.nodeId;
+    if (id) warmIframeIds.delete(id);
+    owner.removeAttribute("data-iframe-load-state");
+    owner.removeAttribute("data-iframe-readiness");
+    owner.removeAttribute("data-iframe-readiness-detail");
+  }
+
+  function evictWarmIframes(keep: ReadonlySet<string>, slotsNeeded = 0): void {
+    const target = Math.max(0, IFRAME_MAX_WARM - slotsNeeded);
+    const evictable = [...warmIframeIds.entries()]
+      .filter(
+        ([id]) =>
+          !keep.has(id) && id !== activeIframeId && !loadingIframeIds.has(id),
+      )
+      .sort((a, b) => a[1] - b[1]);
+    while (warmIframeIds.size > target && evictable.length) {
+      const entry = evictable.shift();
+      if (!entry) break;
+      const [id] = entry;
+      const owner = nodesRoot.querySelector<HTMLElement>(
+        `[data-node-id="${CSS.escape(id)}"]`,
+      );
+      if (owner) restoreIframePlaceholder(owner);
+      else warmIframeIds.delete(id);
+    }
+  }
+
+  function pumpIframeQueue(): void {
+    while (loadingIframeIds.size < IFRAME_MAX_CONCURRENT && iframeQueue.length) {
+      const id = iframeQueue.shift();
+      if (!id) break;
+      queuedIframeIds.delete(id);
+      if (warmIframeIds.has(id)) continue;
+      const owner = nodesRoot.querySelector<HTMLElement>(
+        `[data-node-id="${CSS.escape(id)}"]`,
+      );
+      if (owner) ensureIframeLoaded(owner);
+    }
+  }
+
+  function ensureIframeLoaded(owner: HTMLElement): void {
+    const placeholder = owner.querySelector<HTMLElement>(".vc-iframe-placeholder[data-src]");
+    const source = placeholder?.dataset.src;
+    if (!placeholder || !source) return;
+    const id = owner.dataset.nodeId;
+    if (!id) return;
+    const iframe = document.createElement("iframe");
+    iframe.tabIndex = -1;
+    // The scheduler already bounds and prioritizes requests, so native lazy
+    // loading would only add an unpredictable second delay here.
+    iframe.loading = "eager";
+    iframe.src = source;
+    iframe.setAttribute("sandbox", placeholder.dataset.sandbox ?? "");
+    iframe.setAttribute("allow", placeholder.dataset.allow ?? "");
+    iframe.referrerPolicy = "no-referrer";
+    iframe.dataset.entrypoint = placeholder.dataset.entrypoint ?? "";
+    const loading = document.createElement("div");
+    loading.className = "vc-iframe-loading";
+    loading.setAttribute("aria-hidden", "true");
+    warmIframeIds.set(id, performance.now());
+    loadingIframeIds.add(id);
+    owner.dataset.iframeLoadState = "loading";
+
+    let settled = false;
+    const finish = (state: "loaded" | "error" | "timeout") => {
+      if (settled) return;
+      settled = true;
+      loadingIframeIds.delete(id);
+      owner.dataset.iframeLoadState = state;
+      if (state !== "loaded") loading.remove();
+      window.clearTimeout(timeout);
+      iframeLoadTimeouts.delete(timeout);
+      pumpIframeQueue();
+    };
+    iframe.addEventListener("load", () => finish("loaded"), { once: true });
+    iframe.addEventListener("error", () => finish("error"), { once: true });
+    const timeout = window.setTimeout(() => {
+      owner.dataset.iframeReadiness = "partial";
+      owner.dataset.iframeReadinessDetail = "iframe load timed out";
+      finish("timeout");
+    }, IFRAME_LOAD_TIMEOUT_MS);
+    iframeLoadTimeouts.add(timeout);
+    placeholder.replaceWith(iframe, loading);
+  }
+
+  function syncIframeLoading(): void {
+    iframeSyncTimer = null;
+    const candidates = iframePrewarmCandidates(liveCanvas.nodes, view, viewportRect);
+    const keep = new Set(candidates);
+    if (activeIframeId) keep.add(activeIframeId);
+    const now = performance.now();
+    for (const id of keep) {
+      if (warmIframeIds.has(id)) warmIframeIds.set(id, now);
+    }
+    const missing = candidates.filter((id) => !warmIframeIds.has(id));
+    evictWarmIframes(keep, missing.length);
+
+    iframeQueue.length = 0;
+    queuedIframeIds.clear();
+    for (const id of missing) {
+      if (warmIframeIds.size + queuedIframeIds.size >= IFRAME_MAX_WARM) break;
+      iframeQueue.push(id);
+      queuedIframeIds.add(id);
+    }
+    pumpIframeQueue();
+  }
+
+  function scheduleIframeSync(delay = IFRAME_LOAD_IDLE_MS): void {
+    if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
+    iframeSyncTimer = window.setTimeout(syncIframeLoading, delay);
+  }
+
+  function updateNodeElement(node: PositionedNode): void {
+    const el = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
+    if (!el) return;
+    el.style.left = `${node.x}px`;
+    el.style.top = `${node.y}px`;
+    el.style.width = `${node.w}px`;
+    el.style.height = `${node.h}px`;
+    if (node.kind === "iframe") {
+      const scale = Math.min(
+        node.w / node.viewport.width,
+        Math.max(1, node.h - 47) / node.viewport.height,
+      );
+      el.querySelector<HTMLElement>(".vc-iframe-clip")?.style.setProperty(
+        "--vc-iframe-scale",
+        String(scale),
+      );
+    }
+  }
+
+  function updateEdgeGeometry(): void {
+    for (const routed of routeEdges(liveCanvas)) {
+      const edge = world.querySelector<SVGGElement>(
+        `.vc-edge[data-edge-id="${CSS.escape(routed.edge.id)}"]`,
+      );
+      edge?.querySelector<SVGPathElement>("path")?.setAttribute("d", routed.d);
+      const label = edge?.querySelector<SVGTextElement>(".vc-edge-label");
+      if (label) {
+        label.setAttribute("x", String(routed.labelPoint.x));
+        label.setAttribute("y", String(routed.labelPoint.y));
+      }
+    }
+  }
+
+  function paintGeometry(): void {
+    geometryFrame = null;
+    for (const id of pendingGeometryIds) {
+      const node = nodeById.get(id);
+      if (node) updateNodeElement(node);
+    }
+    pendingGeometryIds.clear();
+    updateEdgeGeometry();
+  }
+
+  function scheduleGeometry(id: string): void {
+    pendingGeometryIds.add(id);
+    if (geometryFrame === null) geometryFrame = requestAnimationFrame(paintGeometry);
+  }
+
+  function updateCanvas(nextCanvas: PositionedCanvas): void {
+    liveCanvas = nextCanvas;
+    nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
+    for (const node of nextCanvas.nodes) updateNodeElement(node);
+    world.style.width = `${nextCanvas.width}px`;
+    world.style.height = `${nextCanvas.height}px`;
+    const edges = world.querySelector<SVGSVGElement>(".vc-edges");
+    edges?.setAttribute("width", String(nextCanvas.width));
+    edges?.setAttribute("height", String(nextCanvas.height));
+    updateEdgeGeometry();
+    renderMinimap();
+    scheduleIframeSync(0);
   }
 
   // --- pan / pinch-zoom (pointer events cover mouse + touch + pen in one path) ---
@@ -194,6 +521,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     originY: number;
     moved: boolean;
     nodeId: string | null;
+    mode: "pan" | "move" | "resize";
+    originRect?: Rect;
   } | null = null;
   let pinchState: {
     startDistance: number;
@@ -201,10 +530,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     worldX: number;
     worldY: number;
   } | null = null;
+  let lastClick: { nodeId: string; at: number } | null = null;
 
   function onPointerDown(event: PointerEvent): void {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (target.closest(".vc-node.iframe-active iframe")) return;
     if (target.closest("input, button, a, summary, details")) return;
     event.preventDefault();
     const nodeElement = target.closest<HTMLElement>(".vc-node");
@@ -216,9 +547,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const [p0, p1] = points as [{ x: number; y: number }, { x: number; y: number }];
       const centerX = (p0.x + p1.x) / 2;
       const centerY = (p0.y + p1.y) / 2;
-      const rect = container.getBoundingClientRect();
-      const localX = centerX - rect.left;
-      const localY = centerY - rect.top;
+      const localX = centerX - viewportRect.left;
+      const localY = centerY - viewportRect.top;
       pinchState = {
         startDistance: Math.max(1, Math.hypot(p1.x - p0.x, p1.y - p0.y)),
         startScale: view.scale,
@@ -230,13 +560,31 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       return;
     }
 
+    const nodeId = nodeElement?.dataset.nodeId ?? null;
+    const node = nodeId ? nodeById.get(nodeId) : undefined;
+    // `pointerdown.preventDefault()` intentionally suppresses the browser's
+    // compatibility mouse events so inactive iframes cannot steal a drag.
+    // Activate on the second pointer-down as well as pointer-up; this keeps
+    // double-click reliable even when the native `dblclick` event is not
+    // emitted after pointer capture.
+    if (nodeId && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500) {
+      activateIframe(nodeId);
+    }
+    const mode =
+      opts.editable && node && target.closest(".vc-resize-handle")
+        ? "resize"
+        : opts.editable && node
+          ? "move"
+          : "pan";
     dragState = {
       startX: event.clientX,
       startY: event.clientY,
       originX: view.x,
       originY: view.y,
       moved: false,
-      nodeId: nodeElement?.dataset.nodeId ?? null,
+      nodeId,
+      mode,
+      originRect: node?.rect ? { ...node.rect } : undefined,
     };
     container.classList.add("is-panning");
   }
@@ -253,10 +601,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const centerY = (p0.y + p1.y) / 2;
       const distance = Math.max(1, Math.hypot(p1.x - p0.x, p1.y - p0.y));
       const nextScale = clampScale((pinchState.startScale * distance) / pinchState.startDistance);
-      const rect = container.getBoundingClientRect();
       view.scale = nextScale;
-      view.x = centerX - rect.left - pinchState.worldX * nextScale;
-      view.y = centerY - rect.top - pinchState.worldY * nextScale;
+      view.x = centerX - viewportRect.left - pinchState.worldX * nextScale;
+      view.y = centerY - viewportRect.top - pinchState.worldY * nextScale;
       applyView();
       return;
     }
@@ -265,9 +612,31 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const dy = event.clientY - dragState.startY;
     if (Math.abs(dx) + Math.abs(dy) > 5) dragState.moved = true;
     if (!dragState.moved) return;
-    view.x = dragState.originX + dx;
-    view.y = dragState.originY + dy;
-    applyView();
+    if (dragState.mode === "pan" || !dragState.nodeId || !dragState.originRect) {
+      view.x = dragState.originX + dx;
+      view.y = dragState.originY + dy;
+      applyView();
+    } else {
+      const node = nodeById.get(dragState.nodeId);
+      if (!node) return;
+      const wx = dx / view.scale;
+      const wy = dy / view.scale;
+      const next =
+        dragState.mode === "move"
+          ? {
+              ...dragState.originRect,
+              x: dragState.originRect.x + wx,
+              y: dragState.originRect.y + wy,
+            }
+          : {
+              ...dragState.originRect,
+              w: Math.max(80, dragState.originRect.w + wx),
+              h: Math.max(80, dragState.originRect.h + wy),
+            };
+      Object.assign(node.rect, next, {});
+      Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
+      scheduleGeometry(node.id);
+    }
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -276,9 +645,22 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (activePointers.size < 2) pinchState = null;
     const finishedDrag = dragState;
     dragState = null;
+    scheduleIframeSync(0);
     if (!finishedDrag) return;
+    if (finishedDrag.moved && finishedDrag.mode !== "pan" && finishedDrag.nodeId) {
+      const node = nodeById.get(finishedDrag.nodeId);
+      if (node) void opts.onGeometryChange?.(node.id, { ...node.rect });
+    }
     if (!finishedDrag.moved) {
-      selectNode(finishedDrag.nodeId, Boolean(finishedDrag.nodeId));
+      // Selection must not recenter between the two clicks of a double-click;
+      // doing so moves the target before the second click and prevents iframe activation.
+      selectNode(finishedDrag.nodeId, false);
+      if (finishedDrag.nodeId) {
+        const now = Date.now();
+        if (lastClick?.nodeId === finishedDrag.nodeId && now - lastClick.at < 500)
+          activateIframe(finishedDrag.nodeId);
+        lastClick = { nodeId: finishedDrag.nodeId, at: now };
+      } else lastClick = null;
     }
   }
 
@@ -297,18 +679,69 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "0") fitAll();
     else if (event.key === "r" || event.key === "R") resetView();
-    else if (event.key === "Escape") selectNode(null);
+    else if (event.key === "Escape") {
+      deactivateIframe();
+      selectNode(null);
+    } else if (event.key === "Enter") {
+      const selected = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
+      if (selected) activateIframe(selected);
+    }
   }
 
   function onMinimapPointerDown(event: PointerEvent): void {
     const rect = minimap.getBoundingClientRect();
     const worldX = (event.clientX - rect.left - miniOffsetX) / miniScale;
     const worldY = (event.clientY - rect.top - miniOffsetY) / miniScale;
-    const containerRect = container.getBoundingClientRect();
-    view.x = containerRect.width / 2 - worldX * view.scale;
-    view.y = containerRect.height / 2 - worldY * view.scale;
+    view.x = viewportRect.width / 2 - worldX * view.scale;
+    view.y = viewportRect.height / 2 - worldY * view.scale;
     applyView();
   }
+
+  function onInspectorClose(): void {
+    selectNode(null);
+  }
+
+  function onNodesDoubleClick(event: MouseEvent): void {
+    const id = (event.target as HTMLElement).closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+    if (id) activateIframe(id);
+  }
+
+  function onNodesClick(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest(".vc-iframe-exit")) {
+      event.stopPropagation();
+      deactivateIframe();
+    }
+  }
+
+  function onWindowMessage(event: MessageEvent): void {
+    const iframe = [...nodesRoot.querySelectorAll<HTMLIFrameElement>("iframe")].find(
+      (candidate) => candidate.contentWindow === event.source,
+    );
+    if (!iframe) return;
+    const owner = iframe.closest<HTMLElement>(".vc-node");
+    if (event.data?.type === "visual-canvas:escape" && owner?.dataset.nodeId === activeIframeId)
+      deactivateIframe();
+    if (
+      event.data?.type === "visual-canvas:readiness" &&
+      ["ready", "partial", "failed"].includes(event.data.state)
+    ) {
+      owner?.querySelector(".vc-iframe-loading")?.remove();
+      owner?.setAttribute("data-iframe-readiness", event.data.state);
+      owner?.setAttribute(
+        "data-iframe-readiness-detail",
+        typeof event.data.detail === "string" ? event.data.detail : "",
+      );
+    }
+  }
+
+  const resizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          viewportRect = container.getBoundingClientRect();
+          renderMinimap();
+          applyView();
+        });
 
   container.addEventListener("pointerdown", onPointerDown);
   container.addEventListener("pointermove", onPointerMove);
@@ -317,7 +750,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("keydown", onKeyDown);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
-  inspectorClose.addEventListener("click", () => selectNode(null));
+  inspectorClose.addEventListener("click", onInspectorClose);
+  nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
+  nodesRoot.addEventListener("click", onNodesClick);
+  window.addEventListener("message", onWindowMessage);
+  resizeObserver?.observe(container);
 
   renderMinimap();
   fitAll();
@@ -327,7 +764,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     resetView,
     selectNode,
     zoomAt,
+    activateIframe,
+    deactivateIframe,
+    updateCanvas,
     dispose() {
+      if (viewFrame !== null) cancelAnimationFrame(viewFrame);
+      if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
+      if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
+      for (const timeout of iframeLoadTimeouts) window.clearTimeout(timeout);
+      resizeObserver?.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerUp);
@@ -335,6 +780,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);
+      inspectorClose.removeEventListener("click", onInspectorClose);
+      nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);
+      nodesRoot.removeEventListener("click", onNodesClick);
+      window.removeEventListener("message", onWindowMessage);
     },
   };
 }

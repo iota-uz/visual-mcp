@@ -16,6 +16,10 @@ sessions/
 
 # scratch dir for local template previews
 tmp/
+output/
+.playwright-cli/
+.playwright-mcp/
+examples/osago-24/preview.html
 
 # logs
 npm-debug.log*

@@ -1,61 +1,8 @@
-import {
-  type CanvasDoc,
-  type CanvasNode,
-  DEFAULT_STAGE_WIDTH,
-  DEFAULT_START_X,
-  type NodeShape,
-} from "./types.js";
+import type { CanvasDoc, CanvasNode, Rect } from "./types.js";
 
-/**
- * Per-shape fallback size when a node doesn't set `size`. Ported from the
- * osago reference file's actual card dimensions. The osago file has many
- * more specialized card kinds than the plan's 8 generic shapes, so this is
- * a many-to-one mapping, not a 1:1 port:
- *   screen -> mobile screen mockup (`.diagram-mobile-node`, 248 x 598+47 caption)
- *   window -> desktop/browser mockup (osago's granite/support cards, ~520-600 wide)
- *   actor -> person card (`.diagram-person-node`, 280 x 116 min-height)
- *   automation/service/registry -> service card (`.diagram-service-node`, 210 x 118)
- *   decision -> diamond (`.diagram-diamond-node`, 148 x 148 square before rotation)
- *   note -> small annotation card, no direct osago equivalent (generic default)
- */
-export const NODE_DEFAULT_SIZE: Record<NodeShape, { w: number; h: number }> = {
-  screen: { w: 248, h: 645 },
-  window: { w: 520, h: 360 },
-  actor: { w: 280, h: 116 },
-  automation: { w: 210, h: 118 },
-  service: { w: 210, h: 118 },
-  registry: { w: 210, h: 118 },
-  decision: { w: 148, h: 148 },
-  note: { w: 200, h: 100 },
-};
-
-const LANE_PADDING_X = 24;
-const LANE_PADDING_Y = 16;
-const SLOT_GAP = 24;
-
-export interface PositionedLane {
-  id: string;
-  label: string;
-  role: CanvasDoc["lanes"][number]["role"];
-  y: number;
-  height: number;
-}
-
-export interface PositionedStage {
-  id: string;
-  label: string;
-  summary?: string;
-  x: number;
-  width: number;
-}
-
-export interface PositionedNode extends CanvasNode {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
+export type PositionedLane = CanvasDoc["lanes"][number];
+export type PositionedStage = CanvasDoc["stages"][number];
+export type PositionedNode = CanvasNode & { x: number; y: number; w: number; h: number };
 export interface PositionedCanvas {
   doc: CanvasDoc;
   lanes: PositionedLane[];
@@ -65,64 +12,30 @@ export interface PositionedCanvas {
   height: number;
 }
 
-export class LayoutError extends Error {}
-
+/** CanvasDoc v2 stores authoritative geometry; layout is intentionally deterministic. */
 export function layoutCanvas(doc: CanvasDoc): PositionedCanvas {
-  const stageWidth = doc.grid?.stageWidth ?? DEFAULT_STAGE_WIDTH;
-  const startX = doc.grid?.startX ?? DEFAULT_START_X;
+  return {
+    doc,
+    lanes: doc.lanes,
+    stages: [...doc.stages].sort((a, b) => a.index - b.index),
+    nodes: doc.nodes.map((node) => ({
+      ...node,
+      x: node.rect.x,
+      y: node.rect.y,
+      w: node.rect.w,
+      h: node.rect.h,
+    })) as PositionedNode[],
+    width: doc.world.width,
+    height: doc.world.height,
+  };
+}
 
-  const sortedStages = [...doc.stages].sort((a, b) => a.index - b.index);
-  const stages: PositionedStage[] = sortedStages.map((stage, i) => ({
-    id: stage.id,
-    label: stage.label,
-    summary: stage.summary,
-    x: startX + i * stageWidth,
-    width: stageWidth,
-  }));
-  const stageById = new Map(stages.map((s) => [s.id, s]));
-
-  let cursorY = 0;
-  const lanes: PositionedLane[] = doc.lanes.map((lane) => {
-    const positioned: PositionedLane = {
-      id: lane.id,
-      label: lane.label,
-      role: lane.role,
-      y: cursorY,
-      height: lane.height,
-    };
-    cursorY += lane.height;
-    return positioned;
-  });
-  const laneById = new Map(lanes.map((l) => [l.id, l]));
-
-  const cellOccupants = new Map<string, CanvasNode[]>();
-  for (const node of doc.nodes) {
-    const key = `${node.lane}::${node.stage}`;
-    const list = cellOccupants.get(key);
-    if (list) list.push(node);
-    else cellOccupants.set(key, [node]);
-  }
-
-  const nodes: PositionedNode[] = doc.nodes.map((node) => {
-    const lane = laneById.get(node.lane);
-    if (!lane) throw new LayoutError(`node "${node.id}" references unknown lane "${node.lane}"`);
-    const stage = stageById.get(node.stage);
-    if (!stage) {
-      throw new LayoutError(`node "${node.id}" references unknown stage "${node.stage}"`);
-    }
-
-    const size = node.size ?? NODE_DEFAULT_SIZE[node.shape];
-    const siblings = cellOccupants.get(`${node.lane}::${node.stage}`) ?? [node];
-    const slot = node.slot ?? siblings.indexOf(node);
-
-    const x = stage.x + LANE_PADDING_X + slot * (size.w + SLOT_GAP);
-    const y = lane.y + LANE_PADDING_Y + (lane.height - size.h - LANE_PADDING_Y * 2) / 2;
-
-    return { ...node, x, y, w: size.w, h: size.h };
-  });
-
-  const width = startX + stages.length * stageWidth;
-  const height = cursorY;
-
-  return { doc, lanes, stages, nodes, width, height };
+export function patchNodeRect(doc: CanvasDoc, nodeId: string, rect: Rect): CanvasDoc {
+  if (!doc.nodes.some((node) => node.id === nodeId)) throw new Error(`unknown node "${nodeId}"`);
+  return {
+    ...doc,
+    nodes: doc.nodes.map((node) =>
+      node.id === nodeId ? { ...node, rect } : node,
+    ) as CanvasDoc["nodes"],
+  };
 }

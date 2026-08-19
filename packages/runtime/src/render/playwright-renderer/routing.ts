@@ -88,6 +88,7 @@ function formatRef(rawUrl: string, root: string): string {
   } catch {
     return rawUrl;
   }
+  if (url.origin === "http://canvas.local") return decodeURIComponent(url.pathname);
   if (url.protocol !== "file:") return rawUrl;
 
   const requestedPath = decodeURIComponent(url.pathname);
@@ -179,6 +180,24 @@ export async function installLocalResourceRouting(
       return;
     }
 
+    if (url.origin === "http://canvas.local") {
+      const resolved = path.resolve(root, `.${decodeURIComponent(url.pathname)}`);
+      if (!(resolved === root || resolved.startsWith(root + path.sep))) {
+        recordUnresolved(request.url());
+        await route.abort("accessdenied");
+        return;
+      }
+      try {
+        await fs.access(resolved);
+      } catch {
+        recordUnresolved(request.url());
+        await route.abort("failed");
+        return;
+      }
+      await route.fulfill({ path: resolved, headers: { "access-control-allow-origin": "*" } });
+      return;
+    }
+
     if (url.protocol !== "file:") {
       // Network sandboxing removed: let CDN scripts/CSS, remote
       // images/fonts, navigation, websockets, etc. hit the real network.
@@ -209,7 +228,10 @@ export async function installLocalResourceRouting(
       return;
     }
 
-    await route.fulfill({ path: resolved });
+    // Sandboxed iframes intentionally omit allow-same-origin. Their module
+    // scripts therefore have an opaque origin and need an explicit CORS
+    // response even though the bytes are local to the hydrated workspace.
+    await route.fulfill({ path: resolved, headers: { "access-control-allow-origin": "*" } });
   });
 
   return { list: () => [...unresolved] };

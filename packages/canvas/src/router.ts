@@ -1,143 +1,117 @@
-import type { PositionedCanvas, PositionedNode, PositionedStage } from "./layout.js";
-import type { CanvasEdge, EdgeRoute } from "./types.js";
-
-export interface EdgePoint {
-  x: number;
-  y: number;
-}
+import type { PositionedCanvas, PositionedNode } from "./layout.js";
+import type { AnchorSide, CanvasEdge, ConnectorAnchor, Point } from "./types.js";
 
 export interface EdgePath {
   edge: CanvasEdge;
-  route: Exclude<EdgeRoute, "auto">;
+  route: CanvasEdge["route"]["type"];
   d: string;
-  labelPoint: EdgePoint;
+  labelPoint: Point;
 }
-
 export class RouterError extends Error {}
 
-function centerY(node: PositionedNode): number {
-  return node.y + node.h / 2;
-}
-function centerX(node: PositionedNode): number {
-  return node.x + node.w / 2;
-}
-
-/** Cursor-anchored zoom scales node card sizes, not stroke width — see theme.css's `vector-effect: non-scaling-stroke`. */
-function horizontalPath(from: PositionedNode, to: PositionedNode): { d: string; label: EdgePoint } {
-  const reversed = to.x < from.x;
-  const [a, b] = reversed ? [to, from] : [from, to];
-  const startX = a.x + a.w;
-  const startY = centerY(a);
-  const endX = b.x;
-  const endY = centerY(b);
-  const dx = Math.max(40, (endX - startX) / 2);
-  const c1x = startX + dx;
-  const c2x = endX - dx;
-  const d = reversed
-    ? `M ${endX} ${endY} C ${c2x} ${endY}, ${c1x} ${startY}, ${startX} ${startY}`
-    : `M ${startX} ${startY} C ${c1x} ${startY}, ${c2x} ${endY}, ${endX} ${endY}`;
-  return { d, label: { x: (startX + endX) / 2, y: (startY + endY) / 2 } };
-}
-
-function verticalPath(from: PositionedNode, to: PositionedNode): { d: string; label: EdgePoint } {
-  const reversed = to.y < from.y;
-  const [a, b] = reversed ? [to, from] : [from, to];
-  const startY = a.y + a.h;
-  const startX = centerX(a);
-  const endY = b.y;
-  const endX = centerX(b);
-  const dy = Math.max(30, (endY - startY) / 2);
-  const c1y = startY + dy;
-  const c2y = endY - dy;
-  const d = reversed
-    ? `M ${endX} ${endY} C ${endX} ${c2y}, ${startX} ${c1y}, ${startX} ${startY}`
-    : `M ${startX} ${startY} C ${startX} ${c1y}, ${endX} ${c2y}, ${endX} ${endY}`;
-  return { d, label: { x: (startX + endX) / 2, y: (startY + endY) / 2 } };
-}
-
-/** Two-bend elbow: exit the near horizontal edge, cross at a shared midline, enter the near horizontal edge. */
-function orthogonalPath(
-  from: PositionedNode,
-  to: PositionedNode,
-  midX?: number,
-): { d: string; label: EdgePoint } {
-  const forward = to.x >= from.x;
-  const startX = forward ? from.x + from.w : from.x;
-  const startY = centerY(from);
-  const endX = forward ? to.x : to.x + to.w;
-  const endY = centerY(to);
-  const mid = midX ?? (startX + endX) / 2;
-  const d = `M ${startX} ${startY} L ${mid} ${startY} L ${mid} ${endY} L ${endX} ${endY}`;
-  return { d, label: { x: mid, y: (startY + endY) / 2 } };
-}
-
-/**
- * Routes a long-span edge through the gutter (padding column) between stage
- * frames nearest the horizontal midpoint, instead of a raw midpoint that may
- * fall inside an intermediate stage's node cards.
- */
-function gutterX(from: PositionedNode, to: PositionedNode, stages: PositionedStage[]): number {
-  const midpoint = (centerX(from) + centerX(to)) / 2;
-  let best = midpoint;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (const stage of stages) {
-    const boundary = stage.x;
-    const dist = Math.abs(boundary - midpoint);
-    if (dist < bestDist) {
-      best = boundary;
-      bestDist = dist;
-    }
+export function anchorPoint(node: PositionedNode, anchor: ConnectorAnchor): Point {
+  switch (anchor.side as AnchorSide) {
+    case "top":
+      return { x: node.x + node.w * anchor.offset, y: node.y };
+    case "right":
+      return { x: node.x + node.w, y: node.y + node.h * anchor.offset };
+    case "bottom":
+      return { x: node.x + node.w * anchor.offset, y: node.y + node.h };
+    case "left":
+      return { x: node.x, y: node.y + node.h * anchor.offset };
   }
-  return best;
 }
 
-function stageIndexOf(stages: PositionedStage[], stageId: string): number {
-  return stages.findIndex((s) => s.id === stageId);
+function pointAtPolyline(points: Point[], position: number): Point {
+  if (points.length < 2) return points[0] ?? { x: 0, y: 0 };
+  const lengths: number[] = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const from = points[index];
+    const to = points[index + 1];
+    if (from && to) lengths.push(Math.hypot(to.x - from.x, to.y - from.y));
+  }
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  let remaining = total * position;
+  for (let index = 0; index < lengths.length; index += 1) {
+    const length = lengths[index] ?? 0;
+    if (remaining <= length || index === lengths.length - 1) {
+      const ratio = length === 0 ? 0 : remaining / length;
+      const from = points[index] ?? { x: 0, y: 0 };
+      const to = points[index + 1] ?? from;
+      return { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio };
+    }
+    remaining -= length;
+  }
+  return points.at(-1) ?? { x: 0, y: 0 };
 }
 
-function chooseAutoRoute(
-  from: PositionedNode,
-  to: PositionedNode,
-  stages: PositionedStage[],
-): Exclude<EdgeRoute, "auto"> {
-  if (from.lane === to.lane) return "horizontal";
-  if (from.stage === to.stage) return "vertical";
-  const stageDiff = Math.abs(stageIndexOf(stages, to.stage) - stageIndexOf(stages, from.stage));
-  return stageDiff <= 1 ? "orthogonal" : "gutter";
+function endpoint(canvas: PositionedCanvas, value: CanvasEdge["source"]): Point {
+  const node = canvas.nodes.find((candidate) => candidate.id === value.nodeId);
+  if (!node) throw new RouterError(`unknown node "${value.nodeId}"`);
+  const anchor = node.anchors.find((candidate) => candidate.id === value.anchorId);
+  if (!anchor)
+    throw new RouterError(`unknown anchor "${value.anchorId}" on node "${value.nodeId}"`);
+  return anchorPoint(node, anchor);
+}
+
+function bezierControl(point: Point, side: AnchorSide, distance: number): Point {
+  switch (side) {
+    case "top":
+      return { x: point.x, y: point.y - distance };
+    case "right":
+      return { x: point.x + distance, y: point.y };
+    case "bottom":
+      return { x: point.x, y: point.y + distance };
+    case "left":
+      return { x: point.x - distance, y: point.y };
+  }
 }
 
 export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
-  const nodeById = new Map(canvas.nodes.map((n) => [n.id, n]));
-
   return canvas.doc.edges.map((edge) => {
-    const from = nodeById.get(edge.from);
-    if (!from) throw new RouterError(`edge references unknown source node "${edge.from}"`);
-    const to = nodeById.get(edge.to);
-    if (!to) throw new RouterError(`edge references unknown target node "${edge.to}"`);
-
-    const route =
-      !edge.route || edge.route === "auto" ? chooseAutoRoute(from, to, canvas.stages) : edge.route;
-
-    switch (route) {
-      case "horizontal": {
-        const { d, label } = horizontalPath(from, to);
-        return { edge, route, d, labelPoint: label };
+    const source = endpoint(canvas, edge.source);
+    const target = endpoint(canvas, edge.target);
+    const position = edge.label?.position ?? 0.5;
+    const offset = edge.label?.offset ?? { x: 0, y: 0 };
+    let points: Point[] = [source, ...(edge.route.waypoints ?? []), target];
+    let d: string;
+    if (edge.route.type === "bezier" && points.length === 2) {
+      const sourceAnchor = canvas.nodes
+        .find((node) => node.id === edge.source.nodeId)
+        ?.anchors.find((anchor) => anchor.id === edge.source.anchorId);
+      const targetAnchor = canvas.nodes
+        .find((node) => node.id === edge.target.nodeId)
+        ?.anchors.find((anchor) => anchor.id === edge.target.anchorId);
+      if (!sourceAnchor || !targetAnchor) {
+        throw new RouterError(`cannot route bezier edge "${edge.id}" with unresolved anchors`);
       }
-      case "vertical": {
-        const { d, label } = verticalPath(from, to);
-        return { edge, route, d, labelPoint: label };
+      const verticalPair =
+        (sourceAnchor.side === "top" || sourceAnchor.side === "bottom") &&
+        (targetAnchor.side === "top" || targetAnchor.side === "bottom");
+      const horizontalPair =
+        (sourceAnchor.side === "left" || sourceAnchor.side === "right") &&
+        (targetAnchor.side === "left" || targetAnchor.side === "right");
+      const distance = verticalPair
+        ? Math.max(1, Math.abs(target.y - source.y) / 2)
+        : horizontalPair
+          ? Math.max(1, Math.abs(target.x - source.x) / 2)
+          : Math.max(40, Math.hypot(target.x - source.x, target.y - source.y) / 2);
+      const first = bezierControl(source, sourceAnchor.side, distance);
+      const second = bezierControl(target, targetAnchor.side, distance);
+      d = `M ${source.x} ${source.y} C ${first.x} ${first.y}, ${second.x} ${second.y}, ${target.x} ${target.y}`;
+    } else {
+      if (edge.route.type === "orthogonal" && points.length === 2) {
+        const midX = (source.x + target.x) / 2;
+        points = [source, { x: midX, y: source.y }, { x: midX, y: target.y }, target];
       }
-      case "orthogonal": {
-        const { d, label } = orthogonalPath(from, to);
-        return { edge, route, d, labelPoint: label };
-      }
-      case "gutter": {
-        const mid = gutterX(from, to, canvas.stages);
-        const { d, label } = orthogonalPath(from, to, mid);
-        return { edge, route, d, labelPoint: label };
-      }
-      default:
-        throw new RouterError(`unreachable: unknown route "${route satisfies never}"`);
+      d = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
     }
+    const labelBase = pointAtPolyline(points, position);
+    return {
+      edge,
+      route: edge.route.type,
+      d,
+      labelPoint: { x: labelBase.x + offset.x, y: labelBase.y + offset.y },
+    };
   });
 }

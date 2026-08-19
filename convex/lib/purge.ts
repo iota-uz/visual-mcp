@@ -91,6 +91,15 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     await ctx.db.delete(row._id);
   }
 
+  const snapshots = await ctx.db
+    .query("canvasVersionFiles")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of snapshots) {
+    blobs.add(row.storageId);
+    await ctx.db.delete(row._id);
+  }
+
   const nodes = await ctx.db
     .query("canvasNodes")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
@@ -102,6 +111,12 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
     .collect();
   for (const row of renders) await ctx.db.delete(row._id);
+
+  const capabilities = await ctx.db
+    .query("iframeCapabilities")
+    .filter((q) => q.eq(q.field("canvasId"), canvas._id))
+    .collect();
+  for (const row of capabilities) await ctx.db.delete(row._id);
 
   if (canvas.thumbnailId) blobs.add(canvas.thumbnailId);
 
@@ -194,6 +209,12 @@ export async function isBlobReferenced(
     .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvasId))
     .collect();
   if (artifacts.some((a) => a.storageId === storageId)) return true;
+
+  const snapshots = await ctx.db
+    .query("canvasVersionFiles")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
+    .collect();
+  if (snapshots.some((file) => file.storageId === storageId)) return true;
 
   const files = await ctx.db
     .query("canvasFiles")

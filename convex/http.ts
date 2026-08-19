@@ -40,6 +40,7 @@ import { httpAction } from "./_generated/server";
 // Aliased: the request handlers below bind a local `auth` for the verified
 // bearer AuthInfo.
 import { auth as convexAuth } from "./auth";
+import { renderEmbedCard } from "./lib/embedCard";
 import { sha256Hex } from "./lib/hash";
 import { buildInstructions } from "./mcp/instructions";
 import { type McpPrincipal, registerResources, registerTools } from "./mcp/tools";
@@ -141,6 +142,67 @@ function publicArtifactCsp(): string {
   ].join("; ");
 }
 
+function iframeCsp(nonce: string): string {
+  const spaOrigin = process.env.SPA_ORIGIN;
+  return [
+    "default-src 'none'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "img-src 'self' data: blob:",
+    "connect-src 'none'",
+    "media-src 'self' blob:",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "worker-src 'none'",
+    `frame-ancestors ${spaOrigin ? `'self' ${spaOrigin}` : "'self'"}`,
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
+function iframeBridge(nonce: string): string {
+  return `<script nonce="${nonce}">(function(){const send=(state,detail)=>parent.postMessage({type:'visual-canvas:readiness',state,detail},'*');addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();parent.postMessage({type:'visual-canvas:escape'},'*')}});Promise.all([document.fonts?document.fonts.ready:Promise.resolve(),Promise.all(Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.addEventListener('load',r,{once:true});i.addEventListener('error',()=>j(new Error('image '+i.src)),{once:true})}))),window.visualCanvasScreenReady||Promise.resolve()]).then(()=>send('ready')).catch(e=>send('partial',String(e&&e.message||e)));})();</script>`;
+}
+
+const EMBED_PREVIEW_INLINE_LIMIT = 2 * 1024 * 1024;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+async function embedPreviewDataUrl(
+  ctx: ActionCtx,
+  storageId: Id<"_storage"> | undefined,
+): Promise<string | undefined> {
+  if (!storageId) return undefined;
+  const blob = await ctx.storage.get(storageId);
+  if (!blob || blob.size > EMBED_PREVIEW_INLINE_LIMIT || !/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) {
+    return undefined;
+  }
+  return `data:${blob.type};base64,${bytesToBase64(new Uint8Array(await blob.arrayBuffer()))}`;
+}
+
+function embedCardHeaders(pinned: boolean): Headers {
+  return new Headers({
+    "content-type": "image/svg+xml; charset=utf-8",
+    "content-disposition": 'inline; filename="visual-canvas-preview.svg"',
+    "content-security-policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+    "x-content-type-options": "nosniff",
+    "cross-origin-resource-policy": "cross-origin",
+    "access-control-allow-origin": "*",
+    "cache-control": pinned
+      ? "public, max-age=31536000, immutable"
+      : "public, max-age=60, stale-while-revalidate=300",
+  });
+}
+
 // `GET /s/:slug` and `/s/:slug/*` — anonymous, cookieless artifact serving
 // (PLAN.md Part 1 section 8). Convex's httpRouter has no named-param
 // syntax (see convex/server's RouteSpec: only exact `path` or
@@ -156,6 +218,37 @@ http.route({
       .filter((s) => s.length > 0);
     const slug = segments[0];
     if (!slug) return new Response("Not found", { status: 404 });
+
+    // Static GitHub/Markdown preview image. It deliberately lives under the
+    // existing public slug so Make private / Replace link revokes cards and
+    // share links together. This is an image endpoint, not an iframe viewer.
+    if (segments[1] === "_embed" && segments[2] === "card.svg" && segments.length === 3) {
+      const rawTarget = url.searchParams.get("target") ?? "canvas";
+      if (rawTarget !== "canvas" && rawTarget !== "node" && rawTarget !== "artifact") {
+        return new Response("Invalid embed target", { status: 400 });
+      }
+      const targetId = url.searchParams.get("id") ?? undefined;
+      if (targetId && targetId.length > 500) return new Response("Invalid target id", { status: 400 });
+      const rawVersion = url.searchParams.get("version");
+      const version = rawVersion === null ? undefined : Number(rawVersion);
+      if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
+        return new Response("Invalid version", { status: 400 });
+      }
+
+      const card = await ctx.runQuery(internal.canvases.resolvePublicEmbedCard, {
+        publicSlug: slug,
+        target: rawTarget,
+        targetId,
+        version,
+      });
+      if (!card) return new Response("Not found", { status: 404 });
+      const imageDataUrl = await embedPreviewDataUrl(ctx, card.previewStorageId);
+      return new Response(renderEmbedCard({ ...card, imageDataUrl }), {
+        status: 200,
+        headers: embedCardHeaders(version !== undefined),
+      });
+    }
+
     const relPath = segments.length > 1 ? `/${segments.slice(1).join("/")}` : undefined;
 
     const artifact = await ctx.runQuery(internal.canvases.resolvePublicArtifact, {
@@ -164,11 +257,15 @@ http.route({
     });
     if (!artifact) return new Response("Not found", { status: 404 });
 
+    const nonce = crypto.randomUUID().replaceAll("-", "");
+    const isIframe = artifact.iframe === true;
     const headers = new Headers({
-      "content-security-policy": publicArtifactCsp(),
+      "content-security-policy": isIframe ? iframeCsp(nonce) : publicArtifactCsp(),
       "x-content-type-options": "nosniff",
       "cache-control": "public, max-age=60",
     });
+    if (isIframe || pathIsIframeSubresource(artifact.relPath))
+      headers.set("access-control-allow-origin", "*");
 
     // An SVG is an active document — never served inline on a shared origin.
     if (artifact.type === "svg") {
@@ -183,11 +280,69 @@ http.route({
       return Response.redirect(directUrl, 302);
     }
 
-    const blob = await ctx.storage.get(artifact.storageId);
+    let blob = await ctx.storage.get(artifact.storageId);
     if (!blob) return new Response("Not found", { status: 404 });
+    if (isIframe) {
+      const html = await blob.text();
+      blob = new Blob(
+        [
+          html.includes("</body>")
+            ? html.replace("</body>", `${iframeBridge(nonce)}</body>`)
+            : html + iframeBridge(nonce),
+        ],
+        { type: "text/html; charset=utf-8" },
+      );
+    }
     headers.set("content-type", artifact.mimeType);
     return new Response(blob, { status: 200, headers });
   }),
 });
+
+http.route({
+  pathPrefix: "/i/",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const parts = new URL(request.url).pathname.slice(3).split("/").filter(Boolean);
+    const token = parts.shift();
+    if (!token || parts.length === 0) return new Response("Not found", { status: 404 });
+    const relPath = `/${parts.join("/")}`;
+    const file = await ctx.runQuery(internal.canvases.resolveIframeCapability, {
+      token,
+      relPath,
+      now: Date.now(),
+    });
+    if (!file) return new Response("Not found", { status: 404 });
+    let blob = await ctx.storage.get(file.storageId);
+    if (!blob) return new Response("Not found", { status: 404 });
+    const nonce = crypto.randomUUID().replaceAll("-", "");
+    if (file.iframe) {
+      const html = await blob.text();
+      blob = new Blob(
+        [
+          html.includes("</body>")
+            ? html.replace("</body>", `${iframeBridge(nonce)}</body>`)
+            : html + iframeBridge(nonce),
+        ],
+        { type: "text/html; charset=utf-8" },
+      );
+    }
+    return new Response(blob, {
+      headers: {
+        "content-type": file.mimeType,
+        "content-security-policy": iframeCsp(nonce),
+        "x-content-type-options": "nosniff",
+        "cache-control": "private, no-store",
+        "access-control-allow-origin": "*",
+      },
+    });
+  }),
+});
+
+function pathIsIframeSubresource(relPath: string): boolean {
+  // Sandboxed iframe documents intentionally have an opaque origin because
+  // they do not receive allow-same-origin. Fonts therefore require CORS
+  // even though their URL is on the same host as the iframe entrypoint.
+  return relPath.startsWith("/src/screens/") || relPath.startsWith("/assets/");
+}
 
 export default http;

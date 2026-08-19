@@ -1,6 +1,9 @@
+import { CanvasDocSchema, RectSchema } from "@visual-canvas/canvas/types.js";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  action,
   internalMutation,
   internalQuery,
   type MutationCtx,
@@ -25,6 +28,13 @@ const ArtifactTypeValidator = v.union(
   v.literal("image"),
   v.literal("svg"),
   v.literal("source"),
+);
+
+const KindValidator = v.union(
+  v.literal("canvas"),
+  v.literal("html"),
+  v.literal("image"),
+  v.literal("pdf"),
 );
 
 async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Promise<number> {
@@ -391,6 +401,10 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
   const entryUrl = viewerStorageId ? await ctx.storage.getUrl(viewerStorageId) : null;
   const cssUrl = cssStorageId ? await ctx.storage.getUrl(cssStorageId) : null;
   const thumbnailUrl = canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null;
+  const artifactRows = await ctx.db
+    .query("artifacts")
+    .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", canvas._id))
+    .take(500);
   return {
     ...toSummary(canvas),
     doc_storage_id: docStorageId,
@@ -399,6 +413,14 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
     entry_public_url: await publicEntryUrl(ctx, canvas, viewerStorageId),
     css_url: cssUrl,
     thumbnail_url: thumbnailUrl,
+    artifacts: artifactRows
+      .map((artifact) => ({
+        path: artifact.relPath,
+        type: artifact.type,
+        role: artifact.role,
+        mime_type: artifact.mimeType,
+        size_bytes: artifact.size,
+      })),
     version,
   };
 }
@@ -611,8 +633,10 @@ export const putDoc = internalMutation({
     // this mutation runs — omitted when the doc has no content.type='html'
     // nodes, since there's nothing to compile.
     cssStorageId: v.optional(v.id("_storage")),
+    iframeEntrypoints: v.optional(v.array(v.string())),
     note: v.optional(v.string()),
     createdBy: v.id("users"),
+    expectedVersion: v.optional(v.number()),
     nodes: v.array(
       v.object({
         nodeId: v.string(),
@@ -631,6 +655,11 @@ export const putDoc = internalMutation({
       .withIndex("by_canvas_version", (q) => q.eq("canvasId", args.canvasId))
       .order("desc")
       .first();
+    if (args.expectedVersion !== undefined && (last?.version ?? 0) !== args.expectedVersion) {
+      throw new Error(
+        `Canvas version conflict: expected ${args.expectedVersion}, current ${last?.version ?? 0}`,
+      );
+    }
     const version = (last?.version ?? 0) + 1;
 
     // canvasNodes exists only to back the search index and `?node=` lookups
@@ -656,7 +685,23 @@ export const putDoc = internalMutation({
       createdBy: args.createdBy,
       docStorageId: args.docStorageId,
       cssStorageId: args.cssStorageId,
+      iframeEntrypoints: args.iframeEntrypoints,
     });
+
+    const files = await ctx.db
+      .query("canvasFiles")
+      .withIndex("by_canvas_relPath", (q) => q.eq("canvasId", args.canvasId))
+      .collect();
+    for (const file of files) {
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId: args.canvasId,
+        versionId,
+        relPath: file.relPath,
+        storageId: file.storageId,
+        size: file.size,
+        contentHash: file.contentHash,
+      });
+    }
 
     for (const node of args.nodes) {
       await ctx.db.insert("canvasNodes", { canvasId: args.canvasId, versionId, ...node });
@@ -664,6 +709,100 @@ export const putDoc = internalMutation({
 
     await ctx.db.patch(args.canvasId, { currentVersionId: versionId, updatedAt: Date.now() });
     return { versionId, version };
+  },
+});
+
+export const getLayoutPatchSource = internalQuery({
+  args: { canvasId: v.id("canvases"), subject: v.string() },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas?.currentVersionId) throw new Error("Canvas has no current version");
+    const current = await ctx.db.get(canvas.currentVersionId);
+    if (!current?.docStorageId) throw new Error("Canvas has no CanvasDoc");
+    const authUserId = args.subject.includes("|") ? args.subject.split("|")[0] : null;
+    const normalizedUserId = authUserId ? ctx.db.normalizeId("users", authUserId) : null;
+    const user = normalizedUserId
+      ? await ctx.db.get(normalizedUserId)
+      : await ctx.db
+          .query("users")
+          .withIndex("by_googleSub", (q) => q.eq("googleSub", args.subject))
+          .unique();
+    if (!user) throw new Error("Signed-in user record not found");
+    const docUrl = await ctx.storage.getUrl(current.docStorageId);
+    if (!docUrl) throw new Error("CanvasDoc storage object is unavailable");
+    return {
+      docUrl,
+      version: current.version,
+      cssStorageId: current.cssStorageId,
+      iframeEntrypoints: current.iframeEntrypoints,
+      userId: user._id,
+    };
+  },
+});
+
+/** Signed-in layout editing: one optimistic rect patch creates one immutable v2 version. */
+export const patchNodeRectMine = action({
+  args: {
+    canvasId: v.id("canvases"),
+    nodeId: v.string(),
+    rect: v.object({ x: v.number(), y: v.number(), w: v.number(), h: v.number() }),
+    expectedVersion: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ version: number }> => {
+    const identity = await requireIotaIdentity(ctx);
+    const source = await ctx.runQuery(internal.canvases.getLayoutPatchSource, {
+      canvasId: args.canvasId,
+      subject: identity.subject,
+    });
+    if (source.version !== args.expectedVersion) {
+      throw new Error(
+        `Canvas version conflict: expected ${args.expectedVersion}, current ${source.version}`,
+      );
+    }
+    const rect = RectSchema.parse(args.rect);
+    const response = await fetch(source.docUrl);
+    if (!response.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${response.status}`);
+    const doc = CanvasDocSchema.parse(await response.json());
+    const nodeIndex = doc.nodes.findIndex((node) => node.id === args.nodeId);
+    if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${args.nodeId}`);
+    const nodes = doc.nodes.map((node, index) =>
+      index === nodeIndex ? { ...node, rect: { ...rect } } : node,
+    );
+    const patched = CanvasDocSchema.parse({ ...doc, nodes });
+    const bytes = new TextEncoder().encode(JSON.stringify(patched));
+    const docStorageId = await ctx.storage.store(
+      new Blob([bytes], { type: "application/json" }),
+    );
+    try {
+      const result = await ctx.runMutation(internal.canvases.putDoc, {
+        canvasId: args.canvasId,
+        docStorageId,
+        cssStorageId: source.cssStorageId,
+        iframeEntrypoints: source.iframeEntrypoints,
+        expectedVersion: args.expectedVersion,
+        note: `Layout: ${args.nodeId}`,
+        createdBy: source.userId,
+        nodes: patched.nodes.map((node) => ({
+          nodeId: node.id,
+          title: node.caption.title,
+          eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+          searchText: [
+            node.caption.title,
+            node.caption.subtitle,
+            node.caption.tag,
+            node.inspector?.eyebrow,
+            node.inspector?.title,
+            node.inspector?.copy,
+          ]
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+            .join(" "),
+        })),
+      });
+      return { version: result.version };
+    } catch (error) {
+      await ctx.storage.delete(docStorageId);
+      throw error;
+    }
   },
 });
 
@@ -686,6 +825,7 @@ export const attachCanvasRender = internalMutation({
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),
     relPath: v.string(),
+    type: ArtifactTypeValidator,
     mimeType: v.string(),
     size: v.number(),
     storageId: v.id("_storage"),
@@ -701,7 +841,7 @@ export const attachCanvasRender = internalMutation({
       args.versionId,
       {
         relPath: args.relPath,
-        type: "image",
+        type: args.type,
         mimeType: args.mimeType,
         size: args.size,
         storageId: args.storageId,
@@ -718,6 +858,16 @@ export const attachCanvasRender = internalMutation({
     }
 
     return { artifact };
+  },
+});
+
+export const currentVersion = internalQuery({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas?.currentVersionId) return null;
+    const version = await ctx.db.get(canvas.currentVersionId);
+    return version ? { versionId: version._id, version: version.version } : null;
   },
 });
 
@@ -855,6 +1005,40 @@ export const resolvePublicArtifact = internalQuery({
         null;
     }
 
+    // CanvasDoc v2 screens and assets resolve only through the current
+    // version snapshot. HTML is served only when registered by an iframe node.
+    if (!row && args.relPath && canvas.kind === "canvas" && canvas.currentVersionId) {
+      const currentVersionId = canvas.currentVersionId;
+      const relPath = args.relPath;
+      const version = await ctx.db.get(currentVersionId);
+      const isEntrypoint =
+        args.relPath.startsWith("/src/screens/") &&
+        version?.iframeEntrypoints?.includes(args.relPath);
+      const isAsset =
+        args.relPath.startsWith("/assets/") ||
+        args.relPath.startsWith("/src/screens/assets/") ||
+        /\.(css|js|mjs|png|jpe?g|svg|webp|woff2?|ttf)$/i.test(args.relPath);
+      if (isEntrypoint || isAsset) {
+        const file = await ctx.db
+          .query("canvasVersionFiles")
+          .withIndex("by_version_relPath", (q) =>
+            q.eq("versionId", currentVersionId).eq("relPath", relPath),
+          )
+          .unique();
+        if (file) {
+          const { type, mime } = classifyAssetPath(file.relPath);
+          return {
+            relPath: file.relPath,
+            type,
+            mimeType: mime,
+            size: file.size,
+            storageId: file.storageId,
+            iframe: isEntrypoint,
+          };
+        }
+      }
+    }
+
     // Fall back to the canvas's own /assets. A shared HTML artifact is a
     // page, and a page has subresources: `<img src="../assets/logo.svg">`
     // renders correctly in the worker (which hydrates every canvasFile) and
@@ -891,6 +1075,113 @@ export const resolvePublicArtifact = internalQuery({
   },
 });
 
+const PublicEmbedTargetValidator = v.union(
+  v.literal("canvas"),
+  v.literal("node"),
+  v.literal("artifact"),
+);
+
+const PublicEmbedCardValidator = v.object({
+  canvasTitle: v.string(),
+  canvasKind: KindValidator,
+  version: v.number(),
+  updatedAt: v.number(),
+  targetKind: PublicEmbedTargetValidator,
+  targetLabel: v.string(),
+  targetDetail: v.string(),
+  previewStorageId: v.optional(v.id("_storage")),
+});
+
+/**
+ * Metadata for the static image card used by GitHub/Markdown. This is not a
+ * second viewer: the card is only an image, and its surrounding Markdown
+ * link points at the existing public share page (or the public artifact).
+ *
+ * A `version` query pins the text/node lookup to an immutable CanvasDoc
+ * version. The canvas thumbnail is intentionally used only while that
+ * version is current because thumbnails are not version snapshots; after a
+ * later save, the endpoint keeps returning an honest branded card instead
+ * of putting the new screenshot under an old version label.
+ */
+export const resolvePublicEmbedCard = internalQuery({
+  args: {
+    publicSlug: v.string(),
+    target: PublicEmbedTargetValidator,
+    targetId: v.optional(v.string()),
+    version: v.optional(v.number()),
+  },
+  returns: v.union(v.null(), PublicEmbedCardValidator),
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db
+      .query("canvases")
+      .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
+      .unique();
+    if (canvas?.visibility !== "public") return null;
+
+    const version = args.version
+      ? await ctx.db
+          .query("canvasVersions")
+          .withIndex("by_canvas_version", (q) =>
+            q.eq("canvasId", canvas._id).eq("version", args.version as number),
+          )
+          .unique()
+      : canvas.currentVersionId
+        ? await ctx.db.get(canvas.currentVersionId)
+        : null;
+    if (!version) return null;
+
+    const isCurrent = version._id === canvas.currentVersionId;
+    let targetLabel = canvas.title;
+    let targetDetail = `${canvas.kind} canvas`;
+    let previewStorageId = isCurrent ? canvas.thumbnailId : undefined;
+
+    if (args.target === "node") {
+      if (!args.targetId || canvas.kind !== "canvas") return null;
+      const nodes = await ctx.db
+        .query("canvasNodes")
+        .withIndex("by_version", (q) => q.eq("versionId", version._id))
+        .take(1_000);
+      const node = nodes.find((entry) => entry.nodeId === args.targetId);
+      if (!node) return null;
+      targetLabel = node.title;
+      targetDetail = node.eyebrow ? `${node.eyebrow} · canvas screen` : "Canvas screen";
+    } else if (args.target === "artifact") {
+      if (!args.targetId?.startsWith("/")) return null;
+      const artifact = await ctx.db
+        .query("artifacts")
+        .withIndex("by_canvas_relPath", (q) =>
+          q.eq("canvasId", canvas._id).eq("relPath", args.targetId as string),
+        )
+        .unique();
+      // Current/latest links must name a real public artifact. A pinned URL
+      // may outlive the mutable current artifact row, so its safe path label
+      // remains renderable even after a newer version replaces that row.
+      if (!artifact && !args.version) return null;
+      const filename = args.targetId.split("/").filter(Boolean).pop() ?? "Artifact";
+      targetLabel = filename;
+      targetDetail = artifact
+        ? `${artifact.type.toUpperCase()} · ${artifact.role}`
+        : "Pinned artifact";
+      if (artifact && isCurrent && artifact.type === "image") {
+        previewStorageId = artifact.storageId;
+      } else if (!isCurrent) {
+        previewStorageId = undefined;
+      }
+    }
+
+    return {
+      canvasTitle: canvas.title,
+      canvasKind: canvas.kind,
+      version: version.version,
+      updatedAt: canvas.updatedAt,
+      targetKind: args.target,
+      targetLabel,
+      targetDetail,
+      previewStorageId,
+    };
+  },
+});
+
 /**
  * `canvasFiles` rows carry no mime type — they are inputs, not artifacts, and
  * nothing needed one until /assets became publicly servable. Extension-based
@@ -923,6 +1214,12 @@ function classifyAssetPath(relPath: string): {
       return { type: "pdf", mime: "application/pdf" };
     case "css":
       return { type: "source", mime: "text/css" };
+    case "html":
+    case "htm":
+      return { type: "source", mime: "text/html; charset=utf-8" };
+    case "js":
+    case "mjs":
+      return { type: "source", mime: "text/javascript; charset=utf-8" };
     case "woff2":
       return { type: "source", mime: "font/woff2" };
     case "woff":
@@ -952,6 +1249,70 @@ export const getPublic = query({
       .unique();
     if (canvas?.visibility !== "public") return null;
     return getCanvas(ctx, canvas._id);
+  },
+});
+
+export const mintIframeCapabilityMine = mutation({
+  args: { canvasId: v.id("canvases") },
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const sessionUserId = identity.subject.includes("|")
+      ? (identity.subject.split("|")[0] as Id<"users">)
+      : undefined;
+    const user = sessionUserId
+      ? await ctx.db.get(sessionUserId)
+      : await ctx.db
+          .query("users")
+          .withIndex("by_googleSub", (q) => q.eq("googleSub", identity.subject))
+          .unique();
+    if (!user) throw new Error("Signed-in user record not found");
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas?.currentVersionId) throw new Error("Canvas has no current version");
+    const token = randomPublicSlug() + randomPublicSlug();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    await ctx.db.insert("iframeCapabilities", {
+      token,
+      canvasId: canvas._id,
+      versionId: canvas.currentVersionId,
+      userId: user._id,
+      expiresAt,
+    });
+    return { token, version: (await ctx.db.get(canvas.currentVersionId))?.version, expiresAt };
+  },
+});
+
+export const resolveIframeCapability = internalQuery({
+  args: { token: v.string(), relPath: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const capability = await ctx.db
+      .query("iframeCapabilities")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!capability || capability.expiresAt <= args.now) return null;
+    const canvas = await ctx.db.get(capability.canvasId);
+    if (!canvas || canvas.currentVersionId !== capability.versionId) return null;
+    const version = await ctx.db.get(capability.versionId);
+    const allowed =
+      (args.relPath.startsWith("/src/screens/") &&
+        version?.iframeEntrypoints?.includes(args.relPath)) ||
+      args.relPath.startsWith("/assets/") ||
+      /\.(css|js|mjs|png|jpe?g|svg|webp|woff2?|ttf)$/i.test(args.relPath);
+    if (!allowed) return null;
+    const file = await ctx.db
+      .query("canvasVersionFiles")
+      .withIndex("by_version_relPath", (q) =>
+        q.eq("versionId", capability.versionId).eq("relPath", args.relPath),
+      )
+      .unique();
+    if (!file) return null;
+    const classified = classifyAssetPath(file.relPath);
+    return {
+      storageId: file.storageId,
+      size: file.size,
+      relPath: file.relPath,
+      mimeType: classified.mime,
+      iframe: version?.iframeEntrypoints?.includes(args.relPath) ?? false,
+    };
   },
 });
 
@@ -1088,7 +1449,7 @@ export const logRender = internalMutation({
     canvasId: v.id("canvases"),
     entrypoint: v.string(),
     format: v.union(v.literal("png"), v.literal("svg"), v.literal("pdf"), v.literal("html")),
-    status: v.union(v.literal("success"), v.literal("error")),
+    status: v.union(v.literal("success"), v.literal("partial"), v.literal("error")),
     durationMs: v.optional(v.number()),
     errorText: v.optional(v.string()),
     createdBy: v.id("users"),
@@ -1143,13 +1504,6 @@ export const sweepCacheTtl = internalMutation({
  * Everything below is reachable from both the MCP tools (via internal*) and
  * the SPA (via the *Mine public wrappers at the bottom).
  * ---------------------------------------------------------------------- */
-
-const KindValidator = v.union(
-  v.literal("canvas"),
-  v.literal("html"),
-  v.literal("image"),
-  v.literal("pdf"),
-);
 
 /** Current quota position, echoed by every write so a caller can see the cap coming. */
 export async function storageStatus(ctx: QueryCtx, canvasId: Id<"canvases">) {

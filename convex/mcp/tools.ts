@@ -48,7 +48,13 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { inferArtifactInfo } from "../lib/artifactInfo";
 import { sha256Hex, sha256HexBytes } from "../lib/hash";
-import { canvasUrl, shareUrl } from "../lib/urls";
+import {
+  canvasUrl,
+  embedCardUrl,
+  embedTargetUrl,
+  githubEmbedMarkdown,
+  shareUrl,
+} from "../lib/urls";
 import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
 
 export interface McpPrincipal {
@@ -230,6 +236,9 @@ function scanUnresolvedRefs(
     for (const match of file.text.matchAll(REF_PATTERN)) {
       const raw = (match[1] ?? match[2] ?? "").trim();
       if (!raw) continue;
+      // Dynamic template expressions are resolved by the screen runtime;
+      // treating their source text as a literal filename is a false positive.
+      if (raw.includes("${")) continue;
       // Absolute, protocol-relative, data/blob URIs and anchors are external.
       if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|mailto:)/i.test(raw)) continue;
 
@@ -370,7 +379,13 @@ async function writeOneFile(
 }
 
 const RenderInputSchema = z.object({
-  entrypoint: z.string().describe('Source file to render, e.g. "/src/index.html".'),
+  target: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("canvas") }),
+    z.object({
+      type: z.literal("file"),
+      entrypoint: z.string().describe('Source file to render, e.g. "/src/index.html".'),
+    }),
+  ]),
   format: z.enum(["png", "svg", "pdf", "html"]),
   output_path: z
     .string()
@@ -440,7 +455,8 @@ async function performRender(
   spec: RenderInput,
 ): Promise<{ artifact?: RenderedArtifact; warnings: Warning[] }> {
   const warnings: Warning[] = [];
-  const outputPath = spec.output_path ?? deriveOutputPath(spec.entrypoint, spec.format);
+  const entrypoint = spec.target.type === "canvas" ? "/src/__canvas.html" : spec.target.entrypoint;
+  const outputPath = spec.output_path ?? deriveOutputPath(entrypoint, spec.format);
   // Normalized here, not just in the worker: v1 shipped the caller's raw
   // string through, so `output_path: "output/x.png"` (no leading slash)
   // recorded an artifact that /s/:slug could never serve and the /cache TTL
@@ -454,9 +470,9 @@ async function performRender(
     // worker 500, and checking the worker config first would mask the far
     // more actionable "that file isn't here" with "the worker is down".
     const sources = await resolveCanvasSources(ctx, canvasId);
-    if (!sources.some((s) => s.relPath === spec.entrypoint)) {
+    if (!sources.some((s) => s.relPath === entrypoint)) {
       throw new Error(
-        `Entrypoint "${spec.entrypoint}" is not a file on this canvas. ` +
+        `Entrypoint "${entrypoint}" is not a file on this canvas. ` +
           `Files present: ${sources.map((s) => s.relPath).join(", ") || "(none)"}`,
       );
     }
@@ -474,9 +490,10 @@ async function performRender(
       uploadBody: unknown;
       thumbnail?: { uploadStatus: number; uploadBody: unknown };
       unresolvedRefs?: string[];
+      readiness?: { status: "ready" | "partial"; warnings: string[] };
     }>(config, "/render", {
       sources,
-      entrypoint: spec.entrypoint,
+      entrypoint,
       outputPath: displayPath,
       format: spec.format,
       viewport: spec.viewport
@@ -522,17 +539,35 @@ async function performRender(
     const { type } = inferArtifactInfo(workerResult.relPath);
     let recorded: { version: number; artifact: { relPath: string; role: string } };
     try {
-      recorded = await ctx.runMutation(internal.canvases.recordRender, {
-        canvasId,
-        createdBy: principal.userId,
-        relPath: workerResult.relPath,
-        type,
-        mimeType: workerResult.mimeType,
-        size: workerResult.size,
-        storageId,
-        thumbnailStorageId,
-        primary: spec.primary,
-      });
+      if (spec.target.type === "canvas") {
+        const current = await ctx.runQuery(internal.canvases.currentVersion, { canvasId });
+        if (!current) throw new Error("CanvasDoc has no current version to attach export to");
+        const attached = await ctx.runMutation(internal.canvases.attachCanvasRender, {
+          canvasId,
+          versionId: current.versionId,
+          relPath: workerResult.relPath,
+          type,
+          mimeType: workerResult.mimeType,
+          size: workerResult.size,
+          storageId,
+          thumbnailStorageId:
+            workerResult.readiness?.status === "partial" ? undefined : thumbnailStorageId,
+        });
+        recorded = { version: current.version, artifact: attached.artifact };
+      } else {
+        recorded = await ctx.runMutation(internal.canvases.recordRender, {
+          canvasId,
+          createdBy: principal.userId,
+          relPath: workerResult.relPath,
+          type,
+          mimeType: workerResult.mimeType,
+          size: workerResult.size,
+          storageId,
+          thumbnailStorageId:
+            workerResult.readiness?.status === "partial" ? undefined : thumbnailStorageId,
+          primary: workerResult.readiness?.status === "partial" ? false : spec.primary,
+        });
+      }
     } catch (err) {
       await ctx.storage.delete(storageId);
       if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
@@ -541,13 +576,19 @@ async function performRender(
 
     await ctx.runMutation(internal.canvases.logRender, {
       canvasId,
-      entrypoint: spec.entrypoint,
+      entrypoint,
       format: spec.format,
-      status: "success",
+      status: workerResult.readiness?.status === "partial" ? "partial" : "success",
       durationMs: Date.now() - started,
       createdBy: principal.userId,
     });
 
+    if (workerResult.readiness?.status === "partial")
+      warnings.push({
+        code: "render_failed",
+        path: entrypoint,
+        message: `Partial iframe render: ${workerResult.readiness.warnings.join("; ")}`,
+      });
     return {
       artifact: {
         path: recorded.artifact.relPath,
@@ -562,7 +603,7 @@ async function performRender(
   } catch (err) {
     await ctx.runMutation(internal.canvases.logRender, {
       canvasId,
-      entrypoint: spec.entrypoint,
+      entrypoint,
       format: spec.format,
       status: "error",
       durationMs: Date.now() - started,
@@ -571,8 +612,8 @@ async function performRender(
     });
     warnings.push({
       code: "render_failed",
-      path: spec.entrypoint,
-      message: `Render of ${spec.entrypoint} to ${spec.format} failed: ${describeError(err)}`,
+      path: entrypoint,
+      message: `Render of ${entrypoint} to ${spec.format} failed: ${describeError(err)}`,
     });
     return { warnings };
   }
@@ -592,20 +633,19 @@ async function saveDoc(
   const warnings: Warning[] = [];
   const doc: CanvasDoc = CanvasDocSchema.parse(rawDoc);
 
-  const htmlNodes = doc.nodes
-    .filter((n) => n.content?.type === "html")
-    .map((n) => (n.content as { type: "html"; html: string }).html);
-
-  let compiledCss = "";
-  if (htmlNodes.length > 0) {
-    // Compiled before anything is stored, so a Tailwind failure rejects the
-    // whole save rather than committing a half-styled document.
-    const config = getWorkerConfig();
-    const cssResult = await callWorker<{ css: string }>(config, "/compile-css", {
-      nodes: htmlNodes,
-    });
-    compiledCss = cssResult.css;
-  }
+  const compiledCss = "";
+  const iframeEntrypoints = [
+    ...new Set(
+      doc.nodes.filter((node) => node.kind === "iframe").map((node) => node.source.entrypoint),
+    ),
+  ];
+  const manifest = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
+  const paths = new Set(manifest.map((file) => file.relPath));
+  const missing = iframeEntrypoints.filter((entrypoint) => !paths.has(entrypoint));
+  if (missing.length)
+    throw new Error(
+      `CanvasDoc iframe entrypoint does not exist: ${missing.join(", ")}. Upload it in the same canvas_save files array.`,
+    );
 
   const docJson = JSON.stringify(doc);
   const docBytes = new TextEncoder().encode(docJson);
@@ -620,6 +660,7 @@ async function saveDoc(
       canvasId,
       docStorageId,
       cssStorageId,
+      iframeEntrypoints,
       note,
       createdBy: principal.userId,
       nodes: doc.nodes.map((node) => ({
@@ -650,11 +691,13 @@ async function saveDoc(
   // consuming the caller's quota without ever mentioning it. Same mechanism,
   // but now it is documented in the tool description and reported back.
   try {
-    const { html } = renderCanvas(layoutCanvas(doc));
+    // Export pages must instantiate every screen, including screens outside the
+    // browser viewport. The interactive viewer uses lazy loading instead.
+    const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
     const page =
       '<!doctype html><html><head><meta charset="utf-8" />' +
       `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
-      `<style>${compiledCss}</style></head><body>${html}</body></html>`;
+      `<style>${compiledCss}</style></head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`;
     const bytes = new TextEncoder().encode(page);
     const htmlStorageId = await ctx.storage.store(new Blob([bytes], { type: "text/html" }));
     try {
@@ -701,6 +744,13 @@ const SaveOutputSchema = z.object({
   canvas_url: z.string(),
   share_url: z.string().nullable(),
   thumbnail_url: z.string().nullable(),
+  embed: z
+    .object({
+      image_url: z.string(),
+      target_url: z.string(),
+      github_markdown: z.string(),
+    })
+    .nullable(),
   files_written: z.array(z.object({ path: z.string(), size_bytes: z.number() })),
   artifacts: z.array(
     z.object({
@@ -710,6 +760,9 @@ const SaveOutputSchema = z.object({
       size_bytes: z.number(),
       mime_type: z.string(),
       raw_url: z.string().nullable(),
+      public_url: z.string().nullable(),
+      embed_image_url: z.string().nullable(),
+      github_markdown: z.string().nullable(),
     }),
   ),
   storage: StorageSchema,
@@ -742,7 +795,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         doc: z
           .unknown()
           .optional()
-          .describe("A CanvasDoc (lanes, stages, nodes, edges). Mutually exclusive with files."),
+          .describe(
+            "CanvasDoc v2 with explicit geometry and native/iframe nodes. May be saved atomically with iframe source/assets in files.",
+          ),
         files: z.array(FileInputSchema).optional(),
         renders: z.array(RenderInputSchema).max(4).optional(),
         from_version: z.number().optional().describe("Restore this earlier version first."),
@@ -765,12 +820,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     async (input) =>
       runTool(async () => {
         const warnings: Warning[] = [];
-
-        if (input.doc !== undefined && input.files !== undefined) {
-          throw new Error(
-            "Pass either `doc` (for kind=canvas) or `files` (for html/image/pdf), not both.",
-          );
-        }
 
         const kind = input.kind ?? (input.doc !== undefined ? "canvas" : "html");
         const upserted = await ctx.runMutation(internal.canvases.upsertByRef, {
@@ -805,17 +854,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const filesWritten: Array<{ path: string; size_bytes: number }> = [];
         const writtenText: Array<{ path: string; text: string }> = [];
 
-        if (input.doc !== undefined) {
-          const saved = await saveDoc(ctx, canvasId, principal, input.doc, input.note);
-          warnings.push(...saved.warnings);
-        }
-
         for (const file of input.files ?? []) {
           const written = await writeOneFile(ctx, canvasId, file);
           if (written) {
             filesWritten.push(written);
             if (file.text !== undefined) writtenText.push({ path: written.path, text: file.text });
           }
+        }
+
+        if (input.doc !== undefined) {
+          const saved = await saveDoc(ctx, canvasId, principal, input.doc, input.note);
+          warnings.push(...saved.warnings);
         }
 
         // --- unresolved-reference scan, before rendering ---
@@ -855,6 +904,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         }
 
         const renderFailed = warnings.some((w) => w.code === "render_failed");
+        const publicSlug = detail.canvas.public_slug;
+        const version = detail.canvas.version ?? 0;
+        const canvasEmbedImage = embedCardUrl(publicSlug, { kind: "canvas" }, version);
+        const canvasEmbedTarget = embedTargetUrl(publicSlug, { kind: "canvas" });
+        const canvasEmbedMarkdown = githubEmbedMarkdown(
+          detail.canvas.title,
+          canvasEmbedImage,
+          canvasEmbedTarget,
+        );
         return result({
           status: renderFailed ? "partial" : "ok",
           created: upserted.created,
@@ -869,8 +927,26 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           canvas_url: canvasUrl(canvasId),
           share_url: shareUrl(detail.canvas.public_slug),
           thumbnail_url: detail.canvas.thumbnail_url,
+          embed:
+            canvasEmbedImage && canvasEmbedTarget && canvasEmbedMarkdown
+              ? {
+                  image_url: canvasEmbedImage,
+                  target_url: canvasEmbedTarget,
+                  github_markdown: canvasEmbedMarkdown,
+                }
+              : null,
           files_written: filesWritten,
-          artifacts,
+          artifacts: artifacts.map((artifact) => {
+            const target = { kind: "artifact" as const, id: artifact.path };
+            const imageUrl = embedCardUrl(publicSlug, target, version);
+            const targetUrl = embedTargetUrl(publicSlug, target);
+            return {
+              ...artifact,
+              public_url: targetUrl,
+              embed_image_url: imageUrl,
+              github_markdown: githubEmbedMarkdown(artifact.path, imageUrl, targetUrl),
+            };
+          }),
           storage: detail.storage,
           warnings: dedupeWarnings(warnings),
         });
@@ -933,10 +1009,36 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             canvas_url: canvasUrl(detail.canvas.canvas_id),
             share_url: shareUrl(detail.canvas.public_slug),
             thumbnail_url: detail.canvas.thumbnail_url,
+            embed: (() => {
+              const imageUrl = embedCardUrl(
+                detail.canvas.public_slug,
+                { kind: "canvas" },
+                detail.canvas.version,
+              );
+              const targetUrl = embedTargetUrl(detail.canvas.public_slug, { kind: "canvas" });
+              const markdown = githubEmbedMarkdown(detail.canvas.title, imageUrl, targetUrl);
+              return imageUrl && targetUrl && markdown
+                ? { image_url: imageUrl, target_url: targetUrl, github_markdown: markdown }
+                : null;
+            })(),
           },
           doc,
           files: detail.files,
-          artifacts: detail.artifacts,
+          artifacts: detail.artifacts?.map((artifact) => {
+            const target = { kind: "artifact" as const, id: artifact.path };
+            const imageUrl = embedCardUrl(
+              detail.canvas.public_slug,
+              target,
+              detail.canvas.version,
+            );
+            const targetUrl = embedTargetUrl(detail.canvas.public_slug, target);
+            return {
+              ...artifact,
+              public_url: targetUrl,
+              embed_image_url: imageUrl,
+              github_markdown: githubEmbedMarkdown(artifact.path, imageUrl, targetUrl),
+            };
+          }),
           versions: detail.versions,
           renders: detail.renders,
           storage: include.has("storage") ? detail.storage : undefined,

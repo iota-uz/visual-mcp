@@ -77,6 +77,7 @@ export const RenderResponseSchema = z.object({
   // is the only signal the caller gets that the picture is wrong. Capped
   // and de-duplicated by the renderer (MAX_UNRESOLVED_REFS).
   unresolvedRefs: z.array(z.string()),
+  readiness: z.object({ status: z.enum(["ready", "partial"]), warnings: z.array(z.string()) }),
 });
 export type RenderResponse = z.infer<typeof RenderResponseSchema>;
 

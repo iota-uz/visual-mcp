@@ -49,6 +49,61 @@ export function shareUrl(publicSlug: string | undefined | null): string | null {
   return publicSlug ? `${getSpaOrigin()}/s/${publicSlug}` : null;
 }
 
+function getPublicArtifactOrigin(): string | null {
+  const origin = process.env.CONVEX_SITE_URL;
+  if (!origin || origin.trim().length === 0) return null;
+  return normalizeOrigin(origin);
+}
+
+export type PublicEmbedTarget =
+  | { kind: "canvas" }
+  | { kind: "node"; id: string }
+  | { kind: "artifact"; id: string };
+
+/** Public, static image URL suitable for GitHub issues and pull requests. */
+export function embedCardUrl(
+  publicSlug: string | undefined | null,
+  target: PublicEmbedTarget = { kind: "canvas" },
+  version?: number,
+): string | null {
+  if (!publicSlug) return null;
+  const publicOrigin = getPublicArtifactOrigin();
+  if (!publicOrigin) return null;
+  const url = new URL(
+    `/s/${encodeURIComponent(publicSlug)}/_embed/card.svg`,
+    publicOrigin,
+  );
+  url.searchParams.set("target", target.kind);
+  if (target.kind !== "canvas") url.searchParams.set("id", target.id);
+  if (version !== undefined) url.searchParams.set("version", String(version));
+  return url.toString();
+}
+
+/** Click destination paired with a static preview card. */
+export function embedTargetUrl(
+  publicSlug: string | undefined | null,
+  target: PublicEmbedTarget = { kind: "canvas" },
+): string | null {
+  if (!publicSlug) return null;
+  if (target.kind === "artifact") {
+    const publicOrigin = getPublicArtifactOrigin();
+    return publicOrigin ? `${publicOrigin}/s/${publicSlug}${target.id}` : null;
+  }
+  const url = new URL(`/s/${encodeURIComponent(publicSlug)}`, getSpaOrigin());
+  if (target.kind === "node") url.searchParams.set("node", target.id);
+  return url.toString();
+}
+
+export function githubEmbedMarkdown(
+  alt: string,
+  imageUrl: string | null,
+  targetUrl: string | null,
+): string | null {
+  if (!imageUrl || !targetUrl) return null;
+  const safeAlt = alt.replace(/[\r\n]+/g, " ").replaceAll("\\", "\\\\").replaceAll("]", "\\]");
+  return `[![${safeAlt}](${imageUrl})](${targetUrl})`;
+}
+
 /** The workspace gallery. */
 export function workspaceUrl(workspaceSlug: string): string {
   return `${getSpaOrigin()}/w/${workspaceSlug}`;

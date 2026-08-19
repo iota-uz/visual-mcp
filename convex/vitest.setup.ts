@@ -6,3 +6,4 @@
  * reason the deployment does.
  */
 process.env.SPA_ORIGIN ??= "https://canvas.test";
+process.env.CONVEX_SITE_URL ??= "https://canvas-api.test";
