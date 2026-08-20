@@ -3,8 +3,72 @@ import { test } from "node:test";
 import { CanvasDocSchema } from "../src/types.js";
 import { fixture } from "./fixture.js";
 
-test("accepts CanvasDoc v2 native and iframe union", () =>
+test("accepts CanvasDoc v2 native, iframe, and image union", () =>
   assert.equal(CanvasDocSchema.safeParse(fixture()).success, true));
+test("defaults diagram-only collections for gallery-oriented documents", () => {
+  const parsed = CanvasDocSchema.parse({
+    version: 2,
+    title: "Empty board",
+    world: { width: 800, height: 600 },
+  });
+  assert.deepEqual(
+    {
+      lanes: parsed.lanes,
+      stages: parsed.stages,
+      labels: parsed.labels,
+      nodes: parsed.nodes,
+      edges: parsed.edges,
+    },
+    { lanes: [], stages: [], labels: [], nodes: [], edges: [] },
+  );
+});
+
+test("defaults anchors for standalone gallery nodes", () => {
+  const parsed = CanvasDocSchema.parse({
+    version: 2,
+    title: "Gallery",
+    world: { width: 800, height: 600 },
+    nodes: [
+      {
+        id: "reference",
+        kind: "image",
+        rect: { x: 20, y: 20, w: 320, h: 240 },
+        caption: { title: "Reference" },
+        source: { path: "/assets/reference.png" },
+        alt: "Reference",
+      },
+    ],
+  });
+  assert.deepEqual(parsed.nodes[0]?.anchors, []);
+});
+test("accepts a native image node and rejects unsafe image sources", () => {
+  const doc = fixture();
+  doc.nodes.push({
+    id: "reference",
+    kind: "image",
+    rect: { x: 20, y: 20, w: 320, h: 240 },
+    caption: { title: "Reference" },
+    anchors: [{ id: "right", side: "right", offset: 0.5 }],
+    source: { path: "/assets/reference.webp" },
+    fit: "cover",
+    focalPosition: { x: 0.25, y: 0.75 },
+    alt: "Reference screen",
+  });
+  assert.equal(CanvasDocSchema.safeParse(doc).success, true);
+
+  const image = doc.nodes.at(-1);
+  assert.ok(image?.kind === "image");
+  image.source.path = "https://evil.test/reference.webp";
+  assert.equal(CanvasDocSchema.safeParse(doc).success, false);
+});
+test("bounds canvas complexity before persistence", () => {
+  const doc = fixture();
+  doc.nodes = Array.from({ length: 1_001 }, (_, index) => ({
+    ...doc.nodes[0]!,
+    id: `node-${index}`,
+  }));
+  assert.equal(CanvasDocSchema.safeParse(doc).success, false);
+});
 test("rejects v1", () =>
   assert.equal(CanvasDocSchema.safeParse({ ...fixture(), version: 1 }).success, false));
 test("rejects traversal and external iframe URLs", () => {

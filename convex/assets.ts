@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -171,6 +172,45 @@ export const createUpload = internalMutation({
       ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
       createdBy: args.ownerUserId,
     });
+  },
+});
+
+export const createUploads = internalMutation({
+  args: {
+    scope: scopeValidator,
+    ownerUserId: v.id("users"),
+    workspaceId: v.optional(v.id("workspaces")),
+    uploads: v.array(
+      v.object({
+        sourceObjectKey: v.string(),
+        filename: v.string(),
+        declaredMimeType: v.string(),
+        expectedSize: v.optional(v.number()),
+        expectedHash: v.optional(v.string()),
+        expiresAt: v.number(),
+      }),
+    ),
+  },
+  returns: v.array(v.id("assetUploads")),
+  handler: async (ctx, args) => {
+    if (args.uploads.length < 1 || args.uploads.length > 50)
+      throw new Error("asset_upload_url accepts 1 to 50 files per batch");
+    if (args.scope === "workspace" && !args.workspaceId) throw new Error("Workspace is required");
+    if (args.scope === "personal" && args.workspaceId)
+      throw new Error("Personal assets cannot have a workspace");
+    const ids = [];
+    for (const upload of args.uploads) {
+      ids.push(
+        await ctx.db.insert("assetUploads", {
+          ...upload,
+          scope: args.scope,
+          ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
+          workspaceId: args.workspaceId,
+          createdBy: args.ownerUserId,
+        }),
+      );
+    }
+    return ids;
   },
 });
 
@@ -620,9 +660,8 @@ export const listInternal = internalQuery({
     workspaceSlug: v.optional(v.string()),
     query: v.optional(v.string()),
     kind: v.optional(kindValidator),
-    limit: v.number(),
+    paginationOpts: paginationOptsValidator,
   },
-  returns: v.array(assetListItemValidator.extend({ preview_object_key: v.string() })),
   handler: async (ctx, args) => {
     let workspace: Doc<"workspaces"> | null = null;
     if (args.scope === "workspace") {
@@ -632,7 +671,7 @@ export const listInternal = internalQuery({
         .unique();
       if (!workspace) throw new Error("Workspace not found");
     }
-    const rows = args.query?.trim()
+    const page = args.query?.trim()
       ? await ctx.db
           .query("assets")
           .withSearchIndex("search_text", (q) => {
@@ -643,19 +682,19 @@ export const listInternal = internalQuery({
                 : search.eq("workspaceId", workspace?._id);
             return args.kind ? search.eq("kind", args.kind) : search;
           })
-          .take(Math.min(args.limit, 100))
+          .paginate(args.paginationOpts)
       : args.scope === "personal"
         ? await ctx.db
             .query("assets")
             .withIndex("by_owner_updated", (q) => q.eq("ownerUserId", args.userId))
             .order("desc")
-            .take(Math.min(args.limit, 100))
+            .paginate(args.paginationOpts)
         : await ctx.db
             .query("assets")
             .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspace?._id))
             .order("desc")
-            .take(Math.min(args.limit, 100));
-    const visible = rows.filter(
+            .paginate(args.paginationOpts);
+    const visible = page.page.filter(
       (row) => row.archivedAt === undefined && (!args.kind || row.kind === args.kind),
     );
     const result = [];
@@ -690,7 +729,11 @@ export const listInternal = internalQuery({
         preview_object_key: version.previewObjectKey,
       });
     }
-    return result;
+    return {
+      page: result,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
   },
 });
 
@@ -709,16 +752,16 @@ export const listMine = action({
       subject: identity.subject,
       workspaceSlug: args.scope === "workspace" ? args.workspaceSlug : undefined,
     });
-    const rows: AssetListRow[] = await ctx.runQuery(internal.assets.listInternal, {
+    const page: { page: AssetListRow[] } = await ctx.runQuery(internal.assets.listInternal, {
       userId: principal.userId,
       scope: args.scope,
       workspaceSlug: args.workspaceSlug,
       query: args.query,
       kind: args.kind,
-      limit: args.limit ?? 100,
+      paginationOpts: { numItems: Math.min(args.limit ?? 100, 100), cursor: null },
     });
     return Promise.all(
-      rows.map(async ({ preview_object_key, ...row }) => ({
+      page.page.map(async ({ preview_object_key, ...row }) => ({
         ...row,
         preview_url: await presignObject("delivery", preview_object_key, "GET", 900),
       })),

@@ -89,9 +89,52 @@ test("renderer escapes native text and emits sandboxed iframe", () => {
   assert.doesNotMatch(html, /<iframe/);
   assert.equal((html.match(/class="vc-node /g) ?? []).length, 2);
 });
+test("renderer emits native image nodes without iframe readiness overhead", () => {
+  const doc = fixture();
+  doc.nodes = [
+    {
+      id: "reference",
+      kind: "image",
+      rect: { x: 20, y: 20, w: 320, h: 240 },
+      caption: { title: "Reference" },
+      anchors: [{ id: "right", side: "right", offset: 0.5 }],
+      source: { path: "/assets/reference.webp" },
+      fit: "cover",
+      focalPosition: { x: 0.25, y: 0.75 },
+      alt: "Reference <screen>",
+    },
+  ];
+  doc.edges = [];
+  const html = renderCanvas(layoutCanvas(doc), {
+    iframeLoading: "eager",
+    resolveImageUrl: () => "/i/token/assets/reference.webp?vcv=7",
+  }).html;
+  assert.match(html, /class="vc-node vc-kind-image/);
+  assert.match(html, /src="\/i\/token\/assets\/reference.webp\?vcv=7"/);
+  assert.match(html, /object-fit:cover;object-position:25% 75%/);
+  assert.match(html, /alt="Reference &lt;screen&gt;"/);
+  assert.doesNotMatch(html, /<iframe/);
+});
 test("exports can eagerly instantiate every iframe", () => {
   const html = renderCanvas(layoutCanvas(fixture()), { iframeLoading: "eager" }).html;
   assert.match(html, /loading="eager"/);
+});
+test("targeted exports keep non-target iframe runtimes inert", () => {
+  const doc = fixture();
+  const iframe = doc.nodes.find((node) => node.kind === "iframe");
+  assert.ok(iframe);
+  const targetHtml = renderCanvas(layoutCanvas(doc), {
+    iframeLoading: "eager",
+    shouldLoadIframe: (node) => node.id === iframe.id,
+  }).html;
+  assert.match(targetHtml, /loading="eager"/);
+
+  const siblingHtml = renderCanvas(layoutCanvas(doc), {
+    iframeLoading: "eager",
+    shouldLoadIframe: () => false,
+  }).html;
+  assert.doesNotMatch(siblingHtml, /<iframe/);
+  assert.match(siblingHtml, /class="vc-iframe-placeholder"/);
 });
 test("phone iframe renders one canonical canvas-owned shell and clean content viewport", () => {
   const html = renderCanvas(layoutCanvas(fixture()), { iframeLoading: "eager" }).html;

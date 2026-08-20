@@ -47,6 +47,7 @@ export function CanvasViewport({
   doc,
   iframeBaseUrl,
   iframeRevisions,
+  version,
   editable = false,
   onGeometryChange,
   canvasRef,
@@ -54,6 +55,7 @@ export function CanvasViewport({
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
   iframeRevisions?: Record<string, string> | null;
+  version?: number;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
   canvasRef?: string;
@@ -103,10 +105,19 @@ export function CanvasViewport({
       }),
     [stableIframeRevisions],
   );
+  const resolveImageUrl = useCallback(
+    (node: Extract<CanvasDoc["nodes"][number], { kind: "image" }>) =>
+      iframeBaseUrl
+        ? `${iframeBaseUrl}${node.source.path}${version === undefined ? "" : `?vcv=${version}`}`
+        : node.source.path,
+    [iframeBaseUrl, version],
+  );
   const resolveIframeIdentityRef = useRef(resolveIframeIdentity);
   resolveIframeIdentityRef.current = resolveIframeIdentity;
   const resolveIframeUrlRef = useRef(resolveIframeUrl);
   resolveIframeUrlRef.current = resolveIframeUrl;
+  const resolveImageUrlRef = useRef(resolveImageUrl);
+  resolveImageUrlRef.current = resolveImageUrl;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -126,6 +137,7 @@ export function CanvasViewport({
       resolveIframeUrl: (node) =>
         resolveIframeUrlRef.current?.(node) ??
         `${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveImageUrl: (node) => resolveImageUrlRef.current(node),
       resolveIframeIdentity: (node) => resolveIframeIdentityRef.current(node),
       onSelect: (nodeId) => {
         /*
@@ -171,12 +183,13 @@ export function CanvasViewport({
     try {
       controllerRef.current?.updateCanvas(layoutCanvas(doc), {
         resolveIframeUrl,
+        resolveImageUrl,
         resolveIframeIdentity,
       });
     } catch {
       // Keep the last valid reactive document visible if a new one cannot lay out.
     }
-  }, [doc, resolveIframeIdentity, resolveIframeUrl]);
+  }, [doc, resolveIframeIdentity, resolveIframeUrl, resolveImageUrl]);
 
   return <div ref={containerRef} className="vc-viewport-host" />;
 }
@@ -423,6 +436,7 @@ interface FetchableCanvas {
   doc_url: string | null;
   css_url: string | null;
   iframe_revisions?: Record<string, string> | null;
+  version?: number;
 }
 
 // Shared by CanvasPage (signed-in) and PublicCanvasPage (anonymous
@@ -820,7 +834,8 @@ export function CanvasPage() {
               text was gone and the viewport had not mounted yet. */}
           {(!doc ||
             !cssReady ||
-            (doc.nodes.some((node) => node.kind === "iframe") && !iframeCapabilityToken)) &&
+            (doc.nodes.some((node) => node.kind === "iframe" || node.kind === "image") &&
+              !iframeCapabilityToken)) &&
             !docError && (
               <div className="canvas-page-loading">
                 <LoadingState label="Loading canvas…" />
@@ -828,11 +843,13 @@ export function CanvasPage() {
             )}
           {doc &&
             cssReady &&
-            (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapabilityToken) && (
+            (!doc.nodes.some((node) => node.kind === "iframe" || node.kind === "image") ||
+              iframeCapabilityToken) && (
               <CanvasViewport
                 key={canvas.canvas_id}
                 doc={doc}
                 iframeRevisions={resolvedIframeRevisions}
+                version={canvasVersion}
                 editable
                 canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
                 onGeometryChange={(nodeId, rect) => {

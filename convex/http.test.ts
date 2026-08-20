@@ -73,6 +73,16 @@ async function startMockCompileCssWorker(css = ".compiled-test-class{color:red}"
 async function startMockRenderWorker(opts: {
   renderStorageId: string;
   snapshotStorageId?: string;
+  snapshotStorageIds?: string[];
+  snapshotReadiness?: Array<{ status: "ready" | "partial"; warnings: string[] }>;
+  snapshotUnresolvedDetails?: Array<{
+    ref: string;
+    resourceType: string;
+    reason: string;
+    error?: string;
+  }>;
+  snapshotDownscaled?: boolean;
+  snapshotSize?: number;
   thumbnailStorageId?: string;
   renderSize?: number;
   css?: string;
@@ -126,20 +136,27 @@ async function startMockRenderWorker(opts: {
         );
         return;
       }
-      if (req.method === "POST" && req.url === "/snapshot" && opts.snapshotStorageId) {
+      if (
+        req.method === "POST" &&
+        req.url === "/snapshot" &&
+        (opts.snapshotStorageId || opts.snapshotStorageIds?.length)
+      ) {
         requests.snapshot.push(body);
+        const index = requests.snapshot.length - 1;
+        const snapshotStorageId = opts.snapshotStorageIds?.[index] ?? opts.snapshotStorageId;
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
-            size: 8,
+            size: opts.snapshotSize ?? 8,
             width: 240,
             height: 160,
             mimeType: "image/png",
             uploadStatus: 200,
-            uploadBody: { storageId: opts.snapshotStorageId },
-            unresolvedRefs: [],
-            readiness: { status: "ready", warnings: [] },
-            downscaled: false,
+            uploadBody: { storageId: snapshotStorageId },
+            unresolvedRefs: opts.snapshotUnresolvedDetails?.map((detail) => detail.ref) ?? [],
+            unresolvedDetails: opts.snapshotUnresolvedDetails ?? [],
+            readiness: opts.snapshotReadiness?.[index] ?? { status: "ready", warnings: [] },
+            downscaled: opts.snapshotDownscaled ?? false,
             contentOverflow: false,
           }),
         );
@@ -247,6 +264,93 @@ async function callTool(
   await t.finishInProgressScheduledFunctions();
   return parseJsonRpc(res);
 }
+
+async function listTools(t: ReturnType<typeof convexTest>, token: string): Promise<unknown> {
+  const res = await t.fetch("/mcp", {
+    method: "POST",
+    headers: { ...MCP_HEADERS, authorization: `Bearer ${token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  expect(res.status).toBe(200);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await t.finishInProgressScheduledFunctions();
+  return (await parseJsonRpc(res)).result;
+}
+
+describe("/mcp tool contracts", () => {
+  test("every tool rejects unknown root fields and declares structured output", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const listed = (await listTools(t, token)) as {
+      tools: Array<{
+        name: string;
+        inputSchema: {
+          additionalProperties?: boolean;
+          anyOf?: Array<{ additionalProperties?: boolean }>;
+        };
+        outputSchema?: unknown;
+      }>;
+    };
+    expect(listed.tools).toHaveLength(20);
+    for (const tool of listed.tools) {
+      const roots = tool.inputSchema.anyOf ?? [tool.inputSchema];
+      expect(
+        roots.every((root) => root.additionalProperties === false),
+        tool.name,
+      ).toBe(true);
+      expect(tool.outputSchema, tool.name).toBeDefined();
+    }
+
+    const docPatch = listed.tools.find((tool) => tool.name === "canvas_doc_patch");
+    expect(JSON.stringify(docPatch?.inputSchema)).toContain("nodes.update");
+    expect(JSON.stringify(docPatch?.inputSchema)).toContain("world.update");
+    for (const [name, field] of [
+      ["canvas_upload_url", "files"],
+      ["asset_upload_url", "files"],
+      ["asset_finalize", "items"],
+    ] as const) {
+      const tool = listed.tools.find((candidate) => candidate.name === name);
+      expect(JSON.stringify(tool?.inputSchema), name).toContain(`"${field}"`);
+    }
+  });
+
+  test("unknown inputs fail instead of being silently stripped", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const response = await callTool(t, token, "canvas_find", { include_doc: true });
+    const result = response.result as { isError?: boolean; content?: Array<{ text?: string }> };
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toMatch(/include_doc|unrecognized|unknown/i);
+  });
+
+  test("nested render and snapshot inputs reject misspelled fields", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const render = (
+      await callTool(t, token, "canvas_save", {
+        ref: "strict/nested-render",
+        files: [{ path: "/src/index.html", text: "<h1>strict</h1>" }],
+        renders: [
+          {
+            target: { type: "file", entrypoint: "/src/index.html", unexpected: true },
+            format: "png",
+          },
+        ],
+      })
+    ).result as { isError?: boolean; content?: Array<{ text?: string }> };
+    expect(render.isError).toBe(true);
+    expect(render.content?.[0]?.text).toMatch(/unexpected|unrecognized/i);
+
+    const snapshot = (
+      await callTool(t, token, "canvas_snapshot", {
+        ref: "strict/nested-render",
+        target: { type: "canvas", node_id: "silently-stripped-before" },
+      })
+    ).result as { isError?: boolean; content?: Array<{ text?: string }> };
+    expect(snapshot.isError).toBe(true);
+    expect(snapshot.content?.[0]?.text).toMatch(/node_id|unrecognized/i);
+  });
+});
 
 describe("/mcp bearer-auth gate", () => {
   test("401s with an invalid_token challenge when no Authorization header is sent", async () => {
@@ -421,6 +525,180 @@ describe("/mcp canvas_save", () => {
     expect(data.canvas_url).toMatch(/^https:\/\/canvas\.test\/c\//);
     expect(data.share_url).toBeNull();
     expect(data.files_written).toEqual([{ path: "/src/index.html", size_bytes: 11 }]);
+    expect(data.previous_version).toBe(0);
+    expect(data.version).toBe(1);
+    expect(data.published).toBe(true);
+  });
+
+  test("files-only save publishes exactly one version and identical retry is a no-op", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const first = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/files-only",
+        files: [{ path: "/src/index.html", text: "first" }],
+      }),
+    );
+    const replay = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/files-only",
+        expected_version: 1,
+        files: [{ path: "/src/index.html", text: "first" }],
+      }),
+    );
+    const changed = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/files-only",
+        expected_version: 1,
+        files: [{ path: "/src/index.html", text: "second" }],
+      }),
+    );
+
+    expect(first.data.version).toBe(1);
+    expect(replay.data.version).toBe(1);
+    expect(replay.data.previous_version).toBe(1);
+    expect(changed.data.previous_version).toBe(1);
+    expect(changed.data.version).toBe(2);
+    const versions = await t.run((ctx) => ctx.db.query("canvasVersions").collect());
+    expect(versions.map((version) => version.version)).toEqual([1, 2]);
+  });
+
+  test("invalid doc plus files leaves no partial canvas or mutable files", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const failed = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/rejected",
+        kind: "canvas",
+        doc: {
+          ...baseDoc,
+          nodes: [
+            {
+              id: "screen",
+              kind: "iframe",
+              rect: { x: 50, y: 50, w: 300, h: 240 },
+              caption: { title: "Missing" },
+              anchors: [{ id: "right", side: "right", offset: 0.5 }],
+              source: { entrypoint: "/src/screens/missing.html" },
+              viewport: { width: 284, height: 642 },
+              frame: { kind: "phone", time: "09:42" },
+              sandbox: ["allow-scripts", "allow-forms"],
+              permissions: [],
+              activation: "double-click",
+            },
+          ],
+        },
+        files: [{ path: "/src/unrelated.html", text: "must not commit" }],
+      }),
+    );
+    expect(failed.isError).toBe(true);
+    expect(failed.text).toMatch(/missing\.html/);
+    const canvases = await t.run((ctx) => ctx.db.query("canvases").collect());
+    const files = await t.run((ctx) => ctx.db.query("canvasFiles").collect());
+    expect(canvases).toHaveLength(0);
+    expect(files).toHaveLength(0);
+  });
+
+  test("a failed content transaction does not leak metadata or visibility changes", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "atomic/existing",
+      title: "Before",
+      files: [{ path: "/src/index.html", text: "before" }],
+    });
+
+    const failed = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/existing",
+        title: "After",
+        visibility: "public",
+        expected_version: 1,
+        kind: "canvas",
+        doc: {
+          ...baseDoc,
+          nodes: [
+            {
+              id: "image",
+              kind: "image",
+              rect: { x: 0, y: 0, w: 100, h: 100 },
+              caption: { title: "Missing" },
+              anchors: [{ id: "right", side: "right", offset: 0.5 }],
+              source: { path: "/assets/missing.png" },
+              alt: "Missing",
+            },
+          ],
+        },
+      }),
+    );
+    expect(failed.isError).toBe(true);
+
+    const current = parse(await callTool(t, token, "canvas_get", { ref: "atomic/existing" }));
+    expect(current.data.canvas).toMatchObject({
+      title: "Before",
+      visibility: "private",
+      version: 1,
+    });
+  });
+
+  test("canvas_file_get returns bounded ranges and rejects unknown fields", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "read/one-file",
+      files: [
+        { path: "/src/index.txt", text: "one\ntwo\nthree\nfour" },
+        { path: "/src/unicode.txt", text: "😀" },
+        { path: "/src/large.txt", text: "x".repeat(150_000) },
+      ],
+    });
+    const ranged = parse(
+      await callTool(t, token, "canvas_file_get", {
+        ref: "read/one-file",
+        path: "/src/index.txt",
+        start_line: 2,
+        end_line: 3,
+      }),
+    );
+    expect(ranged.isError, ranged.text).toBeFalsy();
+    expect(ranged.data.content).toBe("two\nthree");
+    expect(ranged.data.encoding).toBe("utf-8");
+    expect(ranged.data.range).toEqual({ kind: "lines", start: 2, end: 3, total: 4 });
+    expect(ranged.data.version).toBe(1);
+    expect(ranged.data.content_hash).toMatch(/^[a-f0-9]{64}$/);
+
+    const utf8Bytes = parse(
+      await callTool(t, token, "canvas_file_get", {
+        ref: "read/one-file",
+        path: "/src/unicode.txt",
+        start_byte: 1,
+        end_byte: 3,
+      }),
+    );
+    expect(utf8Bytes.data.encoding).toBe("base64");
+    expect([...Buffer.from(utf8Bytes.data.content, "base64")]).toEqual([0x9f, 0x98]);
+
+    const defaultByteRange = parse(
+      await callTool(t, token, "canvas_file_get", {
+        ref: "read/one-file",
+        path: "/src/large.txt",
+        start_byte: 0,
+      }),
+    );
+    expect(defaultByteRange.isError, defaultByteRange.text).toBeFalsy();
+    expect(defaultByteRange.data.encoding).toBe("base64");
+    expect(Buffer.from(defaultByteRange.data.content, "base64")).toHaveLength(98_304);
+    expect(defaultByteRange.data.truncated).toBe(true);
+
+    const strict = parse(
+      await callTool(t, token, "canvas_file_get", {
+        ref: "read/one-file",
+        path: "/src/index.txt",
+        include_doc: true,
+      }),
+    );
+    expect(strict.isError).toBe(true);
+    expect(strict.text).toMatch(/include_doc|unrecognized/i);
   });
 
   test("calling it twice with the same ref updates rather than minting osago-2", async () => {
@@ -475,6 +753,7 @@ describe("/mcp canvas_save", () => {
     );
 
     const warnings = data.warnings as Array<{ code: string; path?: string }>;
+    expect(data.status).toBe("partial");
     const paths = warnings.filter((w) => w.code === "unresolved_asset").map((w) => w.path);
     // "./accident-1.jpg" sits *beside* index.html, so it means
     // /src/accident-1.jpg — resolving refs against the canvas root instead
@@ -621,6 +900,73 @@ describe("/mcp canvas_save", () => {
     expect(data.files_written).toHaveLength(1);
   });
 
+  test("rejects the CanvasDoc-generated entry path before it can create duplicate file rows", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const response = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "atomic/reserved-entry",
+        kind: "canvas",
+        doc: baseDoc,
+        files: [{ path: "/src/__canvas.html", text: "caller-owned" }],
+      }),
+    );
+    expect(response.isError).toBe(true);
+    expect(response.text).toMatch(/generated|cannot be written/i);
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("canvasFiles")
+        .filter((q) => q.eq(q.field("relPath"), "/src/__canvas.html"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  test("native image nodes validate their source in the same atomic save", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const imageDoc = {
+      ...baseDoc,
+      nodes: [
+        {
+          id: "reference",
+          kind: "image",
+          laneId: "l1",
+          stageId: "s1",
+          rect: { x: 50, y: 50, w: 320, h: 240 },
+          caption: { title: "Reference" },
+          anchors: [{ id: "right", side: "right", offset: 0.5 }],
+          source: { path: "/assets/reference.svg" },
+          fit: "cover",
+          focalPosition: { x: 0.5, y: 0.5 },
+          alt: "Reference screen",
+        },
+      ],
+    };
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "gallery/images",
+        kind: "canvas",
+        doc: imageDoc,
+        files: [{ path: "/assets/reference.svg", text: "<svg/>" }],
+      }),
+    );
+    expect(saved.isError).toBeFalsy();
+    expect(saved.data.version).toBe(1);
+
+    const missing = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "gallery/missing-image",
+        title: "Must roll back",
+        kind: "canvas",
+        doc: imageDoc,
+      }),
+    );
+    expect(missing.isError).toBe(true);
+    const canvases = await t.run((ctx) => ctx.db.query("canvases").collect());
+    expect(canvases.some((canvas) => canvas.slug === "missing-image")).toBe(false);
+  });
+
   test("canvas_snapshot resolves ref_id, returns an image block, and reuses its cache", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
@@ -664,6 +1010,196 @@ describe("/mcp canvas_save", () => {
         (second.result as { structuredContent: { cached: boolean } }).structuredContent.cached,
       ).toBe(true);
       expect(worker.requests.snapshot).toHaveLength(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("canvas_snapshot retries transient iframe readiness once and reports attempts", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/retry-snapshot",
+      kind: "canvas",
+      doc: baseDoc,
+    });
+    const storageIds = await t.run(async (ctx) =>
+      Promise.all(
+        [1, 2].map((suffix) =>
+          ctx.storage.store(
+            new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, suffix])], {
+              type: "image/png",
+            }),
+          ),
+        ),
+      ),
+    );
+    const renderStorageId = storageIds[1];
+    if (!renderStorageId) throw new Error("Expected retry snapshot storage fixture");
+    const worker = await startMockRenderWorker({
+      renderStorageId,
+      snapshotStorageIds: storageIds,
+      snapshotReadiness: [
+        { status: "partial", warnings: ["iframe readiness timeout: n1"] },
+        { status: "ready", warnings: [] },
+      ],
+    });
+    try {
+      const response = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ref: "osago/retry-snapshot",
+          refresh: true,
+        }),
+      );
+      expect(response.isError).toBeFalsy();
+      expect(response.data.status).toBe("ok");
+      expect(response.data.diagnostics.attempts).toBe(2);
+      expect(worker.requests.snapshot).toHaveLength(2);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("canvas_snapshot returns actionable unresolved details and QA tiles when downscaled", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/large-snapshot",
+      kind: "canvas",
+      doc: {
+        ...baseDoc,
+        world: { width: 5_000, height: 3_000 },
+      },
+    });
+    const storageId = await t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: storageId,
+      snapshotStorageId: storageId,
+      snapshotDownscaled: true,
+      snapshotUnresolvedDetails: [
+        {
+          ref: "/assets/missing.svg",
+          resourceType: "image",
+          reason: "missing_local_file",
+        },
+      ],
+    });
+    try {
+      const response = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ref: "osago/large-snapshot",
+          refresh: true,
+        }),
+      );
+      expect(response.data.status).toBe("partial");
+      expect(response.data.warnings).toEqual(["unresolved_asset", "output_downscaled"]);
+      expect(response.data.diagnostics.unresolved_resources).toEqual([
+        {
+          ref: "/assets/missing.svg",
+          resource_type: "image",
+          reason: "missing_local_file",
+        },
+      ]);
+      expect(response.data.diagnostics.suggested_regions).toHaveLength(6);
+      expect(response.data.diagnostics.suggested_regions[0]).toEqual({
+        type: "region",
+        x: 0,
+        y: 0,
+        width: 2_048,
+        height: 2_048,
+      });
+      expect(response.data.diagnostics.regions_truncated).toBe(false);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("canvas_snapshot does not inline PNGs above the transport-safe byte cap", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/large-inline-snapshot",
+      kind: "canvas",
+      doc: { ...baseDoc, world: { width: 5_000, height: 3_000 } },
+    });
+    const storageId = await t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: storageId,
+      snapshotStorageId: storageId,
+      snapshotSize: 5 * 1024 * 1024 + 1,
+    });
+    try {
+      const raw = await callTool(t, token, "canvas_snapshot", {
+        ref: "osago/large-inline-snapshot",
+        refresh: true,
+      });
+      const response = parse(raw);
+      expect(response.data).toMatchObject({
+        status: "partial",
+        inline: false,
+        warnings: ["snapshot_too_large"],
+      });
+      expect(response.data.download_url).toMatch(/^https?:\/\//);
+      expect(response.data.diagnostics.suggested_regions).toHaveLength(6);
+      expect((raw as { result: { content: Array<{ type: string }> } }).result.content).toHaveLength(
+        1,
+      );
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("a large partial snapshot keeps a downloadable result without becoming reusable cache", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/large-partial-snapshot",
+      kind: "canvas",
+      doc: baseDoc,
+    });
+    const storageIds = await Promise.all(
+      [1, 2].map(() =>
+        t.run((ctx) =>
+          ctx.storage.store(
+            new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
+          ),
+        ),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: storageIds[1] as string,
+      snapshotStorageIds: storageIds,
+      snapshotSize: 5 * 1024 * 1024 + 1,
+      snapshotReadiness: [
+        { status: "partial", warnings: ["iframe readiness timeout: n1"] },
+        { status: "partial", warnings: ["iframe readiness timeout: n1"] },
+      ],
+    });
+    try {
+      const raw = await callTool(t, token, "canvas_snapshot", {
+        ref: "osago/large-partial-snapshot",
+        refresh: true,
+      });
+      const response = parse(raw);
+      expect(response.data).toMatchObject({ status: "partial", inline: false });
+      expect(response.data.warnings).toEqual(["iframe_not_ready", "snapshot_too_large"]);
+      expect(response.data.download_url).toMatch(/^https?:\/\//);
+      expect(
+        await t.run(
+          async (ctx) => (await ctx.storage.get(storageIds[1] as Id<"_storage">)) !== null,
+        ),
+      ).toBe(true);
+      expect((raw as { result: { content: Array<{ type: string }> } }).result.content).toHaveLength(
+        1,
+      );
     } finally {
       await worker.close();
     }
@@ -767,7 +1303,7 @@ describe("/mcp canvas_save", () => {
           files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
           renders: [
             {
-              target: { type: "file", entrypoint: "/src/index.html" },
+              target: { type: "file", entrypoint: "/src/index.html", route: "#/checkout" },
               format: "png",
               primary: true,
             },
@@ -782,6 +1318,9 @@ describe("/mcp canvas_save", () => {
       // The v1 trap: an html-first render claimed primary forever, so every
       // later PNG's thumbnail was discarded and the gallery stayed blank.
       expect(data.thumbnail_url).not.toBeNull();
+      expect(worker.requests.render[0]).toMatchObject({ route: "#/checkout" });
+      const versions = await t.run((ctx) => ctx.db.query("canvasVersions").collect());
+      expect(versions).toHaveLength(1);
     } finally {
       await worker.close();
     }
@@ -884,6 +1423,207 @@ describe("/mcp canvas_save", () => {
   });
 });
 
+describe("/mcp incremental edits and pagination", () => {
+  function parse(response: { result?: unknown }) {
+    const result = response.result as {
+      content: Array<{ text: string }>;
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    };
+    const text = result.content[0]?.text ?? "";
+    return {
+      isError: result.isError,
+      text,
+      data: result.isError ? {} : (result.structuredContent ?? JSON.parse(text || "{}")),
+    };
+  }
+
+  test("canvas_edit safely rebases a stale canvas version when the file hash still matches", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "parallel/edit",
+      files: [{ path: "/src/a.txt", text: "alpha" }],
+    });
+    const file = parse(
+      await callTool(t, token, "canvas_file_get", { ref: "parallel/edit", path: "/src/a.txt" }),
+    ).data;
+    await callTool(t, token, "canvas_save", {
+      ref: "parallel/edit",
+      expected_version: 1,
+      files: [{ path: "/src/b.txt", text: "other writer" }],
+    });
+
+    const rebased = parse(
+      await callTool(t, token, "canvas_edit", {
+        ref: "parallel/edit",
+        file_path: "/src/a.txt",
+        old_string: "alpha",
+        new_string: "bravo",
+        expected_version: 1,
+        expected_hash: file.content_hash,
+      }),
+    );
+    expect(rebased.isError).toBeFalsy();
+    expect(rebased.data).toMatchObject({
+      requested_version: 1,
+      previous_version: 2,
+      version: 3,
+      rebased: true,
+    });
+
+    const unsafe = parse(
+      await callTool(t, token, "canvas_edit", {
+        ref: "parallel/edit",
+        file_path: "/src/a.txt",
+        old_string: "bravo",
+        new_string: "charlie",
+        expected_version: 1,
+      }),
+    );
+    expect(unsafe.isError).toBe(true);
+    expect(unsafe.text).toMatch(/retryable_with_expected_hash/);
+    expect(unsafe.text).toMatch(/changed_paths_since/);
+    expect(unsafe.text).toMatch(/\/src\/b\.txt/);
+  });
+
+  test("canvas_apply_patch safely rebases all touched files from explicit hashes", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "parallel/patch",
+      files: [{ path: "/src/a.txt", text: "alpha\n" }],
+    });
+    const file = parse(
+      await callTool(t, token, "canvas_file_get", {
+        ref: "parallel/patch",
+        path: "/src/a.txt",
+      }),
+    ).data;
+    await callTool(t, token, "canvas_save", {
+      ref: "parallel/patch",
+      expected_version: 1,
+      files: [{ path: "/src/b.txt", text: "other" }],
+    });
+    const response = parse(
+      await callTool(t, token, "canvas_apply_patch", {
+        ref: "parallel/patch",
+        expected_version: 1,
+        expected_hashes: { "/src/a.txt": file.content_hash },
+        patch: [
+          "*** Begin Patch",
+          "*** Update File: /src/a.txt",
+          "@@",
+          "-alpha",
+          "+bravo",
+          "*** End Patch",
+        ].join("\n"),
+      }),
+    );
+    expect(response.isError).toBeFalsy();
+    expect(response.data).toMatchObject({ previous_version: 2, version: 3, rebased: true });
+  });
+
+  test("canvas_get and canvas_find expose resumable cursors", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    for (const [index, slug] of ["one", "two", "three"].entries()) {
+      await callTool(t, token, "canvas_save", {
+        ref: `pages/${slug}`,
+        title: `Page ${index}`,
+        files: [{ path: "/src/index.txt", text: `v${index}` }],
+      });
+    }
+    await callTool(t, token, "canvas_save", {
+      ref: "pages/one",
+      expected_version: 1,
+      files: [{ path: "/src/index.txt", text: "v-next" }],
+    });
+
+    const firstGet = parse(
+      await callTool(t, token, "canvas_get", {
+        ref: "pages/one",
+        include: ["versions"],
+        pagination: { limit: 1 },
+      }),
+    ).data;
+    expect(firstGet.versions).toHaveLength(1);
+    expect(firstGet.pagination.versions.is_done).toBe(false);
+    const secondGet = parse(
+      await callTool(t, token, "canvas_get", {
+        ref: "pages/one",
+        include: ["versions"],
+        pagination: {
+          limit: 1,
+          expected_version: firstGet.canvas.version,
+          versions_cursor: firstGet.pagination.versions.next_cursor,
+        },
+      }),
+    ).data;
+    expect(secondGet.versions).toHaveLength(1);
+    expect(secondGet.versions[0].version).not.toBe(firstGet.versions[0].version);
+
+    const projected = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "pages/doc",
+        kind: "canvas",
+        doc: {
+          version: 2,
+          title: "Large doc",
+          world: { width: 1000, height: 500 },
+          lanes: [],
+          stages: [],
+          labels: [],
+          nodes: [
+            {
+              id: "wanted",
+              kind: "native",
+              rect: { x: 0, y: 0, w: 100, h: 100 },
+              shape: "note",
+              caption: { title: "Wanted" },
+              anchors: [{ id: "right", side: "right", offset: 0.5 }],
+            },
+            {
+              id: "other",
+              kind: "native",
+              rect: { x: 200, y: 0, w: 100, h: 100 },
+              shape: "note",
+              caption: { title: "Other" },
+              anchors: [{ id: "left", side: "left", offset: 0.5 }],
+            },
+          ],
+          edges: [],
+        },
+      }),
+    );
+    expect(projected.isError).toBeFalsy();
+    const projection = parse(
+      await callTool(t, token, "canvas_get", {
+        ref: "pages/doc",
+        include: ["doc"],
+        doc_projection: { summary: true, node_ids: ["wanted"] },
+      }),
+    ).data;
+    expect(projection.doc.counts.nodes).toBe(2);
+    expect(projection.doc.nodes).toHaveLength(1);
+    expect(projection.doc.nodes[0].id).toBe("wanted");
+
+    const firstFind = parse(
+      await callTool(t, token, "canvas_find", { workspace: "pages", limit: 1 }),
+    ).data;
+    expect(firstFind.canvases).toHaveLength(1);
+    expect(firstFind.next_cursor).toEqual(expect.any(String));
+    const secondFind = parse(
+      await callTool(t, token, "canvas_find", {
+        workspace: "pages",
+        limit: 1,
+        cursor: firstFind.next_cursor,
+      }),
+    ).data;
+    expect(secondFind.canvases[0].canvas_id).not.toBe(firstFind.canvases[0].canvas_id);
+  });
+});
+
 describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {
   function parse(response: { result?: unknown }) {
     const result = response.result as {
@@ -921,6 +1661,26 @@ describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {
     expect(purged.data.bytes_reclaimed).toBeGreaterThan(0);
   });
 
+  test("individual files and artifacts require an explicit permanent purge", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/report",
+      files: [{ path: "/src/index.html", text: "<h1>hi</h1>" }],
+    });
+
+    for (const [target, path] of [
+      ["file", "/src/index.html"],
+      ["artifact", "/output/report.png"],
+    ] as const) {
+      const omitted = parse(
+        await callTool(t, token, "canvas_delete", { ref: "osago/report", target, path }),
+      );
+      expect(omitted.isError).toBe(true);
+      expect(omitted.text).toMatch(/purge:true|required/i);
+    }
+  });
+
   test("canvas_find returns refs that can be passed straight back in", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
@@ -944,9 +1704,9 @@ describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {
       }),
     );
     expect(isError).toBeFalsy();
-    expect(data.upload_id_field).toBe("storageId");
-    expect(data.path).toBe("/assets/photo.jpg");
-    expect(typeof data.upload_url).toBe("string");
+    expect(data.uploads[0].upload_id_field).toBe("storageId");
+    expect(data.uploads[0].path).toBe("/assets/photo.jpg");
+    expect(typeof data.uploads[0].upload_url).toBe("string");
   });
 
   test("canvas_upload_url validates the destination before an upload is wasted", async () => {
@@ -1040,12 +1800,48 @@ describe("/mcp asset lifecycle", () => {
       operation: "restored",
     });
     expect(
-      await t.query(internal.assets.listInternal, {
-        userId,
-        scope: "personal",
-        limit: 50,
-      }),
+      (
+        await t.query(internal.assets.listInternal, {
+          userId,
+          scope: "personal",
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
     ).toHaveLength(1);
+  });
+
+  test("batch finalize marks an expired upload as terminal", async () => {
+    const t = convexTest(schema, modules);
+    const { token, userId } = await seedUserWithToken(t);
+    const uploadId = await t.run((ctx) =>
+      ctx.db.insert("assetUploads", {
+        scope: "personal",
+        ownerUserId: userId,
+        sourceObjectKey: "staging/expired",
+        filename: "expired.png",
+        declaredMimeType: "image/png",
+        createdBy: userId,
+        expiresAt: 0,
+      }),
+    );
+
+    const response = parse(
+      await callTool(t, token, "asset_finalize", {
+        items: [{ upload_id: uploadId, name: "Expired" }],
+      }),
+    );
+    expect(response.data).toMatchObject({
+      status: "partial",
+      succeeded: 0,
+      failed: 1,
+      results: [
+        {
+          status: "error",
+          upload_id: uploadId,
+          retryable: false,
+        },
+      ],
+    });
   });
 });
 
@@ -1138,10 +1934,44 @@ describe("GET /s/:slug", () => {
     const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
     const html = await res.text();
 
-    expect(html).toContain('src="/s/pub-slug-123/assets/screen.png"');
-    expect(html).toContain('runtime="/s/pub-slug-123/src/runtime.js"');
-    expect(html).toContain("url(/s/pub-slug-123/assets/background.png)");
+    expect(html).toContain('src="/s/pub-slug-123/assets/screen.png?v=1"');
+    expect(html).toContain('runtime="/s/pub-slug-123/src/runtime.js?v=1"');
+    expect(html).toContain("url(/s/pub-slug-123/assets/background.png?v=1)");
     expect(html).toContain('src="https://cdn.example/assets/external.png"');
+  });
+
+  test("pins scoped subresources to the artifact version and inserts v before fragments", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t, {
+      body: '<link rel="stylesheet" href="/assets/theme.css#palette">',
+    });
+    await seedAsset(t, canvasId, "/assets/theme.css", "old-version");
+    await t.run(async (ctx) => {
+      const canvas = await ctx.db.get(canvasId);
+      if (!canvas) throw new Error("missing canvas");
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 2,
+        createdBy: canvas.createdBy,
+      });
+      const storageId = await ctx.storage.store(new Blob(["new-version"]));
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/assets/theme.css",
+        storageId,
+        size: 11,
+        contentHash: "new",
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+    });
+
+    const html = await (await t.fetch("/s/pub-slug-123")).text();
+    expect(html).toContain('href="/s/pub-slug-123/assets/theme.css?v=1#palette"');
+    expect(await (await t.fetch("/s/pub-slug-123/assets/theme.css?v=1")).text()).toBe(
+      "old-version",
+    );
+    expect(await (await t.fetch("/s/pub-slug-123/assets/theme.css")).text()).toBe("new-version");
   });
 
   test("404s for an unknown slug", async () => {
@@ -1300,6 +2130,16 @@ describe("GET /s/:slug", () => {
         size: body.length,
         contentHash: "hash",
       });
+      const canvas = await ctx.db.get(canvasId);
+      if (!canvas?.currentVersionId) throw new Error("seed canvas has no current version");
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId: canvas.currentVersionId,
+        relPath,
+        storageId,
+        size: body.length,
+        contentHash: "hash",
+      });
     });
   }
 
@@ -1315,6 +2155,71 @@ describe("GET /s/:slug", () => {
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  test("resolves a version-pinned Asset Library binding for non-canvas public pages", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    await t.run(async (ctx) => {
+      const canvas = await ctx.db.get(canvasId);
+      if (!canvas?.currentVersionId) throw new Error("seed canvas has no current version");
+      const assetId = await ctx.db.insert("assets", {
+        scope: "workspace",
+        workspaceId: canvas.workspaceId,
+        slug: "logo",
+        name: "Logo",
+        tags: [],
+        kind: "image",
+        searchText: "logo",
+        createdBy: canvas.createdBy,
+        updatedAt: 0,
+      });
+      const assetVersionId = await ctx.db.insert("assetVersions", {
+        assetId,
+        revision: 1,
+        sourceObjectKey: "source/logo",
+        deliveryObjectKey: "delivery/logo",
+        previewObjectKey: "preview/logo",
+        contentHash: "logo-hash",
+        mimeType: "image/png",
+        size: 123,
+        originalFilename: "logo.png",
+        sourceType: "upload",
+        createdBy: canvas.createdBy,
+      });
+      await ctx.db.insert("canvasVersionAssets", {
+        canvasId,
+        versionId: canvas.currentVersionId,
+        logicalPath: "/assets/logo.png",
+        assetId,
+        assetVersionId,
+      });
+    });
+
+    expect(
+      await t.query(internal.canvases.resolvePublicArtifact, {
+        publicSlug: "pub-slug-123",
+        relPath: "/assets/logo.png",
+        version: 1,
+      }),
+    ).toMatchObject({
+      objectKey: "delivery/logo",
+      libraryAsset: true,
+      mimeType: "image/png",
+      version: 1,
+    });
+  });
+
+  test("serves supported video with an executable media CSP and correct MIME", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    await seedAsset(t, canvasId, "/assets/demo.mp4", "MP4BYTES");
+
+    const asset = await t.fetch("/s/pub-slug-123/assets/demo.mp4");
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("content-type")).toBe("video/mp4");
+    const page = await t.fetch("/s/pub-slug-123");
+    expect(page.headers.get("content-security-policy")).toMatch(/media-src 'self' blob:/);
   });
 
   test("serves only registered iframe HTML from the current immutable version snapshot", async () => {
@@ -1389,14 +2294,14 @@ describe("GET /s/:slug", () => {
     expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
   });
 
-  test("the fallback is scoped to /assets — a public canvas never serves its /src", async () => {
+  test("published non-canvas HTML serves its version-pinned /src dependencies", async () => {
     const t = convexTest(schema, modules);
     const { canvasId } = await seedPublicCanvasWithArtifact(t);
     await seedAsset(t, canvasId, "/src/index.html", "<h1>author source</h1>");
 
     const res = await t.fetch("/s/pub-slug-123/src/index.html", { method: "GET" });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
   });
 
   test("a private canvas's assets are not served either", async () => {

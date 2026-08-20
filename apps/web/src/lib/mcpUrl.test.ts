@@ -25,6 +25,12 @@ describe("mcpBaseUrl", () => {
     );
   });
 
+  test("maps the local Convex client port to its HTTP-action port", () => {
+    expect(mcpBaseUrl("http://127.0.0.1:3210")).toBe("http://127.0.0.1:3211");
+    expect(mcpBaseUrl("http://localhost:3210/")).toBe("http://localhost:3211");
+    expect(mcpEndpointUrl("http://[::1]:3210")).toBe("http://[::1]:3211/mcp");
+  });
+
   test("only rewrites .convex.cloud at the end of the host", () => {
     expect(mcpBaseUrl("https://self-hosted.example.com")).toBe("https://self-hosted.example.com");
     expect(mcpBaseUrl("https://convex.cloud.example.com")).toBe("https://convex.cloud.example.com");

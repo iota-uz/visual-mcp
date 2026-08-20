@@ -191,6 +191,7 @@ export default defineSchema({
     note: v.optional(v.string()),
     createdBy: v.id("users"),
     docStorageId: v.optional(v.id("_storage")),
+    docContentHash: v.optional(v.string()),
     cssStorageId: v.optional(v.id("_storage")),
     entryStorageId: v.optional(v.id("_storage")),
     iframeEntrypoints: v.optional(v.array(v.string())),
@@ -222,6 +223,24 @@ export default defineSchema({
     height: v.number(),
     status: v.union(v.literal("ok"), v.literal("partial")),
     warnings: v.array(v.string()),
+    diagnostics: v.optional(
+      v.object({
+        unresolvedRefs: v.array(v.string()),
+        unresolvedDetails: v.optional(
+          v.array(
+            v.object({
+              ref: v.string(),
+              resourceType: v.string(),
+              reason: v.string(),
+              error: v.optional(v.string()),
+            }),
+          ),
+        ),
+        readinessStatus: v.union(v.literal("ready"), v.literal("partial")),
+        readinessWarnings: v.array(v.string()),
+        attempts: v.optional(v.number()),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_version_cacheKey", ["versionId", "cacheKey"])

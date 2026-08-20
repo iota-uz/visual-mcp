@@ -51,6 +51,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
     // Only the Playwright branch can observe subresource loads; the D2
     // compiler resolves nothing external, so its list is empty by nature.
     let unresolvedRefs: string[] = [];
+    let unresolvedDetails: RenderResult["unresolvedDetails"] = [];
     let readiness: RenderResult["readiness"] = { status: "ready", warnings: [] };
 
     if (isD2Entrypoint(req.entrypoint) && req.format === "svg") {
@@ -61,6 +62,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
     } else {
       const rendered = await renderFileWithPlaywright({
         entrypoint: absEntrypoint,
+        route: req.route,
         outputPath: absOutput,
         format: req.format,
         viewport: req.viewport,
@@ -68,6 +70,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
         workspaceRoot: ws.root,
       });
       unresolvedRefs = rendered.unresolvedRefs;
+      unresolvedDetails = rendered.unresolvedDetails;
       readiness = rendered.readiness;
     }
 
@@ -95,6 +98,7 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
       uploadBody: upload.body,
       thumbnail,
       unresolvedRefs,
+      unresolvedDetails,
       readiness,
     };
   } finally {

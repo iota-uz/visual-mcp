@@ -16,6 +16,7 @@ export async function handleSnapshot(req: SnapshotRequest): Promise<SnapshotResp
       target: req.target,
       padding: req.padding,
       scale: req.scale,
+      readinessTimeoutMs: req.readinessTimeoutMs,
       workspaceRoot: ws.root,
     });
     const stats = await stat(outputPath);
@@ -28,6 +29,7 @@ export async function handleSnapshot(req: SnapshotRequest): Promise<SnapshotResp
       uploadStatus: upload.status,
       uploadBody: upload.body,
       unresolvedRefs: rendered.unresolvedRefs,
+      unresolvedDetails: rendered.unresolvedDetails,
       readiness: rendered.readiness,
       downscaled: rendered.downscaled,
       contentOverflow: rendered.contentOverflow,

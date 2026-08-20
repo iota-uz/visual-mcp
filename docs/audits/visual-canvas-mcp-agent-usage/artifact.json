@@ -1,0 +1,375 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Visual Canvas MCP: как агенты используют продукт и что менять дальше",
+    "description": "Технический аудит реальных Claude Code и Codex сессий, сверенный с текущей реализацией Visual Canvas MCP.",
+    "generatedAt": "2026-08-20T13:00:08Z",
+    "cards": [
+      {
+        "id": "product_calls",
+        "description": "Реконструированные вызовы в трёх продуктовых сценариях.",
+        "dataset": "summary",
+        "sourceId": "audit_dataset",
+        "metrics": [
+          { "label": "Вызовов MCP", "field": "product_calls", "format": "number" }
+        ]
+      },
+      {
+        "id": "product_workflows",
+        "description": "Плотные продуктовые workflow: EAI, farq и OSAGO.",
+        "dataset": "summary",
+        "sourceId": "audit_dataset",
+        "metrics": [
+          { "label": "Продуктовых сценария", "field": "product_workflows", "format": "number" }
+        ]
+      },
+      {
+        "id": "current_tools",
+        "description": "Фактический реестр инструментов на момент аудита.",
+        "dataset": "summary",
+        "sourceId": "audit_dataset",
+        "metrics": [
+          { "label": "Текущих tools", "field": "current_tools", "format": "number" }
+        ]
+      },
+      {
+        "id": "template_resources",
+        "description": "Шаблоны вынесены в MCP resources и не раздувают tools/list.",
+        "dataset": "summary",
+        "sourceId": "audit_dataset",
+        "metrics": [
+          { "label": "Template resources", "field": "template_resources", "format": "number" }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "calls_by_session_and_channel",
+        "title": "Способ вызова зависит от формы работы, а не только от клиента",
+        "subtitle": "Вопрос: где агентам понадобилась собственная orchestration-обвязка? Вывод: массовые upload/finalize операции в farq почти полностью ушли в Python bridge, тогда как Codex работал через нативный tool surface.",
+        "type": "bar",
+        "dataset": "channel_mix",
+        "sourceId": "audit_dataset",
+        "encodings": {
+          "x": { "field": "session", "type": "ordinal", "label": "Сессия" },
+          "y": { "field": "calls", "type": "quantitative", "label": "Вызовы" },
+          "color": { "field": "channel", "type": "nominal", "label": "Канал" }
+        },
+        "yAxisTitle": "Фактические вызовы MCP",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "priority_backlog",
+        "title": "Рекомендуемый backlog",
+        "subtitle": "Приоритет учитывает наблюдаемую частоту, тяжесть последствий, соответствие текущему коду и green-field posture проекта.",
+        "dataset": "backlog",
+        "sourceId": "audit_dataset",
+        "defaultSort": { "field": "rank", "direction": "asc" },
+        "columns": [
+          { "field": "rank", "label": "#", "type": "number" },
+          { "field": "priority", "label": "Приоритет", "type": "text" },
+          { "field": "change", "label": "Изменение", "type": "text" },
+          { "field": "why", "label": "Почему", "type": "text" },
+          { "field": "effort", "label": "Оценка", "type": "text" }
+        ]
+      },
+      {
+        "id": "evolution_status",
+        "title": "Что уже исправлено, а что остаётся актуальным",
+        "subtitle": "Исторические боли не включены в текущий backlog, если новая реализация уже устранила исходное ограничение.",
+        "dataset": "evolution",
+        "sourceId": "audit_dataset",
+        "defaultSort": { "field": "order", "direction": "asc" },
+        "columns": [
+          { "field": "order", "label": "#", "type": "number" },
+          { "field": "area", "label": "Область", "type": "text" },
+          { "field": "then", "label": "Раньше", "type": "text" },
+          { "field": "now", "label": "Сейчас", "type": "text" },
+          { "field": "status", "label": "Статус", "type": "text" }
+        ]
+      }
+    ],
+    "sources": [
+      { "id": "audit_dataset", "label": "Derived audit dataset", "path": "docs/audits/visual-canvas-mcp-agent-usage/audit-dataset.sql" },
+      { "id": "session_corpus", "label": "Локальный корпус Claude Code и Codex", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" },
+      { "id": "current_implementation", "label": "Текущая реализация Visual Canvas MCP", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" },
+      { "id": "synthesis_notes", "label": "Сводные заметки аудита", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Visual Canvas MCP: как агенты используют продукт и что менять дальше"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Техническое резюме\n\nПолная переделка MCP не нужна. Эволюция продукта уже сняла главные проблемы v1: многошаговый lifecycle, большие payload через контекст, отсутствие incremental edit, asset reuse и визуальной обратной связи. Теперь главный резерв — **сделать нынешний компактный API семантически честным, наблюдаемым и хорошо типизированным**.\n\nСамый дорогой текущий дефект — `canvas_save` с одними файлами: он возвращает `ok`, но не создаёт immutable version и не обновляет опубликованный share. Это повторялось в одном workflow много раз и породило фиктивные `doc_patch`/`edit`, ручные query-параметры для cache busting и недоверие к результату успешной операции. Второй системный кластер — targeted snapshot: снимок одного node всё ещё загружает весь canvas, поэтому чужой iframe способен сделать целевой снимок `partial`, а подробности ошибки теряются.\n\nРекомендуемая стратегия: сначала исправить correctness и security границы `canvas_save`; затем snapshot isolation и schema discoverability; после этого убрать контекстные и batch bottleneck. Нативный image/artboard node — полезная продуктовая возможность, но не замена этим контрактным исправлениям."
+      },
+      {
+        "id": "metrics",
+        "type": "metric-strip",
+        "cardIds": ["product_calls", "product_workflows", "current_tools", "template_resources"]
+      },
+      {
+        "id": "key_findings",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Ключевые выводы\n\n1. **Успех операции не всегда означает опубликованный результат.** Files-only save меняет mutable source, но оставляет старую version; публичный canvas продолжает отдавать прежний snapshot. Контракт `safe-to-retry` также неверен для save с doc/render, потому что повтор создаёт новую версию.\n2. **Targeted snapshot пока не target-scoped.** Полный CanvasDoc рендерится с eager iframe loading, readiness ждётся для всех iframe, а unresolved requests собираются глобально. В локальном воспроизведении отсутствующий asset в другом node испортил snapshot выбранного node.\n3. **Агенты угадывают API там, где JSON Schema скрывает семантику.** `canvas_doc_patch.op` опубликован как произвольная строка; 16 допустимых операций спрятаны в runtime validation. Silent stripping неизвестных полей усиливает проблему.\n4. **Нет прямого пути прочитать один файл.** `canvas_get` возвращает только file metadata, поэтому Codex 33 раза обращался к `canvas_run` и сталкивался с недокументированными sandbox-ограничениями. Большие doc/get ответы также переполняли клиентский контекст.\n5. **Asset workflow слишком разговорчив и концептуально раздвоен.** В farq было 58 canvas upload URL, 37 asset upload URL и 35 finalize; различие Canvas Files и Asset Library обнаружилось только после того, как UI показал ноль assets.\n6. **Новые возможности быстро усваиваются, когда становятся видимыми.** После позднего обнаружения `canvas_snapshot` агент сразу заменил им собственный curl/headless harness. Это аргумент за официальный golden workflow и next-action hints, а не за добавление ещё большего числа общих tools."
+      },
+      {
+        "id": "channel_chart",
+        "type": "chart",
+        "chartId": "calls_by_session_and_channel",
+        "layout": "full"
+      },
+      {
+        "id": "current_failures",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Разбор актуальных ограничений\n\n### 1. `canvas_save`: один атомарный commit вместо скрытого staging\n\nGreen-field целевая модель: сначала валидировать doc, paths, renders и quota; затем загрузить blob-данные во временное состояние; после этого одной транзакцией привязать все файлы, doc, metadata и version. Любая content write должна либо создать ровно одну immutable version и вернуть `published: true`, либо завершиться явной ошибкой без видимого частичного результата. Ответ должен включать `previous_version`, `version`, `published` и список committed paths. Subresource URLs должны быть привязаны к version/content hash, чтобы CDN freshness не зависела от ручного `?b=`.\n\nОтдельно следует убрать `files[].url` или направить его через уже hardened asset importer: нынешний прямой fetch допускает private-network targets и читает тело до проверки лимита.\n\n### 2. Snapshot: изолировать target и не замораживать transient partial\n\nДля node target нужно загружать, ждать и прогревать только целевой iframe; для region — только пересекающиеся; для whole canvas — все. Диагностика должна сохранять `node_id`, URL/path, resource type, failure reason и scope. `partial` должен зависеть от проблемы target, а не соседнего node. Readiness-partial нельзя кэшировать на 24 часа: нужен короткий TTL или отсутствие cache, один встроенный retry/backoff и параметр refresh. Для больших world лучше возвращать overview плюс tiles, а не один агрессивно downscaled bitmap.\n\n### 3. Схемы, чтение и контекст\n\n`canvas_doc_patch` стоит заменить на discriminated union с literal operations и типизированными required fields; описание обязано зафиксировать shallow root merge и необходимость полного nested `rect`. Green-field вариант `*.replace` решит очистку optional fields. Добавить `canvas_file_get(ref, path, range)` и проекции doc по node IDs/collections/JSON Pointer. Все tools должны иметь output schema, а входные schemas — быть strict или возвращать `unknown_fields`.\n\n### 4. Assets, refs и concurrency\n\nУнифицировать upload handshake по method, identifier и finalize semantics; добавить batch manifest, batch finalize/attach и resume. В явной модели отделить Canvas Files от reusable Asset Library, но поддержать move/delete или scope transfer. Ref resolver должен принимать public slug, share/canvas URL и `canvas://` URI, которые продукт сам возвращает. Version conflict должен позволять hash-safe rebase, когда target file не изменился, и возвращать `changed_paths_since` и `retryable`.\n\n### 5. Media и статические reference boards\n\nRender API должен моделировать route/fragment отдельно от file path. MP4/WebM/Ogg нужны корректные MIME mappings при сохранении `nosniff`. Для screenshot boards добавить native image/artboard node с file/asset ref, fit, focal position и alt: это уберёт iframe wrapper и readiness dependency для статического контента."
+      },
+      {
+        "id": "backlog",
+        "type": "table",
+        "tableId": "priority_backlog",
+        "layout": "full"
+      },
+      {
+        "id": "evolution_intro",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Учёт эволюции MCP\n\nСтарые жалобы нельзя механически переносить в текущий backlog. В пределах исследованных сессий продукт уже прошёл от временной runtime-filesystem модели и многошагового v1 к hosted MCP с единым ref, прямыми URLs, resources для templates, incremental edit/apply-patch, asset library и image-returning snapshot. Эти изменения реально сократили обходные пути.\n\nОстающиеся проблемы находятся на стыках нового дизайна: mutable files против immutable publish, targeted API против глобального renderer state, богатая runtime validation против бедной опубликованной schema, а также два похожих upload протокола с разной семантикой."
+      },
+      {
+        "id": "evolution",
+        "type": "table",
+        "tableId": "evolution_status",
+        "layout": "full"
+      },
+      {
+        "id": "scope_and_method",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Scope, данные и определения\n\nАудит просмотрел 897 JSONL transcript-файлов в локальных Claude Code и Codex архивах и выделил три плотных продуктовых workflow плюс одну сессию разработки самого MCP. В продуктовый total включены только фактические Visual Canvas calls; отдельный старый `visual-runtime` учтён как исторический precursor, но исключён из метрик.\n\n`Native` означает обычный инструмент клиента: прямой Claude tool call или штатный Codex nested tool call. `Bridge` означает вызов через Python REPL `mcp.call`, обычно ради циклов, промежуточного состояния или массовых загрузок. `Current` означает, что ограничение подтверждено одновременно последней сессией или воспроизведением и текущим рабочим деревом. `Resolved` означает, что более новая реализация устраняет исходную причину, даже если старый transcript по-прежнему её содержит.\n\n## Методология\n\nТри агента независимо выполнили: инвентаризацию и подсчёт вызовов; качественную классификацию ошибок и workaround; аудит текущего registry, validators, renderer и tests. Сводка затем сопоставила каждую боль с текущим кодом, повторяемостью между клиентами и фактом последующей эволюции. Для targeted snapshot выполнено отдельное локальное воспроизведение с missing asset в нецелевом iframe. Приоритеты рассчитаны качественно по четырём факторам: correctness/security, наблюдаемая частота, стоимость workaround и архитектурный leverage."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Ограничения и robustness\n\nЭто purposive corpus известных насыщенных сессий, а не случайная выборка пользователей. Число символов в tool output используется только как proxy давления на контекст и не равно токенам. Часть вызовов восстановлена из циклов и wrapper-кода, поэтому метрики лучше читать как проверенную оценку workflow, а не как серверную телеметрию. EAI transcript оставался активным во время аудита; counts зафиксированы на момент генерации.\n\nТекущий working tree содержал чужие незакоммиченные изменения до начала аудита. Отчёт описывает наблюдаемый snapshot и не приписывает эти изменения себе. Security finding по URL-fetch получен из code review, а не из наблюдаемой эксплуатации. Некоторые ошибки были чисто агентскими; они не стали продуктовым приоритетом, если schema и instructions уже давали однозначный путь."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "sourceId": "synthesis_notes",
+        "body": "## Рекомендуемые следующие шаги\n\n**Фаза 1 — correctness gate.** Спроектировать новую атомарную version transaction для `canvas_save`, удалить небезопасный URL-fetch, добавить failure-injection tests и invariant: любой `ok` content save публикует ровно одну новую version. Одновременно сделать versioned subresource cache key.\n\n**Фаза 2 — agent contract.** Выпустить discriminated schema для doc patch, strict inputs, output schemas для всех tools, canonical ref resolver и `canvas_file_get`. Обновить server instructions официальным workflow: find/get → file_get/edit/apply-patch/doc-patch → snapshot target/region, включая conflict recovery и asset reuse.\n\n**Фаза 3 — visual reliability.** Сделать snapshot target-aware, протянуть structured worker diagnostics, изменить partial cache policy, добавить retry и tile output. Regression test должен доказывать, что broken sibling iframe не портит node snapshot.\n\n**Фаза 4 — throughput and media.** Унифицировать и батчировать asset upload/finalize, добавить scope transfer/delete, route-aware render, video MIME и native image/artboard node.\n\nКритерий успеха: один агент должен пройти create/edit/publish/verify workflow без dummy version bump, без `canvas_run` для чтения файла, без угадывания operation names и без ложного `partial` от соседнего node."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Вопросы для следующего цикла\n\n- Нужна ли продукту вообще концепция staged mutable files, или green-field модель может полностью перейти на immutable commits?\n- Должен ли `canvas_snapshot` считать failed remote API/WebSocket запрос визуальным дефектом, либо только document/image/font/stylesheet/script resources?\n- Какой основной сценарий Asset Library: reuse, каталогизация или владение? Ответ определит семантику move, copy и scope transfer.\n- Нужен ли `canvas_run` как general sandbox после появления `canvas_file_get`, или его можно сузить до проверяемых transforms?\n- Какие реальные размеры CanvasDoc и количество файлов встречаются вне этого корпуса? Это определит cursor defaults, complexity budgets и tile strategy."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-20T13:00:08Z",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "product_calls": 450,
+          "product_workflows": 3,
+          "current_tools": 16,
+          "template_resources": 10
+        }
+      ],
+      "channel_mix": [
+        { "session": "EAI polish", "channel": "Native", "calls": 120 },
+        { "session": "EAI polish", "channel": "Python bridge", "calls": 50 },
+        { "session": "farq gallery", "channel": "Native", "calls": 5 },
+        { "session": "farq gallery", "channel": "Python bridge", "calls": 144 },
+        { "session": "Codex OSAGO", "channel": "Native", "calls": 131 },
+        { "session": "Codex OSAGO", "channel": "Python bridge", "calls": 0 }
+      ],
+      "backlog": [
+        {
+          "rank": 1,
+          "priority": "P0",
+          "change": "Атомарный versioned canvas_save и versioned subresources",
+          "why": "Files-only возвращает ok без publish; повторяемые dummy edits и stale CDN. Текущий многошаговый write допускает partial commit.",
+          "effort": "L"
+        },
+        {
+          "rank": 2,
+          "priority": "P0",
+          "change": "Удалить или захарднить canvas_save files URL-fetch",
+          "why": "Прямой fetch допускает private-network target и буферизует тело до size check.",
+          "effort": "S–M"
+        },
+        {
+          "rank": 3,
+          "priority": "P1",
+          "change": "Target-scoped snapshot, structured diagnostics, retry и новая cache policy",
+          "why": "Broken sibling iframe делает target partial; детали теряются; transient partial может кэшироваться 24 часа.",
+          "effort": "L"
+        },
+        {
+          "rank": 4,
+          "priority": "P1",
+          "change": "Discriminated canvas_doc_patch schema и replace semantics",
+          "why": "Агенты угадывают op names; nested changes shallow-merge и не позволяют ясно очищать optional fields.",
+          "effort": "M"
+        },
+        {
+          "rank": 5,
+          "priority": "P1",
+          "change": "canvas_file_get, doc projections и документированный runner contract",
+          "why": "Codex использовал runner 33 раза как file reader; большие get/doc ответы переполняют контекст.",
+          "effort": "M"
+        },
+        {
+          "rank": 6,
+          "priority": "P1",
+          "change": "Строгие inputs, output schema для всех tools и golden workflow",
+          "why": "Неизвестные поля silently strip; только 3 из 16 tools имеют output schema; snapshot и batch edit обнаруживались поздно.",
+          "effort": "M"
+        },
+        {
+          "rank": 7,
+          "priority": "P1",
+          "change": "Единый batch/resumable asset upload и scope transfer/delete",
+          "why": "130 upload/finalize calls в одном сценарии; два handshake и две storage-модели вызывают ошибки и дубли.",
+          "effort": "L"
+        },
+        {
+          "rank": 8,
+          "priority": "P1",
+          "change": "Route-aware render и корректные video MIME",
+          "why": "URL fragment трактуется как file path; MP4 блокируется как octet-stream под nosniff.",
+          "effort": "M"
+        },
+        {
+          "rank": 9,
+          "priority": "P2",
+          "change": "Resolver для public slug, share/canvas URL и canvas URI",
+          "why": "Два независимых агента передали продуктовый public_slug как ref и получили ошибку.",
+          "effort": "S"
+        },
+        {
+          "rank": 10,
+          "priority": "P2",
+          "change": "Hash-safe rebase и структурированные version conflicts",
+          "why": "Canvas-wide version блокирует запись даже при неизменном target file.",
+          "effort": "M–L"
+        },
+        {
+          "rank": 11,
+          "priority": "P2",
+          "change": "Native image/artboard node",
+          "why": "Статические screenshot boards завернуты в iframe и наследуют readiness failure mode.",
+          "effort": "L"
+        },
+        {
+          "rank": 12,
+          "priority": "P2",
+          "change": "Pagination, explicit caps, complexity budgets и MCP HTTP coverage",
+          "why": "Browse limits скрыты и без cursor; integration tests не покрывают большую часть текущего tool surface.",
+          "effort": "M–L"
+        }
+      ],
+      "evolution": [
+        {
+          "order": 1,
+          "area": "Lifecycle",
+          "then": "5–6 вызовов create/render/publish/get",
+          "now": "Консолидированный canvas_save и единый ref",
+          "status": "Исправлено"
+        },
+        {
+          "order": 2,
+          "area": "Templates",
+          "then": "list_templates раздувал контекст примерно на 46 KB",
+          "now": "10 template resources",
+          "status": "Исправлено"
+        },
+        {
+          "order": 3,
+          "area": "Incremental editing",
+          "then": "Полная перезапись больших документов и файлов",
+          "now": "canvas_edit, apply_patch и doc_patch",
+          "status": "Возможность исправлена; schema требует доработки"
+        },
+        {
+          "order": 4,
+          "area": "Visual feedback",
+          "then": "curl, temp file и отдельный image viewer",
+          "now": "canvas_snapshot возвращает изображение",
+          "status": "Возможность исправлена; isolation требует доработки"
+        },
+        {
+          "order": 5,
+          "area": "Assets",
+          "then": "Нет out-of-band upload и reuse",
+          "now": "Canvas uploads и Asset Library",
+          "status": "Основа исправлена; workflow раздвоен"
+        },
+        {
+          "order": 6,
+          "area": "Missing asset paths",
+          "then": "Relative paths 404 и duplicate warnings",
+          "now": "Нормализация и version manifest подтверждены",
+          "status": "Исправлено"
+        },
+        {
+          "order": 7,
+          "area": "Publishing semantics",
+          "then": "Явный publish step",
+          "now": "Save обещает publish, но files-only оставляет старую version",
+          "status": "Актуальная регрессия контракта"
+        },
+        {
+          "order": 8,
+          "area": "Agent discovery",
+          "then": "Много отдельных v1 tools",
+          "now": "Компактнее, но snapshot/patch/file workflow не описан целиком",
+          "status": "Актуально"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "audit_dataset",
+      "label": "Derived audit dataset",
+      "path": "docs/audits/visual-canvas-mcp-agent-usage/audit-dataset.sql"
+    },
+    {
+      "id": "session_corpus",
+      "label": "Локальный корпус Claude Code и Codex",
+      "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+    },
+    {
+      "id": "current_implementation",
+      "label": "Текущая реализация Visual Canvas MCP",
+      "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+    },
+    {
+      "id": "synthesis_notes",
+      "label": "Сводные заметки аудита",
+      "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+    }
+  ],
+  "package_info": {
+    "root": "visual-canvas-mcp-agent-usage",
+    "manifestPath": "artifact.json",
+    "snapshotPath": "artifact.json"
+  }
+}

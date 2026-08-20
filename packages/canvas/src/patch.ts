@@ -6,6 +6,7 @@ export type CanvasDocPatchOperation =
   | { op: "world.update"; changes: Partial<CanvasDoc["world"]> }
   | { op: `${CollectionName}.add`; value: unknown }
   | { op: `${CollectionName}.update`; id: string; changes: Record<string, unknown> }
+  | { op: `${CollectionName}.replace`; id: string; value: unknown }
   | { op: `${CollectionName}.remove`; id: string };
 
 function collectionFor(op: string): CollectionName {
@@ -37,7 +38,10 @@ export function applyCanvasDocPatch(
       const index = values.findIndex((value) => value.id === id);
       if (index < 0) throw new Error(`Unknown ${collection} id "${id}"`);
       if (operation.op.endsWith(".remove")) values.splice(index, 1);
-      else {
+      else if (operation.op.endsWith(".replace")) {
+        const value = (operation as { value: unknown }).value as Record<string, unknown>;
+        values[index] = { ...value, id } as { id: string } & Record<string, unknown>;
+      } else {
         const changes = (operation as { changes: Record<string, unknown> }).changes;
         values[index] = { ...values[index], ...changes } as { id: string } & Record<
           string,

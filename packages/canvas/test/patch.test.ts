@@ -23,3 +23,27 @@ test("CanvasDoc semantic patch is validated as one atomic result", () => {
     /unknown node/,
   );
 });
+
+test("CanvasDoc replace clears optional fields and preserves the semantic id", () => {
+  const node = fixtureDoc.nodes[0];
+  assert.ok(node);
+  const patched = applyCanvasDocPatch(fixtureDoc, [
+    {
+      op: "nodes.replace",
+      id: node.id,
+      value: {
+        kind: "native",
+        id: "ignored",
+        rect: { ...node.rect, x: node.rect.x + 80 },
+        caption: { title: "Replacement" },
+        anchors: node.anchors,
+        shape: "note",
+      },
+    },
+  ]);
+  const replacement = patched.nodes[0];
+  assert.ok(replacement);
+  assert.equal(replacement.id, node.id);
+  assert.equal(replacement.caption.subtitle, undefined);
+  assert.equal(replacement.inspector, undefined);
+});

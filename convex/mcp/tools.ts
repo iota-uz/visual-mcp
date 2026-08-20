@@ -166,16 +166,20 @@ async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResul
 async function resolveCanvasSources(
   ctx: ActionCtx,
   canvasId: Id<"canvases">,
+  versionId: Id<"canvasVersions">,
 ): Promise<Array<{ relPath: string; getUrl: string }>> {
-  const files = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
+  const sourceManifest = await ctx.runQuery(internal.canvases.listSourcesForVersion, {
+    canvasId,
+    versionId,
+  });
   const [resolved, assetSources] = await Promise.all([
     Promise.all(
-      files.map(async (f) => {
+      sourceManifest.files.map(async (f) => {
         const getUrl = await ctx.storage.getUrl(f.storageId);
         return getUrl ? { relPath: f.relPath, getUrl } : null;
       }),
     ),
-    ctx.runQuery(internal.canvases.listAssetSourcesForCanvas, { canvasId }),
+    Promise.resolve(sourceManifest.assets),
   ]);
   const assets = await Promise.all(
     assetSources.map(async (asset) => ({
@@ -189,25 +193,29 @@ async function resolveCanvasSources(
   ];
 }
 
-/** Server-side fetch cap for `FileInput.url`, so one call can't pull a DVD in. */
-const URL_FETCH_LIMIT_BYTES = 25 * 1024 * 1024;
-
-const FileInputSchema = z.object({
-  path: z
-    .string()
-    .describe('Workspace path: /src/…, /assets/… or /output/…, e.g. "/assets/logo.png".'),
-  text: z.string().optional().describe("Inline UTF-8 content. Use for small text files only."),
-  upload_id: z
-    .string()
-    .optional()
-    .describe("storageId returned by canvas_upload_url. The way to attach large or binary files."),
-  url: z.string().optional().describe("Public URL for the server to fetch the bytes from."),
-  asset_ref: z
-    .string()
-    .optional()
-    .describe("Immutable asset:// ref from asset_list. Mounts it without uploading bytes again."),
-  delete: z.boolean().optional().describe("Delete this path instead of writing it."),
-});
+const FileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .describe('Workspace path: /src/…, /assets/… or /output/…, e.g. "/assets/logo.png".'),
+    text: z
+      .string()
+      .max(1_000_000)
+      .optional()
+      .describe("Inline UTF-8 content up to 1 MB. Use upload_id for larger files."),
+    upload_id: z
+      .string()
+      .optional()
+      .describe(
+        "storageId returned by canvas_upload_url. The way to attach large or binary files.",
+      ),
+    asset_ref: z
+      .string()
+      .optional()
+      .describe("Immutable asset:// ref from asset_list. Mounts it without uploading bytes again."),
+    delete: z.boolean().optional().describe("Delete this path instead of writing it."),
+  })
+  .strict();
 
 type FileInput = z.infer<typeof FileInputSchema>;
 
@@ -301,7 +309,8 @@ function scanUnresolvedRefs(
 }
 
 /**
- * Resolves one `FileInput` to bytes and writes it. Returns null for deletes.
+ * Resolves all `FileInput`s to immutable blobs/bindings without changing the
+ * canvas. `commitSaveContent` consumes the returned batch transactionally.
  *
  * The three input modes exist because the alternatives all failed in
  * practice: `text` alone forced a 3.5MB document through a JSON-RPC argument
@@ -309,193 +318,217 @@ function scanUnresolvedRefs(
  * was no binary path whatsoever, so images had to be base64-inlined into the
  * HTML — tripling the payload and burning the caller's context.
  */
-async function writeOneFile(
+async function prepareSaveFiles(
   ctx: ActionCtx,
   canvasId: Id<"canvases">,
   userId: Id<"users">,
-  file: FileInput,
-): Promise<{ path: string; size_bytes: number } | null> {
-  const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
-
-  if (file.delete) {
-    await ctx.runMutation(internal.canvases.removeAssetBinding, {
-      canvasId,
-      logicalPath: displayPath,
-    });
-    await ctx.runMutation(internal.canvases.removeByRef, {
-      ref: canvasId,
-      target: "file",
-      path: displayPath,
-    });
-    return null;
-  }
-
-  const provided = [file.text !== undefined, !!file.upload_id, !!file.url, !!file.asset_ref].filter(
-    Boolean,
-  ).length;
-  if (provided !== 1) {
-    throw new Error(
-      `File "${file.path}" needs exactly one of text, upload_id, url or asset_ref (got ${provided}).`,
-    );
-  }
-
-  const { mime } = inferArtifactInfo(relPath);
-
-  if (file.asset_ref) {
-    const asset = await ctx.runQuery(internal.assets.resolveRef, {
-      ref: file.asset_ref,
-      userId,
-    });
-    await ctx.runMutation(internal.canvases.upsertAssetBinding, {
-      canvasId,
-      logicalPath: displayPath,
-      assetId: asset.assetId,
-      assetVersionId: asset.assetVersionId,
-    });
-    return { path: displayPath, size_bytes: asset.size };
-  }
-
-  // Already-uploaded blob: nothing to move, just verify and attach.
-  if (file.upload_id) {
-    const storageId = file.upload_id as Id<"_storage">;
-    const attachment = await ctx.runQuery(internal.canvases.storageAttachment, { storageId });
-    // Same blob, same canvas, same path — a replayed call, not aliasing.
-    // Re-attaching would be a no-op anyway, so short-circuit and let the
-    // retry report the file as written, which it is.
-    const isReplay =
-      attachment !== null &&
-      attachment.scope === "file" &&
-      attachment.canvasId === canvasId &&
-      attachment.relPath === displayPath;
-    if (attachment && !isReplay) {
-      throw new Error(
-        `upload_id "${file.upload_id}" is already attached to ${attachment.relPath}` +
-          `${attachment.canvasId === canvasId ? " on this canvas" : " on another canvas"}. ` +
-          "Request a fresh URL from canvas_upload_url for each file you write.",
-      );
-    }
-    if (isReplay) {
-      return { path: displayPath, size_bytes: attachment.size };
-    }
-    const metadata = await ctx.storage.getMetadata(storageId);
-    if (!metadata) {
-      throw new Error(
-        `upload_id "${file.upload_id}" does not exist. Upload the bytes to the URL from ` +
-          "canvas_upload_url first, then pass the storageId it returns.",
-      );
-    }
-    await ctx.runMutation(internal.canvases.upsertFile, {
-      canvasId,
-      relPath: displayPath,
-      storageId,
-      size: metadata.size,
-      contentHash: metadata.sha256,
-    });
-    return { path: displayPath, size_bytes: metadata.size };
-  }
-
-  let blob: Blob;
-  let size: number;
-  let hash: string;
-
-  if (file.url) {
-    const res = await fetch(file.url);
-    if (!res.ok) {
-      throw new Error(`Fetching "${file.url}" failed: HTTP ${res.status} ${res.statusText}`);
-    }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength > URL_FETCH_LIMIT_BYTES) {
-      throw new Error(
-        `"${file.url}" is ${buf.byteLength} bytes, over the ${URL_FETCH_LIMIT_BYTES}-byte fetch limit.`,
-      );
-    }
-    blob = new Blob([buf], { type: res.headers.get("content-type") ?? mime });
-    size = buf.byteLength;
-    hash = await sha256HexBytes(buf);
-  } else {
-    const text = file.text as string;
-    const bytes = new TextEncoder().encode(text);
-    blob = new Blob([bytes], { type: mime });
-    size = bytes.byteLength;
-    hash = await sha256Hex(text);
-  }
-
-  const storageId = await ctx.storage.store(blob);
+  files: FileInput[],
+): Promise<{
+  changes: Array<
+    | {
+        type: "write";
+        path: string;
+        storageId: Id<"_storage">;
+        size: number;
+        contentHash: string;
+      }
+    | {
+        type: "asset";
+        path: string;
+        assetId: Id<"assets">;
+        assetVersionId: Id<"assetVersions">;
+      }
+    | { type: "delete"; path: string }
+  >;
+  filesWritten: Array<{ path: string; size_bytes: number }>;
+  writtenText: Array<{ path: string; text: string }>;
+  stored: Id<"_storage">[];
+}> {
+  const changes: Array<
+    | {
+        type: "write";
+        path: string;
+        storageId: Id<"_storage">;
+        size: number;
+        contentHash: string;
+      }
+    | {
+        type: "asset";
+        path: string;
+        assetId: Id<"assets">;
+        assetVersionId: Id<"assetVersions">;
+      }
+    | { type: "delete"; path: string }
+  > = [];
+  const filesWritten: Array<{ path: string; size_bytes: number }> = [];
+  const writtenText: Array<{ path: string; text: string }> = [];
+  const stored: Id<"_storage">[] = [];
   try {
-    await ctx.runMutation(internal.canvases.upsertFile, {
-      canvasId,
-      relPath: displayPath,
-      storageId,
-      size,
-      contentHash: hash,
-    });
-  } catch (err) {
-    // The mutation rejected (quota, most likely). Don't leak the blob.
-    await ctx.storage.delete(storageId);
-    throw err;
+    for (const file of files) {
+      const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
+      if (displayPath === "/src/__canvas.html") {
+        throw new Error(
+          '"/src/__canvas.html" is generated from CanvasDoc and cannot be written directly.',
+        );
+      }
+      if (file.delete) {
+        if (file.text !== undefined || file.upload_id || file.asset_ref) {
+          throw new Error(`Delete for "${file.path}" cannot also provide file content.`);
+        }
+        changes.push({ type: "delete", path: displayPath });
+        continue;
+      }
+
+      const provided = [file.text !== undefined, !!file.upload_id, !!file.asset_ref].filter(
+        Boolean,
+      ).length;
+      if (provided !== 1) {
+        throw new Error(
+          `File "${file.path}" needs exactly one of text, upload_id or asset_ref (got ${provided}). Use asset_import for HTTPS sources.`,
+        );
+      }
+      if (file.asset_ref) {
+        const asset = await ctx.runQuery(internal.assets.resolveRef, {
+          ref: file.asset_ref,
+          userId,
+        });
+        changes.push({
+          type: "asset",
+          path: displayPath,
+          assetId: asset.assetId,
+          assetVersionId: asset.assetVersionId,
+        });
+        filesWritten.push({ path: displayPath, size_bytes: asset.size });
+        continue;
+      }
+
+      let storageId: Id<"_storage">;
+      let size: number;
+      let contentHash: string;
+      if (file.upload_id) {
+        storageId = file.upload_id as Id<"_storage">;
+        const attachment = await ctx.runQuery(internal.canvases.storageAttachment, { storageId });
+        const isReplay =
+          attachment?.scope === "file" &&
+          attachment.canvasId === canvasId &&
+          attachment.relPath === displayPath;
+        if (attachment && !isReplay) {
+          throw new Error(
+            `upload_id "${file.upload_id}" is already attached to ${attachment.relPath}` +
+              `${attachment.canvasId === canvasId ? " on this canvas" : " on another canvas"}.`,
+          );
+        }
+        if (isReplay) {
+          const existing = await ctx.runQuery(internal.canvases.getEditableFileByRef, {
+            ref: canvasId,
+            path: displayPath,
+          });
+          if (!existing) throw new Error(`Unable to resolve replayed upload ${displayPath}`);
+          size = existing.size;
+          contentHash = existing.contentHash;
+        } else {
+          const metadata = await ctx.storage.getMetadata(storageId);
+          if (!metadata) {
+            throw new Error(
+              `upload_id "${file.upload_id}" does not exist. Upload bytes first, then pass the returned storageId.`,
+            );
+          }
+          size = metadata.size;
+          contentHash = metadata.sha256;
+        }
+      } else {
+        const text = file.text as string;
+        const bytes = new TextEncoder().encode(text);
+        const { mime } = inferArtifactInfo(relPath);
+        storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
+        stored.push(storageId);
+        size = bytes.byteLength;
+        contentHash = await sha256Hex(text);
+        writtenText.push({ path: displayPath, text });
+      }
+      changes.push({ type: "write", path: displayPath, storageId, size, contentHash });
+      filesWritten.push({ path: displayPath, size_bytes: size });
+    }
+    return { changes, filesWritten, writtenText, stored };
+  } catch (error) {
+    await Promise.all(stored.map((storageId) => ctx.storage.delete(storageId)));
+    throw error;
   }
-  return { path: displayPath, size_bytes: size };
 }
 
-const RenderInputSchema = z.object({
-  target: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("canvas") }),
-    z.object({
-      type: z.literal("file"),
-      entrypoint: z.string().describe('Source file to render, e.g. "/src/index.html".'),
-    }),
-  ]),
-  format: z.enum(["png", "svg", "pdf", "html"]),
-  output_path: z
-    .string()
-    .optional()
-    .describe("Where to write the result. Derived from entrypoint + format when omitted."),
-  primary: z
-    .boolean()
-    .optional()
-    .describe(
-      "Mark this render as the canvas's face — what /s/:slug serves and what the thumbnail " +
-        "comes from. Declare it explicitly rather than relying on render order.",
-    ),
-  viewport: z
-    .object({
-      width: z.number().int().positive(),
-      height: z.number().int().positive(),
-      device_scale_factor: z.number().positive().optional(),
-    })
-    .optional(),
-  pdf: z
-    .object({
-      format: z.enum(["A4", "A3", "Letter"]).optional(),
-      orientation: z.enum(["portrait", "landscape"]).optional(),
-      print_background: z.boolean().optional(),
-      display_header_footer: z.boolean().optional(),
-      header_template: z.string().optional(),
-      footer_template: z.string().optional(),
-      margin: z
+const RenderInputSchema = z
+  .object({
+    target: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("canvas") }).strict(),
+      z
         .object({
-          top: z.string().optional(),
-          right: z.string().optional(),
-          bottom: z.string().optional(),
-          left: z.string().optional(),
+          type: z.literal("file"),
+          entrypoint: z.string().describe('Source file to render, e.g. "/src/index.html".'),
+          route: z
+            .string()
+            .regex(/^#[/?A-Za-z0-9._~!$&'()*+,;=:@%-]*$/)
+            .optional()
+            .describe('Optional local URL fragment/hash route, e.g. "#/checkout".'),
         })
-        .optional(),
-    })
-    .optional(),
-});
+        .strict(),
+    ]),
+    format: z.enum(["png", "svg", "pdf", "html"]),
+    output_path: z
+      .string()
+      .optional()
+      .describe("Where to write the result. Derived from entrypoint + format when omitted."),
+    primary: z
+      .boolean()
+      .optional()
+      .describe(
+        "Mark this render as the canvas's face — what /s/:slug serves and what the thumbnail " +
+          "comes from. Declare it explicitly rather than relying on render order.",
+      ),
+    viewport: z
+      .object({
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        device_scale_factor: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    pdf: z
+      .object({
+        format: z.enum(["A4", "A3", "Letter"]).optional(),
+        orientation: z.enum(["portrait", "landscape"]).optional(),
+        print_background: z.boolean().optional(),
+        display_header_footer: z.boolean().optional(),
+        header_template: z.string().optional(),
+        footer_template: z.string().optional(),
+        margin: z
+          .object({
+            top: z.string().optional(),
+            right: z.string().optional(),
+            bottom: z.string().optional(),
+            left: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 type RenderInput = z.infer<typeof RenderInputSchema>;
 
 const SnapshotTargetSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("canvas") }),
-  z.object({ type: z.literal("node"), node_id: z.string().min(1) }),
-  z.object({
-    type: z.literal("region"),
-    x: z.number().nonnegative(),
-    y: z.number().nonnegative(),
-    width: z.number().positive(),
-    height: z.number().positive(),
-  }),
+  z.object({ type: z.literal("canvas") }).strict(),
+  z.object({ type: z.literal("node"), node_id: z.string().min(1) }).strict(),
+  z
+    .object({
+      type: z.literal("region"),
+      x: z.number().nonnegative(),
+      y: z.number().nonnegative(),
+      width: z.number().positive(),
+      height: z.number().positive(),
+    })
+    .strict(),
 ]);
 
 const SnapshotInputSchema = z
@@ -506,7 +539,16 @@ const SnapshotInputSchema = z
     expected_version: z.number().int().nonnegative().optional(),
     padding: z.number().int().min(0).max(256).optional(),
     scale: z.union([z.literal(1), z.literal(2)]).optional(),
+    refresh: z.boolean().optional().describe("Bypass an existing successful snapshot cache entry."),
+    timeout_ms: z
+      .number()
+      .int()
+      .positive()
+      .max(30_000)
+      .optional()
+      .describe("Iframe readiness budget; defaults to 15000."),
   })
+  .strict()
   .superRefine((input, check) => {
     if (Boolean(input.ref) === Boolean(input.ref_id)) {
       check.addIssue({ code: "custom", message: "Pass exactly one of ref or ref_id." });
@@ -545,6 +587,7 @@ async function performRender(
   canvasId: Id<"canvases">,
   principal: McpPrincipal,
   spec: RenderInput,
+  versionId: Id<"canvasVersions">,
 ): Promise<{ artifact?: RenderedArtifact; warnings: Warning[] }> {
   const warnings: Warning[] = [];
   const entrypoint = spec.target.type === "canvas" ? "/src/__canvas.html" : spec.target.entrypoint;
@@ -561,7 +604,7 @@ async function performRender(
     // typo'd entrypoint reach Chromium and come back as an ENOENT-shaped
     // worker 500, and checking the worker config first would mask the far
     // more actionable "that file isn't here" with "the worker is down".
-    const sources = await resolveCanvasSources(ctx, canvasId);
+    const sources = await resolveCanvasSources(ctx, canvasId, versionId);
     if (!sources.some((s) => s.relPath === entrypoint)) {
       throw new Error(
         `Entrypoint "${entrypoint}" is not a file on this canvas. ` +
@@ -586,6 +629,7 @@ async function performRender(
     }>(config, "/render", {
       sources,
       entrypoint,
+      route: spec.target.type === "file" ? spec.target.route : undefined,
       outputPath: displayPath,
       format: spec.format,
       viewport: spec.viewport
@@ -629,37 +673,21 @@ async function performRender(
     }
 
     const { type } = inferArtifactInfo(workerResult.relPath);
-    let recorded: { version: number; artifact: { relPath: string; role: string } };
+    let recorded: { artifact: { relPath: string; role: string } };
     try {
-      if (spec.target.type === "canvas") {
-        const current = await ctx.runQuery(internal.canvases.currentVersion, { canvasId });
-        if (!current) throw new Error("CanvasDoc has no current version to attach export to");
-        const attached = await ctx.runMutation(internal.canvases.attachCanvasRender, {
-          canvasId,
-          versionId: current.versionId,
-          relPath: workerResult.relPath,
-          type,
-          mimeType: workerResult.mimeType,
-          size: workerResult.size,
-          storageId,
-          thumbnailStorageId:
-            workerResult.readiness?.status === "partial" ? undefined : thumbnailStorageId,
-        });
-        recorded = { version: current.version, artifact: attached.artifact };
-      } else {
-        recorded = await ctx.runMutation(internal.canvases.recordRender, {
-          canvasId,
-          createdBy: principal.userId,
-          relPath: workerResult.relPath,
-          type,
-          mimeType: workerResult.mimeType,
-          size: workerResult.size,
-          storageId,
-          thumbnailStorageId:
-            workerResult.readiness?.status === "partial" ? undefined : thumbnailStorageId,
-          primary: workerResult.readiness?.status === "partial" ? false : spec.primary,
-        });
-      }
+      const attached = await ctx.runMutation(internal.canvases.attachCanvasRender, {
+        canvasId,
+        versionId,
+        relPath: workerResult.relPath,
+        type,
+        mimeType: workerResult.mimeType,
+        size: workerResult.size,
+        storageId,
+        thumbnailStorageId:
+          workerResult.readiness?.status === "partial" ? undefined : thumbnailStorageId,
+        primary: workerResult.readiness?.status === "partial" ? false : spec.primary,
+      });
+      recorded = { artifact: attached.artifact };
     } catch (err) {
       await ctx.storage.delete(storageId);
       if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
@@ -732,12 +760,20 @@ async function saveDoc(
       doc.nodes.filter((node) => node.kind === "iframe").map((node) => node.source.entrypoint),
     ),
   ];
+  const imagePaths = [
+    ...new Set(doc.nodes.filter((node) => node.kind === "image").map((node) => node.source.path)),
+  ];
   const manifest = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
   const paths = new Set(manifest.map((file) => file.relPath));
   const missing = iframeEntrypoints.filter((entrypoint) => !paths.has(entrypoint));
   if (missing.length)
     throw new Error(
       `CanvasDoc iframe entrypoint does not exist: ${missing.join(", ")}. Upload it in the same canvas_save files array.`,
+    );
+  const missingImages = imagePaths.filter((path) => !paths.has(path));
+  if (missingImages.length)
+    throw new Error(
+      `CanvasDoc image source does not exist: ${missingImages.join(", ")}. Upload or attach it before canvas_doc_patch.`,
     );
 
   // Store the export page on the version itself. canvasFiles is mutable; a
@@ -758,6 +794,7 @@ async function saveDoc(
     const put = await ctx.runMutation(internal.canvases.putDoc, {
       canvasId,
       docStorageId,
+      docContentHash: await sha256Hex(docJson),
       cssStorageId,
       entryStorageId,
       iframeEntrypoints,
@@ -808,8 +845,93 @@ async function saveDoc(
   return { version, warnings };
 }
 
-function canvasEntryHtml(doc: CanvasDoc, compiledCss = ""): string {
-  const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
+async function prepareSaveDoc(
+  ctx: ActionCtx,
+  rawDoc: unknown,
+): Promise<{
+  doc: CanvasDoc;
+  commit: {
+    storageId: Id<"_storage">;
+    contentHash: string;
+    cssStorageId?: Id<"_storage">;
+    entryStorageId: Id<"_storage">;
+    entrySize: number;
+    entryContentHash: string;
+    iframeEntrypoints: string[];
+    imagePaths: string[];
+    nodes: Array<{ nodeId: string; title: string; eyebrow?: string; searchText: string }>;
+  };
+  stored: Id<"_storage">[];
+}> {
+  const doc = CanvasDocSchema.parse(rawDoc);
+  const docJson = JSON.stringify(doc);
+  const entry = canvasEntryHtml(doc);
+  const docBytes = new TextEncoder().encode(docJson);
+  const entryBytes = new TextEncoder().encode(entry);
+  const storageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
+  const entryStorageId = await ctx.storage.store(new Blob([entryBytes], { type: "text/html" }));
+  return {
+    doc,
+    stored: [storageId, entryStorageId],
+    commit: {
+      storageId,
+      contentHash: await sha256Hex(docJson),
+      entryStorageId,
+      entrySize: entryBytes.byteLength,
+      entryContentHash: await sha256Hex(entry),
+      iframeEntrypoints: [
+        ...new Set(
+          doc.nodes.filter((node) => node.kind === "iframe").map((node) => node.source.entrypoint),
+        ),
+      ],
+      imagePaths: [
+        ...new Set(
+          doc.nodes.filter((node) => node.kind === "image").map((node) => node.source.path),
+        ),
+      ],
+      nodes: doc.nodes.map((node) => ({
+        nodeId: node.id,
+        title: node.caption.title,
+        eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+        searchText: [
+          node.caption.title,
+          node.caption.subtitle,
+          node.caption.tag,
+          node.inspector?.eyebrow,
+          node.inspector?.title,
+          node.inspector?.copy,
+        ]
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
+          .join(" "),
+      })),
+    },
+  };
+}
+
+function canvasEntryHtml(
+  doc: CanvasDoc,
+  compiledCss = "",
+  snapshotTarget?:
+    | { type: "canvas" }
+    | { type: "node"; nodeId: string }
+    | { type: "region"; x: number; y: number; width: number; height: number },
+): string {
+  const positioned = layoutCanvas(doc);
+  const { html } = renderCanvas(positioned, {
+    iframeLoading: "eager",
+    shouldLoadIframe: snapshotTarget
+      ? (node) => {
+          if (snapshotTarget.type === "canvas") return true;
+          if (snapshotTarget.type === "node") return node.id === snapshotTarget.nodeId;
+          return (
+            node.x < snapshotTarget.x + snapshotTarget.width &&
+            node.x + node.w > snapshotTarget.x &&
+            node.y < snapshotTarget.y + snapshotTarget.height &&
+            node.y + node.h > snapshotTarget.y
+          );
+        }
+      : undefined,
+  });
   return (
     '<!doctype html><html><head><meta charset="utf-8" />' +
     `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
@@ -823,7 +945,9 @@ function canvasEntryHtml(doc: CanvasDoc, compiledCss = ""): string {
 
 const RefArg = z
   .string()
-  .describe('"workspace-slug/canvas-slug" (created on first save) or a canvas id.');
+  .describe(
+    '"workspace-slug/canvas-slug" (created on first save), canvas id, public slug, returned /c/ or /s/ URL, or canvas:// URI.',
+  );
 
 function assertEditableText(path: string, text: string): void {
   if (!/\.(?:html?|css|m?js|cjs|jsx|tsx?|json|md|txt|svg|xml|ya?ml|d2)$/i.test(path)) {
@@ -845,9 +969,9 @@ async function loadEditableFile(
 }> {
   const file = await ctx.runQuery(internal.canvases.getEditableFileByRef, { ref, path });
   if (!file) throw new Error(`file_not_found: ${path}`);
-  const response = await fetch(file.fileUrl);
-  if (!response.ok) throw new Error(`Unable to read ${file.path}: HTTP ${response.status}`);
-  const content = await response.text();
+  const blob = await ctx.storage.get(file.storageId);
+  if (!blob) throw new Error(`Unable to read ${file.path}: storage object is unavailable`);
+  const content = await blob.text();
   assertEditableText(file.path, content);
   return {
     canvasId: file.canvasId,
@@ -928,7 +1052,9 @@ const SaveOutputSchema = z.object({
   canvas_slug: z.string(),
   kind: z.enum(["canvas", "html", "image", "pdf"]),
   title: z.string(),
+  previous_version: z.number(),
   version: z.number(),
+  published: z.boolean(),
   visibility: z.enum(["private", "public"]),
   canvas_url: z.string(),
   share_url: z.string().nullable(),
@@ -958,6 +1084,105 @@ const SaveOutputSchema = z.object({
   warnings: z.array(WarningSchema),
 });
 
+const AssetRecordOutputSchema = z.object({
+  asset_id: z.string(),
+  asset_ref: z.string(),
+  scope: z.enum(["personal", "workspace"]),
+  workspace_slug: z.string().nullable(),
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  tags: z.array(z.string()),
+  kind: z.enum(["image", "svg", "font", "video", "data"]),
+  revision: z.number().int().positive(),
+  mime_type: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  content_hash: z.string(),
+  original_filename: z.string(),
+  updated_at: z.number(),
+  preview_url: z.string(),
+});
+
+const AssetSavedOutputSchema = z.object({
+  status: z.literal("ok"),
+  asset_id: z.string(),
+  asset_ref: z.string(),
+  revision: z.number().int().positive(),
+  mime_type: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  content_hash: z.string(),
+});
+
+type AssetFinalizeItem = {
+  upload_id: string;
+  slug?: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+};
+
+class AssetFinalizeFailure extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "AssetFinalizeFailure";
+  }
+}
+
+async function finalizeUploadedAsset(
+  ctx: ActionCtx,
+  principal: McpPrincipal,
+  input: AssetFinalizeItem,
+) {
+  const uploadId = input.upload_id as Id<"assetUploads">;
+  const upload = await ctx.runQuery(internal.assets.getUpload, {
+    uploadId,
+    userId: principal.userId,
+    now: Date.now(),
+  });
+  if (!upload) throw new AssetFinalizeFailure("Upload does not exist or has expired", false);
+  const response = await getObject("source", upload.sourceObjectKey);
+  if (!response.ok) throw new Error(`Uploaded object is unavailable: HTTP ${response.status}`);
+  const rawBytes = new Uint8Array(await response.arrayBuffer());
+  if (upload.expectedSize !== undefined && rawBytes.byteLength !== upload.expectedSize)
+    throw new Error("Uploaded asset size does not match the declared size");
+  const rawHash = await sha256HexBytes(rawBytes);
+  if (upload.expectedHash && rawHash !== upload.expectedHash.replace(/^sha256:/, ""))
+    throw new Error("Uploaded asset SHA-256 does not match");
+  const workspace = upload.workspaceId
+    ? await ctx.runQuery(internal.assets.getWorkspace, { workspaceId: upload.workspaceId })
+    : null;
+  const saved = await persistAsset(ctx, {
+    uploadId,
+    scope: upload.scope,
+    ownerUserId: principal.userId,
+    workspaceId: upload.workspaceId,
+    workspaceSlug: workspace?.slug,
+    slug: slugify(input.slug ?? input.name),
+    name: input.name.trim(),
+    description: input.description,
+    tags: [...new Set(input.tags ?? [])],
+    filename: upload.filename,
+    rawBytes,
+    declaredMime: upload.declaredMimeType,
+    sourceType: "upload",
+  });
+  // The DB commit above is authoritative. Staging cleanup must never turn a
+  // successful finalize into a false retryable failure after upload_id vanished.
+  await deleteObject("source", upload.sourceObjectKey).catch(() => undefined);
+  return {
+    status: "ok" as const,
+    asset_id: saved.assetId,
+    asset_ref: saved.assetRef,
+    revision: saved.revision,
+    mime_type: saved.mimeType,
+    size_bytes: saved.size,
+    content_hash: saved.contentHash,
+  };
+}
+
 export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
   /* --- 1. canvas_save ------------------------------------------------- */
   server.registerTool(
@@ -972,38 +1197,41 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "`files` + `renders`. Note that saving a `doc` also writes a generated preview page to " +
         "the reserved path /src/__canvas.html.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: z.object({
-        ref: RefArg,
-        title: z.string().optional(),
-        description: z.string().optional(),
-        theme: z.string().optional(),
-        kind: z
-          .enum(["canvas", "html", "image", "pdf"])
-          .optional()
-          .describe("Inferred from doc/renders when omitted. Cannot be changed after creation."),
-        doc: z
-          .unknown()
-          .optional()
-          .describe(
-            "CanvasDoc v2 with explicit geometry and native/iframe nodes. May be saved atomically with iframe source/assets in files. A phone node must use viewport 284x642 and frame {kind:'phone',time:'09:42'}; its iframe contains screen content only because canvas chrome supplies the bezel, notch and status bar.",
-          ),
-        files: z.array(FileInputSchema).optional(),
-        renders: z.array(RenderInputSchema).max(4).optional(),
-        from_version: z.number().optional().describe("Restore this earlier version first."),
-        visibility: z
-          .enum(["private", "public"])
-          .optional()
-          .describe("Omit to leave unchanged. 'public' mints a share link."),
-        mode: z
-          .enum(["upsert", "create", "update"])
-          .optional()
-          .describe("'create' refuses to touch an existing canvas; 'update' refuses to make one."),
-        expected_version: z
-          .number()
-          .optional()
-          .describe("Refuse the write if the canvas is not at this version."),
-        note: z.string().optional().describe("Recorded on the version this call creates."),
-      }),
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          title: z.string().optional(),
+          description: z.string().optional(),
+          theme: z.string().optional(),
+          kind: z
+            .enum(["canvas", "html", "image", "pdf"])
+            .optional()
+            .describe("Inferred from doc/renders when omitted. Cannot be changed after creation."),
+          doc: z
+            .unknown()
+            .optional()
+            .describe(
+              "CanvasDoc v2 with explicit geometry and native/iframe/image nodes. May be saved atomically with iframe and image sources/assets in files. Image nodes use source.path + fit/focalPosition/alt. A phone node must use viewport 284x642 and frame {kind:'phone',time:'09:42'}; its iframe contains screen content only because canvas chrome supplies the bezel, notch and status bar.",
+            ),
+          files: z.array(FileInputSchema).max(500).optional(),
+          renders: z.array(RenderInputSchema).max(4).optional(),
+          visibility: z
+            .enum(["private", "public"])
+            .optional()
+            .describe("Omit to leave unchanged. 'public' mints a share link."),
+          mode: z
+            .enum(["upsert", "create", "update"])
+            .optional()
+            .describe(
+              "'create' refuses to touch an existing canvas; 'update' refuses to make one.",
+            ),
+          expected_version: z
+            .number()
+            .optional()
+            .describe("Refuse the write if the canvas is not at this version."),
+          note: z.string().optional().describe("Recorded on the version this call creates."),
+        })
+        .strict(),
       outputSchema: SaveOutputSchema,
     },
     async (input) =>
@@ -1020,6 +1248,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           theme: input.theme,
           mode: input.mode,
           expectedVersion: input.expected_version,
+          deferExistingMetadata: true,
         });
         const canvasId = upserted.canvasId;
 
@@ -1032,36 +1261,69 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           });
         }
 
-        if (input.from_version !== undefined) {
-          await ctx.runMutation(internal.canvases.restoreVersionByRef, {
-            ref: canvasId,
-            version: input.from_version,
-          });
-        }
-
         // --- content ---
-        const filesWritten: Array<{ path: string; size_bytes: number }> = [];
-        const writtenText: Array<{ path: string; text: string }> = [];
-
-        for (const file of input.files ?? []) {
-          const written = await writeOneFile(ctx, canvasId, principal.userId, file);
-          if (written) {
-            filesWritten.push(written);
-            if (file.text !== undefined) writtenText.push({ path: written.path, text: file.text });
-          }
-        }
-
-        if (input.doc !== undefined) {
-          const saved = await saveDoc(
+        // Resolve/upload every source first, then expose all file/binding/doc
+        // changes in one Convex transaction and one immutable version.
+        let preparedFiles: Awaited<ReturnType<typeof prepareSaveFiles>> | undefined;
+        let preparedDoc: Awaited<ReturnType<typeof prepareSaveDoc>> | undefined;
+        let committed: {
+          versionId: Id<"canvasVersions"> | null;
+          version: number;
+          previousVersion: number;
+          changed: boolean;
+        } | null = null;
+        try {
+          preparedFiles = await prepareSaveFiles(
             ctx,
             canvasId,
-            principal,
-            input.doc,
-            input.note,
-            input.expected_version,
+            principal.userId,
+            input.files ?? [],
           );
-          warnings.push(...saved.warnings);
+          preparedDoc = input.doc === undefined ? undefined : await prepareSaveDoc(ctx, input.doc);
+          if (
+            preparedFiles.changes.length > 0 ||
+            preparedDoc ||
+            input.title !== undefined ||
+            input.description !== undefined ||
+            input.theme !== undefined ||
+            input.visibility !== undefined
+          ) {
+            committed = await ctx.runMutation(internal.canvases.commitSaveContent, {
+              canvasId,
+              expectedVersion: input.expected_version,
+              createdBy: principal.userId,
+              note: input.note,
+              metadata: {
+                title: input.title,
+                description: input.description,
+                theme: input.theme,
+                visibility: input.visibility,
+                newPublicSlug: input.visibility === "public" ? randomShareSlug() : undefined,
+              },
+              changes: preparedFiles.changes,
+              doc: preparedDoc?.commit,
+            });
+          }
+        } catch (error) {
+          await Promise.all(
+            [...(preparedFiles?.stored ?? []), ...(preparedDoc?.stored ?? [])].map((storageId) =>
+              ctx.storage.delete(storageId).catch(() => undefined),
+            ),
+          );
+          if (upserted.created) {
+            await ctx
+              .runMutation(internal.canvases.removeByRef, {
+                ref: canvasId,
+                target: "canvas",
+                purge: true,
+              })
+              .catch(() => undefined);
+          }
+          throw error;
         }
+
+        const filesWritten = preparedFiles?.filesWritten ?? [];
+        const writtenText = preparedFiles?.writtenText ?? [];
 
         // --- unresolved-reference scan, before rendering ---
         if (writtenText.length > 0) {
@@ -1079,19 +1341,23 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         // --- renders ---
         const artifacts: RenderedArtifact[] = [];
+        let renderVersionId = committed?.versionId ?? null;
+        if ((input.renders?.length ?? 0) > 0 && !renderVersionId) {
+          renderVersionId =
+            (await ctx.runQuery(internal.canvases.currentVersion, { canvasId }))?.versionId ?? null;
+        }
         for (const spec of input.renders ?? []) {
-          const rendered = await performRender(ctx, canvasId, principal, spec);
+          if (!renderVersionId) {
+            warnings.push({
+              code: "render_failed",
+              message:
+                "Render requires a committed source version. Save files or a CanvasDoc first.",
+            });
+            break;
+          }
+          const rendered = await performRender(ctx, canvasId, principal, spec, renderVersionId);
           if (rendered.artifact) artifacts.push(rendered.artifact);
           warnings.push(...rendered.warnings);
-        }
-
-        // --- visibility ---
-        if (input.visibility) {
-          await ctx.runMutation(internal.canvases.publish, {
-            canvasId,
-            visibility: input.visibility,
-            newPublicSlug: input.visibility === "public" ? randomShareSlug() : undefined,
-          });
         }
 
         const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
@@ -1107,7 +1373,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           });
         }
 
-        const renderFailed = warnings.some((w) => w.code === "render_failed");
+        const degraded = warnings.some(
+          (warning) => warning.code === "render_failed" || warning.code === "unresolved_asset",
+        );
         const publicSlug = detail.canvas.public_slug;
         const version = detail.canvas.version ?? 0;
         const canvasEmbedImage = embedCardUrl(publicSlug, { kind: "canvas" }, version);
@@ -1118,7 +1386,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           canvasEmbedTarget,
         );
         return result({
-          status: renderFailed ? "partial" : "ok",
+          status: degraded ? "partial" : "ok",
           created: upserted.created,
           ref: `${upserted.workspaceSlug}/${upserted.canvasSlug}`,
           canvas_id: canvasId,
@@ -1126,7 +1394,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           canvas_slug: upserted.canvasSlug,
           kind: detail.canvas.kind,
           title: detail.canvas.title,
+          previous_version: committed?.previousVersion ?? detail.canvas.version ?? 0,
           version: detail.canvas.version ?? 0,
+          published: (detail.canvas.version ?? 0) > 0,
           visibility: detail.canvas.visibility,
           canvas_url: canvasUrl(canvasId),
           share_url: shareUrl(detail.canvas.public_slug),
@@ -1166,31 +1436,49 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Claude Code and OpenCode. The match must be unique unless replace_all is explicit. " +
         "Creates one immutable canvas version and rejects stale expected_version/hash values.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          file_path: z.string(),
+          old_string: z.string(),
+          new_string: z.string(),
+          replace_all: z.boolean().optional(),
+          expected_version: z.number().int().nonnegative(),
+          expected_hash: z.string().optional(),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
         file_path: z.string(),
-        old_string: z.string(),
-        new_string: z.string(),
-        replace_all: z.boolean().optional(),
-        expected_version: z.number().int().nonnegative(),
-        expected_hash: z.string().optional(),
-        note: z.string().optional(),
+        replacements: z.number().int().positive(),
+        previous_hash: z.string(),
+        content_hash: z.string(),
+        requested_version: z.number().int().nonnegative(),
+        previous_version: z.number().int().nonnegative(),
+        version: z.number().int().positive(),
+        rebased: z.boolean(),
       }),
     },
     async (input) =>
       runTool(async () => {
         const source = await loadEditableFile(ctx, input.ref, input.file_path);
-        if (source.version !== input.expected_version) {
-          throw new Error(
-            `version_conflict: expected ${input.expected_version}, current ${source.version}`,
-          );
-        }
         if (
           input.expected_hash &&
           input.expected_hash.replace(/^sha256:/, "") !== source.contentHash
         ) {
           throw new Error(
             `hash_conflict: expected ${input.expected_hash}, current ${source.contentHash}`,
+          );
+        }
+        if (source.version !== input.expected_version && !input.expected_hash) {
+          const changedPaths = await ctx.runQuery(internal.canvases.changedPathsSinceVersion, {
+            canvasId: source.canvasId,
+            expectedVersion: input.expected_version,
+          });
+          throw new Error(
+            `version_conflict: ${JSON.stringify({ expected_version: input.expected_version, current_version: source.version, changed_paths_since: changedPaths, retryable: true, retryable_with_expected_hash: true })}`,
           );
         }
         const edited = applyExactEdit(source.content, {
@@ -1202,7 +1490,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ctx,
           principal,
           source.canvasId,
-          input.expected_version,
+          source.version,
           [
             {
               type: "write",
@@ -1213,15 +1501,19 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ],
           input.note,
         );
+        const contentHash = committed.files[0]?.content_hash;
+        if (!contentHash) throw new Error("canvas_edit committed without a content hash");
         return result({
           status: "ok",
           ref: input.ref,
           file_path: source.path,
           replacements: edited.replacements,
           previous_hash: source.contentHash,
-          content_hash: committed.files[0]?.content_hash,
-          previous_version: input.expected_version,
+          content_hash: contentHash,
+          requested_version: input.expected_version,
+          previous_version: source.version,
           version: committed.version,
+          rebased: source.version !== input.expected_version,
         });
       }),
   );
@@ -1234,16 +1526,34 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Atomically applies Codex-style Begin Patch operations (Add, Update, Move, Delete) to " +
         "UTF-8 workspace files. Every hunk is exact; one failed hunk rolls back the whole patch.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
-        patch: z.string(),
-        expected_version: z.number().int().nonnegative(),
-        note: z.string().optional(),
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          patch: z.string(),
+          expected_version: z.number().int().nonnegative(),
+          expected_hashes: z
+            .record(z.string(), z.string())
+            .optional()
+            .describe(
+              "Current file hashes from canvas_get/canvas_file_get. Required for every existing file when safely rebasing a stale expected_version.",
+            ),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        requested_version: z.number().int().nonnegative(),
+        previous_version: z.number().int().nonnegative(),
+        version: z.number().int().positive(),
+        rebased: z.boolean(),
+        files: z.array(z.object({ path: z.string(), content_hash: z.string().optional() })),
       }),
     },
     async (input) =>
       runTool(async () => {
         let canvasId: Id<"canvases"> | undefined;
+        let currentVersion: number | undefined;
         const cache = new Map<string, Awaited<ReturnType<typeof loadEditableFile>> | null>();
         const prepared = await prepareApplyPatch(input.patch, async (path) => {
           if (cache.has(path)) {
@@ -1252,12 +1562,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }
           try {
             const file = await loadEditableFile(ctx, input.ref, path);
-            if (file.version !== input.expected_version) {
-              throw new Error(
-                `version_conflict: expected ${input.expected_version}, current ${file.version}`,
-              );
-            }
             canvasId = file.canvasId;
+            currentVersion = file.version;
             cache.set(path, file);
             return { content: file.content, hash: file.contentHash };
           } catch (error) {
@@ -1272,9 +1578,26 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
           if (!detail) throw new Error(`No canvas found for ref "${input.ref}"`);
           canvasId = detail.canvas.canvas_id;
-          if ((detail.canvas.version ?? 0) !== input.expected_version) {
+          currentVersion = detail.canvas.version ?? 0;
+        }
+        if (currentVersion === undefined) {
+          throw new Error(`No canvas version found for ref "${input.ref}"`);
+        }
+        if (currentVersion !== input.expected_version) {
+          const staleFiles = [...cache.values()].filter(
+            (file): file is NonNullable<typeof file> => file !== null,
+          );
+          const mismatch = staleFiles.find(
+            (file) =>
+              input.expected_hashes?.[file.path]?.replace(/^sha256:/, "") !== file.contentHash,
+          );
+          if (mismatch || staleFiles.length === 0) {
+            const changedPaths = await ctx.runQuery(internal.canvases.changedPathsSinceVersion, {
+              canvasId,
+              expectedVersion: input.expected_version,
+            });
             throw new Error(
-              `version_conflict: expected ${input.expected_version}, current ${detail.canvas.version ?? 0}`,
+              `version_conflict: ${JSON.stringify({ expected_version: input.expected_version, current_version: currentVersion, changed_paths_since: changedPaths, retryable: true, retryable_with_expected_hashes: staleFiles.map((file) => file.path) })}`,
             );
           }
         }
@@ -1282,71 +1605,91 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ctx,
           principal,
           canvasId,
-          input.expected_version,
+          currentVersion,
           prepared,
           input.note,
         );
         return result({
           status: "ok",
           ref: input.ref,
-          previous_version: input.expected_version,
+          requested_version: input.expected_version,
+          previous_version: currentVersion,
           version: committed.version,
+          rebased: currentVersion !== input.expected_version,
           files: committed.files,
         });
       }),
   );
 
-  const docPatchOps = new Set([
-    "world.update",
-    ...(["lanes", "stages", "labels", "nodes", "edges"] as const).flatMap((collection) => [
-      `${collection}.add`,
-      `${collection}.update`,
-      `${collection}.remove`,
+  const rootChangesSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+      "Shallow entity-root merge. Nested objects are replaced, not deep-merged; changing rect.x requires the complete {x,y,w,h} rect.",
+    );
+  const entityValueSchema = z
+    .unknown()
+    .describe("Complete CanvasDoc entity, validated as part of the final document.");
+  const docPatchCollections = ["lanes", "stages", "labels", "nodes", "edges"] as const;
+  const docPatchOperationSchema = z.discriminatedUnion("op", [
+    z
+      .object({
+        op: z.literal("world.update"),
+        changes: rootChangesSchema.describe("World changes; width and height remain positive."),
+      })
+      .strict(),
+    ...docPatchCollections.flatMap((collection) => [
+      z.object({ op: z.literal(`${collection}.add`), value: entityValueSchema }).strict(),
+      z
+        .object({
+          op: z.literal(`${collection}.update`),
+          id: z.string().min(1),
+          changes: rootChangesSchema,
+        })
+        .strict(),
+      z
+        .object({
+          op: z.literal(`${collection}.replace`),
+          id: z.string().min(1),
+          value: entityValueSchema.describe(
+            "Complete replacement. Omitted optional fields are cleared; id is preserved from the operation.",
+          ),
+        })
+        .strict(),
+      z.object({ op: z.literal(`${collection}.remove`), id: z.string().min(1) }).strict(),
     ]),
   ]);
-  const docPatchOperationSchema = z
-    .object({
-      op: z.string(),
-      id: z.string().optional(),
-      changes: z.record(z.string(), z.unknown()).optional(),
-      value: z.unknown().optional(),
-    })
-    .superRefine((operation, check) => {
-      if (!docPatchOps.has(operation.op)) {
-        check.addIssue({
-          code: "custom",
-          message: `Unsupported CanvasDoc operation: ${operation.op}`,
-        });
-      }
-      if (operation.op.endsWith(".add") && operation.value === undefined) {
-        check.addIssue({ code: "custom", path: ["value"], message: "add requires value" });
-      }
-      if (
-        (operation.op.endsWith(".update") || operation.op.endsWith(".remove")) &&
-        operation.op !== "world.update" &&
-        !operation.id
-      ) {
-        check.addIssue({ code: "custom", path: ["id"], message: "update/remove requires id" });
-      }
-      if (operation.op.endsWith(".update") && operation.changes === undefined) {
-        check.addIssue({ code: "custom", path: ["changes"], message: "update requires changes" });
-      }
-    });
+
+  const DocPatchOutputSchema = z.object({
+    status: z.enum(["ok", "partial"]),
+    ref: z.string(),
+    previous_version: z.number(),
+    version: z.number(),
+    operations: z.number(),
+    warnings: z.array(WarningSchema),
+  });
 
   server.registerTool(
     "canvas_doc_patch",
     {
       title: "Patch CanvasDoc entities",
       description:
-        "Atomically adds, updates or removes CanvasDoc v2 world/lanes/stages/labels/nodes/edges " +
-        "by semantic id. The complete resulting graph is strictly validated before a version is created.",
+        "Atomically patches CanvasDoc v2 entities. Operation names are plural: nodes.update, " +
+        "not node.update/update_node. add requires a complete value; update requires id plus " +
+        "shallow root-level changes; replace requires id plus a complete value and can clear " +
+        "optional fields; remove requires id; world.update requires changes. Nested objects are " +
+        "replaced, so changing rect.x requires a complete {x,y,w,h} rect. Read the doc first and " +
+        "pass its version as expected_version. Example: {op:'nodes.update',id:'phone',changes:{" +
+        "rect:{x:10,y:20,w:310,h:708}}}. The final graph is validated atomically.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
-        expected_version: z.number().int().nonnegative(),
-        operations: z.array(docPatchOperationSchema).min(1),
-        note: z.string().optional(),
-      }),
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          expected_version: z.number().int().nonnegative(),
+          operations: z.array(docPatchOperationSchema).min(1).max(100),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: DocPatchOutputSchema,
     },
     async (input) =>
       runTool(async () => {
@@ -1395,33 +1738,47 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Searches the personal or workspace Asset Library and returns immutable asset:// refs " +
         "that can be attached to a canvas without uploading the bytes again.",
       annotations: { readOnlyHint: true },
-      inputSchema: z.object({
-        scope: assetScopeSchema,
-        workspace: z.string().optional(),
-        query: z.string().optional(),
-        kind: assetKindSchema.optional(),
-        limit: z.number().int().positive().max(100).optional(),
+      inputSchema: z
+        .object({
+          scope: assetScopeSchema,
+          workspace: z.string().optional(),
+          query: z.string().optional(),
+          kind: assetKindSchema.optional(),
+          limit: z.number().int().positive().max(100).optional(),
+          cursor: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        assets: z.array(AssetRecordOutputSchema),
+        count: z.number().int().nonnegative(),
+        is_done: z.boolean(),
+        next_cursor: z.string().nullable(),
       }),
     },
     async (input) =>
       runTool(async () => {
         if (input.scope === "workspace" && !input.workspace)
           throw new Error("workspace is required for workspace assets");
-        const rows = await ctx.runQuery(internal.assets.listInternal, {
+        const page = await ctx.runQuery(internal.assets.listInternal, {
           userId: principal.userId,
           scope: input.scope,
           workspaceSlug: input.workspace,
           query: input.query,
           kind: input.kind,
-          limit: input.limit ?? 50,
+          paginationOpts: { numItems: input.limit ?? 50, cursor: input.cursor ?? null },
         });
         const assets = await Promise.all(
-          rows.map(async ({ preview_object_key, ...asset }) => ({
+          page.page.map(async ({ preview_object_key, ...asset }) => ({
             ...asset,
             preview_url: await presignObject("delivery", preview_object_key, "GET", 900),
           })),
         );
-        return result({ assets, count: assets.length });
+        return result({
+          assets,
+          count: assets.length,
+          is_done: page.isDone,
+          next_cursor: page.isDone ? null : page.continueCursor,
+        });
       }),
   );
 
@@ -1433,9 +1790,19 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Returns one immutable asset revision. For visual assets include_preview=true adds the " +
         "actual image to MCP content so a multimodal caller can inspect it directly.",
       annotations: { readOnlyHint: true },
-      inputSchema: z.object({
+      inputSchema: z
+        .object({
+          asset_ref: z.string(),
+          include_preview: z.boolean().optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
         asset_ref: z.string(),
-        include_preview: z.boolean().optional(),
+        revision: z.number().int().positive(),
+        mime_type: z.string(),
+        size_bytes: z.number().int().nonnegative(),
+        content_hash: z.string(),
+        preview_url: z.string(),
       }),
     },
     async (input) =>
@@ -1478,7 +1845,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "This is reversible archival, never a hard purge of content-addressed bytes. Call " +
         "asset_restore with the returned asset_ref to make it available again.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-      inputSchema: z.object({ asset_ref: z.string() }),
+      inputSchema: z.object({ asset_ref: z.string() }).strict(),
       outputSchema: z.object({
         status: z.literal("ok"),
         asset_ref: z.string(),
@@ -1510,7 +1877,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "library. No bytes are uploaded and immutable revisions and existing canvas bindings " +
         "remain unchanged. Repeating the same restore is safe.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-      inputSchema: z.object({ asset_ref: z.string() }),
+      inputSchema: z.object({ asset_ref: z.string() }).strict(),
       outputSchema: z.object({
         status: z.literal("ok"),
         asset_ref: z.string(),
@@ -1541,11 +1908,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "stops resolving for new operations; existing canvas bindings remain pinned to their " +
         "immutable revisions. A destination slug collision is returned as an error and never overwrites.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        asset_ref: z.string(),
-        destination_scope: assetScopeSchema,
-        destination_workspace: z.string().optional(),
-      }),
+      inputSchema: z
+        .object({
+          asset_ref: z.string(),
+          destination_scope: assetScopeSchema,
+          destination_workspace: z.string().optional(),
+        })
+        .strict(),
       outputSchema: z.object({
         status: z.literal("ok"),
         previous_asset_ref: z.string(),
@@ -1573,22 +1942,67 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Upload media to the Asset Library",
       description:
-        "Creates a one-hour presigned PUT URL for direct binary upload to the private source " +
-        "bucket. Call asset_finalize after the PUT completes.",
+        "Creates one-hour presigned PUT URLs for direct binary upload to the private source " +
+        "bucket. Pass one file or a files batch (up to 50), PUT each upload, then call " +
+        "asset_finalize once with the corresponding item or items manifest.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        scope: assetScopeSchema,
-        workspace: z.string().optional(),
-        filename: z.string(),
-        content_type: z.string(),
-        size_bytes: z.number().int().positive().max(ASSET_MAX_BYTES).optional(),
-        sha256: z.string().optional(),
+      inputSchema: z.union([
+        z
+          .object({
+            scope: assetScopeSchema,
+            workspace: z.string().optional(),
+            filename: z.string(),
+            content_type: z.string(),
+            size_bytes: z.number().int().positive().max(ASSET_MAX_BYTES).optional(),
+            sha256: z.string().optional(),
+          })
+          .strict(),
+        z
+          .object({
+            scope: assetScopeSchema,
+            workspace: z.string().optional(),
+            files: z
+              .array(
+                z
+                  .object({
+                    filename: z.string(),
+                    content_type: z.string(),
+                    size_bytes: z.number().int().positive().max(ASSET_MAX_BYTES).optional(),
+                    sha256: z.string().optional(),
+                  })
+                  .strict(),
+              )
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      ]),
+      outputSchema: z.object({
+        uploads: z.array(
+          z.object({
+            upload_id: z.string(),
+            filename: z.string(),
+            upload_url: z.string(),
+            method: z.literal("PUT"),
+            expires_at: z.number(),
+          }),
+        ),
+        instructions: z.string(),
       }),
     },
     async (input) =>
       runTool(async () => {
-        const mime = input.content_type.split(";")[0]?.trim().toLowerCase() ?? "";
-        if (!(mime in ASSET_MIME_TYPES)) throw new Error(`Unsupported asset MIME type: ${mime}`);
+        const files = "files" in input ? input.files : [input];
+        const normalized = files.map((file) => {
+          const mime = file.content_type.split(";")[0]?.trim().toLowerCase() ?? "";
+          if (!(mime in ASSET_MIME_TYPES)) throw new Error(`Unsupported asset MIME type: ${mime}`);
+          return {
+            ...file,
+            mime,
+            sourceObjectKey: `staging/${principal.userId}/${crypto.randomUUID()}`,
+            expiresAt: Date.now() + 60 * 60 * 1000,
+          };
+        });
         const workspace =
           input.scope === "workspace"
             ? await ctx.runQuery(internal.assets.getWorkspaceBySlug, {
@@ -1596,25 +2010,31 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               })
             : null;
         if (input.scope === "workspace" && !workspace) throw new Error("Workspace not found");
-        const sourceObjectKey = `staging/${principal.userId}/${crypto.randomUUID()}`;
-        const expiresAt = Date.now() + 60 * 60 * 1000;
-        const uploadId = await ctx.runMutation(internal.assets.createUpload, {
+        const uploadIds = await ctx.runMutation(internal.assets.createUploads, {
           scope: input.scope,
           ownerUserId: principal.userId,
           workspaceId: workspace?.workspaceId,
-          sourceObjectKey,
-          filename: input.filename,
-          declaredMimeType: mime,
-          expectedSize: input.size_bytes,
-          expectedHash: input.sha256,
-          expiresAt,
+          uploads: normalized.map((file) => ({
+            sourceObjectKey: file.sourceObjectKey,
+            filename: file.filename,
+            declaredMimeType: file.mime,
+            expectedSize: file.size_bytes,
+            expectedHash: file.sha256,
+            expiresAt: file.expiresAt,
+          })),
         });
         return result({
-          upload_id: uploadId,
-          upload_url: await presignObject("source", sourceObjectKey, "PUT", 3600),
-          method: "PUT",
-          expires_at: expiresAt,
-          instructions: "PUT the raw bytes to upload_url, then call asset_finalize with upload_id.",
+          uploads: await Promise.all(
+            normalized.map(async (file, index) => ({
+              upload_id: uploadIds[index] as string,
+              filename: file.filename,
+              upload_url: await presignObject("source", file.sourceObjectKey, "PUT", 3600),
+              method: "PUT" as const,
+              expires_at: file.expiresAt,
+            })),
+          ),
+          instructions:
+            "PUT each file's raw bytes to its upload_url, then call asset_finalize with an items manifest. Failed items retain their upload_id and can be retried until expires_at.",
         });
       }),
   );
@@ -1625,61 +2045,93 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       title: "Finalize an uploaded asset",
       description:
         "Validates MIME/size/hash, stores immutable source and delivery objects, " +
-        "and creates a new Asset Library revision.",
+        "and creates Asset Library revisions. Pass one item or up to 50 items; a batch returns " +
+        "per-item results so only failed upload_ids need to be resumed.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        upload_id: z.string(),
-        slug: z.string().optional(),
-        name: z.string(),
-        description: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-      }),
+      inputSchema: z.union([
+        z
+          .object({
+            upload_id: z.string(),
+            slug: z.string().optional(),
+            name: z.string(),
+            description: z.string().optional(),
+            tags: z.array(z.string()).optional(),
+          })
+          .strict(),
+        z
+          .object({
+            items: z
+              .array(
+                z
+                  .object({
+                    upload_id: z.string(),
+                    slug: z.string().optional(),
+                    name: z.string(),
+                    description: z.string().optional(),
+                    tags: z.array(z.string()).optional(),
+                  })
+                  .strict(),
+              )
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      ]),
+      outputSchema: z.union([
+        AssetSavedOutputSchema,
+        z.object({
+          status: z.enum(["ok", "partial"]),
+          results: z.array(
+            z.union([
+              AssetSavedOutputSchema.extend({ upload_id: z.string() }),
+              z.object({
+                status: z.literal("error"),
+                upload_id: z.string(),
+                error: z.string(),
+                retryable: z.boolean(),
+              }),
+            ]),
+          ),
+          succeeded: z.number().int().nonnegative(),
+          failed: z.number().int().nonnegative(),
+        }),
+      ]),
     },
     async (input) =>
       runTool(async () => {
-        const uploadId = input.upload_id as Id<"assetUploads">;
-        const upload = await ctx.runQuery(internal.assets.getUpload, {
-          uploadId,
-          userId: principal.userId,
-          now: Date.now(),
-        });
-        if (!upload) throw new Error("Upload does not exist or has expired");
-        const response = await getObject("source", upload.sourceObjectKey);
-        if (!response.ok)
-          throw new Error(`Uploaded object is unavailable: HTTP ${response.status}`);
-        const rawBytes = new Uint8Array(await response.arrayBuffer());
-        if (upload.expectedSize !== undefined && rawBytes.byteLength !== upload.expectedSize)
-          throw new Error("Uploaded asset size does not match the declared size");
-        const rawHash = await sha256HexBytes(rawBytes);
-        if (upload.expectedHash && rawHash !== upload.expectedHash.replace(/^sha256:/, ""))
-          throw new Error("Uploaded asset SHA-256 does not match");
-        const workspace = upload.workspaceId
-          ? await ctx.runQuery(internal.assets.getWorkspace, { workspaceId: upload.workspaceId })
-          : null;
-        const saved = await persistAsset(ctx, {
-          uploadId,
-          scope: upload.scope,
-          ownerUserId: principal.userId,
-          workspaceId: upload.workspaceId,
-          workspaceSlug: workspace?.slug,
-          slug: slugify(input.slug ?? input.name),
-          name: input.name.trim(),
-          description: input.description,
-          tags: [...new Set(input.tags ?? [])],
-          filename: upload.filename,
-          rawBytes,
-          declaredMime: upload.declaredMimeType,
-          sourceType: "upload",
-        });
-        await deleteObject("source", upload.sourceObjectKey);
+        if (!("items" in input)) return result(await finalizeUploadedAsset(ctx, principal, input));
+        const results: Array<
+          | (Awaited<ReturnType<typeof finalizeUploadedAsset>> & { upload_id: string })
+          | { status: "error"; upload_id: string; error: string; retryable: boolean }
+        > = [];
+        for (let offset = 0; offset < input.items.length; offset += 8) {
+          const chunk = input.items.slice(offset, offset + 8);
+          results.push(
+            ...(await Promise.all(
+              chunk.map(async (item) => {
+                try {
+                  return {
+                    ...(await finalizeUploadedAsset(ctx, principal, item)),
+                    upload_id: item.upload_id,
+                  };
+                } catch (error) {
+                  return {
+                    status: "error" as const,
+                    upload_id: item.upload_id,
+                    error: describeError(error),
+                    retryable: error instanceof AssetFinalizeFailure ? error.retryable : true,
+                  };
+                }
+              }),
+            )),
+          );
+        }
+        const failed = results.filter((item) => item.status === "error").length;
         return result({
-          status: "ok",
-          asset_id: saved.assetId,
-          asset_ref: saved.assetRef,
-          revision: saved.revision,
-          mime_type: saved.mimeType,
-          size_bytes: saved.size,
-          content_hash: saved.contentHash,
+          status: failed > 0 ? ("partial" as const) : ("ok" as const),
+          results,
+          succeeded: results.length - failed,
+          failed,
         });
       }),
   );
@@ -1692,15 +2144,18 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Downloads an HTTPS asset into the private Asset Library. The canvas never hotlinks the " +
         "external URL; redirects and private-network targets are rejected.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        scope: assetScopeSchema,
-        workspace: z.string().optional(),
-        url: z.string(),
-        slug: z.string().optional(),
-        name: z.string(),
-        description: z.string().optional(),
-        tags: z.array(z.string()).optional(),
-      }),
+      inputSchema: z
+        .object({
+          scope: assetScopeSchema,
+          workspace: z.string().optional(),
+          url: z.string(),
+          slug: z.string().optional(),
+          name: z.string(),
+          description: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        })
+        .strict(),
+      outputSchema: AssetSavedOutputSchema,
     },
     async (input) =>
       runTool(async () => {
@@ -1747,11 +2202,20 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Pins one immutable asset revision at an /assets path and creates a canvas version. " +
         "Iframe HTML uses the ordinary path; old canvas versions keep their previous revision.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          asset_ref: z.string(),
+          path: z.string(),
+          expected_version: z.number().int().nonnegative(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
         asset_ref: z.string(),
         path: z.string(),
-        expected_version: z.number().int().nonnegative(),
+        version: z.number().int().positive(),
       }),
     },
     async (input) =>
@@ -1788,7 +2252,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Returns a PNG image block for a native canvas, one node, or an exact world-coordinate " +
         "region. Pass a copied ref_id to see that node immediately. The capture is rendered from " +
-        "the current immutable canvas version, not from transient browser state.",
+        "the current immutable canvas version, not from transient browser state. PNGs above 5 MB " +
+        "are not inlined; use download_url or the suggested smaller regions/scale.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: SnapshotInputSchema,
       outputSchema: z.object({
@@ -1801,8 +2266,36 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         width: z.number(),
         height: z.number(),
         size_bytes: z.number(),
+        inline: z.boolean(),
+        download_url: z.string().optional(),
         cached: z.boolean(),
         warnings: z.array(z.string()),
+        diagnostics: z.object({
+          unresolved_refs: z.array(z.string()),
+          unresolved_resources: z.array(
+            z.object({
+              ref: z.string(),
+              resource_type: z.string(),
+              reason: z.string(),
+              error: z.string().optional(),
+            }),
+          ),
+          readiness: z.object({
+            status: z.enum(["ready", "partial"]),
+            warnings: z.array(z.string()),
+          }),
+          attempts: z.number().int().positive(),
+          suggested_regions: z.array(
+            z.object({
+              type: z.literal("region"),
+              x: z.number(),
+              y: z.number(),
+              width: z.number().positive(),
+              height: z.number().positive(),
+            }),
+          ),
+          regions_truncated: z.boolean(),
+        }),
       }),
     },
     async (input) =>
@@ -1841,15 +2334,38 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const normalizedTarget =
           target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
         const cacheKey = await sha256Hex(
-          JSON.stringify({ renderer: 1, target: normalizedTarget, padding, scale }),
+          JSON.stringify({ renderer: 2, target: normalizedTarget, padding, scale }),
         );
 
         let cached = true;
-        let snapshot = await ctx.runQuery(internal.canvases.getSnapshotCache, {
-          versionId: context.versionId,
-          cacheKey,
-          now: Date.now(),
-        });
+        type SnapshotRecord = {
+          storageId: Id<"_storage">;
+          mimeType: "image/png";
+          size: number;
+          width: number;
+          height: number;
+          status: "ok" | "partial";
+          warnings: string[];
+          diagnostics: {
+            unresolvedRefs: string[];
+            unresolvedDetails: Array<{
+              ref: string;
+              resourceType: string;
+              reason: string;
+              error?: string;
+            }>;
+            readinessStatus: "ready" | "partial";
+            readinessWarnings: string[];
+            attempts: number;
+          };
+        };
+        let snapshot: SnapshotRecord | null = input.refresh
+          ? null
+          : await ctx.runQuery(internal.canvases.getSnapshotCache, {
+              versionId: context.versionId,
+              cacheKey,
+              now: Date.now(),
+            });
         let blob = snapshot ? await ctx.storage.get(snapshot.storageId) : null;
 
         if (!snapshot || !blob) {
@@ -1871,55 +2387,84 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               })),
             )),
           ];
-          let temporaryEntryStorageId: Id<"_storage"> | undefined;
-          if (!sources.some((source) => source.relPath === "/src/__canvas.html")) {
-            // Versions created before entryStorageId existed are still exactly
-            // reproducible from their immutable doc + compiled CSS.
-            const cssBlob = context.cssStorageId
-              ? await ctx.storage.get(context.cssStorageId)
-              : null;
-            const entryBytes = new TextEncoder().encode(
-              canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : ""),
-            );
-            temporaryEntryStorageId = await ctx.storage.store(
-              new Blob([entryBytes], { type: "text/html" }),
-            );
-            const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
-            if (!getUrl) {
-              await ctx.storage.delete(temporaryEntryStorageId);
-              throw new Error("snapshot_failed: unable to stage immutable export page.");
-            }
-            sources.push({ relPath: "/src/__canvas.html", getUrl });
+          // Always stage a target-aware immutable export page. Reusing the
+          // version's eager page would load every sibling iframe before the
+          // worker knows which node/region was requested, contaminating a
+          // targeted snapshot with unrelated readiness and asset failures.
+          const cssBlob = context.cssStorageId ? await ctx.storage.get(context.cssStorageId) : null;
+          const entryBytes = new TextEncoder().encode(
+            canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : "", normalizedTarget),
+          );
+          const temporaryEntryStorageId = await ctx.storage.store(
+            new Blob([entryBytes], { type: "text/html" }),
+          );
+          const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
+          if (!getUrl) {
+            await ctx.storage.delete(temporaryEntryStorageId);
+            throw new Error("snapshot_failed: unable to stage immutable export page.");
           }
+          const entryIndex = sources.findIndex((source) => source.relPath === "/src/__canvas.html");
+          if (entryIndex >= 0) sources.splice(entryIndex, 1);
+          sources.push({ relPath: "/src/__canvas.html", getUrl });
 
           const config = getWorkerConfig();
-          const putUrl = await ctx.storage.generateUploadUrl();
-          let workerResult: {
-            size: number;
-            width: number;
-            height: number;
-            mimeType: "image/png";
-            uploadStatus: number;
-            uploadBody: unknown;
-            unresolvedRefs: string[];
-            readiness: { status: "ready" | "partial"; warnings: string[] };
-            downscaled: boolean;
-            contentOverflow: boolean;
-          };
+          let workerResult:
+            | {
+                size: number;
+                width: number;
+                height: number;
+                mimeType: "image/png";
+                uploadStatus: number;
+                uploadBody: unknown;
+                unresolvedRefs: string[];
+                unresolvedDetails: Array<{
+                  ref: string;
+                  resourceType: string;
+                  reason: string;
+                  error?: string;
+                }>;
+                readiness: { status: "ready" | "partial"; warnings: string[] };
+                downscaled: boolean;
+                contentOverflow: boolean;
+              }
+            | undefined;
+          let attempts = 0;
+          let lastError: unknown;
           try {
-            workerResult = await callWorker(config, "/snapshot", {
-              sources,
-              entrypoint: "/src/__canvas.html",
-              target: normalizedTarget,
-              padding,
-              scale,
-              upload: { putUrl },
-            });
-          } finally {
-            if (temporaryEntryStorageId) {
-              await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
+            for (let attempt = 1; attempt <= 2; attempt += 1) {
+              attempts = attempt;
+              try {
+                const putUrl = await ctx.storage.generateUploadUrl();
+                const attemptResult = await callWorker<NonNullable<typeof workerResult>>(
+                  config,
+                  "/snapshot",
+                  {
+                    sources,
+                    entrypoint: "/src/__canvas.html",
+                    target: normalizedTarget,
+                    padding,
+                    scale,
+                    readinessTimeoutMs: input.timeout_ms,
+                    upload: { putUrl },
+                  },
+                );
+                workerResult = attemptResult;
+                if (attemptResult.readiness.status === "ready" || attempt === 2) break;
+                const partialStorageId = extractStorageId(
+                  attemptResult.uploadBody,
+                ) as Id<"_storage">;
+                await ctx.storage.delete(partialStorageId).catch(() => undefined);
+              } catch (error) {
+                lastError = error;
+                if (attempt === 2) throw error;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 250));
             }
+          } finally {
+            await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
           }
+          if (!workerResult)
+            throw lastError ?? new Error("snapshot_failed: worker returned nothing");
           const storageId = extractStorageId(workerResult.uploadBody) as Id<"_storage">;
           const warnings = [
             ...(workerResult.readiness.status === "partial" ? ["iframe_not_ready"] : []),
@@ -1935,31 +2480,105 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             height: workerResult.height,
             status: warnings.length > 0 ? ("partial" as const) : ("ok" as const),
             warnings,
+            diagnostics: {
+              unresolvedRefs: workerResult.unresolvedRefs,
+              unresolvedDetails: workerResult.unresolvedDetails,
+              readinessStatus: workerResult.readiness.status,
+              readinessWarnings: workerResult.readiness.warnings,
+              attempts,
+            },
           };
-          try {
-            snapshot = await ctx.runMutation(internal.canvases.putSnapshotCache, {
-              canvasId: context.canvasId,
-              versionId: context.versionId,
-              cacheKey,
-              storageId,
-              size: snapshot.size,
-              width: snapshot.width,
-              height: snapshot.height,
-              status: snapshot.status,
-              warnings,
-            });
-          } catch (error) {
-            await ctx.storage.delete(storageId).catch(() => undefined);
-            throw error;
+          if (snapshot.status === "ok") {
+            try {
+              snapshot = await ctx.runMutation(internal.canvases.putSnapshotCache, {
+                canvasId: context.canvasId,
+                versionId: context.versionId,
+                cacheKey,
+                storageId,
+                size: snapshot.size,
+                width: snapshot.width,
+                height: snapshot.height,
+                status: snapshot.status,
+                warnings,
+                diagnostics: snapshot.diagnostics,
+              });
+            } catch (error) {
+              await ctx.storage.delete(storageId).catch(() => undefined);
+              throw error;
+            }
           }
           blob = await ctx.storage.get(snapshot.storageId);
         }
         if (!snapshot || !blob) throw new Error("snapshot_failed: snapshot bytes are unavailable.");
-        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const MAX_INLINE_SNAPSHOT_BYTES = 5 * 1024 * 1024;
+        const tooLargeToInline = snapshot.size > MAX_INLINE_SNAPSHOT_BYTES;
+        const bytes = tooLargeToInline ? null : new Uint8Array(await blob.arrayBuffer());
+        if (tooLargeToInline && snapshot.status === "partial") {
+          // Partial captures are never returned by getSnapshotCache, but a
+          // large response still needs a cleanup-owned row so its download
+          // URL remains valid until the ordinary snapshot TTL sweep.
+          await ctx.runMutation(internal.canvases.putSnapshotCache, {
+            canvasId: context.canvasId,
+            versionId: context.versionId,
+            cacheKey: `${cacheKey}:download:${crypto.randomUUID()}`,
+            storageId: snapshot.storageId,
+            size: snapshot.size,
+            width: snapshot.width,
+            height: snapshot.height,
+            status: snapshot.status,
+            warnings: snapshot.warnings,
+            diagnostics: snapshot.diagnostics,
+          });
+        }
+        const downloadUrl = tooLargeToInline
+          ? ((await ctx.storage.getUrl(snapshot.storageId)) ?? undefined)
+          : undefined;
+        if (!cached && snapshot.status === "partial" && !tooLargeToInline) {
+          // Transient readiness failures must not become a 24-hour cache
+          // artifact. The bytes have already been materialized for this
+          // response, so the worker upload can be discarded immediately.
+          await ctx.storage.delete(snapshot.storageId).catch(() => undefined);
+        }
         const canonicalRefId =
           target.type === "node" ? formatElementRef(ref, target.node_id) : undefined;
+        const suggestedRegions: Array<{
+          type: "region";
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        }> = [];
+        let regionsTruncated = false;
+        if (
+          (snapshot.warnings.includes("output_downscaled") || tooLargeToInline) &&
+          target.type !== "node"
+        ) {
+          const bounds =
+            target.type === "region"
+              ? target
+              : { x: 0, y: 0, width: doc.world.width, height: doc.world.height };
+          const tileSize = 2_048;
+          outer: for (let y = bounds.y; y < bounds.y + bounds.height; y += tileSize) {
+            for (let x = bounds.x; x < bounds.x + bounds.width; x += tileSize) {
+              if (suggestedRegions.length >= 64) {
+                regionsTruncated = true;
+                break outer;
+              }
+              suggestedRegions.push({
+                type: "region",
+                x,
+                y,
+                width: Math.min(tileSize, bounds.x + bounds.width - x),
+                height: Math.min(tileSize, bounds.y + bounds.height - y),
+              });
+            }
+          }
+        }
+        const warnings = tooLargeToInline
+          ? [...new Set([...snapshot.warnings, "snapshot_too_large"])]
+          : snapshot.warnings;
         const metadata = {
-          status: snapshot.status,
+          status: tooLargeToInline ? ("partial" as const) : snapshot.status,
           ref,
           ref_id: canonicalRefId,
           version: context.version,
@@ -1968,13 +2587,33 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           width: snapshot.width,
           height: snapshot.height,
           size_bytes: snapshot.size,
+          inline: !tooLargeToInline,
+          download_url: downloadUrl,
           cached,
-          warnings: snapshot.warnings,
+          warnings,
+          diagnostics: {
+            unresolved_refs: snapshot.diagnostics.unresolvedRefs,
+            unresolved_resources: snapshot.diagnostics.unresolvedDetails.map((detail) => ({
+              ref: detail.ref,
+              resource_type: detail.resourceType,
+              reason: detail.reason,
+              error: detail.error,
+            })),
+            readiness: {
+              status: snapshot.diagnostics.readinessStatus,
+              warnings: snapshot.diagnostics.readinessWarnings,
+            },
+            attempts: snapshot.diagnostics.attempts,
+            suggested_regions: suggestedRegions,
+            regions_truncated: regionsTruncated,
+          },
         };
         return {
           content: [
-            { type: "text", text: JSON.stringify(metadata, null, 2) },
-            { type: "image", mimeType: "image/png", data: base64Bytes(bytes) },
+            { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
+            ...(bytes
+              ? [{ type: "image" as const, mimeType: "image/png", data: base64Bytes(bytes) }]
+              : []),
           ],
           structuredContent: metadata,
         };
@@ -2001,7 +2640,39 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           include: z
             .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
             .optional(),
+          doc_projection: z
+            .object({
+              summary: z.boolean().optional(),
+              node_ids: z.array(z.string()).max(100).optional(),
+              collections: z
+                .array(z.enum(["lanes", "stages", "labels", "nodes", "edges", "legend"]))
+                .max(6)
+                .optional(),
+            })
+            .strict()
+            .optional()
+            .describe(
+              "Bound a CanvasDoc response to summary/counts, selected node IDs, or selected collections.",
+            ),
+          pagination: z
+            .object({
+              limit: z.number().int().positive().max(100).optional(),
+              expected_version: z
+                .number()
+                .int()
+                .nonnegative()
+                .optional()
+                .describe("Pin cursor continuation to canvas.version from the first page."),
+              files_cursor: z.string().optional(),
+              artifacts_cursor: z.string().optional(),
+              versions_cursor: z.string().optional(),
+              renders_cursor: z.string().optional(),
+            })
+            .strict()
+            .optional()
+            .describe("Facet cursors returned by a previous canvas_get; default limit is 50."),
         })
+        .strict()
         .superRefine((input, check) => {
           if (Boolean(input.ref) === Boolean(input.ref_id)) {
             check.addIssue({
@@ -2009,7 +2680,115 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               message: "Pass exactly one of ref or ref_id.",
             });
           }
+          if (input.doc_projection && !input.include?.includes("doc")) {
+            check.addIssue({
+              code: "custom",
+              path: ["doc_projection"],
+              message: 'doc_projection requires include:["doc"].',
+            });
+          }
+          const hasCursor = Boolean(
+            input.pagination?.files_cursor ||
+              input.pagination?.artifacts_cursor ||
+              input.pagination?.versions_cursor ||
+              input.pagination?.renders_cursor,
+          );
+          if (hasCursor && input.pagination?.expected_version === undefined) {
+            check.addIssue({
+              code: "custom",
+              path: ["pagination", "expected_version"],
+              message: "expected_version is required when continuing any facet cursor.",
+            });
+          }
         }),
+      outputSchema: z
+        .object({
+          canvas: z
+            .object({
+              ref: z.string(),
+              canvas_id: z.string(),
+              title: z.string(),
+              description: z.string().optional(),
+              kind: z.enum(["canvas", "html", "image", "pdf"]),
+              visibility: z.enum(["private", "public"]),
+              version: z.number().int().nonnegative(),
+              updated_at: z.number(),
+              created_by_email: z.string().nullable(),
+              canvas_url: z.string(),
+              share_url: z.string().nullable(),
+              thumbnail_url: z.string().nullable(),
+              embed: z
+                .object({
+                  image_url: z.string(),
+                  target_url: z.string(),
+                  github_markdown: z.string(),
+                })
+                .nullable(),
+            })
+            .strict(),
+          selection: z.unknown().optional(),
+          doc: z.unknown().optional(),
+          files: z
+            .array(
+              z.object({
+                path: z.string(),
+                size_bytes: z.number().int().nonnegative(),
+                content_hash: z.string(),
+              }),
+            )
+            .optional(),
+          artifacts: z
+            .array(
+              z.object({
+                path: z.string(),
+                type: z.enum(["pdf", "image", "svg", "source"]),
+                role: z.enum(["primary", "supporting"]),
+                size_bytes: z.number().int().nonnegative(),
+                mime_type: z.string(),
+                raw_url: z.string().nullable(),
+                public_url: z.string().nullable(),
+                embed_image_url: z.string().nullable(),
+                github_markdown: z.string().nullable(),
+              }),
+            )
+            .optional(),
+          versions: z
+            .array(
+              z.object({
+                version: z.number().int().positive(),
+                note: z.string().optional(),
+                created_at: z.number(),
+                created_by_email: z.string().nullable(),
+                is_current: z.boolean(),
+              }),
+            )
+            .optional(),
+          renders: z
+            .array(
+              z.object({
+                entrypoint: z.string(),
+                format: z.string(),
+                status: z.string(),
+                duration_ms: z.number(),
+                error_text: z.string().optional(),
+                created_at: z.number(),
+              }),
+            )
+            .optional(),
+          storage: z
+            .object({
+              used_bytes: z.number().int().nonnegative(),
+              quota_bytes: z.number().int().positive(),
+            })
+            .optional(),
+          pagination: z
+            .record(
+              z.string(),
+              z.object({ is_done: z.boolean(), next_cursor: z.string().nullable() }),
+            )
+            .optional(),
+        })
+        .strict(),
     },
     async (input) =>
       runTool(async () => {
@@ -2017,14 +2796,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const ref = elementRef?.canvasRef ?? input.ref;
         if (!ref) throw new Error("Pass exactly one of ref or ref_id.");
         const include = new Set(input.include ?? []);
-        const needsDoc = include.has("doc") || elementRef !== null;
+        const needsDoc =
+          include.has("doc") || elementRef !== null || input.doc_projection !== undefined;
         const detail = await ctx.runQuery(internal.canvases.detailByRef, {
           ref,
           includeDoc: needsDoc,
-          includeFiles: include.has("files"),
-          includeArtifacts: include.has("artifacts"),
-          includeVersions: include.has("versions"),
-          includeRenders: include.has("renders"),
         });
         if (!detail) {
           throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
@@ -2048,9 +2824,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         let canvasDoc: CanvasDoc | undefined;
         if (needsDoc && detail.canvas.doc_url) {
-          const res = await fetch(detail.canvas.doc_url);
-          if (!res.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${res.status}`);
-          canvasDoc = CanvasDocSchema.parse(await res.json());
+          const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, { ref });
+          const blob = source ? await ctx.storage.get(source.storageId) : null;
+          if (!blob) throw new Error("CanvasDoc storage object is unavailable.");
+          canvasDoc = CanvasDocSchema.parse(JSON.parse(await blob.text()));
         }
 
         let selection: Record<string, unknown> | undefined;
@@ -2074,6 +2851,73 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         const focusedCanvasUrl = new URL(canvasUrl(detail.canvas.canvas_id));
         if (elementRef) focusedCanvasUrl.searchParams.set("node", elementRef.nodeId);
+
+        const projectedDoc = (() => {
+          if (!include.has("doc") || !canvasDoc) return undefined;
+          const projection = input.doc_projection;
+          if (!projection) return canvasDoc;
+          const collections = new Set(projection.collections ?? []);
+          const nodeIds = new Set(projection.node_ids ?? []);
+          const nodes = canvasDoc.nodes.filter((node) => nodeIds.has(node.id));
+          const selectedNodeIds = new Set(nodes.map((node) => node.id));
+          return {
+            version: canvasDoc.version,
+            title: canvasDoc.title,
+            subtitle: canvasDoc.subtitle,
+            theme: canvasDoc.theme,
+            world: canvasDoc.world,
+            counts: {
+              lanes: canvasDoc.lanes.length,
+              stages: canvasDoc.stages.length,
+              labels: canvasDoc.labels.length,
+              nodes: canvasDoc.nodes.length,
+              edges: canvasDoc.edges.length,
+            },
+            lanes: collections.has("lanes") ? canvasDoc.lanes : undefined,
+            stages: collections.has("stages") ? canvasDoc.stages : undefined,
+            labels: collections.has("labels") ? canvasDoc.labels : undefined,
+            nodes:
+              collections.has("nodes") && nodeIds.size === 0
+                ? canvasDoc.nodes
+                : nodes.length > 0
+                  ? nodes
+                  : undefined,
+            edges: collections.has("edges")
+              ? canvasDoc.edges
+              : selectedNodeIds.size > 0
+                ? canvasDoc.edges.filter(
+                    (edge) =>
+                      selectedNodeIds.has(edge.source.nodeId) ||
+                      selectedNodeIds.has(edge.target.nodeId),
+                  )
+                : undefined,
+            legend: collections.has("legend") ? canvasDoc.legend : undefined,
+          };
+        })();
+
+        const allPagedFacets = ["files", "artifacts", "versions", "renders"] as const;
+        const pagedFacets = allPagedFacets.filter((facet) => include.has(facet));
+        const facetPages = Object.fromEntries(
+          await Promise.all(
+            pagedFacets.map(async (facet) => {
+              const page = await ctx.runQuery(internal.canvases.detailFacetPageByRef, {
+                ref,
+                facet,
+                expectedVersion: input.pagination?.expected_version,
+                paginationOpts: {
+                  numItems: input.pagination?.limit ?? 50,
+                  cursor: input.pagination?.[`${facet}_cursor`] ?? null,
+                  maximumRowsRead: 200,
+                },
+              });
+              if (!page) throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
+              return [facet, page] as const;
+            }),
+          ),
+        ) as Record<
+          "files" | "artifacts" | "versions" | "renders",
+          { page: unknown[]; isDone: boolean; continueCursor: string }
+        >;
 
         return result({
           canvas: {
@@ -2105,9 +2949,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             })(),
           },
           selection,
-          doc: include.has("doc") ? canvasDoc : undefined,
-          files: detail.files,
-          artifacts: detail.artifacts?.map((artifact) => {
+          doc: projectedDoc,
+          files: facetPages.files?.page,
+          artifacts: facetPages.artifacts?.page.map((rawArtifact) => {
+            const artifact = rawArtifact as {
+              path: string;
+              type: string;
+              role: string;
+              size_bytes: number;
+              mime_type: string;
+              raw_url: string | null;
+            };
             const target = { kind: "artifact" as const, id: artifact.path };
             const imageUrl = embedCardUrl(detail.canvas.public_slug, target, detail.canvas.version);
             const targetUrl = embedTargetUrl(detail.canvas.public_slug, target);
@@ -2118,9 +2970,172 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               github_markdown: githubEmbedMarkdown(artifact.path, imageUrl, targetUrl),
             };
           }),
-          versions: detail.versions,
-          renders: detail.renders,
+          versions: facetPages.versions?.page,
+          renders: facetPages.renders?.page,
           storage: include.has("storage") ? detail.storage : undefined,
+          pagination:
+            pagedFacets.length > 0
+              ? Object.fromEntries(
+                  pagedFacets.map((facet) => [
+                    facet,
+                    {
+                      is_done: facetPages[facet].isDone,
+                      next_cursor: facetPages[facet].isDone
+                        ? null
+                        : facetPages[facet].continueCursor,
+                    },
+                  ]),
+                )
+              : undefined,
+        });
+      }),
+  );
+
+  const FileGetOutputSchema = z.object({
+    status: z.literal("ok"),
+    ref: z.string(),
+    path: z.string(),
+    version: z.number(),
+    size_bytes: z.number(),
+    content_hash: z.string(),
+    encoding: z.enum(["utf-8", "base64"]),
+    content: z.string(),
+    range: z.object({
+      kind: z.enum(["full", "lines", "bytes"]),
+      start: z.number(),
+      end: z.number(),
+      total: z.number(),
+    }),
+    truncated: z.boolean(),
+  });
+
+  server.registerTool(
+    "canvas_file_get",
+    {
+      title: "Read one canvas file",
+      description:
+        "Reads one UTF-8 canvas source file with its current version and content hash. Use line " +
+        "or byte ranges for large files instead of canvas_run or a full canvas_get. Ranges are " +
+        "zero-copy response projections: line numbers are 1-based and inclusive; byte offsets " +
+        "are 0-based with an exclusive end. Full/line content is UTF-8; exact byte ranges are " +
+        "base64 so offsets may safely split a multibyte character. Check the encoding field.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          path: z.string(),
+          start_line: z.number().int().positive().optional(),
+          end_line: z.number().int().positive().optional(),
+          start_byte: z.number().int().nonnegative().optional(),
+          end_byte: z.number().int().positive().optional(),
+        })
+        .strict()
+        .superRefine((input, check) => {
+          const hasLines = input.start_line !== undefined || input.end_line !== undefined;
+          const hasBytes = input.start_byte !== undefined || input.end_byte !== undefined;
+          if (hasLines && hasBytes) {
+            check.addIssue({
+              code: "custom",
+              message: "Choose either a line range or a byte range, not both.",
+            });
+          }
+          if (input.end_line !== undefined && input.start_line === undefined) {
+            check.addIssue({
+              code: "custom",
+              path: ["start_line"],
+              message: "start_line is required when end_line is set.",
+            });
+          }
+          if (input.end_byte !== undefined && input.start_byte === undefined) {
+            check.addIssue({
+              code: "custom",
+              path: ["start_byte"],
+              message: "start_byte is required when end_byte is set.",
+            });
+          }
+          if (
+            input.start_line !== undefined &&
+            input.end_line !== undefined &&
+            input.end_line < input.start_line
+          ) {
+            check.addIssue({
+              code: "custom",
+              path: ["end_line"],
+              message: "end_line must be greater than or equal to start_line.",
+            });
+          }
+          if (
+            input.start_byte !== undefined &&
+            input.end_byte !== undefined &&
+            input.end_byte <= input.start_byte
+          ) {
+            check.addIssue({
+              code: "custom",
+              path: ["end_byte"],
+              message: "end_byte must be greater than start_byte.",
+            });
+          }
+        }),
+      outputSchema: FileGetOutputSchema,
+    },
+    async (input) =>
+      runTool(async () => {
+        const source = await loadEditableFile(ctx, input.ref, input.path);
+        const bytes = new TextEncoder().encode(source.content);
+        const MAX_RESPONSE_BYTES = 128 * 1024;
+        let content = source.content;
+        let kind: "full" | "lines" | "bytes" = "full";
+        let start = 0;
+        let end = bytes.byteLength;
+        let total = bytes.byteLength;
+        let truncated = false;
+        let encoding: "utf-8" | "base64" = "utf-8";
+
+        if (input.start_line !== undefined) {
+          kind = "lines";
+          const lines = source.content.split("\n");
+          start = input.start_line;
+          end = Math.min(input.end_line ?? input.start_line + 199, lines.length);
+          total = lines.length;
+          content = lines.slice(start - 1, end).join("\n");
+          truncated = end < lines.length;
+        } else if (input.start_byte !== undefined) {
+          kind = "bytes";
+          start = Math.min(input.start_byte, bytes.byteLength);
+          const maxRawBytes = Math.floor(MAX_RESPONSE_BYTES / 4) * 3;
+          end = Math.min(input.end_byte ?? start + maxRawBytes, bytes.byteLength);
+          total = bytes.byteLength;
+          if (end - start > maxRawBytes) {
+            throw new Error(
+              `range_too_large: base64 byte ranges are capped at ${maxRawBytes} raw bytes; request a smaller range.`,
+            );
+          }
+          encoding = "base64";
+          content = base64Bytes(bytes.slice(start, end));
+          truncated = end < bytes.byteLength;
+        } else if (bytes.byteLength > MAX_RESPONSE_BYTES) {
+          throw new Error(
+            `file_too_large: ${source.path} is ${bytes.byteLength} bytes. Request start_line/end_line or start_byte/end_byte; one response is capped at ${MAX_RESPONSE_BYTES} bytes.`,
+          );
+        }
+
+        if (new TextEncoder().encode(content).byteLength > MAX_RESPONSE_BYTES) {
+          throw new Error(
+            `range_too_large: requested content exceeds ${MAX_RESPONSE_BYTES} bytes; request a smaller range.`,
+          );
+        }
+
+        return result({
+          status: "ok",
+          ref: input.ref,
+          path: source.path,
+          version: source.version,
+          size_bytes: bytes.byteLength,
+          content_hash: source.contentHash,
+          encoding,
+          content,
+          range: { kind, start, end, total },
+          truncated,
         });
       }),
   );
@@ -2136,12 +3151,63 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "point at the exact node. Every result carries a ref you can pass straight to the other " +
         "tools.",
       annotations: { readOnlyHint: true },
-      inputSchema: z.object({
-        query: z.string().optional(),
-        workspace: z.string().optional().describe("Restrict to one workspace slug."),
-        kind: z.enum(["canvas", "html", "image", "pdf"]).optional(),
-        visibility: z.enum(["private", "public"]).optional(),
-        limit: z.number().int().positive().max(100).optional(),
+      inputSchema: z
+        .object({
+          query: z.string().optional(),
+          workspace: z.string().optional().describe("Restrict to one workspace slug."),
+          kind: z.enum(["canvas", "html", "image", "pdf"]).optional(),
+          visibility: z.enum(["private", "public"]).optional(),
+          limit: z.number().int().positive().max(100).optional(),
+          cursor: z.string().optional().describe("Opaque next_cursor from the previous page."),
+          node_cursor: z.string().optional().describe("Opaque next_node_cursor for node matches."),
+          workspace_cursor: z
+            .string()
+            .optional()
+            .describe("Opaque next_workspace_cursor for browse results."),
+        })
+        .strict(),
+      outputSchema: z.object({
+        workspaces: z
+          .array(
+            z.object({
+              slug: z.string(),
+              name: z.string(),
+              description: z.string().optional(),
+              canvas_count: z.number().int().nonnegative(),
+              canvas_count_has_more: z.boolean(),
+            }),
+          )
+          .optional(),
+        canvases: z.array(
+          z.object({
+            ref: z.string(),
+            canvas_id: z.string(),
+            title: z.string(),
+            kind: z.enum(["canvas", "html", "image", "pdf"]),
+            visibility: z.enum(["private", "public"]),
+            public_slug: z.string().optional(),
+            updated_at: z.number(),
+            thumbnail_url: z.string().nullable(),
+            canvas_url: z.string(),
+            share_url: z.string().nullable(),
+          }),
+        ),
+        nodes: z.array(
+          z.object({
+            ref: z.string(),
+            canvas_id: z.string(),
+            node_id: z.string(),
+            node_title: z.string(),
+            eyebrow: z.string().optional(),
+          }),
+        ),
+        has_more: z.boolean(),
+        next_cursor: z.string().nullable(),
+        nodes_done: z.boolean(),
+        next_node_cursor: z.string().nullable(),
+        workspaces_done: z.boolean(),
+        next_workspace_cursor: z.string().nullable(),
+        warnings: z.array(WarningSchema),
       }),
     },
     async (input) =>
@@ -2151,31 +3217,71 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           workspaceSlug: input.workspace,
           kind: input.kind,
           visibility: input.visibility,
-          limit: input.limit,
+          paginationOpts: {
+            numItems: input.limit ?? 25,
+            cursor: input.cursor ?? null,
+            maximumRowsRead: 500,
+          },
         });
+        const nodePage = input.query
+          ? await ctx.runQuery(internal.canvases.findCanvasNodes, {
+              query: input.query,
+              workspaceSlug: input.workspace,
+              kind: input.kind,
+              visibility: input.visibility,
+              paginationOpts: {
+                numItems: input.limit ?? 25,
+                cursor: input.node_cursor ?? null,
+                maximumRowsRead: 500,
+              },
+            })
+          : { nodes: [], is_done: true, next_cursor: null };
         // Workspaces are only interesting when browsing, not when searching.
-        const workspaces = input.query
-          ? undefined
-          : (await ctx.runQuery(internal.canvases.findWorkspaces, {})).workspaces;
+        const workspacePage = input.query
+          ? { workspaces: undefined, is_done: true, next_cursor: null }
+          : await ctx.runQuery(internal.canvases.findWorkspaces, {
+              paginationOpts: {
+                numItems: input.limit ?? 25,
+                cursor: input.workspace_cursor ?? null,
+                maximumRowsRead: 200,
+              },
+            });
 
         const warnings: Warning[] = [];
-        if (found.has_more) {
+        if (!found.is_done) {
           warnings.push({
             code: "truncated",
             message:
               "More canvases match than were returned. Narrow with workspace/kind or raise limit.",
           });
         }
+        if (!nodePage.is_done) {
+          warnings.push({
+            code: "truncated",
+            message: "More CanvasDoc nodes match; continue with next_node_cursor.",
+          });
+        }
+        if (!workspacePage.is_done) {
+          warnings.push({
+            code: "truncated",
+            message: "More workspaces exist; continue with next_workspace_cursor.",
+          });
+        }
 
         return result({
-          workspaces,
+          workspaces: workspacePage.workspaces,
           canvases: found.canvases.map((c) => ({
             ...c,
             canvas_url: canvasUrl(c.canvas_id),
             share_url: shareUrl(c.public_slug),
           })),
-          nodes: found.nodes,
-          has_more: found.has_more,
+          nodes: nodePage.nodes,
+          has_more: !found.is_done,
+          next_cursor: found.next_cursor,
+          nodes_done: nodePage.is_done,
+          next_node_cursor: nodePage.next_cursor,
+          workspaces_done: workspacePage.is_done,
+          next_workspace_cursor: workspacePage.next_cursor,
           warnings,
         });
       }),
@@ -2187,18 +3293,47 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Delete",
       description:
-        "Removes a workspace, canvas, file or artifact. Defaults to archiving (reversible, keeps " +
-        "the bytes); pass purge:true to delete permanently and reclaim storage. Purging a " +
-        "workspace also purges every canvas inside it.",
+        "Archives a workspace/canvas by default; pass purge:true to permanently delete it. " +
+        "Individual files and artifacts have no archive state, so those targets require both path " +
+        "and purge:true. Purging a workspace also purges every canvas inside it.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
-        target: z.enum(["workspace", "canvas", "file", "artifact"]),
-        path: z.string().optional().describe("Required for target file/artifact."),
-        purge: z
-          .boolean()
-          .optional()
-          .describe("true = permanent delete. false/omitted = reversible archive."),
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          target: z.enum(["workspace", "canvas", "file", "artifact"]),
+          path: z.string().optional(),
+          purge: z.boolean().optional(),
+        })
+        .strict()
+        .superRefine((input, check) => {
+          if (input.target === "file" || input.target === "artifact") {
+            if (!input.path) {
+              check.addIssue({
+                code: "custom",
+                path: ["path"],
+                message: `path is required for target ${input.target}.`,
+              });
+            }
+            if (input.purge !== true) {
+              check.addIssue({
+                code: "custom",
+                path: ["purge"],
+                message: `purge:true is required for target ${input.target}; individual paths cannot be archived.`,
+              });
+            }
+          }
+        }),
+      outputSchema: z.object({
+        deleted: z.array(
+          z.object({
+            kind: z.enum(["workspace", "canvas", "file", "artifact"]),
+            ref: z.string(),
+            path: z.string().optional(),
+          }),
+        ),
+        archived: z.boolean(),
+        bytes_reclaimed: z.number().int().nonnegative(),
+        canvases_deleted: z.number().int().nonnegative().optional(),
       }),
     },
     async (input) =>
@@ -2224,26 +3359,47 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Run code",
       description:
-        "Executes JS/TS in a sandboxed worker against this canvas's files. Anything written to " +
-        "/output is collected as an artifact. No shell, no filesystem outside the canvas.",
+        "Executes a synchronous JS/TS script in a sandboxed worker against this canvas's files. " +
+        "Injected globals include fs (readFileSync/writeFileSync/mkdirSync/readdirSync/existsSync), " +
+        "console, fetch, WebSocket, Buffer, URL, timers, and require for path/buffer/util/assert, " +
+        "network modules, ApexCharts, D2, and Tailwind. Do not use top-level await; wrap async work " +
+        "as `(async () => { ... })().catch(console.error)`. Anything written to /output is collected " +
+        "as an artifact. There is no shell and filesystem access is confined to the canvas workspace.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
-        code: z.string(),
-        timeout_ms: z
-          .number()
-          .int()
-          .positive()
-          .max(60_000)
-          .optional()
-          .describe("Defaults to 5000."),
-        memory_limit_mb: z
-          .number()
-          .int()
-          .positive()
-          .max(1024)
-          .optional()
-          .describe("Defaults to 128."),
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          code: z.string(),
+          timeout_ms: z
+            .number()
+            .int()
+            .positive()
+            .max(60_000)
+            .optional()
+            .describe("Defaults to 5000."),
+          memory_limit_mb: z
+            .number()
+            .int()
+            .positive()
+            .max(1024)
+            .optional()
+            .describe("Defaults to 128."),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.enum(["ok", "failed"]),
+        stdout: z.string(),
+        stderr: z.string(),
+        error: z.string().optional(),
+        duration_ms: z.number().optional(),
+        artifacts: z.array(
+          z.object({
+            path: z.string(),
+            size_bytes: z.number().int().nonnegative(),
+            uploaded: z.boolean(),
+          }),
+        ),
+        warnings: z.array(WarningSchema),
       }),
     },
     async (input) =>
@@ -2251,9 +3407,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
         if (!detail) throw new Error(`No canvas found for ref "${input.ref}".`);
         const canvasId = detail.canvas.canvas_id;
+        const currentVersion = await ctx.runQuery(internal.canvases.currentVersion, { canvasId });
+        if (!currentVersion) throw new Error("Canvas has no current version.");
 
         const config = getWorkerConfig();
-        const sources = await resolveCanvasSources(ctx, canvasId);
+        const sources = await resolveCanvasSources(ctx, canvasId, currentVersion.versionId);
 
         const UPLOAD_POOL_SIZE = 10;
         const uploads = await Promise.all(
@@ -2351,21 +3509,38 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Get an upload URL",
       description:
-        "Returns a short-lived URL for uploading one file's bytes out of band. Use this for " +
-        "images, fonts, and anything large: POST the raw bytes to upload_url, read the storageId " +
-        "from the JSON response, then pass it as a file's `upload_id` in canvas_save. This keeps " +
-        "file bytes out of the conversation entirely — never base64 a large file into a tool call.",
+        "Returns short-lived URLs for uploading one or up to 50 canvas files out of band. POST " +
+        "each file's raw bytes, read storageId from each JSON response, then pass those values as " +
+        "files[].upload_id in one canvas_save. This keeps bytes out of the conversation.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({
-        ref: RefArg,
-        path: z.string().describe('Where the file will live, e.g. "/assets/logo.png".'),
-        content_type: z.string().optional(),
-      }),
+      inputSchema: z.union([
+        z
+          .object({
+            ref: RefArg,
+            path: z.string().describe('Where the file will live, e.g. "/assets/logo.png".'),
+            content_type: z.string().optional(),
+          })
+          .strict(),
+        z
+          .object({
+            ref: RefArg,
+            files: z
+              .array(z.object({ path: z.string(), content_type: z.string().optional() }).strict())
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      ]),
       outputSchema: z.object({
-        upload_url: z.string(),
-        method: z.string(),
-        upload_id_field: z.string(),
-        path: z.string(),
+        uploads: z.array(
+          z.object({
+            upload_url: z.string(),
+            method: z.literal("POST"),
+            upload_id_field: z.literal("storageId"),
+            path: z.string(),
+            content_type: z.string().optional(),
+          }),
+        ),
         instructions: z.string(),
       }),
     },
@@ -2373,17 +3548,23 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       runTool(async () => {
         // Validate the destination now, so a caller can't burn an upload
         // discovering that /cache isn't writable.
-        const { displayPath } = normalizeCanvasPath(input.path, "write", "path");
-        const uploadUrl = await ctx.storage.generateUploadUrl();
+        const files = "files" in input ? input.files : [input];
+        const normalized = files.map((file) => ({
+          ...file,
+          path: normalizeCanvasPath(file.path, "write", "path").displayPath,
+        }));
         return result({
-          upload_url: uploadUrl,
-          method: "POST",
-          upload_id_field: "storageId",
-          path: displayPath,
+          uploads: await Promise.all(
+            normalized.map(async (file) => ({
+              upload_url: await ctx.storage.generateUploadUrl(),
+              method: "POST" as const,
+              upload_id_field: "storageId" as const,
+              path: file.path,
+              content_type: file.content_type,
+            })),
+          ),
           instructions:
-            `POST the raw bytes to upload_url with Content-Type: ${input.content_type ?? "<the file's type>"}. ` +
-            'The response is JSON like {"storageId":"..."}. Pass that value as ' +
-            `upload_id on a file with path "${displayPath}" in canvas_save.`,
+            'POST each file to upload_url with its Content-Type. Each response is {"storageId":"..."}; pass each value as upload_id at the matching path in one canvas_save.',
         });
       }),
   );

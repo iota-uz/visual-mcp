@@ -109,7 +109,9 @@ const BaseNodeFields = {
   rect: RectSchema,
   caption: NodeCaptionSchema,
   maturity: z.enum(MATURITY).optional(),
-  anchors: z.array(ConnectorAnchorSchema).min(1),
+  // Standalone gallery/reference nodes do not need connector geometry.
+  // Edge validation below still requires referenced anchors to exist.
+  anchors: z.array(ConnectorAnchorSchema).default([]),
   inspector: NodeInspectorSchema.optional(),
 };
 export const NativeNodeSchema = z.object({
@@ -134,50 +136,76 @@ export const IframeSourceSchema = z.object({
     })
     .optional(),
 });
-export const IframeNodeSchema = z.object({
-  kind: z.literal("iframe"),
-  ...BaseNodeFields,
-  source: IframeSourceSchema,
-  viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }),
-  frame: z.discriminatedUnion("kind", [
-    z
-      .object({
-        kind: z.literal("phone"),
-        time: z.string().regex(/^(?:[01]\d|2[0-3]|\d):[0-5]\d$/).default("09:42"),
-      })
-      .strict(),
-    z
-      .object({
-        kind: z.enum(["browser", "desktop", "none"]),
-        radius: z.number().finite().nonnegative().optional(),
-        fit: z.enum(["contain", "cover", "stretch"]).optional(),
-      })
-      .strict(),
-  ]),
-  sandbox: z
-    .array(z.enum(SANDBOX_TOKENS))
-    .default(["allow-scripts", "allow-forms"])
-    .refine((tokens) => new Set(tokens).size === tokens.length, "sandbox tokens must be unique"),
-  permissions: z
-    .array(z.enum(PERMISSIONS))
-    .default([])
-    .refine((tokens) => new Set(tokens).size === tokens.length, "permissions must be unique"),
-  activation: z.literal("double-click").default("double-click"),
-}).superRefine((node, ctx) => {
-  if (node.frame.kind !== "phone") return;
-  if (node.viewport.width !== 284 || node.viewport.height !== 642) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["viewport"],
-      message: "phone iframe viewport must be the canonical 284x642 content area",
-    });
-  }
-});
+export const IframeNodeSchema = z
+  .object({
+    kind: z.literal("iframe"),
+    ...BaseNodeFields,
+    source: IframeSourceSchema,
+    viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }),
+    frame: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("phone"),
+          time: z
+            .string()
+            .regex(/^(?:[01]\d|2[0-3]|\d):[0-5]\d$/)
+            .default("09:42"),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.enum(["browser", "desktop", "none"]),
+          radius: z.number().finite().nonnegative().optional(),
+          fit: z.enum(["contain", "cover", "stretch"]).optional(),
+        })
+        .strict(),
+    ]),
+    sandbox: z
+      .array(z.enum(SANDBOX_TOKENS))
+      .default(["allow-scripts", "allow-forms"])
+      .refine((tokens) => new Set(tokens).size === tokens.length, "sandbox tokens must be unique"),
+    permissions: z
+      .array(z.enum(PERMISSIONS))
+      .default([])
+      .refine((tokens) => new Set(tokens).size === tokens.length, "permissions must be unique"),
+    activation: z.literal("double-click").default("double-click"),
+  })
+  .superRefine((node, ctx) => {
+    if (node.frame.kind !== "phone") return;
+    if (node.viewport.width !== 284 || node.viewport.height !== 642) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["viewport"],
+        message: "phone iframe viewport must be the canonical 284x642 content area",
+      });
+    }
+  });
 export type IframeNode = z.infer<typeof IframeNodeSchema>;
+export const ImageNodeSchema = z
+  .object({
+    kind: z.literal("image"),
+    ...BaseNodeFields,
+    source: z.object({
+      path: z
+        .string()
+        .regex(/^\/(?:assets|src)\/[A-Za-z0-9._/-]+$/, "image path must be under /assets or /src")
+        .refine((path) => !path.split("/").includes(".."), "image path may not traverse"),
+    }),
+    fit: z.enum(["contain", "cover", "fill", "none"]).default("contain"),
+    focalPosition: z
+      .object({
+        x: z.number().finite().min(0).max(1),
+        y: z.number().finite().min(0).max(1),
+      })
+      .default({ x: 0.5, y: 0.5 }),
+    alt: z.string().min(1),
+  })
+  .strict();
+export type ImageNode = z.infer<typeof ImageNodeSchema>;
 // IframeNodeSchema carries cross-field viewport validation, so it is a
 // ZodEffects rather than a bare object. A regular union preserves the useful
 // TypeScript discriminant while still running those refinements.
-export const CanvasNodeSchema = z.union([NativeNodeSchema, IframeNodeSchema]);
+export const CanvasNodeSchema = z.union([NativeNodeSchema, IframeNodeSchema, ImageNodeSchema]);
 export type CanvasNode = z.infer<typeof CanvasNodeSchema>;
 
 export const EdgeEndpointSchema = z.object({
@@ -219,17 +247,20 @@ export const CanvasDocSchema = z
     title: z.string().min(1),
     subtitle: z.string().optional(),
     theme: z.string().optional(),
-    world: z.object({
-      width: z.number().finite().positive(),
-      height: z.number().finite().positive(),
-    }),
-    lanes: z.array(LaneSchema),
-    stages: z.array(StageSchema),
-    labels: z.array(CanvasLabelSchema).default([]),
-    nodes: z.array(CanvasNodeSchema),
-    edges: z.array(CanvasEdgeSchema),
-    legend: z.array(LegendGroupSchema).optional(),
+    world: z
+      .object({
+        width: z.number().finite().positive().max(1_000_000),
+        height: z.number().finite().positive().max(1_000_000),
+      })
+      .strict(),
+    lanes: z.array(LaneSchema).max(200).default([]),
+    stages: z.array(StageSchema).max(200).default([]),
+    labels: z.array(CanvasLabelSchema).max(500).default([]),
+    nodes: z.array(CanvasNodeSchema).max(1_000).default([]),
+    edges: z.array(CanvasEdgeSchema).max(3_000).default([]),
+    legend: z.array(LegendGroupSchema).max(50).optional(),
   })
+  .strict()
   .superRefine((doc, ctx) => {
     const unique = (items: { id: string }[], path: string) => {
       const seen = new Set<string>();

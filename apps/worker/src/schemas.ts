@@ -38,6 +38,10 @@ export type SignedUpload = z.infer<typeof SignedUploadSchema>;
 export const RenderRequestSchema = z.object({
   sources: z.array(SignedSourceSchema),
   entrypoint: z.string().min(1),
+  route: z
+    .string()
+    .regex(/^#[/?A-Za-z0-9._~!$&'()*+,;=:@%-]*$/)
+    .optional(),
   outputPath: z.string().min(1),
   format: RenderFormatSchema,
   viewport: ViewportOptionsSchema.optional(),
@@ -77,6 +81,14 @@ export const RenderResponseSchema = z.object({
   // is the only signal the caller gets that the picture is wrong. Capped
   // and de-duplicated by the renderer (MAX_UNRESOLVED_REFS).
   unresolvedRefs: z.array(z.string()),
+  unresolvedDetails: z.array(
+    z.object({
+      ref: z.string(),
+      resourceType: z.string(),
+      reason: z.enum(["missing_local_file", "outside_workspace", "network_failure", "invalid_url"]),
+      error: z.string().optional(),
+    }),
+  ),
   readiness: z.object({ status: z.enum(["ready", "partial"]), warnings: z.array(z.string()) }),
 });
 export type RenderResponse = z.infer<typeof RenderResponseSchema>;
@@ -99,6 +111,7 @@ export const SnapshotRequestSchema = z.object({
   target: SnapshotTargetSchema,
   padding: z.number().int().min(0).max(256).optional(),
   scale: z.union([z.literal(1), z.literal(2)]).optional(),
+  readinessTimeoutMs: z.number().int().positive().max(30_000).optional(),
   upload: SignedUploadSchema,
 });
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
@@ -111,6 +124,14 @@ export const SnapshotResponseSchema = z.object({
   uploadStatus: z.number(),
   uploadBody: z.unknown(),
   unresolvedRefs: z.array(z.string()),
+  unresolvedDetails: z.array(
+    z.object({
+      ref: z.string(),
+      resourceType: z.string(),
+      reason: z.enum(["missing_local_file", "outside_workspace", "network_failure", "invalid_url"]),
+      error: z.string().optional(),
+    }),
+  ),
   readiness: z.object({ status: z.enum(["ready", "partial"]), warnings: z.array(z.string()) }),
   downscaled: z.boolean(),
   contentOverflow: z.boolean(),

@@ -1,7 +1,7 @@
 import type { PositionedCanvas, PositionedNode } from "./layout.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
-import type { IframeNode, LegendGroup } from "./types.js";
+import type { IframeNode, ImageNode, LegendGroup } from "./types.js";
 
 export function escapeHtml(input: string): string {
   return input
@@ -13,9 +13,12 @@ export function escapeHtml(input: string): string {
 }
 export interface RenderOptions {
   resolveIframeUrl?: (node: IframeNode) => string;
+  resolveImageUrl?: (node: ImageNode) => string;
   editable?: boolean;
   /** Viewers defer off-screen screen runtimes; deterministic exports opt into eager loading. */
   iframeLoading?: "lazy" | "eager";
+  /** Export/snapshot selector: non-target iframe nodes remain inert placeholders. */
+  shouldLoadIframe?: (node: Extract<PositionedNode, { kind: "iframe" }>) => boolean;
 }
 
 function caption(node: PositionedNode): string {
@@ -50,8 +53,14 @@ function iframeBody(
   const url =
     options.resolveIframeUrl?.(node) ?? `${node.source.entrypoint}${node.source.route ?? ""}`;
   const allow = node.permissions.map((permission) => `${permission} 'none'`).join("; ");
-  const scale = Math.min(node.w / node.viewport.width, Math.max(1, node.h - 47) / node.viewport.height);
-  const loading = options.iframeLoading ?? "lazy";
+  const scale = Math.min(
+    node.w / node.viewport.width,
+    Math.max(1, node.h - 47) / node.viewport.height,
+  );
+  const loading =
+    options.shouldLoadIframe && !options.shouldLoadIframe(node)
+      ? "lazy"
+      : (options.iframeLoading ?? "lazy");
   const sandbox = node.sandbox.map(escapeHtml).join(" ");
   const frame =
     loading === "eager"
@@ -61,17 +70,32 @@ function iframeBody(
     node.frame.kind === "phone"
       ? renderPhoneFrame(frame, node.frame.time, phoneFrameScale(node.w, node.h))
       : `<div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
-  const radius = node.frame.kind === "phone" ? 0 : node.frame.radius ?? 16;
+  const radius = node.frame.kind === "phone" ? 0 : (node.frame.radius ?? 16);
   return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${radius}px;--vc-iframe-scale:${scale}">${body}<div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
 }
+function imageBody(
+  node: Extract<PositionedNode, { kind: "image" }>,
+  options: RenderOptions,
+): string {
+  const position = `${node.focalPosition.x * 100}% ${node.focalPosition.y * 100}%`;
+  const url = options.resolveImageUrl?.(node) ?? node.source.path;
+  return `<div class="vc-image-viewport"><img src="${escapeHtml(url)}" alt="${escapeHtml(node.alt)}" style="object-fit:${node.fit};object-position:${position}" /></div>`;
+}
 function renderNode(node: PositionedNode, options: RenderOptions): string {
-  const shape = node.kind === "native" ? node.shape : `iframe-${node.frame.kind}`;
+  const shape =
+    node.kind === "native"
+      ? node.shape
+      : node.kind === "iframe"
+        ? `iframe-${node.frame.kind}`
+        : "image";
   const content =
     node.kind === "native"
       ? node.shape === "actor"
         ? actorBody(node)
         : `${caption(node)}${nativeBody(node)}`
-      : `${caption(node)}${iframeBody(node, options)}`;
+      : node.kind === "iframe"
+        ? `${caption(node)}${iframeBody(node, options)}`
+        : `${caption(node)}${imageBody(node, options)}`;
   return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? `<i class="vc-resize-handle" data-resize="se"></i>` : ""}</div>`;
 }
 const MARKERS: Record<EdgePath["edge"]["kind"], string> = {

@@ -136,6 +136,7 @@ function publicArtifactCsp(): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data:",
+    "media-src 'self' blob:",
     "connect-src 'none'",
     `frame-ancestors ${frameAncestors}`,
     "base-uri 'none'",
@@ -177,8 +178,12 @@ const SCOPED_CANVAS_TEXT_MIME =
  * quoted CSS URLs) plus the common unquoted CSS url(...) form while leaving
  * remote URLs such as https://cdn.example/assets/x.png untouched.
  */
-function scopeCanvasRootReferences(source: string, scopedBasePath: string): string {
-  return source
+function scopeCanvasRootReferences(
+  source: string,
+  scopedBasePath: string,
+  version?: number,
+): string {
+  const scoped = source
     .replace(
       /(["'`])\/(assets|src)\//g,
       (_match, quote: string, root: string) => `${quote}${scopedBasePath}/${root}/`,
@@ -187,6 +192,14 @@ function scopeCanvasRootReferences(source: string, scopedBasePath: string): stri
       /(url\(\s*)\/(assets|src)\//gi,
       (_match, start: string, root: string) => `${start}${scopedBasePath}/${root}/`,
     );
+  if (version === undefined) return scoped;
+  const escapedBase = scopedBasePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return scoped.replace(new RegExp(`(${escapedBase}/(?:assets|src)/[^"'\`\\s)]+)`, "g"), (url) => {
+    const hashAt = url.indexOf("#");
+    const base = hashAt === -1 ? url : url.slice(0, hashAt);
+    const fragment = hashAt === -1 ? "" : url.slice(hashAt);
+    return `${base}${base.includes("?") ? "&" : "?"}v=${version}${fragment}`;
+  });
 }
 
 async function prepareScopedCanvasBlob(
@@ -194,9 +207,10 @@ async function prepareScopedCanvasBlob(
   mimeType: string,
   scopedBasePath: string,
   bridgeNonce?: string,
+  version?: number,
 ): Promise<Blob> {
   if (!bridgeNonce && !SCOPED_CANVAS_TEXT_MIME.test(mimeType)) return blob;
-  let source = scopeCanvasRootReferences(await blob.text(), scopedBasePath);
+  let source = scopeCanvasRootReferences(await blob.text(), scopedBasePath, version);
   if (bridgeNonce) {
     source = source.includes("</body>")
       ? source.replace("</body>", `${iframeBridge(bridgeNonce)}</body>`)
@@ -330,10 +344,16 @@ http.route({
     }
 
     const relPath = segments.length > 1 ? `/${segments.slice(1).join("/")}` : undefined;
+    const rawVersion = url.searchParams.get("v");
+    const version = rawVersion === null ? undefined : Number(rawVersion);
+    if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
+      return new Response("Invalid version", { status: 400 });
+    }
 
     const artifact = await ctx.runQuery(internal.canvases.resolvePublicArtifact, {
       publicSlug: slug,
       relPath,
+      version,
     });
     if (!artifact) return new Response("Not found", { status: 404 });
 
@@ -376,6 +396,7 @@ http.route({
       artifact.mimeType,
       `/s/${slug}`,
       isIframe ? nonce : undefined,
+      artifact.version,
     );
     headers.set("content-type", artifact.mimeType);
     return new Response(blob, { status: 200, headers });

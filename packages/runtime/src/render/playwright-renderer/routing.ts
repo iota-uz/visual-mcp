@@ -70,6 +70,14 @@ export const MAX_UNRESOLVED_REFS = 50;
 export interface UnresolvedRefCollector {
   /** Snapshot of the de-duplicated refs, in first-seen order. */
   list(): string[];
+  details(): UnresolvedRefDetail[];
+}
+
+export interface UnresolvedRefDetail {
+  ref: string;
+  resourceType: string;
+  reason: "missing_local_file" | "outside_workspace" | "network_failure" | "invalid_url";
+  error?: string;
 }
 
 /**
@@ -154,15 +162,26 @@ export async function installLocalResourceRouting(
 
   // Insertion-ordered + de-duplicating: a page that references the same
   // missing image in 40 <img> tags reports it once.
-  const unresolved = new Set<string>();
-  const recordUnresolved = (rawUrl: string): void => {
+  const unresolved = new Map<string, UnresolvedRefDetail>();
+  const recordUnresolved = (
+    rawUrl: string,
+    resourceType: string,
+    reason: UnresolvedRefDetail["reason"],
+    error?: string,
+  ): void => {
     if (unresolved.size >= MAX_UNRESOLVED_REFS) return;
-    unresolved.add(formatRef(rawUrl, root));
+    const ref = formatRef(rawUrl, root);
+    if (!unresolved.has(ref)) unresolved.set(ref, { ref, resourceType, reason, error });
   };
 
   page.on("requestfailed", (request) => {
     if (request.failure()?.errorText === "net::ERR_ABORTED") return;
-    recordUnresolved(request.url());
+    recordUnresolved(
+      request.url(),
+      request.resourceType(),
+      "network_failure",
+      request.failure()?.errorText,
+    );
   });
 
   await page.route("**/*", async (route) => {
@@ -171,6 +190,7 @@ export async function installLocalResourceRouting(
     try {
       url = new URL(request.url());
     } catch {
+      recordUnresolved(request.url(), request.resourceType(), "invalid_url");
       await route.abort("blockedbyclient");
       return;
     }
@@ -183,14 +203,14 @@ export async function installLocalResourceRouting(
     if (url.origin === "http://canvas.local") {
       const resolved = path.resolve(root, `.${decodeURIComponent(url.pathname)}`);
       if (!(resolved === root || resolved.startsWith(root + path.sep))) {
-        recordUnresolved(request.url());
+        recordUnresolved(request.url(), request.resourceType(), "outside_workspace");
         await route.abort("accessdenied");
         return;
       }
       try {
         await fs.access(resolved);
       } catch {
-        recordUnresolved(request.url());
+        recordUnresolved(request.url(), request.resourceType(), "missing_local_file");
         await route.abort("failed");
         return;
       }
@@ -213,7 +233,7 @@ export async function installLocalResourceRouting(
 
     const withinWorkspace = resolved === root || resolved.startsWith(root + path.sep);
     if (!withinWorkspace) {
-      recordUnresolved(request.url());
+      recordUnresolved(request.url(), request.resourceType(), "outside_workspace");
       await route.abort("accessdenied");
       return;
     }
@@ -223,7 +243,7 @@ export async function installLocalResourceRouting(
     } catch {
       // The common case behind a "successful" render with broken images:
       // the HTML/CSS names a file the canvas never uploaded.
-      recordUnresolved(request.url());
+      recordUnresolved(request.url(), request.resourceType(), "missing_local_file");
       await route.abort("failed");
       return;
     }
@@ -234,5 +254,8 @@ export async function installLocalResourceRouting(
     await route.fulfill({ path: resolved, headers: { "access-control-allow-origin": "*" } });
   });
 
-  return { list: () => [...unresolved] };
+  return {
+    list: () => [...unresolved.keys()],
+    details: () => [...unresolved.values()],
+  };
 }

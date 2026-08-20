@@ -39,7 +39,11 @@ import sharp from "sharp";
 
 import type { PdfOptions, RenderFormat, ViewportOptions } from "../../types.js";
 import { findTailwindStyleBlock, injectBuiltCss } from "./html.js";
-import { inferWorkspaceRoot, installLocalResourceRouting } from "./routing.js";
+import {
+  inferWorkspaceRoot,
+  installLocalResourceRouting,
+  type UnresolvedRefDetail,
+} from "./routing.js";
 import { buildTailwindCss } from "./tailwind.js";
 
 export { inferWorkspaceRoot, installLocalResourceRouting } from "./routing.js";
@@ -48,6 +52,8 @@ export { buildTailwindCss } from "./tailwind.js";
 export interface RenderFileOptions {
   /** Absolute path to the HTML source file to render. */
   entrypoint: string;
+  /** Optional local hash route appended to the browser URL. */
+  route?: string;
   /** Absolute path to write the rendered artifact to. Parent directories are created as needed. */
   outputPath: string;
   format: RenderFormat;
@@ -80,6 +86,7 @@ export interface RenderFileResult {
    * launches a browser and therefore never resolves a subresource at all.
    */
   unresolvedRefs: string[];
+  unresolvedDetails: UnresolvedRefDetail[];
   readiness: { status: "ready" | "partial"; warnings: string[] };
 }
 
@@ -94,6 +101,7 @@ export interface SnapshotCanvasOptions {
   target: CanvasSnapshotTarget;
   padding?: number;
   scale?: 1 | 2;
+  readinessTimeoutMs?: number;
   workspaceRoot?: string;
 }
 
@@ -143,10 +151,12 @@ export async function snapshotCanvas(
       await page.goto(`http://canvas.local/${virtualPath}`, { waitUntil: "networkidle" });
       await expandViewportForIframeCanvas(page);
       await page.evaluate(() => document.fonts?.ready);
-      const readiness = await waitForCanvasReadiness(page).catch((error: unknown) => ({
-        status: "partial" as const,
-        warnings: [error instanceof Error ? error.message : String(error)],
-      }));
+      const readiness = await waitForCanvasReadiness(page, options.readinessTimeoutMs).catch(
+        (error: unknown) => ({
+          status: "partial" as const,
+          warnings: [error instanceof Error ? error.message : String(error)],
+        }),
+      );
       await warmIframeSurfaces(page);
 
       const world = page.locator(".vc-world").first();
@@ -246,6 +256,7 @@ export async function snapshotCanvas(
         downscaled,
         contentOverflow,
         unresolvedRefs: unresolved.list(),
+        unresolvedDetails: unresolved.details(),
         readiness,
       };
     } finally {
@@ -307,6 +318,7 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
     return {
       path: absOutputPath,
       unresolvedRefs: [],
+      unresolvedDetails: [],
       readiness: { status: "ready", warnings: [] },
     };
   }
@@ -324,6 +336,7 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
   return {
     path: absOutputPath,
     unresolvedRefs: browserResult.unresolvedRefs,
+    unresolvedDetails: browserResult.unresolvedDetails,
     readiness: browserResult.readiness,
   };
 }
@@ -344,6 +357,7 @@ async function renderWithBrowser(
   options: RenderFileOptions,
 ): Promise<{
   unresolvedRefs: string[];
+  unresolvedDetails: UnresolvedRefDetail[];
   readiness: { status: "ready" | "partial"; warnings: string[] };
 }> {
   // Written next to the entrypoint (not in a temp dir elsewhere) so it
@@ -371,7 +385,9 @@ async function renderWithBrowser(
         .split(path.sep)
         .map(encodeURIComponent)
         .join("/");
-      await page.goto(`http://canvas.local/${virtualPath}`, { waitUntil: "networkidle" });
+      await page.goto(`http://canvas.local/${virtualPath}${options.route ?? ""}`, {
+        waitUntil: "networkidle",
+      });
       const iframeCanvasFitsViewport = await expandViewportForIframeCanvas(page);
       await page.evaluate(() => document.fonts?.ready);
       const readiness = await waitForCanvasReadiness(page);
@@ -418,7 +434,11 @@ async function renderWithBrowser(
       // Read after capture: `networkidle` + the settle timeout mean every
       // subresource the page was going to request has already been decided
       // by the route handler, including ones a late-running script added.
-      return { unresolvedRefs: unresolved.list(), readiness };
+      return {
+        unresolvedRefs: unresolved.list(),
+        unresolvedDetails: unresolved.details(),
+        readiness,
+      };
     } finally {
       await context.close();
     }
@@ -458,6 +478,7 @@ async function expandViewportForIframeCanvas(page: import("playwright").Page): P
 async function warmIframeSurfaces(page: import("playwright").Page): Promise<void> {
   await page.evaluate(async () => {
     for (const node of document.querySelectorAll<HTMLElement>(".vc-kind-iframe")) {
+      if (!node.querySelector("iframe")) continue;
       node.scrollIntoView({ block: "center", inline: "center" });
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -472,13 +493,16 @@ async function warmIframeSurfaces(page: import("playwright").Page): Promise<void
 
 async function waitForCanvasReadiness(
   page: import("playwright").Page,
+  timeoutMs = 15_000,
 ): Promise<{ status: "ready" | "partial"; warnings: string[] }> {
   const count = await page.locator(".vc-kind-iframe iframe").count();
   if (count === 0) return { status: "ready", warnings: [] };
   try {
     await page.waitForFunction(
       () => {
-        const nodes = [...document.querySelectorAll<HTMLElement>(".vc-kind-iframe")];
+        const nodes = [...document.querySelectorAll<HTMLElement>(".vc-kind-iframe")].filter(
+          (node) => node.querySelector("iframe"),
+        );
         return (
           nodes.length > 0 &&
           nodes.every((node) =>
@@ -487,17 +511,17 @@ async function waitForCanvasReadiness(
         );
       },
       undefined,
-      { timeout: 15_000 },
+      { timeout: timeoutMs },
     );
   } catch {
     const pending = await page
-      .locator(".vc-kind-iframe:not([data-iframe-readiness])")
+      .locator(".vc-kind-iframe:has(iframe):not([data-iframe-readiness])")
       .evaluateAll((nodes) =>
         nodes.map((node) => (node as HTMLElement).dataset.nodeId ?? "unknown"),
       );
     throw new Error(`iframe readiness timeout: ${pending.join(", ")}`);
   }
-  const states = await page.locator(".vc-kind-iframe").evaluateAll((nodes) =>
+  const states = await page.locator(".vc-kind-iframe:has(iframe)").evaluateAll((nodes) =>
     nodes.map((node) => ({
       id: (node as HTMLElement).dataset.nodeId ?? "unknown",
       state: (node as HTMLElement).dataset.iframeReadiness ?? "failed",

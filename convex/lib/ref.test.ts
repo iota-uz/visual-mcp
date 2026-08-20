@@ -25,6 +25,26 @@ describe("parseRef", () => {
     });
   });
 
+  test("product URLs and canvas URIs normalize to canonical refs", () => {
+    expect(parseRef("https://canvas.example/c/jn79rst16kdj6eezderzpw4cw98cezfq")).toEqual({
+      form: "id",
+      canvasId: "jn79rst16kdj6eezderzpw4cw98cezfq",
+    });
+    expect(parseRef("https://canvas.example/s/4qCYpublicslug?node=phone")).toEqual({
+      form: "id",
+      canvasId: "4qCYpublicslug",
+    });
+    expect(parseRef("canvas://osago/fast-settlement?node=phone-checkout")).toEqual({
+      form: "slug",
+      workspaceSlug: "osago",
+      canvasSlug: "fast-settlement",
+    });
+  });
+
+  test("rejects unrelated URLs instead of guessing", () => {
+    expect(() => parseRef("https://canvas.example/w/osago")).toThrow(/\/c\/.*\/s\//);
+  });
+
   test("a path-looking ref is rejected, and says where paths go", () => {
     // The mistake this catches: passing "osago/report/src/index.html",
     // conflating the ref with the file path. Guessing here would resolve the

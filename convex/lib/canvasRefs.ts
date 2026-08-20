@@ -26,13 +26,27 @@ export async function findCanvasByRef(
     // ctx.db.get throw a raw Convex validator error, which surfaces to the
     // tool caller as noise instead of guidance.
     const canvasId = ctx.db.normalizeId("canvases", parsed.canvasId);
+    if (canvasId) {
+      const byId = await ctx.db.get(canvasId);
+      if (byId) return byId;
+    }
+
+    // Public slugs are prominently returned by the product and appear in
+    // share URLs. Accepting them here makes every read/edit tool composable
+    // with canvas_save/canvas_get output without an intervening canvas_find.
+    const byPublicSlug = await ctx.db
+      .query("canvases")
+      .withIndex("by_publicSlug", (q) => q.eq("publicSlug", parsed.canvasId))
+      .unique();
+    if (byPublicSlug) return byPublicSlug;
+
     if (!canvasId) {
       throw new RefError(
-        `${label} "${ref}" is not a valid canvas id. If you meant a slug ref, ` +
-          'write it as "workspace-slug/canvas-slug".',
+        `${label} "${ref}" is neither a valid canvas id nor a current public slug. ` +
+          'Use "workspace-slug/canvas-slug", a returned canvas/share URL, or canvas_find.',
       );
     }
-    return await ctx.db.get(canvasId);
+    return null;
   }
 
   const workspace = await ctx.db
@@ -130,6 +144,8 @@ export interface ResolveOrCreateArgs {
    * be another person's agent.
    */
   expectedVersion?: number;
+  /** Resolve/create only; an enclosing transaction will commit metadata with content. */
+  deferExistingMetadata?: boolean;
 }
 
 export interface ResolveOrCreateResult {
@@ -187,9 +203,11 @@ export async function resolveOrCreateCanvas(
     }
 
     const patch: Partial<Doc<"canvases">> = {};
-    if (args.title !== undefined && args.title !== existing.title) patch.title = args.title;
-    if (args.description !== undefined) patch.description = args.description;
-    if (args.theme !== undefined) patch.theme = args.theme;
+    if (!args.deferExistingMetadata) {
+      if (args.title !== undefined && args.title !== existing.title) patch.title = args.title;
+      if (args.description !== undefined) patch.description = args.description;
+      if (args.theme !== undefined) patch.theme = args.theme;
+    }
     // `kind` is deliberately NOT patched: it decides how the canvas is
     // rendered and served, and flipping it under an existing canvas would
     // orphan its artifacts.

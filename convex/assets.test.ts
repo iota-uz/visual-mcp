@@ -7,6 +7,50 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 describe("Asset Library bindings", () => {
+  test("listInternal exposes a resumable cursor instead of silently truncating", async () => {
+    const t = convexTest(schema, modules);
+    const { userId } = await t.run(async (ctx) => ({
+      userId: await ctx.db.insert("users", {
+        googleSub: "pagination-user",
+        email: "pagination@iota.uz",
+        name: "Pagination",
+        lastSeenAt: 0,
+      }),
+    }));
+    for (const slug of ["one", "two", "three"]) {
+      await t.mutation(internal.assets.commitAssetVersion, {
+        scope: "personal",
+        ownerUserId: userId,
+        slug,
+        name: slug,
+        tags: [],
+        kind: "image",
+        sourceObjectKey: `source/${slug}`,
+        deliveryObjectKey: `delivery/${slug}`,
+        previewObjectKey: `delivery/${slug}`,
+        contentHash: slug,
+        mimeType: "image/png",
+        size: 1,
+        originalFilename: `${slug}.png`,
+        sourceType: "upload",
+      });
+    }
+    const first = await t.query(internal.assets.listInternal, {
+      userId,
+      scope: "personal",
+      paginationOpts: { numItems: 1, cursor: null },
+    });
+    expect(first.page).toHaveLength(1);
+    expect(first.isDone).toBe(false);
+    const second = await t.query(internal.assets.listInternal, {
+      userId,
+      scope: "personal",
+      paginationOpts: { numItems: 1, cursor: first.continueCursor },
+    });
+    expect(second.page).toHaveLength(1);
+    expect(second.page[0]?.asset_id).not.toBe(first.page[0]?.asset_id);
+  });
+
   test("pins an immutable asset revision into a new canvas snapshot", async () => {
     const t = convexTest(schema, modules);
     const seeded = await t.run(async (ctx) => {
@@ -143,12 +187,14 @@ describe("Asset Library bindings", () => {
     });
     expect(archived).toMatchObject({ mode: "archived", reversible: true });
     expect(
-      await t.query(internal.assets.listInternal, {
-        userId: seeded.userId,
-        scope: "workspace",
-        workspaceSlug: "archive-ws",
-        limit: 50,
-      }),
+      (
+        await t.query(internal.assets.listInternal, {
+          userId: seeded.userId,
+          scope: "workspace",
+          workspaceSlug: "archive-ws",
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
     ).toHaveLength(0);
     await expect(
       t.query(internal.assets.resolveRef, { ref, userId: seeded.userId }),
@@ -170,16 +216,18 @@ describe("Asset Library bindings", () => {
     });
     expect(restored).toEqual({ assetRef: ref, mode: "restored" });
     expect(
-      await t.query(internal.assets.listInternal, {
-        userId: seeded.userId,
-        scope: "workspace",
-        workspaceSlug: "archive-ws",
-        limit: 50,
-      }),
+      (
+        await t.query(internal.assets.listInternal, {
+          userId: seeded.userId,
+          scope: "workspace",
+          workspaceSlug: "archive-ws",
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
     ).toHaveLength(1);
-    expect(
-      await t.query(internal.assets.resolveRef, { ref, userId: seeded.userId }),
-    ).toMatchObject({ assetVersionId: asset.versionId, assetRef: ref });
+    expect(await t.query(internal.assets.resolveRef, { ref, userId: seeded.userId })).toMatchObject(
+      { assetVersionId: asset.versionId, assetRef: ref },
+    );
     expect(
       await t.mutation(internal.assets.restoreByRef, {
         assetRef: ref,

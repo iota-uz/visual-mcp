@@ -582,7 +582,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     return { canvasId, createdBy };
   }
 
-  test("re-putting a doc deletes the previous version's canvasNodes, not just adds new ones", async () => {
+  test("re-putting a doc preserves historical canvasNodes for pinned embeds", async () => {
     const t = convexTest(schema, modules);
     const { canvasId, createdBy } = await seedCanvasDocCanvas(t);
     const docStorageId = await seedStorage(t, "{}");
@@ -601,8 +601,8 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     });
 
     const rows = await t.run((ctx) => ctx.db.query("canvasNodes").collect());
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("Sign In Screen v2");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.title)).toEqual(["Sign In Screen", "Sign In Screen v2"]);
   });
 
   test("searchNodes finds a node by its searchText and resolves the parent canvas", async () => {
@@ -1604,11 +1604,26 @@ describe("canvases.restoreVersionByRef", () => {
       kind: "canvas",
     });
 
+    const firstFile = await seedStorage(t, "version-one");
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/src/state.txt",
+      storageId: firstFile,
+      size: 11,
+      contentHash: "v1",
+    });
     await t.mutation(internal.canvases.putDoc, {
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:1}"),
       createdBy,
       nodes: [],
+    });
+    await t.mutation(internal.canvases.upsertFile, {
+      canvasId: created.canvasId,
+      relPath: "/src/state.txt",
+      storageId: await seedStorage(t, "version-two"),
+      size: 11,
+      contentHash: "v2",
     });
     await t.mutation(internal.canvases.putDoc, {
       canvasId: created.canvasId,
@@ -1625,6 +1640,174 @@ describe("canvases.restoreVersionByRef", () => {
 
     const canvas = await t.query(internal.canvases.get, { canvasId: created.canvasId });
     expect(canvas?.version).toBe(1);
+    const files = await t.query(internal.canvases.listFilesForCanvas, {
+      canvasId: created.canvasId,
+    });
+    expect(files).toMatchObject([{ relPath: "/src/state.txt", contentHash: "v1" }]);
+
+    const docEdit = await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "{v:3}"),
+      createdBy,
+      expectedVersion: 1,
+      nodes: [],
+    });
+    expect(docEdit.version).toBe(3);
+
+    await t.mutation(internal.canvases.restoreVersionByRef, {
+      ref: "osago/report",
+      version: 1,
+    });
+    const fileEdit = await t.mutation(internal.canvases.commitFilePatch, {
+      canvasId: created.canvasId,
+      expectedVersion: 1,
+      createdBy,
+      changes: [
+        {
+          type: "write",
+          path: "/src/state.txt",
+          expectedHash: "v1",
+          storageId: await seedStorage(t, "version-four"),
+          size: 12,
+          contentHash: "v4",
+        },
+      ],
+    });
+    expect(fileEdit.version).toBe(4);
+
+    await t.mutation(internal.canvases.restoreVersionByRef, {
+      ref: "osago/report",
+      version: 1,
+    });
+    const asset = await t.run(async (ctx) => {
+      const canvas = await ctx.db.get(created.canvasId);
+      if (!canvas) throw new Error("missing canvas");
+      const assetId = await ctx.db.insert("assets", {
+        scope: "workspace",
+        workspaceId: canvas.workspaceId,
+        slug: "logo",
+        name: "Logo",
+        tags: [],
+        kind: "image",
+        searchText: "logo",
+        createdBy,
+        updatedAt: 0,
+      });
+      const assetVersionId = await ctx.db.insert("assetVersions", {
+        assetId,
+        revision: 1,
+        sourceObjectKey: "source/logo",
+        deliveryObjectKey: "delivery/logo",
+        previewObjectKey: "preview/logo",
+        contentHash: "logo-hash",
+        mimeType: "image/png",
+        size: 4,
+        originalFilename: "logo.png",
+        sourceType: "upload",
+        createdBy,
+      });
+      return { assetId, assetVersionId };
+    });
+    const assetEdit = await t.mutation(internal.canvases.bindAssetAndVersion, {
+      canvasId: created.canvasId,
+      logicalPath: "/assets/logo.png",
+      assetId: asset.assetId,
+      assetVersionId: asset.assetVersionId,
+      expectedVersion: 1,
+      createdBy,
+    });
+    expect(assetEdit.version).toBe(5);
+
+    expect(
+      await t.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("canvasVersions")
+            .withIndex("by_canvas_version", (q) => q.eq("canvasId", created.canvasId))
+            .collect()
+        ).map((version) => version.version),
+      ),
+    ).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("refuses a render that finishes after the canvas moved to a newer version", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/render-race",
+      createdBy,
+      kind: "canvas",
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "v1"),
+      createdBy,
+      nodes: [],
+    });
+    const oldVersionId = await t.run(
+      async (ctx) => (await ctx.db.get(created.canvasId))?.currentVersionId,
+    );
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "v2"),
+      createdBy,
+      nodes: [],
+    });
+    if (!oldVersionId) throw new Error("missing old version");
+    await expect(
+      t.mutation(internal.canvases.attachCanvasRender, {
+        canvasId: created.canvasId,
+        versionId: oldVersionId,
+        relPath: "/output/stale.png",
+        type: "image",
+        mimeType: "image/png",
+        size: 3,
+        storageId: await seedStorage(t, "png"),
+      }),
+    ).rejects.toThrow(/stale/i);
+  });
+
+  test("replacing a same-version supporting render reclaims its invisible old blob", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/render-cleanup",
+      createdBy,
+      kind: "canvas",
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "doc"),
+      createdBy,
+      nodes: [],
+    });
+    const versionId = await t.run(
+      async (ctx) => (await ctx.db.get(created.canvasId))?.currentVersionId,
+    );
+    if (!versionId) throw new Error("missing version");
+    const oldStorageId = await seedStorage(t, "old");
+    await t.mutation(internal.canvases.attachCanvasRender, {
+      canvasId: created.canvasId,
+      versionId,
+      relPath: "/output/preview.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 3,
+      storageId: oldStorageId,
+    });
+    await t.mutation(internal.canvases.attachCanvasRender, {
+      canvasId: created.canvasId,
+      versionId,
+      relPath: "/output/preview.png",
+      type: "image",
+      mimeType: "image/png",
+      size: 7,
+      storageId: await seedStorage(t, "new-new"),
+    });
+    expect(await t.run((ctx) => ctx.storage.get(oldStorageId))).toBeNull();
+    expect(await t.run(async (ctx) => (await ctx.db.get(created.canvasId))?.storageBytesUsed)).toBe(
+      7,
+    );
   });
 
   test("a missing version is refused with the version number named", async () => {

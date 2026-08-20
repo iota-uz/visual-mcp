@@ -359,6 +359,24 @@ test("renderFile: reports missing subresources in unresolvedRefs without failing
       ["/src/accident-1.jpg", "/src/myid-face-camera-v1.png"],
       "missing refs should be workspace-relative and de-duplicated; the present asset absent",
     );
+    assert.deepEqual(
+      result.unresolvedDetails
+        .map(({ ref, resourceType, reason }) => ({ ref, resourceType, reason }))
+        .sort((left, right) => left.ref.localeCompare(right.ref)),
+      [
+        {
+          ref: "/src/accident-1.jpg",
+          resourceType: "image",
+          reason: "missing_local_file",
+        },
+        {
+          ref: "/src/myid-face-camera-v1.png",
+          resourceType: "image",
+          reason: "missing_local_file",
+        },
+      ],
+      "structured diagnostics should name the resource kind and failure reason",
+    );
     // Non-fatal: the PNG was still written.
     const bytes = await fs.readFile(result.path);
     assert.deepEqual(bytes.subarray(0, 8), PNG_MAGIC);

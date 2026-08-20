@@ -34,7 +34,44 @@ export type ParsedRef =
   | { form: "slug"; workspaceSlug: string; canvasSlug: string };
 
 const REF_HELP =
-  'Expected either a canvas id ("jn79rst1…") or "workspace-slug/canvas-slug" (e.g. "osago/fast-settlement").';
+  'Expected a canvas id/public slug, a canvas or share URL, a canvas:// URI, or "workspace-slug/canvas-slug" (e.g. "osago/fast-settlement").';
+
+/**
+ * Normalizes references that the product itself exposes back into the two
+ * canonical addressing forms. Agents routinely paste `canvas_url`,
+ * `share_url`, or a copied `canvas://` element locator into a later call;
+ * rejecting those values makes our own outputs non-composable.
+ */
+function normalizeProductRef(value: string, label: string): string {
+  if (value.startsWith("canvas://")) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new RefError(`${label} "${value}" is not a valid canvas:// URI. ${REF_HELP}`);
+    }
+    const parts = [url.hostname, ...url.pathname.split("/").filter(Boolean)];
+    if (parts.length !== 2) {
+      throw new RefError(`${label} "${value}" must name canvas://workspace/canvas. ${REF_HELP}`);
+    }
+    return `${decodeURIComponent(parts[0] as string)}/${decodeURIComponent(parts[1] as string)}`;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new RefError(`${label} "${value}" is not a valid URL. ${REF_HELP}`);
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2 && parts[0] === "c") return decodeURIComponent(parts[1] as string);
+    if (parts.length >= 2 && parts[0] === "s") return decodeURIComponent(parts[1] as string);
+    throw new RefError(`${label} URL must contain /c/<canvas-id> or /s/<public-slug>. ${REF_HELP}`);
+  }
+
+  return value;
+}
 
 /**
  * Splits a `ref` into its addressing form. Rejects anything ambiguous rather
@@ -45,7 +82,7 @@ export function parseRef(ref: unknown, label = "ref"): ParsedRef {
   if (typeof ref !== "string" || ref.trim().length === 0) {
     throw new RefError(`${label} must be a non-empty string. ${REF_HELP}`);
   }
-  const trimmed = ref.trim();
+  const trimmed = normalizeProductRef(ref.trim(), label);
 
   if (!trimmed.includes("/")) {
     return { form: "id", canvasId: trimmed };

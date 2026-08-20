@@ -18,7 +18,7 @@
     "@hono/node-server": "2.1.0",
     "@visual-canvas/runtime": "*",
     "hono": "4.13.1",
-    "sharp": "^0.34.1",
+    "sharp": "^0.35.3",
     "zod": "^3.24.0"
   },
   "devDependencies": {

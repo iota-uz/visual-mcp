@@ -2,7 +2,7 @@ import type { PositionedCanvas, PositionedNode } from "./layout.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
-import type { IframeNode, Rect } from "./types.js";
+import type { IframeNode, ImageNode, Rect } from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -134,6 +134,7 @@ export interface ViewportOptions {
   initialScale?: number;
   onSelect?: (nodeId: string | null) => void;
   resolveIframeUrl?: (node: IframeNode) => string;
+  resolveImageUrl?: (node: ImageNode) => string;
   resolveIframeIdentity?: (node: IframeNode) => string;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
@@ -143,6 +144,7 @@ export interface ViewportOptions {
 
 export interface ViewportUpdateOptions {
   resolveIframeUrl?: (node: IframeNode) => string;
+  resolveImageUrl?: (node: ImageNode) => string;
   resolveIframeIdentity?: (node: IframeNode) => string;
 }
 
@@ -182,9 +184,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const { container, canvas, onSelect } = opts;
   let liveCanvas = canvas;
   let liveResolveIframeUrl = opts.resolveIframeUrl;
+  let liveResolveImageUrl = opts.resolveImageUrl;
   let liveResolveIframeIdentity = opts.resolveIframeIdentity;
   const rendered = renderCanvas(liveCanvas, {
     resolveIframeUrl: liveResolveIframeUrl,
+    resolveImageUrl: liveResolveImageUrl,
     editable: opts.editable,
   });
 
@@ -567,11 +571,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function reconcileCanvasDom(
     nextCanvas: PositionedCanvas,
     nextResolveIframeUrl: ((node: IframeNode) => string) | undefined,
+    nextResolveImageUrl: ((node: ImageNode) => string) | undefined,
     nextResolveIframeIdentity: ((node: IframeNode) => string) | undefined,
   ): void {
     const scratch = document.createElement("div");
     scratch.innerHTML = renderCanvas(nextCanvas, {
       resolveIframeUrl: nextResolveIframeUrl,
+      resolveImageUrl: nextResolveImageUrl,
       editable: opts.editable,
     }).html;
     const nextWorld = scratch.querySelector<HTMLElement>(".vc-world");
@@ -667,6 +673,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function updateCanvas(nextCanvas: PositionedCanvas, options?: ViewportUpdateOptions): void {
     const nextResolveIframeUrl = options?.resolveIframeUrl ?? liveResolveIframeUrl;
+    const nextResolveImageUrl = options?.resolveImageUrl ?? liveResolveImageUrl;
     const nextResolveIframeIdentity = options?.resolveIframeIdentity ?? liveResolveIframeIdentity;
     // Keep the node being manipulated under the pointer even if a remote
     // version lands mid-drag. The subsequent optimistic save is based on the
@@ -679,8 +686,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         Object.assign(incoming, { x: local.x, y: local.y, w: local.w, h: local.h });
       }
     }
-    reconcileCanvasDom(nextCanvas, nextResolveIframeUrl, nextResolveIframeIdentity);
+    reconcileCanvasDom(
+      nextCanvas,
+      nextResolveIframeUrl,
+      nextResolveImageUrl,
+      nextResolveIframeIdentity,
+    );
     liveResolveIframeUrl = nextResolveIframeUrl;
+    liveResolveImageUrl = nextResolveImageUrl;
     liveResolveIframeIdentity = nextResolveIframeIdentity;
     liveCanvas = nextCanvas;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));

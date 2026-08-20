@@ -28,32 +28,36 @@ This generates the token locally, hashes it, and registers only the hash
 with Convex via `npx convex run tokens:bootstrap` — the plaintext token is
 printed once, to your terminal only. Tokens expire after 90 days.
 
-Canvas tools use one `ref`, either a canvas id or
-`workspace-slug/canvas-slug`. Asset tools use immutable `asset://` refs.
+Canvas tools use one `ref`: a canvas id, public slug, returned canvas/share
+URL, `canvas://` URI, or `workspace-slug/canvas-slug`. Asset tools use
+immutable `asset://` refs.
 
 | Tool | Purpose |
 | --- | --- |
 | `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
-| `canvas_get` | Reads one canvas: metadata and URLs always, plus any of `doc` / `files` / `artifacts` / `versions` / `renders` / `storage`. Bytes come back as links, never inlined. |
-| `canvas_snapshot` | Returns an inline PNG image block for a whole native canvas, one `ref_id` node, or an exact world-coordinate region. Captures are version-pinned and cached for 24 hours. |
+| `canvas_get` | Reads one canvas: metadata and URLs always, plus cursor-paginated `files` / `artifacts` / `versions` / `renders`, `doc`, or `storage`. Cursor continuation is pinned with `pagination.expected_version`, so concurrent saves cannot mix pages. Bytes come back as links, never inlined. |
+| `canvas_file_get` | Reads one canvas file with version/hash metadata and bounded ranges. Full/line reads are UTF-8; exact byte ranges are base64 and declare their `encoding`. |
+| `canvas_snapshot` | Captures a whole native canvas, one `ref_id` node, or an exact world-coordinate region. It isolates targeted iframes, retries transient readiness once, never caches partials, reports resource failure details, and suggests readable tiles when an overview was downscaled. PNGs above 5 MB return a short-lived `download_url` instead of overflowing MCP inline transport. |
 | `canvas_edit` | Exact `old_string` → `new_string` edit of one UTF-8 file with version/hash conflict protection. |
 | `canvas_apply_patch` | Atomic Codex-style Add/Update/Move/Delete patch across multiple files. |
-| `canvas_doc_patch` | Semantic add/update/remove operations for CanvasDoc world, lanes, stages, labels, nodes and edges. |
-| `canvas_find` | Browses and searches workspaces, canvases, and CanvasDoc node text. |
-| `canvas_delete` | Archives or permanently removes a workspace, canvas, file, or artifact. |
+| `canvas_doc_patch` | Typed semantic add/update/replace/remove operations for CanvasDoc world, lanes, stages, labels, nodes and edges. |
+| `canvas_find` | Cursor-paginates and searches workspaces, canvases, and CanvasDoc node text. |
+| `canvas_delete` | Archives a workspace/canvas by default or purges it explicitly. Individual files/artifacts have no archive state and require `path` plus `purge:true`. |
 | `canvas_run` | Executes resource-limited JS/TS against canvas files; `/output` becomes artifacts. |
-| `canvas_upload_url` | Existing per-canvas out-of-band upload path. |
-| `asset_list` / `asset_get` | Searches reusable personal/workspace media; `asset_get` can return image content directly to the model. |
-| `asset_upload_url` / `asset_finalize` | Direct-to-S3 binary upload followed by validation and immutable revision creation. |
+| `canvas_upload_url` | Batch (up to 50) per-canvas out-of-band upload manifest; finalize all returned storage IDs in one `canvas_save`. |
+| `asset_list` / `asset_get` | Cursor-paginates reusable personal/workspace media; `asset_get` can return image content directly to the model. |
+| `asset_upload_url` / `asset_finalize` | Batch (up to 50) direct-to-S3 upload and per-item resumable finalize results. |
 | `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
 | `asset_attach` | Pins one immutable asset revision at an `/assets/…` canvas path. |
 | `asset_move` | Moves an asset between personal and workspace libraries without re-uploading bytes; old refs stop resolving for new work. |
 | `asset_delete` | Archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
 | `asset_restore` | Restores an archived asset to its original library without uploading bytes or changing immutable versions and bindings. |
 
-### CanvasDoc v2 iframe nodes
+Canvas-private `/assets` files and the reusable Asset Library are distinct on purpose: `canvas_upload_url` only stages files for one canvas, while `asset_upload_url` creates reusable Library items. Both return an `uploads` manifest with an explicit HTTP method; follow that method instead of assuming the protocols are interchangeable.
 
-Native canvases use `version: 2`, explicit `world` and `rect` geometry, and anchor-to-anchor edges. A node is either structured `native` content or a local interactive `iframe`. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the document via `canvas_save({ kind: "canvas", doc, files })`. External iframe URLs and `allow-same-origin` are rejected.
+### CanvasDoc v2 native, iframe, and image nodes
+
+Native canvases use `version: 2`, explicit `world` and `rect` geometry, and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to a canvas file or Asset Library binding, support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the document via `canvas_save({ kind: "canvas", doc, files })`. External iframe URLs and `allow-same-origin` are rejected.
 
 For a phone screen, use `viewport: { width: 284, height: 642 }` and `frame: { kind: "phone", time: "09:42" }`. The shared canvas renderer supplies the canonical 310×708 OSAGO device shell, notch and status bar in viewer, public share, thumbnail, PNG and PDF. The iframe entrypoint contains only the app screen; adding another bezel or status bar is invalid product output.
 
