@@ -29,7 +29,42 @@ export function convexSiteOrigin(convexUrl) {
   return url.origin;
 }
 
-export function renderSocialMeta({ metadata, canonicalUrl, imageUrl }) {
+export function rasterDimensions(bytes, mimeType) {
+  if (mimeType === "image/png" && bytes.length >= 24) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (mimeType === "image/jpeg" && bytes.length >= 4) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) break;
+      const marker = bytes[offset + 1];
+      if (marker === 0xd8 || marker === 0xd9) {
+        offset += 2;
+        continue;
+      }
+      const length = bytes.readUInt16BE(offset + 2);
+      if (length < 2 || offset + length + 2 > bytes.length) break;
+      if (
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      ) {
+        return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) };
+      }
+      offset += length + 2;
+    }
+  }
+  return null;
+}
+
+export function renderSocialMeta({
+  metadata,
+  canonicalUrl,
+  imageUrl,
+  imageWidth = 1730,
+  imageHeight = 909,
+}) {
   const title = `${metadata.title} · Visual Canvas`;
   const alt = `Preview of ${metadata.title}`;
   const tags = [
@@ -41,8 +76,8 @@ export function renderSocialMeta({ metadata, canonicalUrl, imageUrl }) {
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
     `<meta property="og:image" content="${escapeHtml(imageUrl)}" />`,
-    '<meta property="og:image:width" content="1730" />',
-    '<meta property="og:image:height" content="909" />',
+    `<meta property="og:image:width" content="${imageWidth}" />`,
+    `<meta property="og:image:height" content="${imageHeight}" />`,
     `<meta property="og:image:alt" content="${escapeHtml(alt)}" />`,
     '<meta name="twitter:card" content="summary_large_image" />',
     `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
@@ -100,6 +135,21 @@ export function createAppServer({
     return response.ok ? response.json() : null;
   }
 
+  async function preview(data) {
+    if (data.thumbnail_url) {
+      const thumbnail = await fetchImpl(data.thumbnail_url);
+      const type = thumbnail.headers.get("content-type") ?? "";
+      if (thumbnail.ok && /^image\/(png|jpeg)$/.test(type)) {
+        const body = Buffer.from(await thumbnail.arrayBuffer());
+        const dimensions = rasterDimensions(body, type);
+        if (dimensions) return { body, type, ...dimensions };
+      }
+    }
+    const body = await readFile(fallbackPath);
+    const dimensions = rasterDimensions(body, "image/png") ?? { width: 1730, height: 909 };
+    return { body, type: "image/png", ...dimensions };
+  }
+
   return createServer(async (request, response) => {
     try {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -118,17 +168,7 @@ export function createAppServer({
           response.writeHead(404, { "cache-control": "no-store" }).end("Not found");
           return;
         }
-        let body;
-        let type = "image/png";
-        if (data.thumbnail_url) {
-          const thumbnail = await fetchImpl(data.thumbnail_url);
-          const thumbnailType = thumbnail.headers.get("content-type") ?? "";
-          if (thumbnail.ok && /^image\/(png|jpeg)$/.test(thumbnailType)) {
-            body = Buffer.from(await thumbnail.arrayBuffer());
-            type = thumbnailType;
-          }
-        }
-        body ??= await readFile(fallbackPath);
+        const { body, type } = await preview(data);
         response.writeHead(200, {
           "content-type": type,
           "content-length": body.byteLength,
@@ -154,7 +194,14 @@ export function createAppServer({
         }
         const canonicalUrl = `${url.origin}/s/${encodeURIComponent(slug)}`;
         const imageUrl = `${canonicalUrl}/_social/preview.png?v=${encodeURIComponent(data.version)}`;
-        const html = injectSocialMeta(template, { metadata: data, canonicalUrl, imageUrl });
+        const { width: imageWidth, height: imageHeight } = await preview(data);
+        const html = injectSocialMeta(template, {
+          metadata: data,
+          canonicalUrl,
+          imageUrl,
+          imageWidth,
+          imageHeight,
+        });
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "content-length": Buffer.byteLength(html),

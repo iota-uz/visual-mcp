@@ -5,7 +5,7 @@ import { defineConfig, loadEnv } from "vite";
 // Runtime server helpers are intentionally plain ESM so the final image does
 // not need a TypeScript loader.
 // @ts-expect-error -- server.mjs is covered by server.test.js.
-import { convexSiteOrigin, injectSocialMeta } from "./server.mjs";
+import { convexSiteOrigin, injectSocialMeta, rasterDimensions } from "./server.mjs";
 
 /*
  * VITE_FIXTURES=1 swaps the two Convex client modules for in-memory fakes
@@ -77,13 +77,30 @@ export default defineConfig(({ mode }) => {
           title: string;
           description: string;
           version: number;
+          thumbnail_url: string | null;
         };
         const canonicalUrl = `${url.origin}/s/${encodeURIComponent(slug)}`;
         const template = await readFile(local("./index.html"), "utf8");
+        let previewBytes = await readFile(local("./public/social-fallback.png"));
+        let previewType = "image/png";
+        if (metadata.thumbnail_url) {
+          const thumbnail = await fetch(metadata.thumbnail_url);
+          const thumbnailType = thumbnail.headers.get("content-type") ?? "";
+          if (thumbnail.ok && /^image\/(png|jpeg)$/.test(thumbnailType)) {
+            previewBytes = Buffer.from(await thumbnail.arrayBuffer());
+            previewType = thumbnailType;
+          }
+        }
+        const dimensions = rasterDimensions(previewBytes, previewType) ?? {
+          width: 1730,
+          height: 909,
+        };
         const html = injectSocialMeta(await server.transformIndexHtml(url.pathname, template), {
           metadata,
           canonicalUrl,
           imageUrl: `${canonicalUrl}/_social/preview.png?v=${metadata.version}`,
+          imageWidth: dimensions.width,
+          imageHeight: dimensions.height,
         });
         response.statusCode = 200;
         response.setHeader("content-type", "text/html; charset=utf-8");

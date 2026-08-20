@@ -24,6 +24,13 @@ async function fixtureServer(metadataBySlug) {
   await writeFile(join(root, "social-fallback.png"), Buffer.from([137, 80, 78, 71]));
   const fetchImpl = async (url) => {
     const parsed = new URL(url);
+    if (parsed.hostname === "images.example") {
+      const png = Buffer.alloc(24);
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+      png.writeUInt32BE(600, 16);
+      png.writeUInt32BE(328, 20);
+      return new Response(png, { headers: { "content-type": "image/png" } });
+    }
     const slug = decodeURIComponent(parsed.pathname.slice("/social/".length));
     const metadata = metadataBySlug[slug];
     return metadata ? Response.json(metadata) : new Response("Not found", { status: 404 });
@@ -68,6 +75,20 @@ describe("crawler-facing public share HTML", () => {
     const image = await fetch(`${origin}/s/live/_social/preview.png?v=7`);
     expect(image.status).toBe(200);
     expect(image.headers.get("content-type")).toBe("image/png");
+  });
+
+  it("declares the real thumbnail dimensions in crawler metadata", async () => {
+    const origin = await fixtureServer({
+      live: {
+        title: "Fast settlement",
+        description: "A claims flow",
+        version: 8,
+        thumbnail_url: "https://images.example/thumbnail.png",
+      },
+    });
+    const html = await (await fetch(`${origin}/s/live`)).text();
+    expect(html).toContain('property="og:image:width" content="600"');
+    expect(html).toContain('property="og:image:height" content="328"');
   });
 
   it.each(["private", "revoked", "dead"])(
