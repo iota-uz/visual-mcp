@@ -33,6 +33,7 @@ import {
   buildTailwindCss,
   installLocalResourceRouting,
   renderFile,
+  snapshotCanvas,
 } from "../src/render/playwright-renderer/index.js";
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -44,6 +45,68 @@ async function mkFixtureDir(prefix: string): Promise<string> {
   await fs.mkdir(TEST_TMP_ROOT, { recursive: true });
   return fs.mkdtemp(path.join(TEST_TMP_ROOT, prefix));
 }
+
+test("snapshotCanvas captures one node with padding at the requested scale", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-node-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:600px;height:400px;background:#eee}.vc-node{position:absolute;left:100px;top:80px;width:200px;height:120px;background:#e11d48;box-shadow:0 8px 20px #0008}</style><div class="vc-world"><div class="vc-node" data-node-id="phone/mockup"></div></div>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "node.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "node", nodeId: "phone/mockup" },
+      padding: 20,
+      scale: 2,
+    });
+    assert.equal(result.width, 480);
+    assert.equal(result.height, 320);
+    assert.equal(result.downscaled, false);
+    assert.deepEqual((await fs.readFile(outputPath)).subarray(0, 8), PNG_MAGIC);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("snapshotCanvas captures exact world-coordinate regions and rejects outside regions", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-region-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{width:500px;height:300px;background:#2563eb}</style><div class="vc-world"></div>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "region.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "region", x: 30, y: 40, width: 90, height: 70 },
+    });
+    assert.deepEqual([result.width, result.height], [90, 70]);
+    await assert.rejects(
+      snapshotCanvas({
+        entrypoint,
+        outputPath,
+        workspaceRoot: dir,
+        target: { type: "region", x: 450, y: 0, width: 100, height: 50 },
+      }),
+      /region_outside_canvas/,
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
 
 /* ------------------------------------------------------------------------
  * (a) plain HTML + Tailwind class -> PNG produced, non-empty, valid magic

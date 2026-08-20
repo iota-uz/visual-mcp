@@ -209,6 +209,25 @@ export default defineSchema({
     .index("by_version_relPath", ["versionId", "relPath"])
     .index("by_canvas", ["canvasId"]),
 
+  // Ephemeral, immutable-version screenshots returned inline by canvas_snapshot.
+  // They are deliberately separate from artifacts/renders and expire after 24h.
+  canvasSnapshots: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    cacheKey: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.literal("image/png"),
+    size: v.number(),
+    width: v.number(),
+    height: v.number(),
+    status: v.union(v.literal("ok"), v.literal("partial")),
+    warnings: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_version_cacheKey", ["versionId", "cacheKey"])
+    .index("by_canvas", ["canvasId"])
+    .index("by_createdAt", ["createdAt"]),
+
   iframeCapabilities: defineTable({
     token: v.string(),
     canvasId: v.id("canvases"),

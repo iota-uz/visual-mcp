@@ -29,7 +29,9 @@ import {
   CompileCssRequestSchema,
   ExecRequestSchema,
   RenderRequestSchema,
+  SnapshotRequestSchema,
 } from "./schemas.js";
+import { handleSnapshot } from "./snapshot.js";
 
 export const app = new Hono();
 
@@ -52,6 +54,7 @@ app.use("/render", requireWorkerToken);
 app.use("/exec", requireWorkerToken);
 app.use("/compile-css", requireWorkerToken);
 app.use("/asset-import", requireWorkerToken);
+app.use("/snapshot", requireWorkerToken);
 
 app.post("/render", async (c) => {
   const parsed = RenderRequestSchema.safeParse(await c.req.json());
@@ -61,6 +64,18 @@ app.post("/render", async (c) => {
   try {
     const result = await handleRender(parsed.data);
     return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});
+
+app.post("/snapshot", async (c) => {
+  const parsed = SnapshotRequestSchema.safeParse(await c.req.json());
+  if (!parsed.success) {
+    return c.json({ error: "invalid request", issues: parsed.error.issues }, 400);
+  }
+  try {
+    return c.json(await handleSnapshot(parsed.data));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }

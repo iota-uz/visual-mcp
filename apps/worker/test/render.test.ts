@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { disposeD2Renderer } from "@visual-canvas/runtime/render/diagrams/index.js";
 import { handleRender } from "../src/render.js";
+import { handleSnapshot } from "../src/snapshot.js";
 import { startTestUploadServer } from "./test-upload-server.js";
 
 after(async () => {
@@ -50,6 +51,37 @@ test("handleRender: HTML -> PNG uploads the rendered bytes", async () => {
     assert.equal(uploadServer.uploads.length, 1);
     assert.ok((uploadServer.uploads[0]?.bytes.length ?? 0) > 0);
     // PNG magic bytes
+    assert.deepEqual(
+      uploadServer.uploads[0]?.bytes.subarray(0, 4),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    );
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleSnapshot: node target uploads a bounded PNG with metadata", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleSnapshot({
+      sources: [
+        {
+          relPath: "/src/__canvas.html",
+          getUrl: dataUrl(
+            "text/html",
+            `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:400px;height:300px}.vc-node{position:absolute;left:80px;top:60px;width:120px;height:100px;background:red}</style><div class="vc-world"><div class="vc-node" data-node-id="phone"></div></div>`,
+          ),
+        },
+      ],
+      entrypoint: "/src/__canvas.html",
+      target: { type: "node", nodeId: "phone" },
+      padding: 10,
+      scale: 1,
+      upload: { putUrl: uploadServer.putUrl("snapshot.png") },
+    });
+    assert.deepEqual([result.width, result.height], [140, 120]);
+    assert.equal(result.mimeType, "image/png");
+    assert.equal(result.uploadStatus, 200);
     assert.deepEqual(
       uploadServer.uploads[0]?.bytes.subarray(0, 4),
       Buffer.from([0x89, 0x50, 0x4e, 0x47]),

@@ -46,6 +46,17 @@ test("/render with a valid token but invalid body returns 400", async () => {
   assert.equal(res.status, 400);
 });
 
+test("/snapshot is authenticated and validates its body", async () => {
+  const unauthorized = await app.request("/snapshot", { method: "POST", body: "{}" });
+  assert.equal(unauthorized.status, 401);
+  const invalid = await app.request("/snapshot", {
+    method: "POST",
+    headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("/exec without a bearer token is rejected", async () => {
   const res = await app.request("/exec", { method: "POST", body: "{}" });
   assert.equal(res.status, 401);

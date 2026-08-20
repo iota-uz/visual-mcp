@@ -486,6 +486,39 @@ const RenderInputSchema = z.object({
 
 type RenderInput = z.infer<typeof RenderInputSchema>;
 
+const SnapshotTargetSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("canvas") }),
+  z.object({ type: z.literal("node"), node_id: z.string().min(1) }),
+  z.object({
+    type: z.literal("region"),
+    x: z.number().nonnegative(),
+    y: z.number().nonnegative(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+]);
+
+const SnapshotInputSchema = z
+  .object({
+    ref: z.string().optional(),
+    ref_id: z.string().optional(),
+    target: SnapshotTargetSchema.optional(),
+    expected_version: z.number().int().nonnegative().optional(),
+    padding: z.number().int().min(0).max(256).optional(),
+    scale: z.union([z.literal(1), z.literal(2)]).optional(),
+  })
+  .superRefine((input, check) => {
+    if (Boolean(input.ref) === Boolean(input.ref_id)) {
+      check.addIssue({ code: "custom", message: "Pass exactly one of ref or ref_id." });
+    }
+    if (input.ref_id && input.target) {
+      check.addIssue({
+        code: "custom",
+        message: "ref_id already identifies the node; omit target.",
+      });
+    }
+  });
+
 interface RenderedArtifact {
   path: string;
   format: string;
@@ -707,9 +740,15 @@ async function saveDoc(
       `CanvasDoc iframe entrypoint does not exist: ${missing.join(", ")}. Upload it in the same canvas_save files array.`,
     );
 
+  // Store the export page on the version itself. canvasFiles is mutable; a
+  // snapshot must never accidentally render the next version's generated HTML.
+  const page = canvasEntryHtml(doc, compiledCss);
+  const entryBytes = new TextEncoder().encode(page);
+
   const docJson = JSON.stringify(doc);
   const docBytes = new TextEncoder().encode(docJson);
   const docStorageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
+  const entryStorageId = await ctx.storage.store(new Blob([entryBytes], { type: "text/html" }));
   const cssStorageId = compiledCss
     ? await ctx.storage.store(new Blob([compiledCss], { type: "text/css" }))
     : undefined;
@@ -720,6 +759,7 @@ async function saveDoc(
       canvasId,
       docStorageId,
       cssStorageId,
+      entryStorageId,
       iframeEntrypoints,
       note,
       createdBy: principal.userId,
@@ -743,36 +783,21 @@ async function saveDoc(
     version = put.version;
   } catch (err) {
     await ctx.storage.delete(docStorageId);
+    await ctx.storage.delete(entryStorageId);
     if (cssStorageId) await ctx.storage.delete(cssStorageId);
     throw err;
   }
 
-  // The rendered page is written to a reserved path. v1 wrote this silently
-  // into /src/__canvas.html — colliding with any caller file of that name and
-  // consuming the caller's quota without ever mentioning it. Same mechanism,
-  // but now it is documented in the tool description and reported back.
+  // Keep the mutable source path in sync for ordinary render_file calls. The
+  // version-pinned entryStorageId above is the source of truth for snapshots.
   try {
-    // Export pages must instantiate every screen, including screens outside the
-    // browser viewport. The interactive viewer uses lazy loading instead.
-    const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
-    const page =
-      '<!doctype html><html><head><meta charset="utf-8" />' +
-      `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
-      `<style>${compiledCss}</style></head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`;
-    const bytes = new TextEncoder().encode(page);
-    const htmlStorageId = await ctx.storage.store(new Blob([bytes], { type: "text/html" }));
-    try {
-      await ctx.runMutation(internal.canvases.upsertFile, {
-        canvasId,
-        relPath: "/src/__canvas.html",
-        storageId: htmlStorageId,
-        size: bytes.byteLength,
-        contentHash: await sha256Hex(page),
-      });
-    } catch (err) {
-      await ctx.storage.delete(htmlStorageId);
-      throw err;
-    }
+    await ctx.runMutation(internal.canvases.upsertFile, {
+      canvasId,
+      relPath: "/src/__canvas.html",
+      storageId: entryStorageId,
+      size: entryBytes.byteLength,
+      contentHash: await sha256Hex(page),
+    });
   } catch (err) {
     warnings.push({
       code: "render_failed",
@@ -781,6 +806,15 @@ async function saveDoc(
   }
 
   return { version, warnings };
+}
+
+function canvasEntryHtml(doc: CanvasDoc, compiledCss = ""): string {
+  const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
+  return (
+    '<!doctype html><html><head><meta charset="utf-8" />' +
+    `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
+    `<style>${compiledCss}</style></head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`
+  );
 }
 
 /* ------------------------------------------------------------------------
@@ -1643,6 +1677,207 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           path: attached.path,
           version: attached.version,
         });
+      }),
+  );
+
+  /* --- canvas_snapshot ------------------------------------------------ */
+  server.registerTool(
+    "canvas_snapshot",
+    {
+      title: "Snapshot canvas selection",
+      description:
+        "Returns a PNG image block for a native canvas, one node, or an exact world-coordinate " +
+        "region. Pass a copied ref_id to see that node immediately. The capture is rendered from " +
+        "the current immutable canvas version, not from transient browser state.",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      inputSchema: SnapshotInputSchema,
+      outputSchema: z.object({
+        status: z.enum(["ok", "partial"]),
+        ref: z.string(),
+        ref_id: z.string().optional(),
+        version: z.number(),
+        target: SnapshotTargetSchema,
+        mime_type: z.literal("image/png"),
+        width: z.number(),
+        height: z.number(),
+        size_bytes: z.number(),
+        cached: z.boolean(),
+        warnings: z.array(z.string()),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const elementRef = input.ref_id ? parseElementRef(input.ref_id) : null;
+        const ref = elementRef?.canvasRef ?? input.ref;
+        if (!ref) throw new Error("Pass exactly one of ref or ref_id.");
+        const target = elementRef
+          ? ({ type: "node", node_id: elementRef.nodeId } as const)
+          : (input.target ?? ({ type: "canvas" } as const));
+        const context = await ctx.runQuery(internal.canvases.snapshotContextByRef, { ref });
+        if (!context) throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
+        if (context.kind !== "canvas") {
+          throw new Error("unsupported_canvas_kind: canvas_snapshot supports kind=canvas only.");
+        }
+        if (input.expected_version !== undefined && input.expected_version !== context.version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${context.version}`,
+          );
+        }
+
+        if (!context.docStorageId) throw new Error("snapshot_failed: CanvasDoc is unavailable.");
+        const docBlob = await ctx.storage.get(context.docStorageId);
+        if (!docBlob) throw new Error("snapshot_failed: CanvasDoc storage object is unavailable.");
+        const doc = CanvasDocSchema.parse(JSON.parse(await docBlob.text()));
+        if (target.type === "node") {
+          if (!resolveElementSelection(doc, target.node_id)) {
+            throw new Error(
+              `node_not_found: node "${target.node_id}" does not exist at version ${context.version}.`,
+            );
+          }
+        }
+
+        const padding = input.padding ?? (target.type === "node" ? 24 : 0);
+        const scale = input.scale ?? 1;
+        const normalizedTarget =
+          target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
+        const cacheKey = await sha256Hex(
+          JSON.stringify({ renderer: 1, target: normalizedTarget, padding, scale }),
+        );
+
+        let cached = true;
+        let snapshot = await ctx.runQuery(internal.canvases.getSnapshotCache, {
+          versionId: context.versionId,
+          cacheKey,
+          now: Date.now(),
+        });
+        let blob = snapshot ? await ctx.storage.get(snapshot.storageId) : null;
+
+        if (!snapshot || !blob) {
+          cached = false;
+          const resolvedFiles = await Promise.all(
+            context.files.map(async (file) => {
+              const getUrl = await ctx.storage.getUrl(file.storageId);
+              return getUrl ? { relPath: file.relPath, getUrl } : null;
+            }),
+          );
+          const sources = [
+            ...resolvedFiles.filter(
+              (source): source is { relPath: string; getUrl: string } => source !== null,
+            ),
+            ...(await Promise.all(
+              context.assets.map(async (asset) => ({
+                relPath: asset.relPath,
+                getUrl: await presignObject("delivery", asset.objectKey, "GET", 3600),
+              })),
+            )),
+          ];
+          let temporaryEntryStorageId: Id<"_storage"> | undefined;
+          if (!sources.some((source) => source.relPath === "/src/__canvas.html")) {
+            // Versions created before entryStorageId existed are still exactly
+            // reproducible from their immutable doc + compiled CSS.
+            const cssBlob = context.cssStorageId
+              ? await ctx.storage.get(context.cssStorageId)
+              : null;
+            const entryBytes = new TextEncoder().encode(
+              canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : ""),
+            );
+            temporaryEntryStorageId = await ctx.storage.store(
+              new Blob([entryBytes], { type: "text/html" }),
+            );
+            const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
+            if (!getUrl) {
+              await ctx.storage.delete(temporaryEntryStorageId);
+              throw new Error("snapshot_failed: unable to stage immutable export page.");
+            }
+            sources.push({ relPath: "/src/__canvas.html", getUrl });
+          }
+
+          const config = getWorkerConfig();
+          const putUrl = await ctx.storage.generateUploadUrl();
+          let workerResult: {
+            size: number;
+            width: number;
+            height: number;
+            mimeType: "image/png";
+            uploadStatus: number;
+            uploadBody: unknown;
+            unresolvedRefs: string[];
+            readiness: { status: "ready" | "partial"; warnings: string[] };
+            downscaled: boolean;
+            contentOverflow: boolean;
+          };
+          try {
+            workerResult = await callWorker(config, "/snapshot", {
+              sources,
+              entrypoint: "/src/__canvas.html",
+              target: normalizedTarget,
+              padding,
+              scale,
+              upload: { putUrl },
+            });
+          } finally {
+            if (temporaryEntryStorageId) {
+              await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
+            }
+          }
+          const storageId = extractStorageId(workerResult.uploadBody) as Id<"_storage">;
+          const warnings = [
+            ...(workerResult.readiness.status === "partial" ? ["iframe_not_ready"] : []),
+            ...(workerResult.unresolvedRefs.length > 0 ? ["unresolved_asset"] : []),
+            ...(workerResult.downscaled ? ["output_downscaled"] : []),
+            ...(workerResult.contentOverflow ? ["content_overflow"] : []),
+          ];
+          snapshot = {
+            storageId,
+            mimeType: "image/png" as const,
+            size: workerResult.size,
+            width: workerResult.width,
+            height: workerResult.height,
+            status: warnings.length > 0 ? ("partial" as const) : ("ok" as const),
+            warnings,
+          };
+          try {
+            snapshot = await ctx.runMutation(internal.canvases.putSnapshotCache, {
+              canvasId: context.canvasId,
+              versionId: context.versionId,
+              cacheKey,
+              storageId,
+              size: snapshot.size,
+              width: snapshot.width,
+              height: snapshot.height,
+              status: snapshot.status,
+              warnings,
+            });
+          } catch (error) {
+            await ctx.storage.delete(storageId).catch(() => undefined);
+            throw error;
+          }
+          blob = await ctx.storage.get(snapshot.storageId);
+        }
+        if (!snapshot || !blob) throw new Error("snapshot_failed: snapshot bytes are unavailable.");
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const canonicalRefId =
+          target.type === "node" ? formatElementRef(ref, target.node_id) : undefined;
+        const metadata = {
+          status: snapshot.status,
+          ref,
+          ref_id: canonicalRefId,
+          version: context.version,
+          target,
+          mime_type: snapshot.mimeType,
+          width: snapshot.width,
+          height: snapshot.height,
+          size_bytes: snapshot.size,
+          cached,
+          warnings: snapshot.warnings,
+        };
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(metadata, null, 2) },
+            { type: "image", mimeType: "image/png", data: base64Bytes(bytes) },
+          ],
+          structuredContent: metadata,
+        };
       }),
   );
 

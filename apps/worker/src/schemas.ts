@@ -81,6 +81,42 @@ export const RenderResponseSchema = z.object({
 });
 export type RenderResponse = z.infer<typeof RenderResponseSchema>;
 
+export const SnapshotTargetSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("canvas") }),
+  z.object({ type: z.literal("node"), nodeId: z.string().min(1) }),
+  z.object({
+    type: z.literal("region"),
+    x: z.number().nonnegative(),
+    y: z.number().nonnegative(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+]);
+
+export const SnapshotRequestSchema = z.object({
+  sources: z.array(SignedSourceSchema),
+  entrypoint: z.string().min(1),
+  target: SnapshotTargetSchema,
+  padding: z.number().int().min(0).max(256).optional(),
+  scale: z.union([z.literal(1), z.literal(2)]).optional(),
+  upload: SignedUploadSchema,
+});
+export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
+
+export const SnapshotResponseSchema = z.object({
+  size: z.number(),
+  width: z.number(),
+  height: z.number(),
+  mimeType: z.literal("image/png"),
+  uploadStatus: z.number(),
+  uploadBody: z.unknown(),
+  unresolvedRefs: z.array(z.string()),
+  readiness: z.object({ status: z.enum(["ready", "partial"]), warnings: z.array(z.string()) }),
+  downscaled: z.boolean(),
+  contentOverflow: z.boolean(),
+});
+export type SnapshotResponse = z.infer<typeof SnapshotResponseSchema>;
+
 export const ExecRequestSchema = z.object({
   sources: z.array(SignedSourceSchema),
   code: z.string(),

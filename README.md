@@ -35,6 +35,7 @@ Canvas tools use one `ref`, either a canvas id or
 | --- | --- |
 | `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
 | `canvas_get` | Reads one canvas: metadata and URLs always, plus any of `doc` / `files` / `artifacts` / `versions` / `renders` / `storage`. Bytes come back as links, never inlined. |
+| `canvas_snapshot` | Returns an inline PNG image block for a whole native canvas, one `ref_id` node, or an exact world-coordinate region. Captures are version-pinned and cached for 24 hours. |
 | `canvas_edit` | Exact `old_string` → `new_string` edit of one UTF-8 file with version/hash conflict protection. |
 | `canvas_apply_patch` | Atomic Codex-style Add/Update/Move/Delete patch across multiple files. |
 | `canvas_doc_patch` | Semantic add/update/remove operations for CanvasDoc world, lanes, stages, labels, nodes and edges. |
@@ -55,7 +56,7 @@ For a phone screen, use `viewport: { width: 284, height: 642 }` and `frame: { ki
 
 In the viewer, an iframe is inert while the canvas is being panned, selected, moved or resized. Double-click or Enter enters interaction mode; Escape or the visible Exit control returns focus to the canvas. Screens load lazily with two concurrent initializations; once mounted, their browsing contexts remain resident for the viewer session instead of being evicted as the camera moves. Distant screens receive `visual-canvas:suspend` / `visual-canvas:resume` lifecycle events and have CSS animations paused while retaining routes, forms and JavaScript state. Export uses `renders: [{ target: { type: "canvas" }, format: "png" | "pdf" }]` and waits for deterministic DOM/font/image/runtime readiness. See the `canvas://templates/iframe-service-flow` MCP resource and [`examples/osago-24/canvas.json`](./examples/osago-24/canvas.json).
 
-In the signed-in viewer, selecting a native or iframe node also reveals a copyable element ref such as `canvas://osago/fast-settlement?node=phone-checkout`. Give that value to an agent as `canvas_get({ ref_id })` to resolve the exact current node together with its lane, stage and connected edges. Element refs follow the node's semantic `id` across content and geometry edits; deleting or replacing that id makes the ref stale. Anonymous public-share viewers do not expose internal element refs.
+In the signed-in viewer, selecting a native or iframe node also reveals a copyable element ref such as `canvas://osago/fast-settlement?node=phone-checkout`. Give that value to an agent as `canvas_get({ ref_id })` to resolve the exact current node together with its lane, stage and connected edges, or as `canvas_snapshot({ ref_id })` to put a tightly cropped PNG of that rendered node directly into the agent's visual context. `canvas_snapshot({ ref, target: { type: "canvas" } })` captures the complete world; a `region` target uses exact world coordinates. Element refs follow the node's semantic `id` across content and geometry edits; deleting or replacing that id makes the ref stale. Anonymous public-share viewers do not expose internal element refs.
 
 ### GitHub and Markdown previews
 

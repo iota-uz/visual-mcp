@@ -83,8 +83,179 @@ export interface RenderFileResult {
   readiness: { status: "ready" | "partial"; warnings: string[] };
 }
 
+export type CanvasSnapshotTarget =
+  | { type: "canvas" }
+  | { type: "node"; nodeId: string }
+  | { type: "region"; x: number; y: number; width: number; height: number };
+
+export interface SnapshotCanvasOptions {
+  entrypoint: string;
+  outputPath: string;
+  target: CanvasSnapshotTarget;
+  padding?: number;
+  scale?: 1 | 2;
+  workspaceRoot?: string;
+}
+
+export interface SnapshotCanvasResult extends RenderFileResult {
+  width: number;
+  height: number;
+  downscaled: boolean;
+  contentOverflow: boolean;
+}
+
 const DEFAULT_VIEWPORT_WIDTH = 1200;
 const DEFAULT_VIEWPORT_HEIGHT = 800;
+const SNAPSHOT_MAX_DIMENSION = 4096;
+const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Captures a native CanvasDoc world, one rendered node, or a world-coordinate region. */
+export async function snapshotCanvas(
+  options: SnapshotCanvasOptions,
+): Promise<SnapshotCanvasResult> {
+  const absEntrypoint = path.resolve(options.entrypoint);
+  const absOutputPath = path.resolve(options.outputPath);
+  const entrypointDir = path.dirname(absEntrypoint);
+  const workspaceRoot = options.workspaceRoot
+    ? path.resolve(options.workspaceRoot)
+    : await inferWorkspaceRoot(absEntrypoint);
+  const rawHtml = await fs.readFile(absEntrypoint, "utf8");
+  const builtHtml = await buildHtmlWithTailwind(rawHtml, entrypointDir);
+  const tempHtmlPath = path.join(entrypointDir, `.snapshot-${randomUUID()}.html`);
+  await fs.mkdir(path.dirname(absOutputPath), { recursive: true });
+  await fs.writeFile(tempHtmlPath, builtHtml, "utf8");
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: DEFAULT_VIEWPORT_WIDTH, height: DEFAULT_VIEWPORT_HEIGHT },
+      deviceScaleFactor: options.scale ?? 1,
+      javaScriptEnabled: true,
+    });
+    try {
+      const page = await context.newPage();
+      const unresolved = await installLocalResourceRouting(page, workspaceRoot);
+      const virtualPath = path
+        .relative(workspaceRoot, tempHtmlPath)
+        .split(path.sep)
+        .map(encodeURIComponent)
+        .join("/");
+      await page.goto(`http://canvas.local/${virtualPath}`, { waitUntil: "networkidle" });
+      await expandViewportForIframeCanvas(page);
+      await page.evaluate(() => document.fonts?.ready);
+      const readiness = await waitForCanvasReadiness(page).catch((error: unknown) => ({
+        status: "partial" as const,
+        warnings: [error instanceof Error ? error.message : String(error)],
+      }));
+      await warmIframeSurfaces(page);
+
+      const world = page.locator(".vc-world").first();
+      if ((await world.count()) === 0) throw new Error("snapshot_failed: .vc-world was not found");
+      const worldBox = await world.boundingBox();
+      if (!worldBox) throw new Error("snapshot_failed: canvas world has no visible bounds");
+
+      let clip: { x: number; y: number; width: number; height: number };
+      let contentOverflow = false;
+      if (options.target.type === "canvas") {
+        clip = worldBox;
+      } else if (options.target.type === "node") {
+        // Attribute values are compared in the page instead of interpolated into a CSS selector,
+        // so arbitrary valid node ids cannot escape the selector.
+        const nodeBox = await page.locator("[data-node-id]").evaluateAll((nodes, nodeId) => {
+          const match = nodes.find(
+            (candidate) => candidate.getAttribute("data-node-id") === nodeId,
+          );
+          if (!match) return null;
+          const rect = match.getBoundingClientRect();
+          const element = match as HTMLElement;
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            overflow:
+              element.scrollWidth > element.clientWidth ||
+              element.scrollHeight > element.clientHeight,
+          };
+        }, options.target.nodeId);
+        if (!nodeBox) throw new Error(`node_not_found: ${options.target.nodeId}`);
+        contentOverflow = nodeBox.overflow;
+        const padding = options.padding ?? 24;
+        clip = {
+          x: Math.max(0, nodeBox.x - padding),
+          y: Math.max(0, nodeBox.y - padding),
+          width: nodeBox.width + padding * 2,
+          height: nodeBox.height + padding * 2,
+        };
+      } else {
+        const target = options.target;
+        if (
+          target.x < 0 ||
+          target.y < 0 ||
+          target.width <= 0 ||
+          target.height <= 0 ||
+          target.x + target.width > worldBox.width ||
+          target.y + target.height > worldBox.height
+        ) {
+          throw new Error("region_outside_canvas: region must fit inside the canvas world");
+        }
+        clip = {
+          x: worldBox.x + target.x,
+          y: worldBox.y + target.y,
+          width: target.width,
+          height: target.height,
+        };
+      }
+
+      // A padded node at the right/bottom edge may extend beyond the document's initial surface.
+      const viewportWidth = Math.min(16_000, Math.max(1, Math.ceil(clip.x + clip.width)));
+      const viewportHeight = Math.min(16_000, Math.max(1, Math.ceil(clip.y + clip.height)));
+      await page.setViewportSize({ width: viewportWidth, height: viewportHeight });
+      await warmIframeSurfaces(page);
+      const screenshot = await page.screenshot({ type: "png", clip });
+      const image = sharp(screenshot).png({ compressionLevel: 9 });
+      let metadata = await image.metadata();
+      let width = metadata.width ?? 0;
+      let height = metadata.height ?? 0;
+      let bytes = await image.toBuffer();
+      let downscaled = false;
+
+      const dimensionRatio = Math.min(1, SNAPSHOT_MAX_DIMENSION / Math.max(width, height));
+      if (dimensionRatio < 1) {
+        width = Math.max(1, Math.floor(width * dimensionRatio));
+        height = Math.max(1, Math.floor(height * dimensionRatio));
+        bytes = await sharp(bytes).resize(width, height).png({ compressionLevel: 9 }).toBuffer();
+        downscaled = true;
+      }
+      while (bytes.length > SNAPSHOT_MAX_BYTES && Math.min(width, height) > 64) {
+        const ratio = Math.max(0.5, Math.sqrt(SNAPSHOT_MAX_BYTES / bytes.length) * 0.95);
+        width = Math.max(1, Math.floor(width * ratio));
+        height = Math.max(1, Math.floor(height * ratio));
+        bytes = await sharp(bytes).resize(width, height).png({ compressionLevel: 9 }).toBuffer();
+        downscaled = true;
+      }
+      if (bytes.length > SNAPSHOT_MAX_BYTES) {
+        throw new Error("snapshot_too_large: PNG remains larger than 4 MiB after downscaling");
+      }
+      metadata = await sharp(bytes).metadata();
+      await fs.writeFile(absOutputPath, bytes);
+      return {
+        path: absOutputPath,
+        width: metadata.width ?? width,
+        height: metadata.height ?? height,
+        downscaled,
+        contentOverflow,
+        unresolvedRefs: unresolved.list(),
+        readiness,
+      };
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+    await fs.rm(tempHtmlPath, { force: true });
+  }
+}
 
 export async function renderFile(options: RenderFileOptions): Promise<RenderFileResult> {
   const { format } = options;
@@ -262,7 +433,9 @@ async function expandViewportForIframeCanvas(page: import("playwright").Page): P
     if (!document.querySelector(".vc-kind-iframe")) return null;
     return {
       width: Math.ceil(Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)),
-      height: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)),
+      height: Math.ceil(
+        Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+      ),
     };
   });
   if (!dimensions) return false;
@@ -324,15 +497,13 @@ async function waitForCanvasReadiness(
       );
     throw new Error(`iframe readiness timeout: ${pending.join(", ")}`);
   }
-  const states = await page
-    .locator(".vc-kind-iframe")
-    .evaluateAll((nodes) =>
-      nodes.map((node) => ({
-        id: (node as HTMLElement).dataset.nodeId ?? "unknown",
-        state: (node as HTMLElement).dataset.iframeReadiness ?? "failed",
-        detail: (node as HTMLElement).dataset.iframeReadinessDetail ?? "",
-      })),
-    );
+  const states = await page.locator(".vc-kind-iframe").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      id: (node as HTMLElement).dataset.nodeId ?? "unknown",
+      state: (node as HTMLElement).dataset.iframeReadiness ?? "failed",
+      detail: (node as HTMLElement).dataset.iframeReadinessDetail ?? "",
+    })),
+  );
   const bad = states
     .filter((state) => state.state !== "ready")
     .map((state) => `${state.id}: ${state.state}${state.detail ? ` (${state.detail})` : ""}`);

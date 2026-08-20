@@ -72,14 +72,20 @@ async function startMockCompileCssWorker(css = ".compiled-test-class{color:red}"
 // storageId `attachCanvasRender` receives is genuinely resolvable.
 async function startMockRenderWorker(opts: {
   renderStorageId: string;
+  snapshotStorageId?: string;
   thumbnailStorageId?: string;
   renderSize?: number;
   css?: string;
 }) {
   const token = "test-worker-token";
-  const requests: { compileCss: Array<{ htmlFragments: string[] }>; render: unknown[] } = {
+  const requests: {
+    compileCss: Array<{ htmlFragments: string[] }>;
+    render: unknown[];
+    snapshot: unknown[];
+  } = {
     compileCss: [],
     render: [],
+    snapshot: [],
   };
   const server: Server = createServer((req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) {
@@ -116,6 +122,25 @@ async function startMockRenderWorker(opts: {
             thumbnail: opts.thumbnailStorageId
               ? { uploadStatus: 200, uploadBody: { storageId: opts.thumbnailStorageId } }
               : undefined,
+          }),
+        );
+        return;
+      }
+      if (req.method === "POST" && req.url === "/snapshot" && opts.snapshotStorageId) {
+        requests.snapshot.push(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            size: 8,
+            width: 240,
+            height: 160,
+            mimeType: "image/png",
+            uploadStatus: 200,
+            uploadBody: { storageId: opts.snapshotStorageId },
+            unresolvedRefs: [],
+            readiness: { status: "ready", warnings: [] },
+            downscaled: false,
+            contentOverflow: false,
           }),
         );
         return;
@@ -594,6 +619,79 @@ describe("/mcp canvas_save", () => {
     expect(isError).toBeFalsy();
     expect(data.version).toBe(1);
     expect(data.files_written).toHaveLength(1);
+  });
+
+  test("canvas_snapshot resolves ref_id, returns an image block, and reuses its cache", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/doc",
+      kind: "canvas",
+      doc: baseDoc,
+    });
+    const snapshotStorageId = await t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], { type: "image/png" }),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: snapshotStorageId,
+      snapshotStorageId,
+    });
+    try {
+      const first = await callTool(t, token, "canvas_snapshot", {
+        ref_id: "canvas://osago/doc?node=n1",
+      });
+      const firstResult = first.result as {
+        content: Array<{ type: string; data?: string; mimeType?: string }>;
+        structuredContent: { cached: boolean; ref_id: string; width: number };
+        isError?: boolean;
+      };
+      expect(firstResult.isError).toBeFalsy();
+      expect(firstResult.content[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+      expect(firstResult.content[1]?.data).toBe("iVBORwECAwQ=");
+      expect(firstResult.structuredContent).toMatchObject({
+        cached: false,
+        ref_id: "canvas://osago/doc?node=n1",
+        width: 240,
+      });
+      expect(worker.requests.snapshot).toHaveLength(1);
+
+      const second = await callTool(t, token, "canvas_snapshot", {
+        ref_id: "canvas://osago/doc?node=n1",
+      });
+      expect(
+        (second.result as { structuredContent: { cached: boolean } }).structuredContent.cached,
+      ).toBe(true);
+      expect(worker.requests.snapshot).toHaveLength(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("canvas_snapshot reports version conflicts and missing nodes before calling the worker", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/doc",
+      kind: "canvas",
+      doc: baseDoc,
+    });
+    const conflict = parse(
+      await callTool(t, token, "canvas_snapshot", {
+        ref: "osago/doc",
+        expected_version: 9,
+      }),
+    );
+    expect(conflict.isError).toBe(true);
+    expect(conflict.text).toMatch(/version_conflict/);
+    const missing = parse(
+      await callTool(t, token, "canvas_snapshot", {
+        ref_id: "canvas://osago/doc?node=missing",
+      }),
+    );
+    expect(missing.isError).toBe(true);
+    expect(missing.text).toMatch(/node_not_found/);
   });
 
   test("missing iframe entrypoint fails with an actionable path", async () => {

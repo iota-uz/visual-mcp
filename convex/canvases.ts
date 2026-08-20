@@ -1,3 +1,6 @@
+import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { renderCanvas } from "@visual-canvas/canvas/render.js";
+import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import { CanvasDocSchema, RectSchema } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import { v } from "convex/values";
@@ -37,6 +40,15 @@ const KindValidator = v.union(
   v.literal("image"),
   v.literal("pdf"),
 );
+
+function renderCanvasEntry(doc: ReturnType<typeof CanvasDocSchema.parse>): string {
+  const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
+  return (
+    '<!doctype html><html><head><meta charset="utf-8" />' +
+    `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
+    `</head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`
+  );
+}
 
 async function nextVersionNumber(ctx: MutationCtx, canvasId: Id<"canvases">): Promise<number> {
   const last = await ctx.db
@@ -679,6 +691,7 @@ export const putDoc = internalMutation({
     // this mutation runs — omitted when the doc has no content.type='html'
     // nodes, since there's nothing to compile.
     cssStorageId: v.optional(v.id("_storage")),
+    entryStorageId: v.optional(v.id("_storage")),
     iframeEntrypoints: v.optional(v.array(v.string())),
     note: v.optional(v.string()),
     createdBy: v.id("users"),
@@ -731,6 +744,7 @@ export const putDoc = internalMutation({
       createdBy: args.createdBy,
       docStorageId: args.docStorageId,
       cssStorageId: args.cssStorageId,
+      entryStorageId: args.entryStorageId,
       iframeEntrypoints: args.iframeEntrypoints,
     });
 
@@ -1265,10 +1279,13 @@ export const patchNodeRectMine = action({
     const patched = CanvasDocSchema.parse({ ...doc, nodes });
     const bytes = new TextEncoder().encode(JSON.stringify(patched));
     const docStorageId = await ctx.storage.store(new Blob([bytes], { type: "application/json" }));
+    const entryBytes = new TextEncoder().encode(renderCanvasEntry(patched));
+    const entryStorageId = await ctx.storage.store(new Blob([entryBytes], { type: "text/html" }));
     try {
       const result = await ctx.runMutation(internal.canvases.putDoc, {
         canvasId: args.canvasId,
         docStorageId,
+        entryStorageId,
         cssStorageId: source.cssStorageId,
         iframeEntrypoints: source.iframeEntrypoints,
         expectedVersion: args.expectedVersion,
@@ -1293,6 +1310,7 @@ export const patchNodeRectMine = action({
       return { version: result.version };
     } catch (error) {
       await ctx.storage.delete(docStorageId);
+      await ctx.storage.delete(entryStorageId);
       throw error;
     }
   },
@@ -1360,6 +1378,181 @@ export const currentVersion = internalQuery({
     if (!canvas?.currentVersionId) return null;
     const version = await ctx.db.get(canvas.currentVersionId);
     return version ? { versionId: version._id, version: version.version } : null;
+  },
+});
+
+const SnapshotContextValidator = v.union(
+  v.null(),
+  v.object({
+    canvasId: v.id("canvases"),
+    kind: KindValidator,
+    versionId: v.id("canvasVersions"),
+    version: v.number(),
+    docStorageId: v.optional(v.id("_storage")),
+    cssStorageId: v.optional(v.id("_storage")),
+    entryStorageId: v.optional(v.id("_storage")),
+    files: v.array(
+      v.object({ relPath: v.string(), storageId: v.id("_storage"), size: v.number() }),
+    ),
+    assets: v.array(
+      v.object({
+        relPath: v.string(),
+        objectKey: v.string(),
+        size: v.number(),
+        mimeType: v.string(),
+      }),
+    ),
+  }),
+);
+
+/** Resolves one current version and its immutable source manifest atomically. */
+export const snapshotContextByRef = internalQuery({
+  args: { ref: v.string() },
+  returns: SnapshotContextValidator,
+  handler: async (ctx, args) => {
+    const canvas = await findCanvasByRef(ctx, args.ref);
+    if (!canvas?.currentVersionId || canvas.archivedAt !== undefined) return null;
+    const version = await ctx.db.get(canvas.currentVersionId);
+    if (!version) return null;
+    const [files, bindings] = await Promise.all([
+      ctx.db
+        .query("canvasVersionFiles")
+        .withIndex("by_version_relPath", (q) => q.eq("versionId", version._id))
+        .take(500),
+      ctx.db
+        .query("canvasVersionAssets")
+        .withIndex("by_version_path", (q) => q.eq("versionId", version._id))
+        .take(500),
+    ]);
+    const assets = [];
+    for (const binding of bindings) {
+      const assetVersion = await ctx.db.get(binding.assetVersionId);
+      if (!assetVersion) continue;
+      assets.push({
+        relPath: binding.logicalPath,
+        objectKey: assetVersion.deliveryObjectKey,
+        size: assetVersion.size,
+        mimeType: assetVersion.mimeType,
+      });
+    }
+    return {
+      canvasId: canvas._id,
+      kind: canvas.kind,
+      versionId: version._id,
+      version: version.version,
+      docStorageId: version.docStorageId,
+      cssStorageId: version.cssStorageId,
+      entryStorageId: version.entryStorageId,
+      files: [
+        ...files
+          .filter((file) => file.relPath !== "/src/__canvas.html")
+          .map((file) => ({ relPath: file.relPath, storageId: file.storageId, size: file.size })),
+        ...(version.entryStorageId
+          ? [{ relPath: "/src/__canvas.html", storageId: version.entryStorageId, size: 0 }]
+          : []),
+      ],
+      assets,
+    };
+  },
+});
+
+const SnapshotCacheValidator = v.union(
+  v.null(),
+  v.object({
+    storageId: v.id("_storage"),
+    mimeType: v.literal("image/png"),
+    size: v.number(),
+    width: v.number(),
+    height: v.number(),
+    status: v.union(v.literal("ok"), v.literal("partial")),
+    warnings: v.array(v.string()),
+  }),
+);
+
+export const getSnapshotCache = internalQuery({
+  args: { versionId: v.id("canvasVersions"), cacheKey: v.string(), now: v.number() },
+  returns: SnapshotCacheValidator,
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("canvasSnapshots")
+      .withIndex("by_version_cacheKey", (q) =>
+        q.eq("versionId", args.versionId).eq("cacheKey", args.cacheKey),
+      )
+      .order("desc")
+      .first();
+    if (!row || row.createdAt <= args.now - CACHE_TTL_MS) return null;
+    return {
+      storageId: row.storageId,
+      mimeType: row.mimeType,
+      size: row.size,
+      width: row.width,
+      height: row.height,
+      status: row.status,
+      warnings: row.warnings,
+    };
+  },
+});
+
+export const putSnapshotCache = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    cacheKey: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    width: v.number(),
+    height: v.number(),
+    status: v.union(v.literal("ok"), v.literal("partial")),
+    warnings: v.array(v.string()),
+  },
+  returns: v.object({
+    storageId: v.id("_storage"),
+    mimeType: v.literal("image/png"),
+    size: v.number(),
+    width: v.number(),
+    height: v.number(),
+    status: v.union(v.literal("ok"), v.literal("partial")),
+    warnings: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("canvasSnapshots")
+      .withIndex("by_version_cacheKey", (q) =>
+        q.eq("versionId", args.versionId).eq("cacheKey", args.cacheKey),
+      )
+      .first();
+    if (existing && existing.createdAt > Date.now() - CACHE_TTL_MS) {
+      // Concurrent identical captures race only until this transaction. Keep
+      // the first immutable blob and discard the redundant upload.
+      await ctx.storage.delete(args.storageId).catch(() => undefined);
+      return {
+        storageId: existing.storageId,
+        mimeType: existing.mimeType,
+        size: existing.size,
+        width: existing.width,
+        height: existing.height,
+        status: existing.status,
+        warnings: existing.warnings,
+      };
+    }
+    if (existing) {
+      await ctx.storage.delete(existing.storageId).catch(() => undefined);
+      await ctx.db.delete(existing._id);
+    }
+    await ctx.db.insert("canvasSnapshots", {
+      ...args,
+      mimeType: "image/png",
+      createdAt: Date.now(),
+    });
+    return {
+      storageId: args.storageId,
+      mimeType: "image/png" as const,
+      size: args.size,
+      width: args.width,
+      height: args.height,
+      status: args.status,
+      warnings: args.warnings,
+    };
   },
 });
 
@@ -2040,7 +2233,19 @@ export const sweepCacheTtl = internalMutation({
         deleted += 1;
       }
     }
-    return { scanned: page.length, deleted, truncated: page.length === SWEEP_PAGE };
+    const snapshots = await ctx.db
+      .query("canvasSnapshots")
+      .withIndex("by_createdAt", (q) => q.lt("createdAt", cutoff))
+      .take(SWEEP_PAGE);
+    for (const row of snapshots) {
+      await ctx.storage.delete(row.storageId).catch(() => undefined);
+      await ctx.db.delete(row._id);
+    }
+    return {
+      scanned: page.length + snapshots.length,
+      deleted: deleted + snapshots.length,
+      truncated: page.length === SWEEP_PAGE || snapshots.length === SWEEP_PAGE,
+    };
   },
 });
 
