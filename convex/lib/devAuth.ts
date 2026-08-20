@@ -76,7 +76,6 @@ export function DevAuth() {
         // `createOrUpdateUser` checks, passed through the same way the
         // Google provider passes them. The cast mirrors ../auth.ts.
         profile: {
-          googleSub: `dev:${email}`,
           email,
           emailVerified: true,
           hd: ALLOWED_HOSTED_DOMAIN,

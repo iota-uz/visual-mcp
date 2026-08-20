@@ -284,9 +284,6 @@ export const write = internalMutation({
 
     const now = Date.now();
     const userId = await ctx.db.insert("users", {
-      // Matches what lib/devAuth.ts mints, so /dev/sign-in lands on this
-      // row rather than creating a second, empty account.
-      googleSub: `dev:${SEED_EMAIL}`,
       email: SEED_EMAIL,
       name: "Agent",
       lastSeenAt: now,
@@ -378,6 +375,13 @@ export const write = internalMutation({
         kind: input.kind,
         visibility: input.publicSlug ? "public" : "private",
         publicSlug: input.publicSlug,
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: input.updatedAt,
+        draftDocStorageId: input.docStorageId,
+        draftEntryStorageId: input.entry?.storageId,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
         createdBy: userId,
         updatedAt: input.updatedAt,
       });
@@ -389,8 +393,12 @@ export const write = internalMutation({
         createdBy: userId,
         docStorageId: input.docStorageId,
         entryStorageId: input.entry?.storageId,
+        iframeEntrypoints: [],
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: versionId,
+        publishedVersionId: input.publicSlug ? versionId : undefined,
+      });
 
       if (input.entry) {
         await ctx.db.insert("artifacts", {
@@ -422,6 +430,7 @@ export const write = internalMutation({
       version: 2,
       note: "second seeded version, so history is not a single row",
       createdBy: userId,
+      iframeEntrypoints: [],
     });
 
     await addCanvas({

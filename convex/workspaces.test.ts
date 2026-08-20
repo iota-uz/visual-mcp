@@ -10,7 +10,6 @@ const modules = import.meta.glob("./**/*.ts");
 async function seedUser(t: ReturnType<typeof convexTest>): Promise<Id<"users">> {
   return t.run((ctx) =>
     ctx.db.insert("users", {
-      googleSub: "bootstrap:test@iota.uz",
       email: "test@iota.uz",
       name: "Test User",
       lastSeenAt: 0,

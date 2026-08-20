@@ -21,27 +21,20 @@ export function mcpBaseUrl(convexUrl: string | undefined | null): string {
   const trimmed = (convexUrl ?? "").trim().replace(/\/+$/, "");
   if (!trimmed) return UNKNOWN_DEPLOYMENT;
   const deployed = trimmed.replace(/\.convex\.cloud$/, ".convex.site");
-  try {
-    const url = new URL(deployed);
-    // `convex dev --local` exposes the client API on 3210 and HTTP actions
-    // (including MCP, public sources and iframe/image capabilities) on 3211.
-    // The local agent stack intentionally gives Vite only VITE_CONVEX_URL,
-    // so keep the same single-source derivation used by hosted deployments.
-    if (
-      url.port === "3210" &&
-      (url.hostname === "127.0.0.1" ||
-        url.hostname === "localhost" ||
-        url.hostname === "::1" ||
-        url.hostname === "[::1]")
-    ) {
-      url.port = "3211";
-      return url.origin;
-    }
-  } catch {
-    // Preserve the historical pass-through behavior for placeholders/custom
-    // strings; callers surface them as setup text rather than fetching them.
+  const url = new URL(deployed);
+  // `convex dev --local` exposes the client API on 3210 and HTTP actions
+  // (including MCP, public sources and iframe/image capabilities) on 3211.
+  if (
+    url.port === "3210" &&
+    (url.hostname === "127.0.0.1" ||
+      url.hostname === "localhost" ||
+      url.hostname === "::1" ||
+      url.hostname === "[::1]")
+  ) {
+    url.port = "3211";
+    return url.origin;
   }
-  return deployed;
+  return url.origin;
 }
 
 /** Full endpoint agents connect to, e.g. `https://x.convex.site/mcp`. */

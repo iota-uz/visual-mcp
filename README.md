@@ -5,10 +5,6 @@ diagrams, dashboards, reports, mobile/browser mockups, multipage PDFs — over
 a **remote MCP endpoint**, using HTML+Tailwind v4, [D2](https://d2lang.com)
 diagrams, and ApexCharts. Humans browse, view, and share the results by URL.
 
-This used to be a local, single-user, stdio-only MCP server you ran with
-`npx`. That path is **removed, not deprecated-but-present** — see
-[PLAN.md](./PLAN.md) for the full architecture and what changed.
-
 ## Connect Claude to it
 
 ```
@@ -16,17 +12,9 @@ claude mcp add --transport http visual-canvas https://<your-deployment>.convex.s
   --header "Authorization: Bearer vct_..."
 ```
 
-You need a bearer token first. Sign in with a Google account on `iota.uz` at
-the deployed SPA — https://canvas.iota.uz — and `/settings/tokens` mints and
-revokes tokens for you. Or mint one from a checkout of this repo:
-
-```
-node scripts/mint-mcp-token.mjs <your-email> "<your name>" [token-name]
-```
-
-This generates the token locally, hashes it, and registers only the hash
-with Convex via `npx convex run tokens:bootstrap` — the plaintext token is
-printed once, to your terminal only. Tokens expire after 90 days.
+You need a bearer token first. Sign in with an `@iota.uz` Google account at
+https://canvas.iota.uz and mint or revoke tokens at `/settings/tokens`.
+Tokens expire after 90 days.
 
 Canvas tools use one `ref`: a canvas id, public slug, returned canvas/share
 URL, `canvas://` URI, or `workspace-slug/canvas-slug`. Asset tools use
@@ -34,13 +22,16 @@ immutable `asset://` refs.
 
 | Tool | Purpose |
 | --- | --- |
-| `canvas_save` | The workhorse. Creates the workspace and canvas if absent, writes files, renders, publishes — one call. Keyed on `ref`, so it upserts: retrying updates instead of minting a duplicate. |
+| `canvas_save` | Creates or updates the durable working draft atomically. The first save creates v1; later edits advance `draft_revision` without filling checkpoint history. |
+| `canvas_checkpoint` | Snapshots the complete draft—Pages, prototype, files, and bindings—as one named immutable version. Publish checkpoints first. |
 | `canvas_get` | Reads one canvas: metadata and URLs always, plus cursor-paginated `files` / `artifacts` / `versions` / `renders`, `doc`, or `storage`. Cursor continuation is pinned with `pagination.expected_version`, so concurrent saves cannot mix pages. Bytes come back as links, never inlined. |
 | `canvas_file_get` | Reads one canvas file with version/hash metadata and bounded ranges. Full/line reads are UTF-8; exact byte ranges are base64 and declare their `encoding`. |
 | `canvas_snapshot` | Captures a whole native canvas, one `ref_id` node, or an exact world-coordinate region. It isolates targeted iframes, retries transient readiness once, never caches partials, reports resource failure details, and suggests readable tiles when an overview was downscaled. PNGs above 5 MB return a short-lived `download_url` instead of overflowing MCP inline transport. |
 | `canvas_edit` | Exact `old_string` → `new_string` edit of one UTF-8 file with version/hash conflict protection. |
 | `canvas_apply_patch` | Atomic Codex-style Add/Update/Move/Delete patch across multiple files. |
 | `canvas_doc_patch` | Typed semantic add/update/replace/remove operations for CanvasDoc world, lanes, stages, labels, nodes and edges. |
+| `canvas_page_list` / `canvas_page_create` / `canvas_page_rename` / `canvas_page_duplicate` / `canvas_page_move` / `canvas_page_delete` | Manage independent Pages inside one canvas file with draft concurrency. |
+| `canvas_prototype_get` / `canvas_prototype_set_start` / `canvas_prototype_patch` | Author cross-Page Present flows with validated accessible hotspots and transitions. |
 | `canvas_find` | Cursor-paginates and searches workspaces, canvases, and CanvasDoc node text. |
 | `canvas_delete` | Archives a workspace/canvas by default or purges it explicitly. Individual files/artifacts have no archive state and require `path` plus `purge:true`. |
 | `canvas_run` | Executes resource-limited JS/TS against canvas files; `/output` becomes artifacts. |
@@ -55,9 +46,13 @@ immutable `asset://` refs.
 
 Canvas-private `/assets` files and the reusable Asset Library are distinct on purpose: `canvas_upload_url` only stages files for one canvas, while `asset_upload_url` creates reusable Library items. Both return an `uploads` manifest with an explicit HTTP method; follow that method instead of assuming the protocols are interchangeable.
 
-### CanvasDoc v2 native, iframe, and image nodes
+### CanvasFile v3 Pages, prototype, and CanvasDoc v2 worlds
 
-Native canvases use `version: 2`, explicit `world` and `rect` geometry, and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to a canvas file or Asset Library binding, support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the document via `canvas_save({ kind: "canvas", doc, files })`. External iframe URLs and `allow-same-origin` are rejected.
+Native canvases write `CanvasFile` version 3. It contains one or more ordered Pages, each with a stable id and its own CanvasDoc v2 world, plus one canvas-level prototype whose interactions may cross Pages. Checkpoints and restore always cover the whole file. Signed and public links focus a Page with `?page=<id>`; Present uses `/c/:canvasId/present` or `/s/:slug/present` and stable `page`/`node` parameters.
+
+CanvasDoc v2 uses explicit `world` and `rect` geometry and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to a canvas file or Asset Library binding, support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the file via `canvas_save({ kind: "canvas", doc: canvasFile, files })`. External iframe URLs and `allow-same-origin` are rejected.
+
+Draft writes are durable and concurrency-safe through `draft_revision`; they do not become visible Versions. Use `canvas_checkpoint` or the UI’s **Create checkpoint** action for meaningful milestones. Publishing always checkpoints first, and public readers remain pinned to that published checkpoint while newer draft work continues.
 
 For a phone screen, use `viewport: { width: 284, height: 642 }` and `frame: { kind: "phone", time: "09:42" }`. The shared canvas renderer supplies the canonical 310×708 OSAGO device shell, notch and status bar in viewer, public share, thumbnail, PNG and PDF. The iframe entrypoint contains only the app screen; adding another bezel or status bar is invalid product output.
 
@@ -98,7 +93,7 @@ convex/             schema, queries/mutations/actions, /mcp and /s/:slug
 apps/worker/        Hono worker: render/exec plus DNS-pinned HTTPS asset import (Railway)
 apps/web/           Vite + React SPA and crawler-aware static server
                      (workspaces, gallery, viewer, MCP tokens, social cards)
-scripts/            mint-mcp-token.mjs — local token minting (see above)
+scripts/            local development and maintenance commands
 ```
 
 ## Development

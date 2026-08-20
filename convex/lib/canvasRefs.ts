@@ -270,6 +270,11 @@ export async function resolveOrCreateCanvas(
     kind: args.kind ?? "html",
     visibility: "private",
     theme: args.theme,
+    draftRevision: 0,
+    draftEditCount: 0,
+    draftUpdatedAt: now,
+    draftIframeEntrypoints: [],
+    storageBytesUsed: 0,
     createdBy: args.createdBy,
     updatedAt: now,
   });

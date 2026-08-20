@@ -128,8 +128,10 @@ export function createAppServer({
   const templatePromise = readFile(join(distRoot, "index.html"), "utf8");
   const fallbackPath = join(distRoot, "social-fallback.png");
 
-  async function metadata(slug) {
-    const response = await fetchImpl(`${siteOrigin}/social/${encodeURIComponent(slug)}`, {
+  async function metadata(slug, pageId) {
+    const endpoint = new URL(`/social/${encodeURIComponent(slug)}`, siteOrigin);
+    if (pageId) endpoint.searchParams.set("page", pageId);
+    const response = await fetchImpl(endpoint, {
       headers: { accept: "application/json" },
     });
     return response.ok ? response.json() : null;
@@ -179,10 +181,10 @@ export function createAppServer({
         return;
       }
 
-      const publicPage = /^\/s\/([^/]+)\/?$/.exec(url.pathname);
+      const publicPage = /^\/s\/([^/]+)(\/present)?\/?$/.exec(url.pathname);
       if (publicPage) {
         const slug = decodeURIComponent(publicPage[1]);
-        const data = await metadata(slug);
+        const data = await metadata(slug, url.searchParams.get("page"));
         const template = await templatePromise;
         if (!data) {
           response.writeHead(404, {
@@ -192,12 +194,16 @@ export function createAppServer({
           response.end(request.method === "HEAD" ? undefined : template);
           return;
         }
-        const canonicalUrl = `${url.origin}/s/${encodeURIComponent(slug)}`;
-        const imageUrl = `${canonicalUrl}/_social/preview.png?v=${encodeURIComponent(data.version)}`;
+        const canonicalUrl = new URL(url.pathname, url.origin);
+        for (const key of ["page", "node"]) {
+          const value = url.searchParams.get(key);
+          if (value) canonicalUrl.searchParams.set(key, value);
+        }
+        const imageUrl = `${url.origin}/s/${encodeURIComponent(slug)}/_social/preview.png?v=${encodeURIComponent(data.version)}`;
         const { width: imageWidth, height: imageHeight } = await preview(data);
         const html = injectSocialMeta(template, {
           metadata: data,
-          canonicalUrl,
+          canonicalUrl: canonicalUrl.toString(),
           imageUrl,
           imageWidth,
           imageHeight,

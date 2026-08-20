@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CanvasDocSchema } from "../src/types.js";
+import { CanvasDocSchema, CanvasFileSchema } from "../src/types.js";
 import { fixture } from "./fixture.js";
 
 test("accepts CanvasDoc v2 native, iframe, and image union", () =>
@@ -114,4 +114,80 @@ test("phone frames require the canonical content viewport and valid canvas-owned
   const timeNode = wrongTime.nodes[1]!;
   if (timeNode.kind === "iframe" && timeNode.frame.kind === "phone") timeNode.frame.time = "25:70";
   assert.equal(CanvasDocSchema.safeParse(wrongTime).success, false);
+});
+
+test("accepts a multi-page CanvasFile with a cross-page prototype", () => {
+  const overview = fixture();
+  const details = fixture();
+  details.title = "Details";
+  const file = CanvasFileSchema.parse({
+    version: 3,
+    defaultPageId: "overview",
+    pages: [
+      { id: "overview", title: "Overview", order: 0, doc: overview },
+      { id: "details", title: "Details", order: 1, doc: details },
+    ],
+    prototype: {
+      start: { pageId: "overview", nodeId: "b" },
+      interactions: [
+        {
+          id: "open-details",
+          source: { pageId: "overview", nodeId: "b" },
+          hotspot: { x: 20, y: 30, width: 120, height: 48 },
+          trigger: "tap",
+          destination: { pageId: "details", nodeId: "b" },
+          transition: "slide-left",
+        },
+      ],
+    },
+  });
+  assert.equal(file.pages.length, 2);
+  assert.equal(file.prototype.interactions[0]?.destination.pageId, "details");
+});
+
+test("rejects stale prototype targets and hotspots outside the source frame", () => {
+  const doc = fixture();
+  const staleTarget = {
+    version: 3,
+    defaultPageId: "overview",
+    pages: [{ id: "overview", title: "Overview", order: 0, doc }],
+    prototype: {
+      interactions: [
+        {
+          id: "broken",
+          source: { pageId: "overview", nodeId: "missing" },
+          hotspot: { x: 0, y: 0, width: 10, height: 10 },
+          destination: { pageId: "missing-page", nodeId: "b" },
+        },
+      ],
+    },
+  };
+  assert.equal(CanvasFileSchema.safeParse(staleTarget).success, false);
+
+  const outside = structuredClone(staleTarget);
+  outside.prototype.interactions[0]!.source.nodeId = "b";
+  outside.prototype.interactions[0]!.destination = { pageId: "overview", nodeId: "a" };
+  outside.prototype.interactions[0]!.hotspot = { x: 280, y: 640, width: 10, height: 10 };
+  const result = CanvasFileSchema.safeParse(outside);
+  assert.equal(result.success, false);
+  assert.match(JSON.stringify(result), /hotspot must stay inside/);
+});
+
+test("reports the real v3 Page error instead of falling through to CanvasDoc v2", () => {
+  assert.throws(
+    () =>
+      CanvasFileSchema.parse({
+        version: 3,
+        defaultPageId: "missing",
+        pages: [],
+        prototype: { interactions: [] },
+      }),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.match(message, /pages/);
+      assert.match(message, /defaultPageId/);
+      assert.doesNotMatch(message, /expected 2/);
+      return true;
+    },
+  );
 });

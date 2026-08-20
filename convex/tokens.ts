@@ -1,16 +1,8 @@
-/**
- * MCP bearer-token verification and CLI-only seeding (PLAN.md section 7,
- * milestone A1: "tokens seeded by CLI (no UI yet)").
- *
- * The plaintext token never reaches Convex — see scripts/mint-mcp-token.mjs,
- * which generates it locally, hashes it, and calls `bootstrap` with only the
- * hash + an 8-char display prefix.
- */
+/** MCP bearer-token verification and the signed-in token management surface. */
 
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { getOrCreateUserId, requireIotaIdentity } from "./lib/auth";
+import { requireIotaIdentity, requireUserId } from "./lib/auth";
 import { sha256Hex } from "./lib/hash";
 import { randomMcpToken, tokenDisplayPrefix } from "./lib/tokenFormat";
 
@@ -81,50 +73,6 @@ export const listForUser = internalQuery({
   },
 });
 
-// Pre-A2 bootstrap: there is no real Google OAuth yet, so a seeded token's
-// owner gets a synthetic `googleSub` keyed off email. A2's Convex Auth
-// wiring will need to link this row to the real Google `sub` claim — a
-// known, documented gap, not something to solve here.
-export const bootstrap = internalMutation({
-  args: {
-    email: v.string(),
-    name: v.string(),
-    tokenName: v.string(),
-    tokenPrefix: v.string(),
-    tokenHash: v.string(),
-    expiresAt: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const googleSub = `bootstrap:${args.email}`;
-    const existingUser = await ctx.db
-      .query("users")
-      .withIndex("by_googleSub", (q) => q.eq("googleSub", googleSub))
-      .unique();
-
-    let userId: Id<"users">;
-    if (existingUser) {
-      userId = existingUser._id;
-    } else {
-      userId = await ctx.db.insert("users", {
-        googleSub,
-        email: args.email,
-        name: args.name,
-        lastSeenAt: Date.now(),
-      });
-    }
-
-    const tokenId = await ctx.db.insert("mcpTokens", {
-      userId,
-      name: args.tokenName,
-      prefix: args.tokenPrefix,
-      tokenHash: args.tokenHash,
-      expiresAt: args.expiresAt,
-    });
-
-    return { userId, tokenId };
-  },
-});
-
 // --- Public, SPA-facing (PLAN.md Part 1 section 7's `/settings/tokens`) ---
 // Every function below derives the caller's user id from their verified
 // Convex session identity — never from a client-supplied argument.
@@ -133,14 +81,10 @@ export const listMine = query({
   args: {},
   handler: async (ctx) => {
     const identity = await requireIotaIdentity(ctx);
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_googleSub", (q) => q.eq("googleSub", identity.subject))
-      .unique();
-    if (!user) return [];
+    const userId = await requireUserId(ctx, identity);
     const rows = await ctx.db
       .query("mcpTokens")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
     return rows.map((row) => ({
       tokenId: row._id,
@@ -159,7 +103,7 @@ export const mintMine = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
-    const userId = await getOrCreateUserId(ctx, identity);
+    const userId = await requireUserId(ctx, identity);
 
     const token = randomMcpToken();
     const tokenHash = await sha256Hex(token);
@@ -180,7 +124,7 @@ export const revokeMine = mutation({
   args: { tokenId: v.id("mcpTokens") },
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
-    const userId = await getOrCreateUserId(ctx, identity);
+    const userId = await requireUserId(ctx, identity);
 
     const token = await ctx.db.get(args.tokenId);
     if (!token || token.userId !== userId) {

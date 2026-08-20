@@ -971,6 +971,17 @@
   pointer-events: none;
 }
 
+/* Immersive consumers such as Present render the canvas content without any
+   editor affordances. This lives in the unlayered canvas theme beside the
+   controls it overrides, so hosts do not need cascade-breaking !important. */
+.vc-viewport-host.vc-immersive .vc-minimap,
+.vc-viewport-host.vc-immersive .vc-inspector,
+.vc-viewport-host.vc-immersive .vc-iframe-guard,
+.vc-viewport-host.vc-immersive .vc-iframe-exit,
+.vc-viewport-host.vc-immersive .vc-resize-handle {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vc-node,
   .vc-inspector {

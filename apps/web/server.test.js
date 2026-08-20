@@ -32,7 +32,8 @@ async function fixtureServer(metadataBySlug) {
       return new Response(png, { headers: { "content-type": "image/png" } });
     }
     const slug = decodeURIComponent(parsed.pathname.slice("/social/".length));
-    const metadata = metadataBySlug[slug];
+    const entry = metadataBySlug[slug];
+    const metadata = typeof entry === "function" ? entry(parsed) : entry;
     return metadata ? Response.json(metadata) : new Response("Not found", { status: 404 });
   };
   const server = createAppServer({ distRoot: root, siteOrigin: "https://api.example", fetchImpl });
@@ -89,6 +90,26 @@ describe("crawler-facing public share HTML", () => {
     const html = await (await fetch(`${origin}/s/live`)).text();
     expect(html).toContain('property="og:image:width" content="600"');
     expect(html).toContain('property="og:image:height" content="328"');
+  });
+
+  it("keeps focused Page and Present URLs canonical and requests page-aware metadata", async () => {
+    const origin = await fixtureServer({
+      live: (url) => ({
+        title: url.searchParams.get("page") === "mobile-flow" ? "Flow — Mobile flow" : "Flow",
+        description: "A multi-page flow",
+        version: 9,
+        thumbnail_url: null,
+      }),
+    });
+    const focusedUrl = `${origin}/s/live/present?page=mobile-flow&node=welcome&transition=dissolve`;
+    const page = await fetch(focusedUrl);
+    const html = await page.text();
+    expect(page.status).toBe(200);
+    expect(html).toContain("Flow — Mobile flow · Visual Canvas");
+    expect(html).toContain(
+      `rel="canonical" href="${origin}/s/live/present?page=mobile-flow&amp;node=welcome"`,
+    );
+    expect(html).not.toContain("transition=dissolve");
   });
 
   it.each(["private", "revoked", "dead"])(

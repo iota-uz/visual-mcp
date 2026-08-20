@@ -8,7 +8,7 @@ import {
   type QueryCtx,
   query,
 } from "./_generated/server";
-import { getOrCreateUserId, requireIotaIdentity } from "./lib/auth";
+import { requireIotaIdentity, requireUserId } from "./lib/auth";
 import { purgeWorkspace } from "./lib/purge";
 import { slugify } from "./lib/slug";
 
@@ -125,7 +125,7 @@ export const createMine = mutation({
   },
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
-    const userId = await getOrCreateUserId(ctx, identity);
+    const userId = await requireUserId(ctx, identity);
     return createWorkspace(ctx, { ...args, createdBy: userId });
   },
 });
@@ -142,11 +142,7 @@ export const getById = query({
   },
 });
 
-/* --- Curator surface: rename, archive, delete -------------------------
- * v1 had none of these at any layer, which is why the live deployment
- * accumulated six test workspaces with no way to remove them and two both
- * named "OSAGO". Org-wide like every other write (decision #9).
- */
+/* --- Curator surface: rename, archive, delete ------------------------- */
 
 export const renameMine = mutation({
   args: { workspaceId: v.id("workspaces"), name: v.string() },

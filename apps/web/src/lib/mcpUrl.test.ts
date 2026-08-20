@@ -41,6 +41,10 @@ describe("mcpBaseUrl", () => {
     expect(mcpBaseUrl("")).toBe("<your-deployment>");
     expect(mcpBaseUrl("   ")).toBe("<your-deployment>");
   });
+
+  test("rejects malformed deployment URLs instead of passing them through", () => {
+    expect(() => mcpBaseUrl("not-a-url")).toThrow();
+  });
 });
 
 describe("mcpEndpointUrl", () => {

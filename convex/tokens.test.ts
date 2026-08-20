@@ -10,7 +10,6 @@ const modules = import.meta.glob("./**/*.ts");
 async function seedUser(t: ReturnType<typeof convexTest>): Promise<Id<"users">> {
   return t.run((ctx) =>
     ctx.db.insert("users", {
-      googleSub: "bootstrap:test@iota.uz",
       email: "test@iota.uz",
       name: "Test User",
       lastSeenAt: 0,
@@ -112,7 +111,6 @@ describe("tokens.revoke", () => {
 
     const otherUserId = await t.run((ctx) =>
       ctx.db.insert("users", {
-        googleSub: "bootstrap:other@iota.uz",
         email: "other@iota.uz",
         name: "Other User",
         lastSeenAt: 0,
@@ -138,30 +136,5 @@ describe("tokens.listForUser", () => {
     expect(tokens).toHaveLength(1);
     expect(tokens[0]?.prefix).toBe("abcd1234");
     expect(tokens[0]).not.toHaveProperty("tokenHash");
-  });
-});
-
-describe("tokens.bootstrap", () => {
-  test("creates a synthetic bootstrap user on first call, reuses it on the second", async () => {
-    const t = convexTest(schema, modules);
-    const first = await t.mutation(internal.tokens.bootstrap, {
-      email: "dup@iota.uz",
-      name: "Dup",
-      tokenName: "token-a",
-      tokenPrefix: "aaaa1111",
-      tokenHash: "hash-a",
-      expiresAt: Date.now() + 1000,
-    });
-    const second = await t.mutation(internal.tokens.bootstrap, {
-      email: "dup@iota.uz",
-      name: "Dup",
-      tokenName: "token-b",
-      tokenPrefix: "bbbb2222",
-      tokenHash: "hash-b",
-      expiresAt: Date.now() + 1000,
-    });
-
-    expect(second.userId).toBe(first.userId);
-    expect(second.tokenId).not.toBe(first.tokenId);
   });
 });

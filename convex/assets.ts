@@ -119,14 +119,9 @@ async function latestAssetRevision(ctx: AssetLookupCtx, assetId: Id<"assets">) {
 }
 
 async function userIdForSubject(ctx: QueryCtx, subject: string): Promise<Id<"users">> {
-  const direct = subject.includes("|") ? subject.split("|")[0] : null;
-  const normalized = direct ? ctx.db.normalizeId("users", direct) : null;
-  const user = normalized
-    ? await ctx.db.get(normalized)
-    : await ctx.db
-        .query("users")
-        .withIndex("by_googleSub", (q) => q.eq("googleSub", subject))
-        .unique();
+  const [rawUserId, sessionId] = subject.split("|");
+  const normalized = rawUserId && sessionId ? ctx.db.normalizeId("users", rawUserId) : null;
+  const user = normalized ? await ctx.db.get(normalized) : null;
   if (!user) throw new Error("Signed-in user record not found");
   return user._id;
 }
@@ -957,9 +952,25 @@ export const attachMine = action({
     assetRef: v.string(),
     path: v.string(),
     expectedVersion: v.number(),
+    expectedDraftRevision: v.number(),
   },
-  returns: v.object({ version: v.number(), assetRef: v.string(), path: v.string() }),
-  handler: async (ctx, args): Promise<{ version: number; assetRef: string; path: string }> => {
+  returns: v.object({
+    version: v.number(),
+    draftRevision: v.number(),
+    dirty: v.boolean(),
+    assetRef: v.string(),
+    path: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    version: number;
+    draftRevision: number;
+    dirty: boolean;
+    assetRef: string;
+    path: string;
+  }> => {
     const identity = await requireIotaIdentity(ctx);
     const principal: Principal = await ctx.runQuery(internal.assets.resolvePrincipal, {
       subject: identity.subject,
@@ -968,18 +979,23 @@ export const attachMine = action({
       ref: args.assetRef,
       userId: principal.userId,
     });
-    const result: { version: number; path: string } = await ctx.runMutation(
-      internal.canvases.bindAssetAndVersion,
-      {
+    const result: { version: number; draftRevision: number; dirty: boolean; path: string } =
+      await ctx.runMutation(internal.canvases.bindAssetAndVersion, {
         canvasId: args.canvasId,
         logicalPath: args.path,
         assetId: resolved.assetId,
         assetVersionId: resolved.assetVersionId,
         expectedVersion: args.expectedVersion,
+        expectedDraftRevision: args.expectedDraftRevision,
         createdBy: principal.userId,
-      },
-    );
-    return { version: result.version, assetRef: resolved.assetRef, path: result.path };
+      });
+    return {
+      version: result.version,
+      draftRevision: result.draftRevision,
+      dirty: result.dirty,
+      assetRef: resolved.assetRef,
+      path: result.path,
+    };
   },
 });
 

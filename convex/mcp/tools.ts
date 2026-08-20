@@ -42,8 +42,12 @@ import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
-import type { CanvasDoc } from "@visual-canvas/canvas/types.js";
-import { CanvasDocSchema } from "@visual-canvas/canvas/types.js";
+import type { CanvasDoc, CanvasFile } from "@visual-canvas/canvas/types.js";
+import {
+  CanvasDocSchema,
+  CanvasFileSchema,
+  resolveCanvasPage,
+} from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import {
   getTemplate,
@@ -536,7 +540,9 @@ const SnapshotInputSchema = z
     ref: z.string().optional(),
     ref_id: z.string().optional(),
     target: SnapshotTargetSchema.optional(),
+    page_id: z.string().optional().describe("Page id; defaults to defaultPageId."),
     expected_version: z.number().int().nonnegative().optional(),
+    expected_draft_revision: z.number().int().nonnegative().optional(),
     padding: z.number().int().min(0).max(256).optional(),
     scale: z.union([z.literal(1), z.literal(2)]).optional(),
     refresh: z.boolean().optional().describe("Bypass an existing successful snapshot cache entry."),
@@ -739,117 +745,11 @@ async function performRender(
   }
 }
 
-/**
- * Commits a CanvasDoc: validate, compile the doc's Tailwind CSS, store, and
- * assemble the static page that makes the doc renderable and thumbnailable.
- */
-async function saveDoc(
-  ctx: ActionCtx,
-  canvasId: Id<"canvases">,
-  principal: McpPrincipal,
-  rawDoc: unknown,
-  note: string | undefined,
-  expectedVersion?: number,
-): Promise<{ version: number; warnings: Warning[] }> {
-  const warnings: Warning[] = [];
-  const doc: CanvasDoc = CanvasDocSchema.parse(rawDoc);
-
-  const compiledCss = "";
-  const iframeEntrypoints = [
-    ...new Set(
-      doc.nodes.filter((node) => node.kind === "iframe").map((node) => node.source.entrypoint),
-    ),
-  ];
-  const imagePaths = [
-    ...new Set(doc.nodes.filter((node) => node.kind === "image").map((node) => node.source.path)),
-  ];
-  const manifest = await ctx.runQuery(internal.canvases.listFilesForCanvas, { canvasId });
-  const paths = new Set(manifest.map((file) => file.relPath));
-  const missing = iframeEntrypoints.filter((entrypoint) => !paths.has(entrypoint));
-  if (missing.length)
-    throw new Error(
-      `CanvasDoc iframe entrypoint does not exist: ${missing.join(", ")}. Upload it in the same canvas_save files array.`,
-    );
-  const missingImages = imagePaths.filter((path) => !paths.has(path));
-  if (missingImages.length)
-    throw new Error(
-      `CanvasDoc image source does not exist: ${missingImages.join(", ")}. Upload or attach it before canvas_doc_patch.`,
-    );
-
-  // Store the export page on the version itself. canvasFiles is mutable; a
-  // snapshot must never accidentally render the next version's generated HTML.
-  const page = canvasEntryHtml(doc, compiledCss);
-  const entryBytes = new TextEncoder().encode(page);
-
-  const docJson = JSON.stringify(doc);
-  const docBytes = new TextEncoder().encode(docJson);
-  const docStorageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
-  const entryStorageId = await ctx.storage.store(new Blob([entryBytes], { type: "text/html" }));
-  const cssStorageId = compiledCss
-    ? await ctx.storage.store(new Blob([compiledCss], { type: "text/css" }))
-    : undefined;
-
-  let version: number;
-  try {
-    const put = await ctx.runMutation(internal.canvases.putDoc, {
-      canvasId,
-      docStorageId,
-      docContentHash: await sha256Hex(docJson),
-      cssStorageId,
-      entryStorageId,
-      iframeEntrypoints,
-      note,
-      createdBy: principal.userId,
-      expectedVersion,
-      nodes: doc.nodes.map((node) => ({
-        nodeId: node.id,
-        title: node.caption.title,
-        eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
-        searchText: [
-          node.caption.title,
-          node.caption.subtitle,
-          node.caption.tag,
-          node.inspector?.eyebrow,
-          node.inspector?.title,
-          node.inspector?.copy,
-        ]
-          .filter((s): s is string => typeof s === "string" && s.length > 0)
-          .join(" "),
-      })),
-    });
-    version = put.version;
-  } catch (err) {
-    await ctx.storage.delete(docStorageId);
-    await ctx.storage.delete(entryStorageId);
-    if (cssStorageId) await ctx.storage.delete(cssStorageId);
-    throw err;
-  }
-
-  // Keep the mutable source path in sync for ordinary render_file calls. The
-  // version-pinned entryStorageId above is the source of truth for snapshots.
-  try {
-    await ctx.runMutation(internal.canvases.upsertFile, {
-      canvasId,
-      relPath: "/src/__canvas.html",
-      storageId: entryStorageId,
-      size: entryBytes.byteLength,
-      contentHash: await sha256Hex(page),
-    });
-  } catch (err) {
-    warnings.push({
-      code: "render_failed",
-      message: `The canvas document saved, but its preview page could not be built: ${describeError(err)}`,
-    });
-  }
-
-  return { version, warnings };
-}
-
 async function prepareSaveDoc(
   ctx: ActionCtx,
   rawDoc: unknown,
 ): Promise<{
-  doc: CanvasDoc;
+  doc: CanvasFile;
   commit: {
     storageId: Id<"_storage">;
     contentHash: string;
@@ -859,13 +759,19 @@ async function prepareSaveDoc(
     entryContentHash: string;
     iframeEntrypoints: string[];
     imagePaths: string[];
-    nodes: Array<{ nodeId: string; title: string; eyebrow?: string; searchText: string }>;
+    nodes: Array<{
+      pageId: string;
+      nodeId: string;
+      title: string;
+      eyebrow?: string;
+      searchText: string;
+    }>;
   };
   stored: Id<"_storage">[];
 }> {
-  const doc = CanvasDocSchema.parse(rawDoc);
+  const doc = CanvasFileSchema.parse(rawDoc);
   const docJson = JSON.stringify(doc);
-  const entry = canvasEntryHtml(doc);
+  const entry = canvasEntryHtml(resolveCanvasPage(doc).doc);
   const docBytes = new TextEncoder().encode(docJson);
   const entryBytes = new TextEncoder().encode(entry);
   const storageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
@@ -881,31 +787,96 @@ async function prepareSaveDoc(
       entryContentHash: await sha256Hex(entry),
       iframeEntrypoints: [
         ...new Set(
-          doc.nodes.filter((node) => node.kind === "iframe").map((node) => node.source.entrypoint),
+          doc.pages.flatMap((page) =>
+            page.doc.nodes
+              .filter((node) => node.kind === "iframe")
+              .map((node) => node.source.entrypoint),
+          ),
         ),
       ],
       imagePaths: [
         ...new Set(
-          doc.nodes.filter((node) => node.kind === "image").map((node) => node.source.path),
+          doc.pages.flatMap((page) =>
+            page.doc.nodes.filter((node) => node.kind === "image").map((node) => node.source.path),
+          ),
         ),
       ],
-      nodes: doc.nodes.map((node) => ({
-        nodeId: node.id,
-        title: node.caption.title,
-        eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
-        searchText: [
-          node.caption.title,
-          node.caption.subtitle,
-          node.caption.tag,
-          node.inspector?.eyebrow,
-          node.inspector?.title,
-          node.inspector?.copy,
-        ]
-          .filter((value): value is string => typeof value === "string" && value.length > 0)
-          .join(" "),
-      })),
+      nodes: doc.pages.flatMap((page) =>
+        page.doc.nodes.map((node) => ({
+          pageId: page.id,
+          nodeId: node.id,
+          title: node.caption.title,
+          eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+          searchText: [
+            page.title,
+            node.caption.title,
+            node.caption.subtitle,
+            node.caption.tag,
+            node.inspector?.eyebrow,
+            node.inspector?.title,
+            node.inspector?.copy,
+          ]
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+            .join(" "),
+        })),
+      ),
     },
   };
+}
+
+async function saveCanvasFileDraft(
+  ctx: ActionCtx,
+  principal: McpPrincipal,
+  canvasId: Id<"canvases">,
+  file: CanvasFile,
+  options: {
+    expectedVersion?: number;
+    expectedDraftRevision?: number;
+    note?: string;
+  },
+) {
+  const prepared = await prepareSaveDoc(ctx, file);
+  try {
+    return await ctx.runMutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: options.expectedVersion,
+      expectedDraftRevision: options.expectedDraftRevision,
+      createdBy: principal.userId,
+      note: options.note,
+      changes: [],
+      doc: prepared.commit,
+    });
+  } catch (error) {
+    await Promise.all(
+      prepared.stored.map((storageId) => ctx.storage.delete(storageId).catch(() => undefined)),
+    );
+    throw error;
+  }
+}
+
+async function loadCanvasFileByRef(ctx: ActionCtx, ref: string) {
+  const detail = await ctx.runQuery(internal.canvases.detailByRef, {
+    ref,
+    includeDoc: true,
+  });
+  if (!detail?.canvas.doc_url) throw new Error(`CanvasFile not found for ref "${ref}"`);
+  const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, { ref });
+  const blob = source ? await ctx.storage.get(source.storageId) : null;
+  if (!blob) throw new Error("CanvasFile storage object is unavailable");
+  return {
+    detail,
+    file: CanvasFileSchema.parse(JSON.parse(await blob.text())),
+  };
+}
+
+function pageSlug(title: string): string {
+  const base = title
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64);
+  return base || "page";
 }
 
 function canvasEntryHtml(
@@ -987,9 +958,15 @@ async function commitPreparedFileChanges(
   principal: McpPrincipal,
   canvasId: Id<"canvases">,
   expectedVersion: number,
+  expectedDraftRevision: number | undefined,
   prepared: PreparedPatchChange[],
   note?: string,
-): Promise<{ version: number; files: Array<{ path: string; content_hash?: string }> }> {
+): Promise<{
+  version: number;
+  draftRevision: number;
+  dirty: boolean;
+  files: Array<{ path: string; content_hash?: string }>;
+}> {
   const stored: Id<"_storage">[] = [];
   const changes: Array<
     | {
@@ -1026,12 +1003,15 @@ async function commitPreparedFileChanges(
     const committed = await ctx.runMutation(internal.canvases.commitFilePatch, {
       canvasId,
       expectedVersion,
+      expectedDraftRevision,
       changes,
       createdBy: principal.userId,
       note,
     });
     return {
       version: committed.version,
+      draftRevision: committed.draftRevision,
+      dirty: committed.dirty,
       files: changes.map((change) => ({
         path: change.type === "move" ? change.toPath : change.path,
         content_hash: change.type === "write" ? change.contentHash : undefined,
@@ -1054,9 +1034,13 @@ const SaveOutputSchema = z.object({
   title: z.string(),
   previous_version: z.number(),
   version: z.number(),
+  draft_revision: z.number().int().nonnegative(),
+  dirty: z.boolean(),
+  checkpointed: z.boolean(),
   published: z.boolean(),
   visibility: z.enum(["private", "public"]),
   canvas_url: z.string(),
+  present_url: z.string().nullable(),
   share_url: z.string().nullable(),
   thumbnail_url: z.string().nullable(),
   embed: z
@@ -1211,7 +1195,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .unknown()
             .optional()
             .describe(
-              "CanvasDoc v2 with explicit geometry and native/iframe/image nodes. May be saved atomically with iframe and image sources/assets in files. Image nodes use source.path + fit/focalPosition/alt. A phone node must use viewport 284x642 and frame {kind:'phone',time:'09:42'}; its iframe contains screen content only because canvas chrome supplies the bezel, notch and status bar.",
+              "CanvasFile v3: {version:3, defaultPageId, pages:[{id,title,order,doc:CanvasDocV2}], prototype:{start?,interactions}}. The complete multi-page file is saved atomically as a durable draft.",
             ),
           files: z.array(FileInputSchema).max(500).optional(),
           renders: z.array(RenderInputSchema).max(4).optional(),
@@ -1229,7 +1213,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .number()
             .optional()
             .describe("Refuse the write if the canvas is not at this version."),
-          note: z.string().optional().describe("Recorded on the version this call creates."),
+          expected_draft_revision: z
+            .number()
+            .int()
+            .nonnegative()
+            .optional()
+            .describe("Refuse the write if the durable draft has changed."),
+          note: z.string().optional().describe("Milestone note used if this save publishes."),
         })
         .strict(),
       outputSchema: SaveOutputSchema,
@@ -1263,7 +1253,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
 
         // --- content ---
         // Resolve/upload every source first, then expose all file/binding/doc
-        // changes in one Convex transaction and one immutable version.
+        // changes atomically in the durable draft. Initial creation establishes
+        // v1; later saves remain coalesced until checkpoint or publish.
         let preparedFiles: Awaited<ReturnType<typeof prepareSaveFiles>> | undefined;
         let preparedDoc: Awaited<ReturnType<typeof prepareSaveDoc>> | undefined;
         let committed: {
@@ -1271,6 +1262,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           version: number;
           previousVersion: number;
           changed: boolean;
+          draftRevision: number;
+          dirty: boolean;
         } | null = null;
         try {
           preparedFiles = await prepareSaveFiles(
@@ -1291,6 +1284,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             committed = await ctx.runMutation(internal.canvases.commitSaveContent, {
               canvasId,
               expectedVersion: input.expected_version,
+              expectedDraftRevision: input.expected_draft_revision,
               createdBy: principal.userId,
               note: input.note,
               metadata: {
@@ -1396,9 +1390,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           title: detail.canvas.title,
           previous_version: committed?.previousVersion ?? detail.canvas.version ?? 0,
           version: detail.canvas.version ?? 0,
+          draft_revision: detail.canvas.draft_revision,
+          dirty: detail.canvas.dirty,
+          checkpointed: Boolean(committed && !committed.dirty),
           published: (detail.canvas.version ?? 0) > 0,
           visibility: detail.canvas.visibility,
           canvas_url: canvasUrl(canvasId),
+          present_url: detail.canvas.kind === "canvas" ? `${canvasUrl(canvasId)}/present` : null,
           share_url: shareUrl(detail.canvas.public_slug),
           thumbnail_url: detail.canvas.thumbnail_url,
           embed:
@@ -1434,7 +1432,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Edits one UTF-8 workspace file using the same exact old_string/new_string contract as " +
         "Claude Code and OpenCode. The match must be unique unless replace_all is explicit. " +
-        "Creates one immutable canvas version and rejects stale expected_version/hash values.",
+        "Updates the durable draft and rejects stale version, draft revision, or hash values.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
@@ -1444,6 +1442,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           new_string: z.string(),
           replace_all: z.boolean().optional(),
           expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative().optional(),
           expected_hash: z.string().optional(),
           note: z.string().optional(),
         })
@@ -1458,6 +1457,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         requested_version: z.number().int().nonnegative(),
         previous_version: z.number().int().nonnegative(),
         version: z.number().int().positive(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.boolean(),
         rebased: z.boolean(),
       }),
     },
@@ -1491,6 +1492,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           principal,
           source.canvasId,
           source.version,
+          input.expected_draft_revision,
           [
             {
               type: "write",
@@ -1513,6 +1515,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           requested_version: input.expected_version,
           previous_version: source.version,
           version: committed.version,
+          draft_revision: committed.draftRevision,
+          dirty: committed.dirty,
           rebased: source.version !== input.expected_version,
         });
       }),
@@ -1531,6 +1535,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ref: RefArg,
           patch: z.string(),
           expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative().optional(),
           expected_hashes: z
             .record(z.string(), z.string())
             .optional()
@@ -1546,6 +1551,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         requested_version: z.number().int().nonnegative(),
         previous_version: z.number().int().nonnegative(),
         version: z.number().int().positive(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.boolean(),
         rebased: z.boolean(),
         files: z.array(z.object({ path: z.string(), content_hash: z.string().optional() })),
       }),
@@ -1606,6 +1613,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           principal,
           canvasId,
           currentVersion,
+          input.expected_draft_revision,
           prepared,
           input.note,
         );
@@ -1615,6 +1623,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           requested_version: input.expected_version,
           previous_version: currentVersion,
           version: committed.version,
+          draft_revision: committed.draftRevision,
+          dirty: committed.dirty,
           rebased: currentVersion !== input.expected_version,
           files: committed.files,
         });
@@ -1664,6 +1674,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     ref: z.string(),
     previous_version: z.number(),
     version: z.number(),
+    draft_revision: z.number().int().nonnegative(),
+    dirty: z.boolean(),
+    page_id: z.string(),
     operations: z.number(),
     warnings: z.array(WarningSchema),
   });
@@ -1685,6 +1698,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         .object({
           ref: RefArg,
           expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative(),
+          page_id: z.string().optional().describe("Page id; defaults to the file's default Page."),
           operations: z.array(docPatchOperationSchema).min(1).max(100),
           note: z.string().optional(),
         })
@@ -1706,25 +1721,493 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         }
         const response = await fetch(detail.canvas.doc_url);
         if (!response.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${response.status}`);
-        const current = CanvasDocSchema.parse(await response.json());
-        const patched = applyCanvasDocPatch(current, input.operations as CanvasDocPatchOperation[]);
-        const saved = await saveDoc(
+        const currentFile = CanvasFileSchema.parse(await response.json());
+        const currentPage = resolveCanvasPage(currentFile, input.page_id);
+        if (input.page_id && currentPage.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
+        }
+        const patchedDoc = applyCanvasDocPatch(
+          currentPage.doc,
+          input.operations as CanvasDocPatchOperation[],
+        );
+        const patchedFile = CanvasFileSchema.parse({
+          ...currentFile,
+          pages: currentFile.pages.map((page) =>
+            page.id === currentPage.id ? { ...page, doc: patchedDoc } : page,
+          ),
+        });
+        const saved = await saveCanvasFileDraft(
           ctx,
-          detail.canvas.canvas_id,
           principal,
-          patched,
-          input.note ?? `CanvasDoc patch (${input.operations.length})`,
-          input.expected_version,
+          detail.canvas.canvas_id,
+          patchedFile,
+          {
+            expectedVersion: input.expected_version,
+            expectedDraftRevision: input.expected_draft_revision,
+            note: input.note ?? `CanvasDoc patch (${input.operations.length})`,
+          },
         );
         return result({
-          status: saved.warnings.length ? "partial" : "ok",
+          status: "ok",
           ref: input.ref,
           previous_version: input.expected_version,
           version: saved.version,
+          draft_revision: saved.draftRevision,
+          dirty: saved.dirty,
+          page_id: currentPage.id,
           operations: input.operations.length,
-          warnings: saved.warnings,
+          warnings: [],
         });
       }),
+  );
+
+  const PageSummarySchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    order: z.number().int().nonnegative(),
+    is_default: z.boolean(),
+  });
+  const PageMutationOutputSchema = z.object({
+    status: z.literal("ok"),
+    ref: z.string(),
+    version: z.number().int().nonnegative(),
+    draft_revision: z.number().int().nonnegative(),
+    dirty: z.boolean(),
+    page: PageSummarySchema.optional(),
+    pages: z.array(PageSummarySchema),
+  });
+  const pageSummaries = (file: CanvasFile) =>
+    [...file.pages]
+      .sort((left, right) => left.order - right.order)
+      .map((page) => ({
+        id: page.id,
+        title: page.title,
+        order: page.order,
+        is_default: page.id === file.defaultPageId,
+      }));
+  const savePageMutation = async (
+    input: {
+      ref: string;
+      expected_version: number;
+      expected_draft_revision: number;
+      note?: string;
+    },
+    mutate: (file: CanvasFile) => { file: CanvasFile; pageId?: string },
+  ) => {
+    const loaded = await loadCanvasFileByRef(ctx, input.ref);
+    if ((loaded.detail.canvas.version ?? 0) !== input.expected_version) {
+      throw new Error(
+        `version_conflict: expected ${input.expected_version}, current ${loaded.detail.canvas.version ?? 0}`,
+      );
+    }
+    const changed = mutate(loaded.file);
+    const saved = await saveCanvasFileDraft(
+      ctx,
+      principal,
+      loaded.detail.canvas.canvas_id,
+      changed.file,
+      {
+        expectedVersion: input.expected_version,
+        expectedDraftRevision: input.expected_draft_revision,
+        note: input.note,
+      },
+    );
+    const page = changed.pageId
+      ? pageSummaries(changed.file).find((candidate) => candidate.id === changed.pageId)
+      : undefined;
+    return result({
+      status: "ok" as const,
+      ref: input.ref,
+      version: saved.version,
+      draft_revision: saved.draftRevision,
+      dirty: saved.dirty,
+      page,
+      pages: pageSummaries(changed.file),
+    });
+  };
+
+  server.registerTool(
+    "canvas_checkpoint",
+    {
+      title: "Create canvas checkpoint",
+      description:
+        "Atomically snapshots the complete durable draft — all Pages, prototype state, files and asset bindings — as one immutable version.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          expected_draft_revision: z.number().int().nonnegative().optional(),
+          note: z.string().max(240).optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        version: z.number().int().positive(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.literal(false),
+        canvas_url: z.string(),
+        present_url: z.string(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const checkpoint = await ctx.runMutation(internal.canvases.checkpointByRef, {
+          ref: input.ref,
+          createdBy: principal.userId,
+          note: input.note,
+          expectedDraftRevision: input.expected_draft_revision,
+        });
+        return result({
+          status: "ok" as const,
+          ref: input.ref,
+          version: checkpoint.version,
+          draft_revision: checkpoint.draftRevision,
+          dirty: false as const,
+          canvas_url: canvasUrl(checkpoint.canvasId),
+          present_url: `${canvasUrl(checkpoint.canvasId)}/present`,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "canvas_page_list",
+    {
+      title: "List canvas Pages",
+      description: "Lists every Page in file order and identifies the default Page.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ ref: RefArg }).strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        version: z.number().int().nonnegative(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.boolean(),
+        pages: z.array(PageSummarySchema),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        return result({
+          status: "ok" as const,
+          ref: input.ref,
+          version: loaded.detail.canvas.version ?? 0,
+          draft_revision: loaded.detail.canvas.draft_revision,
+          dirty: loaded.detail.canvas.dirty,
+          pages: pageSummaries(loaded.file),
+        });
+      }),
+  );
+
+  const pageWriteBase = {
+    ref: RefArg,
+    expected_version: z.number().int().nonnegative(),
+    expected_draft_revision: z.number().int().nonnegative(),
+    note: z.string().max(240).optional(),
+  };
+
+  server.registerTool(
+    "canvas_page_create",
+    {
+      title: "Create canvas Page",
+      description: "Creates an independently editable Page and appends it to the canvas file.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ...pageWriteBase,
+          title: z.string().min(1).max(120),
+          page_id: z.string().optional(),
+          doc: z.unknown().optional(),
+        })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          const requested = input.page_id ?? pageSlug(input.title);
+          let id = requested;
+          let suffix = 2;
+          while (file.pages.some((page) => page.id === id)) id = `${requested}-${suffix++}`;
+          const template = resolveCanvasPage(file).doc;
+          const doc = input.doc
+            ? CanvasDocSchema.parse(input.doc)
+            : CanvasDocSchema.parse({
+                ...template,
+                title: input.title,
+                subtitle: undefined,
+                lanes: [],
+                stages: [],
+                labels: [],
+                nodes: [],
+                edges: [],
+                legend: undefined,
+              });
+          const next = CanvasFileSchema.parse({
+            ...file,
+            pages: [...file.pages, { id, title: input.title, order: file.pages.length, doc }],
+          });
+          return { file: next, pageId: id };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_page_rename",
+    {
+      title: "Rename canvas Page",
+      description: "Renames a Page without changing its stable id or authored content.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({ ...pageWriteBase, page_id: z.string(), title: z.string().min(1).max(120) })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          if (!file.pages.some((page) => page.id === input.page_id))
+            throw new Error(`page_not_found: ${input.page_id}`);
+          return {
+            file: CanvasFileSchema.parse({
+              ...file,
+              pages: file.pages.map((page) =>
+                page.id === input.page_id ? { ...page, title: input.title } : page,
+              ),
+            }),
+            pageId: input.page_id,
+          };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_page_duplicate",
+    {
+      title: "Duplicate canvas Page",
+      description:
+        "Duplicates one Page with a new stable id; prototype interactions are not copied.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ...pageWriteBase,
+          page_id: z.string(),
+          title: z.string().min(1).max(120).optional(),
+          new_page_id: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          const source = file.pages.find((page) => page.id === input.page_id);
+          if (!source) throw new Error(`page_not_found: ${input.page_id}`);
+          const title = input.title ?? `${source.title} copy`;
+          const requested = input.new_page_id ?? pageSlug(title);
+          let id = requested;
+          let suffix = 2;
+          while (file.pages.some((page) => page.id === id)) id = `${requested}-${suffix++}`;
+          return {
+            file: CanvasFileSchema.parse({
+              ...file,
+              pages: [
+                ...file.pages,
+                { ...structuredClone(source), id, title, order: file.pages.length },
+              ],
+            }),
+            pageId: id,
+          };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_page_move",
+    {
+      title: "Move canvas Page",
+      description: "Moves a Page to a zero-based position and rewrites contiguous ordering.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({ ...pageWriteBase, page_id: z.string(), to_index: z.number().int().nonnegative() })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          const ordered = [...file.pages].sort((a, b) => a.order - b.order);
+          const from = ordered.findIndex((page) => page.id === input.page_id);
+          if (from < 0) throw new Error(`page_not_found: ${input.page_id}`);
+          const [moved] = ordered.splice(from, 1);
+          if (!moved) throw new Error(`page_not_found: ${input.page_id}`);
+          ordered.splice(Math.min(input.to_index, ordered.length), 0, moved);
+          return {
+            file: CanvasFileSchema.parse({
+              ...file,
+              pages: ordered.map((page, order) => ({ ...page, order })),
+            }),
+            pageId: input.page_id,
+          };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_page_delete",
+    {
+      title: "Delete canvas Page",
+      description:
+        "Deletes a Page, removes prototype references to it, and refuses to delete the final Page.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z.object({ ...pageWriteBase, page_id: z.string() }).strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          if (file.pages.length === 1)
+            throw new Error("page_invariant: cannot delete the final Page");
+          if (!file.pages.some((page) => page.id === input.page_id))
+            throw new Error(`page_not_found: ${input.page_id}`);
+          const pages = file.pages
+            .filter((page) => page.id !== input.page_id)
+            .sort((a, b) => a.order - b.order)
+            .map((page, order) => ({ ...page, order }));
+          const fallbackPage = pages[0];
+          if (!fallbackPage) throw new Error("page_invariant: cannot delete the final Page");
+          const interactions = file.prototype.interactions.filter(
+            (interaction) =>
+              interaction.source.pageId !== input.page_id &&
+              interaction.destination.pageId !== input.page_id,
+          );
+          return {
+            file: CanvasFileSchema.parse({
+              ...file,
+              defaultPageId:
+                file.defaultPageId === input.page_id ? fallbackPage.id : file.defaultPageId,
+              pages,
+              prototype: {
+                start:
+                  file.prototype.start?.pageId === input.page_id ? undefined : file.prototype.start,
+                interactions,
+              },
+            }),
+          };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_prototype_get",
+    {
+      title: "Read canvas prototype",
+      description: "Returns the versioned start frame and hotspot interactions for Present.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ ref: RefArg }).strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        version: z.number().int().nonnegative(),
+        draft_revision: z.number().int().nonnegative(),
+        prototype: z.unknown(),
+        present_url: z.string(),
+        public_present_url: z.string().nullable(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        return result({
+          status: "ok" as const,
+          ref: input.ref,
+          version: loaded.detail.canvas.version ?? 0,
+          draft_revision: loaded.detail.canvas.draft_revision,
+          prototype: loaded.file.prototype,
+          present_url: `${canvasUrl(loaded.detail.canvas.canvas_id)}/present`,
+          public_present_url: loaded.detail.canvas.public_slug
+            ? `${shareUrl(loaded.detail.canvas.public_slug)}/present`
+            : null,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "canvas_prototype_set_start",
+    {
+      title: "Set prototype start frame",
+      description: "Sets or clears the Page/node frame launched by Present.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({
+          ...pageWriteBase,
+          start: z.object({ pageId: z.string(), nodeId: z.string() }).strict().nullable(),
+        })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => ({
+          file: CanvasFileSchema.parse({
+            ...file,
+            prototype: {
+              ...file.prototype,
+              start: input.start ?? undefined,
+            },
+          }),
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "canvas_prototype_patch",
+    {
+      title: "Patch prototype interactions",
+      description: "Atomically upserts or removes accessible Present hotspots.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ...pageWriteBase,
+          operations: z
+            .array(
+              z.discriminatedUnion("op", [
+                z.object({ op: z.literal("upsert"), interaction: z.unknown() }).strict(),
+                z.object({ op: z.literal("remove"), id: z.string() }).strict(),
+              ]),
+            )
+            .min(1)
+            .max(100),
+        })
+        .strict(),
+      outputSchema: PageMutationOutputSchema,
+    },
+    async (input) =>
+      runTool(() =>
+        savePageMutation(input, (file) => {
+          const interactions = [...file.prototype.interactions];
+          for (const operation of input.operations) {
+            if (operation.op === "remove") {
+              const index = interactions.findIndex((item) => item.id === operation.id);
+              if (index < 0) throw new Error(`prototype_interaction_not_found: ${operation.id}`);
+              interactions.splice(index, 1);
+            } else {
+              const value = operation.interaction as Record<string, unknown>;
+              const id = typeof value.id === "string" ? value.id : "";
+              const index = interactions.findIndex((item) => item.id === id);
+              if (index < 0) interactions.push(value as (typeof interactions)[number]);
+              else interactions[index] = value as (typeof interactions)[number];
+            }
+          }
+          return {
+            file: CanvasFileSchema.parse({
+              ...file,
+              prototype: { ...file.prototype, interactions },
+            }),
+          };
+        }),
+      ),
   );
 
   const assetScopeSchema = z.enum(["personal", "workspace"]);
@@ -2199,8 +2682,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Attach a library asset to a canvas",
       description:
-        "Pins one immutable asset revision at an /assets path and creates a canvas version. " +
-        "Iframe HTML uses the ordinary path; old canvas versions keep their previous revision.",
+        "Pins one immutable asset revision at an /assets path in the durable draft. " +
+        "Iframe HTML uses the ordinary path; checkpoints keep their previous revision.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
@@ -2208,6 +2691,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           asset_ref: z.string(),
           path: z.string(),
           expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative(),
         })
         .strict(),
       outputSchema: z.object({
@@ -2216,6 +2700,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         asset_ref: z.string(),
         path: z.string(),
         version: z.number().int().positive(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.boolean(),
       }),
     },
     async (input) =>
@@ -2232,6 +2718,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           assetId: asset.assetId,
           assetVersionId: asset.assetVersionId,
           expectedVersion: input.expected_version,
+          expectedDraftRevision: input.expected_draft_revision,
           createdBy: principal.userId,
         });
         return result({
@@ -2240,6 +2727,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           asset_ref: asset.assetRef,
           path: attached.path,
           version: attached.version,
+          draft_revision: attached.draftRevision,
+          dirty: attached.dirty,
         });
       }),
   );
@@ -2252,7 +2741,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Returns a PNG image block for a native canvas, one node, or an exact world-coordinate " +
         "region. Pass a copied ref_id to see that node immediately. The capture is rendered from " +
-        "the current immutable canvas version, not from transient browser state. PNGs above 5 MB " +
+        "the current durable draft revision, not from transient browser state. PNGs above 5 MB " +
         "are not inlined; use download_url or the suggested smaller regions/scale.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: SnapshotInputSchema,
@@ -2261,6 +2750,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         ref: z.string(),
         ref_id: z.string().optional(),
         version: z.number(),
+        draft_revision: z.number().int().nonnegative(),
+        page_id: z.string(),
         target: SnapshotTargetSchema,
         mime_type: z.literal("image/png"),
         width: z.number(),
@@ -2316,11 +2807,23 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             `version_conflict: expected ${input.expected_version}, current ${context.version}`,
           );
         }
+        if (
+          input.expected_draft_revision !== undefined &&
+          input.expected_draft_revision !== context.draftRevision
+        ) {
+          throw new Error(
+            `draft_conflict: expected ${input.expected_draft_revision}, current ${context.draftRevision}`,
+          );
+        }
 
         if (!context.docStorageId) throw new Error("snapshot_failed: CanvasDoc is unavailable.");
         const docBlob = await ctx.storage.get(context.docStorageId);
         if (!docBlob) throw new Error("snapshot_failed: CanvasDoc storage object is unavailable.");
-        const doc = CanvasDocSchema.parse(JSON.parse(await docBlob.text()));
+        const file = CanvasFileSchema.parse(JSON.parse(await docBlob.text()));
+        const page = resolveCanvasPage(file, input.page_id);
+        if (input.page_id && page.id !== input.page_id)
+          throw new Error(`page_not_found: ${input.page_id}`);
+        const doc = page.doc;
         if (target.type === "node") {
           if (!resolveElementSelection(doc, target.node_id)) {
             throw new Error(
@@ -2334,7 +2837,14 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const normalizedTarget =
           target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
         const cacheKey = await sha256Hex(
-          JSON.stringify({ renderer: 2, target: normalizedTarget, padding, scale }),
+          JSON.stringify({
+            renderer: 3,
+            draftRevision: context.draftRevision,
+            pageId: page.id,
+            target: normalizedTarget,
+            padding,
+            scale,
+          }),
         );
 
         let cached = true;
@@ -2582,6 +3092,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ref,
           ref_id: canonicalRefId,
           version: context.version,
+          draft_revision: context.draftRevision,
+          page_id: page.id,
           target,
           mime_type: snapshot.mimeType,
           width: snapshot.width,
@@ -2637,6 +3149,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .string()
             .optional()
             .describe("A copied canvas://workspace/canvas?node=<id> element ref."),
+          page_id: z.string().optional().describe("Select a Page; defaults to defaultPageId."),
           include: z
             .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
             .optional(),
@@ -2712,9 +3225,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               kind: z.enum(["canvas", "html", "image", "pdf"]),
               visibility: z.enum(["private", "public"]),
               version: z.number().int().nonnegative(),
+              draft_revision: z.number().int().nonnegative(),
+              dirty: z.boolean(),
+              draft_edit_count: z.number().int().nonnegative(),
               updated_at: z.number(),
               created_by_email: z.string().nullable(),
               canvas_url: z.string(),
+              present_url: z.string().nullable(),
               share_url: z.string().nullable(),
               thumbnail_url: z.string().nullable(),
               embed: z
@@ -2813,6 +3330,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           const currentNode = await ctx.runQuery(internal.canvases.currentNodeByRef, {
             ref,
             nodeId: elementRef.nodeId,
+            pageId: input.page_id,
           });
           if (!currentNode) {
             throw new Error(
@@ -2822,18 +3340,22 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }
         }
 
-        let canvasDoc: CanvasDoc | undefined;
+        let canvasFile: CanvasFile | undefined;
         if (needsDoc && detail.canvas.doc_url) {
           const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, { ref });
           const blob = source ? await ctx.storage.get(source.storageId) : null;
           if (!blob) throw new Error("CanvasDoc storage object is unavailable.");
-          canvasDoc = CanvasDocSchema.parse(JSON.parse(await blob.text()));
+          canvasFile = CanvasFileSchema.parse(JSON.parse(await blob.text()));
+        }
+        const selectedPage = canvasFile ? resolveCanvasPage(canvasFile, input.page_id) : undefined;
+        if (input.page_id && selectedPage?.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
         }
 
         let selection: Record<string, unknown> | undefined;
         if (elementRef) {
-          if (!canvasDoc) throw new Error("CanvasDoc storage object is unavailable.");
-          const resolved = resolveElementSelection(canvasDoc, elementRef.nodeId);
+          if (!selectedPage) throw new Error("CanvasFile storage object is unavailable.");
+          const resolved = resolveElementSelection(selectedPage.doc, elementRef.nodeId);
           if (!resolved) {
             throw new Error(
               `element_not_found: Canvas "${ref}" exists at version ${detail.canvas.version ?? 0}, ` +
@@ -2844,54 +3366,69 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             ref_id: formatElementRef(ref, resolved.node.id),
             type: "node",
             node_id: resolved.node.id,
+            page_id: selectedPage.id,
             node: resolved.node,
             context: resolved.context,
           };
         }
 
         const focusedCanvasUrl = new URL(canvasUrl(detail.canvas.canvas_id));
+        if (selectedPage && selectedPage.id !== canvasFile?.defaultPageId)
+          focusedCanvasUrl.searchParams.set("page", selectedPage.id);
         if (elementRef) focusedCanvasUrl.searchParams.set("node", elementRef.nodeId);
 
         const projectedDoc = (() => {
-          if (!include.has("doc") || !canvasDoc) return undefined;
+          if (!include.has("doc") || !canvasFile || !selectedPage) return undefined;
           const projection = input.doc_projection;
-          if (!projection) return canvasDoc;
+          if (!projection) return canvasFile;
+          const canvasDoc = selectedPage.doc;
           const collections = new Set(projection.collections ?? []);
           const nodeIds = new Set(projection.node_ids ?? []);
           const nodes = canvasDoc.nodes.filter((node) => nodeIds.has(node.id));
           const selectedNodeIds = new Set(nodes.map((node) => node.id));
           return {
-            version: canvasDoc.version,
-            title: canvasDoc.title,
-            subtitle: canvasDoc.subtitle,
-            theme: canvasDoc.theme,
-            world: canvasDoc.world,
-            counts: {
-              lanes: canvasDoc.lanes.length,
-              stages: canvasDoc.stages.length,
-              labels: canvasDoc.labels.length,
-              nodes: canvasDoc.nodes.length,
-              edges: canvasDoc.edges.length,
+            version: canvasFile.version,
+            defaultPageId: canvasFile.defaultPageId,
+            pages: pageSummaries(canvasFile),
+            activePage: {
+              id: selectedPage.id,
+              title: selectedPage.title,
+              order: selectedPage.order,
+              doc: {
+                version: canvasDoc.version,
+                title: canvasDoc.title,
+                subtitle: canvasDoc.subtitle,
+                theme: canvasDoc.theme,
+                world: canvasDoc.world,
+                counts: {
+                  lanes: canvasDoc.lanes.length,
+                  stages: canvasDoc.stages.length,
+                  labels: canvasDoc.labels.length,
+                  nodes: canvasDoc.nodes.length,
+                  edges: canvasDoc.edges.length,
+                },
+                lanes: collections.has("lanes") ? canvasDoc.lanes : undefined,
+                stages: collections.has("stages") ? canvasDoc.stages : undefined,
+                labels: collections.has("labels") ? canvasDoc.labels : undefined,
+                nodes:
+                  collections.has("nodes") && nodeIds.size === 0
+                    ? canvasDoc.nodes
+                    : nodes.length > 0
+                      ? nodes
+                      : undefined,
+                edges: collections.has("edges")
+                  ? canvasDoc.edges
+                  : selectedNodeIds.size > 0
+                    ? canvasDoc.edges.filter(
+                        (edge) =>
+                          selectedNodeIds.has(edge.source.nodeId) ||
+                          selectedNodeIds.has(edge.target.nodeId),
+                      )
+                    : undefined,
+                legend: collections.has("legend") ? canvasDoc.legend : undefined,
+              },
             },
-            lanes: collections.has("lanes") ? canvasDoc.lanes : undefined,
-            stages: collections.has("stages") ? canvasDoc.stages : undefined,
-            labels: collections.has("labels") ? canvasDoc.labels : undefined,
-            nodes:
-              collections.has("nodes") && nodeIds.size === 0
-                ? canvasDoc.nodes
-                : nodes.length > 0
-                  ? nodes
-                  : undefined,
-            edges: collections.has("edges")
-              ? canvasDoc.edges
-              : selectedNodeIds.size > 0
-                ? canvasDoc.edges.filter(
-                    (edge) =>
-                      selectedNodeIds.has(edge.source.nodeId) ||
-                      selectedNodeIds.has(edge.target.nodeId),
-                  )
-                : undefined,
-            legend: collections.has("legend") ? canvasDoc.legend : undefined,
+            prototype: canvasFile.prototype,
           };
         })();
 
@@ -2930,9 +3467,16 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             kind: detail.canvas.kind,
             visibility: detail.canvas.visibility,
             version: detail.canvas.version ?? 0,
+            draft_revision: detail.canvas.draft_revision,
+            dirty: detail.canvas.dirty,
+            draft_edit_count: detail.canvas.draft_edit_count,
             updated_at: detail.canvas.updated_at,
             created_by_email: detail.created_by_email,
             canvas_url: focusedCanvasUrl.toString(),
+            present_url:
+              detail.canvas.kind === "canvas"
+                ? `${canvasUrl(detail.canvas.canvas_id)}/present`
+                : null,
             share_url: shareUrl(detail.canvas.public_slug),
             thumbnail_url: detail.canvas.thumbnail_url,
             embed: (() => {

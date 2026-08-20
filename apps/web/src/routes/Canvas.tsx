@@ -1,24 +1,42 @@
 import "@visual-canvas/canvas/theme.css";
 import {
   type CanvasDoc,
-  CanvasDocSchema,
+  type CanvasFile,
+  CanvasFileSchema,
   formatElementRef,
   layoutCanvas,
   mountViewport,
+  resolveCanvasPage,
   type ViewportController,
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Copy,
   ExternalLink,
   History,
   Info,
   Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
+  Play,
+  Plus,
   RefreshCw,
+  Trash2,
   Unplug,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -33,9 +51,17 @@ import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
 import { mcpBaseUrl } from "../lib/mcpUrl";
+import {
+  clampPrototypeHotspot,
+  drawPrototypeHotspot,
+  movePrototypeHotspot,
+  type PrototypeHotspotRect,
+  resizePrototypeHotspot,
+} from "../lib/prototypeGeometry";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
@@ -51,6 +77,8 @@ export function CanvasViewport({
   editable = false,
   onGeometryChange,
   canvasRef,
+  immersive = false,
+  syncSelectionToUrl = true,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
@@ -59,6 +87,8 @@ export function CanvasViewport({
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
   canvasRef?: string;
+  immersive?: boolean;
+  syncSelectionToUrl?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
@@ -140,6 +170,7 @@ export function CanvasViewport({
       resolveImageUrl: (node) => resolveImageUrlRef.current(node),
       resolveIframeIdentity: (node) => resolveIframeIdentityRef.current(node),
       onSelect: (nodeId) => {
+        if (!syncSelectionToUrl) return;
         /*
          * `replace`, not push. Selection is view state, not navigation: the
          * URL exists so a selected node can be linked and reloaded, and the
@@ -148,7 +179,9 @@ export function CanvasViewport({
          * selected — and 15 node clicks would cost 15 Backs to leave the
          * page. Escape (handled inside the viewport) is the deselect.
          */
-        setSearchParamsRef.current(nodeId ? { node: nodeId } : {}, { replace: true });
+        setSearchParamsRef.current(withCanvasNodeSelection(window.location.search, nodeId), {
+          replace: true,
+        });
       },
       onGeometryChange: (nodeId, rect) => onGeometryChangeRef.current?.(nodeId, rect),
       resolveElementRef: (nodeId) => {
@@ -165,19 +198,25 @@ export function CanvasViewport({
       },
     });
     controllerRef.current = controller;
+    if (immersive) {
+      const iframeNode = docRef.current.nodes.find((node) => node.kind === "iframe");
+      if (iframeNode) controller.activateIframe(iframeNode.id);
+    }
 
     // Read the deep-linked node directly from the URL rather than the
     // reactive `useSearchParams` value on purpose — this effect should only
     // re-run when `doc` changes, not on every node selection (which also
     // updates the URL's search params via setSearchParams above).
-    const initialNode = new URLSearchParams(window.location.search).get("node");
+    const initialNode = syncSelectionToUrl
+      ? new URLSearchParams(window.location.search).get("node")
+      : null;
     if (initialNode) controller.selectNode(initialNode, true);
 
     return () => {
       controllerRef.current = null;
       controller.dispose();
     };
-  }, [editable]);
+  }, [editable, immersive, syncSelectionToUrl]);
 
   useEffect(() => {
     try {
@@ -191,7 +230,9 @@ export function CanvasViewport({
     }
   }, [doc, resolveIframeIdentity, resolveIframeUrl, resolveImageUrl]);
 
-  return <div ref={containerRef} className="vc-viewport-host" />;
+  return (
+    <div ref={containerRef} className={`vc-viewport-host${immersive ? " vc-immersive" : ""}`} />
+  );
 }
 
 interface CanvasVersion {
@@ -361,10 +402,7 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
     setError(null);
     try {
       await restore({ canvasId, version });
-      // Restoring just re-points `currentVersionId` — nothing is destroyed
-      // and no new version is minted — so without this the only signal is
-      // the document quietly changing underneath you.
-      notify({ message: `Restored v${version}.` });
+      notify({ message: `Restored v${version} into a new checkpoint.` });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -384,16 +422,16 @@ function RestoreButton({ canvasId, version }: { canvasId: Id<"canvases">; versio
 
 // The rows used to be inert text: the backend has kept every version since
 // v1, but a human could see them and not act on them. Restoring is
-// non-destructive — `restoreVersion` only re-points `currentVersionId` at an
-// existing version, minting nothing and discarding nothing — so unlike delete
-// it needs no armed confirmation. Only the current version's row has no
-// button, since restoring it would be a no-op.
-function VersionHistory({
+// non-destructive — restore copies an immutable checkpoint into the draft and
+// records a new restore-derived checkpoint, preserving monotonic history.
+export function VersionHistory({
   canvasId,
   versions,
+  dirty,
 }: {
   canvasId: Id<"canvases">;
   versions: CanvasVersion[] | undefined;
+  dirty: boolean;
 }) {
   if (versions === undefined) return <LoadingState label="Loading version history…" />;
   if (versions.length === 0) return null;
@@ -419,7 +457,7 @@ function VersionHistory({
                 {v.createdByEmail && ` · ${v.createdByEmail}`}
               </span>
             </div>
-            {!v.isCurrent && (
+            {(!v.isCurrent || dirty) && (
               <div className="row-item-actions">
                 <RestoreButton canvasId={canvasId} version={v.version} />
               </div>
@@ -442,8 +480,11 @@ interface FetchableCanvas {
 // Shared by CanvasPage (signed-in) and PublicCanvasPage (anonymous
 // /s/:slug) — both resolve a canvas summary first, then need this same
 // doc-fetch-and-validate plus compiled-Tailwind-CSS-injection sequence.
-export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
-  const [doc, setDoc] = useState<CanvasDoc | null>(null);
+export function useCanvasDocAndCss(
+  canvas: FetchableCanvas | null | undefined,
+  pageId?: string | null,
+) {
+  const [file, setFile] = useState<CanvasFile | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
   // Keyed on the two fields the fetch actually depends on, not the whole
   // `canvas` object: Convex hands back a fresh object on *any* field change,
@@ -455,7 +496,7 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
   useEffect(() => {
     setDocError(null);
     if (kind !== "canvas" || !docUrl) {
-      setDoc(null);
+      setFile(null);
       return;
     }
     let cancelled = false;
@@ -466,12 +507,13 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
       })
       .then((json) => {
         if (cancelled) return;
-        const parsed = CanvasDocSchema.safeParse(json);
-        if (!parsed.success) {
-          setDocError(`Stored document failed validation: ${parsed.error.message}`);
-          return;
+        try {
+          setFile(CanvasFileSchema.parse(json));
+        } catch (error) {
+          setDocError(
+            `Stored document failed validation: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
-        setDoc(parsed.data);
       })
       .catch((err: unknown) => {
         if (!cancelled) setDocError(err instanceof Error ? err.message : String(err));
@@ -530,17 +572,682 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
     [],
   );
 
-  return { doc, docError, cssReady };
+  const page = file ? resolveRequestedCanvasPage(file, pageId) : null;
+  const pageError =
+    file && pageId && !page
+      ? `Page "${pageId}" no longer exists. Select another Page, or recover it from Details → Versions.`
+      : null;
+  return { file, page, doc: page?.doc ?? null, docError: docError ?? pageError, cssReady };
+}
+
+function nextPageId(file: CanvasFile, title: string) {
+  const base =
+    title
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "page";
+  let id = base;
+  let suffix = 2;
+  while (file.pages.some((page) => page.id === id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+export function PagesPanel({
+  file,
+  activePageId,
+  collapsed,
+  onCollapsedChange,
+  onSelect,
+  onSave,
+}: {
+  file: CanvasFile;
+  activePageId: string;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
+  onSelect: (pageId: string) => void;
+  onSave: (file: CanvasFile, note: string) => Promise<void>;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [value, setValue] = useState("");
+  const { notify } = useToast();
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const ordered = [...file.pages].sort((a, b) => a.order - b.order);
+  useEffect(() => {
+    if (creating || editingId) nameInputRef.current?.focus();
+  }, [creating, editingId]);
+
+  async function createPage() {
+    const title = value.trim();
+    if (!title) return;
+    const id = nextPageId(file, title);
+    const template = resolveCanvasPage(file).doc;
+    const doc = {
+      ...template,
+      title,
+      subtitle: undefined,
+      lanes: [],
+      stages: [],
+      labels: [],
+      nodes: [],
+      edges: [],
+      legend: undefined,
+    };
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        pages: [...file.pages, { id, title, order: file.pages.length, doc }],
+      }),
+      `Create Page: ${title}`,
+    );
+    setCreating(false);
+    setValue("");
+    onSelect(id);
+  }
+
+  async function renamePage(pageId: string) {
+    const title = value.trim();
+    if (!title) return;
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        pages: file.pages.map((page) => (page.id === pageId ? { ...page, title } : page)),
+      }),
+      `Rename Page: ${title}`,
+    );
+    setEditingId(null);
+    setValue("");
+  }
+
+  async function movePage(pageId: string, delta: number) {
+    const pages = [...ordered];
+    const from = pages.findIndex((page) => page.id === pageId);
+    const to = Math.max(0, Math.min(pages.length - 1, from + delta));
+    if (from === to) return;
+    const [page] = pages.splice(from, 1);
+    if (!page) return;
+    pages.splice(to, 0, page);
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        pages: pages.map((candidate, order) => ({ ...candidate, order })),
+      }),
+      `Move Page: ${pageId}`,
+    );
+  }
+
+  async function duplicatePage(pageId: string) {
+    const source = file.pages.find((page) => page.id === pageId);
+    if (!source) return;
+    const title = `${source.title} copy`;
+    const id = nextPageId(file, title);
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        pages: [...file.pages, { ...structuredClone(source), id, title, order: file.pages.length }],
+      }),
+      `Duplicate Page: ${source.title}`,
+    );
+    onSelect(id);
+  }
+
+  async function deletePage(pageId: string) {
+    if (file.pages.length === 1) return;
+    const pages = ordered
+      .filter((page) => page.id !== pageId)
+      .map((page, order) => ({ ...page, order }));
+    const fallbackPage = pages[0];
+    if (!fallbackPage) return;
+    const next = CanvasFileSchema.parse({
+      ...file,
+      defaultPageId: file.defaultPageId === pageId ? fallbackPage.id : file.defaultPageId,
+      pages,
+      prototype: {
+        start: file.prototype.start?.pageId === pageId ? undefined : file.prototype.start,
+        interactions: file.prototype.interactions.filter(
+          (interaction) =>
+            interaction.source.pageId !== pageId && interaction.destination.pageId !== pageId,
+        ),
+      },
+    });
+    await onSave(next, `Delete Page: ${pageId}`);
+    const deleted = file.pages.find((page) => page.id === pageId);
+    setPendingDeleteId(null);
+    if (activePageId === pageId) onSelect(next.defaultPageId);
+    notify({
+      message: `Deleted Page "${deleted?.title ?? pageId}". To recover it, open Details → Versions and restore a checkpoint.`,
+      durationMs: 10_000,
+    });
+  }
+
+  return (
+    <aside className={`canvas-pages-panel${collapsed ? " is-collapsed" : ""}`} aria-label="Pages">
+      <div className="canvas-pages-head">
+        {!collapsed && <strong>Pages</strong>}
+        <IconButton
+          icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+          label={collapsed ? "Expand Pages" : "Collapse Pages"}
+          iconSize={16}
+          onClick={() => onCollapsedChange(!collapsed)}
+        />
+      </div>
+      {collapsed ? (
+        <IconButton
+          icon={Plus}
+          label="Create Page"
+          iconSize={17}
+          onClick={() => onCollapsedChange(false)}
+        />
+      ) : (
+        <>
+          <Button size="sm" variant="ghost" icon={Plus} onClick={() => setCreating(true)}>
+            Create Page
+          </Button>
+          {creating && (
+            <input
+              ref={nameInputRef}
+              className="canvas-page-name-input"
+              aria-label="New Page name"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onBlur={() => void createPage()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void createPage();
+                if (event.key === "Escape") setCreating(false);
+              }}
+            />
+          )}
+          <ol className="canvas-pages-list">
+            {ordered.map((page, index) => (
+              <li key={page.id} className={page.id === activePageId ? "is-active" : ""}>
+                {editingId === page.id ? (
+                  <input
+                    ref={nameInputRef}
+                    className="canvas-page-name-input"
+                    aria-label={`Rename ${page.title}`}
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    onBlur={() => void renamePage(page.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void renamePage(page.id);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="canvas-page-select"
+                    onClick={() => onSelect(page.id)}
+                  >
+                    <span>{page.title}</span>
+                    {page.id === file.defaultPageId && <small>default</small>}
+                  </button>
+                )}
+                {pendingDeleteId === page.id ? (
+                  <fieldset
+                    className="canvas-page-delete-confirm"
+                    aria-label={`Confirm deletion of ${page.title}`}
+                  >
+                    <span>Delete “{page.title}”?</span>
+                    <Button size="sm" variant="danger" onClick={() => void deletePage(page.id)}>
+                      Delete
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setPendingDeleteId(null)}>
+                      Cancel
+                    </Button>
+                  </fieldset>
+                ) : (
+                  <div className="canvas-page-actions">
+                    <IconButton
+                      icon={Pencil}
+                      label={`Rename ${page.title}`}
+                      iconSize={13}
+                      onClick={() => {
+                        setEditingId(page.id);
+                        setValue(page.title);
+                      }}
+                    />
+                    <IconButton
+                      icon={Copy}
+                      label={`Duplicate ${page.title}`}
+                      iconSize={13}
+                      onClick={() => void duplicatePage(page.id)}
+                    />
+                    <IconButton
+                      icon={ChevronUp}
+                      label={`Move ${page.title} up`}
+                      iconSize={13}
+                      disabled={index === 0}
+                      onClick={() => void movePage(page.id, -1)}
+                    />
+                    <IconButton
+                      icon={ChevronDown}
+                      label={`Move ${page.title} down`}
+                      iconSize={13}
+                      disabled={index === ordered.length - 1}
+                      onClick={() => void movePage(page.id, 1)}
+                    />
+                    <IconButton
+                      icon={Trash2}
+                      label={`Delete ${page.title}`}
+                      iconSize={13}
+                      disabled={ordered.length === 1}
+                      onClick={() => setPendingDeleteId(page.id)}
+                    />
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </aside>
+  );
+}
+
+function PrototypeHotspotEditor({
+  frameTitle,
+  viewport,
+  value,
+  onChange,
+}: {
+  frameTitle: string;
+  viewport: { width: number; height: number };
+  value: PrototypeHotspotRect;
+  onChange: (hotspot: PrototypeHotspotRect) => void;
+}) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<
+    | { mode: "draw"; start: { x: number; y: number } }
+    | { mode: "move"; offset: { x: number; y: number } }
+    | { mode: "resize"; start: { x: number; y: number }; hotspot: PrototypeHotspotRect }
+    | null
+  >(null);
+  const landscape = viewport.width >= viewport.height;
+
+  function arrowDelta(key: string, step: number): [number, number] | undefined {
+    if (key === "ArrowLeft") return [-step, 0];
+    if (key === "ArrowRight") return [step, 0];
+    if (key === "ArrowUp") return [0, -step];
+    if (key === "ArrowDown") return [0, step];
+    return undefined;
+  }
+
+  function point(event: ReactPointerEvent) {
+    const bounds = surfaceRef.current?.getBoundingClientRect();
+    if (!bounds) return { x: 0, y: 0 };
+    return {
+      x: Math.round(((event.clientX - bounds.left) / bounds.width) * viewport.width),
+      y: Math.round(((event.clientY - bounds.top) / bounds.height) * viewport.height),
+    };
+  }
+
+  function handlePointerMove(event: ReactPointerEvent) {
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    const current = point(event);
+    if (gesture.mode === "draw") {
+      onChange(drawPrototypeHotspot(gesture.start, current, viewport));
+    } else if (gesture.mode === "move") {
+      onChange(
+        movePrototypeHotspot(
+          value,
+          current.x - gesture.offset.x,
+          current.y - gesture.offset.y,
+          viewport,
+        ),
+      );
+    } else {
+      onChange(
+        resizePrototypeHotspot(
+          gesture.hotspot,
+          gesture.hotspot.width + current.x - gesture.start.x,
+          gesture.hotspot.height + current.y - gesture.start.y,
+          viewport,
+        ),
+      );
+    }
+  }
+
+  function endGesture() {
+    gestureRef.current = null;
+  }
+
+  const hotspotStyle = {
+    left: `${(value.x / viewport.width) * 100}%`,
+    top: `${(value.y / viewport.height) * 100}%`,
+    width: `${(value.width / viewport.width) * 100}%`,
+    height: `${(value.height / viewport.height) * 100}%`,
+  };
+  const nudge = (dx: number, dy: number) =>
+    onChange(movePrototypeHotspot(value, value.x + dx, value.y + dy, viewport));
+
+  return (
+    <div className="canvas-prototype-editor-group">
+      <span>Draw hotspot on {frameTitle}</span>
+      <div className="canvas-prototype-editor-shell">
+        <section
+          ref={surfaceRef}
+          className="canvas-prototype-editor-surface"
+          style={
+            landscape
+              ? { width: "100%", aspectRatio: `${viewport.width} / ${viewport.height}` }
+              : { height: 220, aspectRatio: `${viewport.width} / ${viewport.height}` }
+          }
+          aria-label={`Hotspot drawing surface for ${frameTitle}`}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const start = point(event);
+            gestureRef.current = { mode: "draw", start };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            onChange(drawPrototypeHotspot(start, start, viewport));
+          }}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endGesture}
+          onPointerCancel={endGesture}
+        >
+          <button
+            type="button"
+            className="canvas-prototype-hotspot"
+            style={hotspotStyle}
+            aria-label="Prototype hotspot. Drag to move; use arrow keys for precise positioning."
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              const current = point(event);
+              gestureRef.current = {
+                mode: "move",
+                offset: { x: current.x - value.x, y: current.y - value.y },
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+            onKeyDown={(event) => {
+              const step = event.shiftKey ? 10 : 1;
+              const movement = arrowDelta(event.key, step);
+              if (!movement) return;
+              event.preventDefault();
+              nudge(movement[0], movement[1]);
+            }}
+          />
+          <button
+            type="button"
+            className="canvas-prototype-hotspot-resize"
+            style={{
+              left: `${((value.x + value.width) / viewport.width) * 100}%`,
+              top: `${((value.y + value.height) / viewport.height) * 100}%`,
+            }}
+            aria-label="Resize prototype hotspot"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              gestureRef.current = { mode: "resize", start: point(event), hotspot: value };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endGesture}
+            onPointerCancel={endGesture}
+            onKeyDown={(event) => {
+              const step = event.shiftKey ? 10 : 1;
+              const delta = arrowDelta(event.key, step);
+              if (!delta) return;
+              event.preventDefault();
+              onChange(
+                resizePrototypeHotspot(
+                  value,
+                  value.width + delta[0],
+                  value.height + delta[1],
+                  viewport,
+                ),
+              );
+            }}
+          />
+        </section>
+      </div>
+      <small>Drag on the frame to draw. Drag the blue area to move and its corner to resize.</small>
+    </div>
+  );
+}
+
+function PrototypePanel({
+  file,
+  activePageId,
+  onSave,
+}: {
+  file: CanvasFile;
+  activePageId: string;
+  onSave: (file: CanvasFile, note: string) => Promise<void>;
+}) {
+  const sourcePage = resolveCanvasPage(file, activePageId);
+  const [sourceNodeId, setSourceNodeId] = useState(sourcePage.doc.nodes[0]?.id ?? "");
+  const [destinationPageId, setDestinationPageId] = useState(file.defaultPageId);
+  const destinationPage = resolveCanvasPage(file, destinationPageId);
+  const [destinationNodeId, setDestinationNodeId] = useState(
+    destinationPage.doc.nodes[0]?.id ?? "",
+  );
+  const [transition, setTransition] = useState<
+    "instant" | "dissolve" | "slide-left" | "slide-right"
+  >("instant");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [hotspot, setHotspot] = useState({ x: 0, y: 0, width: 120, height: 48 });
+  const sourceNode = sourcePage.doc.nodes.find((node) => node.id === sourceNodeId);
+  const sourceViewport = sourceNode
+    ? sourceNode.kind === "iframe"
+      ? sourceNode.viewport
+      : { width: sourceNode.rect.w, height: sourceNode.rect.h }
+    : null;
+  const sourceViewportWidth = sourceViewport?.width;
+  const sourceViewportHeight = sourceViewport?.height;
+
+  useEffect(() => {
+    setSourceNodeId(sourcePage.doc.nodes[0]?.id ?? "");
+  }, [sourcePage.doc.nodes]);
+  useEffect(() => {
+    setDestinationNodeId(destinationPage.doc.nodes[0]?.id ?? "");
+  }, [destinationPage.doc.nodes]);
+  useEffect(() => {
+    if (sourceViewportWidth === undefined || sourceViewportHeight === undefined) return;
+    setHotspot((current) =>
+      clampPrototypeHotspot(current, {
+        width: sourceViewportWidth,
+        height: sourceViewportHeight,
+      }),
+    );
+  }, [sourceViewportHeight, sourceViewportWidth]);
+
+  async function setStart() {
+    if (!sourceNodeId) return;
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        prototype: {
+          ...file.prototype,
+          start: { pageId: activePageId, nodeId: sourceNodeId },
+        },
+      }),
+      "Set prototype start",
+    );
+  }
+
+  async function saveInteraction() {
+    if (!sourceNodeId || !destinationNodeId) return;
+    const id = editingId ?? `${activePageId}-${sourceNodeId}-${Date.now().toString(36)}`;
+    const interaction = {
+      id,
+      source: { pageId: activePageId, nodeId: sourceNodeId },
+      hotspot,
+      trigger: "tap" as const,
+      destination: { pageId: destinationPageId, nodeId: destinationNodeId },
+      transition,
+    };
+    const interactions = file.prototype.interactions.filter((item) => item.id !== id);
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        prototype: { ...file.prototype, interactions: [...interactions, interaction] },
+      }),
+      editingId ? "Edit prototype hotspot" : "Create prototype hotspot",
+    );
+    setEditingId(null);
+  }
+
+  async function removeInteraction(id: string) {
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        prototype: {
+          ...file.prototype,
+          interactions: file.prototype.interactions.filter((item) => item.id !== id),
+        },
+      }),
+      "Delete prototype hotspot",
+    );
+  }
+
+  return (
+    <aside className="canvas-prototype-panel" aria-label="Prototype">
+      <header>
+        <strong>Prototype</strong>
+      </header>
+      <label>
+        Source frame
+        <select value={sourceNodeId} onChange={(event) => setSourceNodeId(event.target.value)}>
+          {sourcePage.doc.nodes.map((node) => (
+            <option key={node.id} value={node.id}>
+              {node.caption.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => void setStart()}
+        disabled={!sourceNodeId}
+      >
+        Set as start frame
+      </Button>
+      <hr />
+      {sourceNode && sourceViewport && (
+        <PrototypeHotspotEditor
+          frameTitle={sourceNode.caption.title}
+          viewport={sourceViewport}
+          value={hotspot}
+          onChange={setHotspot}
+        />
+      )}
+      <label>
+        Destination Page
+        <select
+          value={destinationPageId}
+          onChange={(event) => setDestinationPageId(event.target.value)}
+        >
+          {file.pages.map((page) => (
+            <option key={page.id} value={page.id}>
+              {page.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Destination frame
+        <select
+          value={destinationNodeId}
+          onChange={(event) => setDestinationNodeId(event.target.value)}
+        >
+          {destinationPage.doc.nodes.map((node) => (
+            <option key={node.id} value={node.id}>
+              {node.caption.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <fieldset>
+        <legend>Hotspot</legend>
+        {(["x", "y", "width", "height"] as const).map((field) => (
+          <label key={field}>
+            {field}
+            <input
+              type="number"
+              min="0"
+              value={hotspot[field]}
+              onChange={(event) =>
+                setHotspot((current) => ({ ...current, [field]: Number(event.target.value) }))
+              }
+            />
+          </label>
+        ))}
+      </fieldset>
+      <label>
+        Transition
+        <select
+          value={transition}
+          onChange={(event) => setTransition(event.target.value as typeof transition)}
+        >
+          <option value="instant">Instant</option>
+          <option value="dissolve">Dissolve</option>
+          <option value="slide-left">Slide left</option>
+          <option value="slide-right">Slide right</option>
+        </select>
+      </label>
+      <Button
+        size="sm"
+        variant="primary"
+        onClick={() => void saveInteraction()}
+        disabled={!sourceNodeId || !destinationNodeId}
+      >
+        {editingId ? "Update hotspot" : "Create hotspot"}
+      </Button>
+      <ul className="canvas-prototype-list">
+        {file.prototype.interactions.map((interaction) => (
+          <li key={interaction.id}>
+            <span>
+              {interaction.source.nodeId} → {interaction.destination.nodeId}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditingId(interaction.id);
+                setSourceNodeId(interaction.source.nodeId);
+                setDestinationPageId(interaction.destination.pageId);
+                setDestinationNodeId(interaction.destination.nodeId);
+                setHotspot(interaction.hotspot);
+                setTransition(interaction.transition);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void removeInteraction(interaction.id)}
+            >
+              Delete
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
 }
 
 export function CanvasPage() {
   const { canvasId } = useParams<{ canvasId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPageId = searchParams.get("page");
   const canvas = useQuery(
     api.canvases.getMine,
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
   const mintIframeCapability = useMutation(api.canvases.mintIframeCapabilityMine);
   const patchNodeRect = useAction(api.canvases.patchNodeRectMine);
+  const saveCanvasFile = useAction(api.canvases.saveCanvasFileMine);
+  const checkpoint = useMutation(api.canvases.checkpointMine);
   const [iframeCapability, setIframeCapability] = useState<{
     token: string;
     expiresAt: number;
@@ -584,7 +1291,8 @@ export function CanvasPage() {
   }, [canvasId, canvas?.kind, iframeRevisionsKey, mintIframeCapability]);
   const iframeCapabilityToken = iframeCapability?.token ?? null;
   const resolvedIframeRevisions = iframeCapability?.revisions ?? iframeRevisions;
-  const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
+  const { file, page, doc, docError, cssReady } = useCanvasDocAndCss(canvas, requestedPageId);
+  const activePageId = page?.id ?? (!requestedPageId ? file?.defaultPageId : "") ?? "";
   useDocumentTitle(canvas?.title);
 
   const workspace = useQuery(
@@ -598,13 +1306,34 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [pagesCollapsed, setPagesCollapsed] = useState(false);
+  const [editorMode, setEditorMode] = useState<"design" | "prototype">("design");
   const persistedVersionRef = useRef<number | undefined>(canvasVersion);
+  const persistedDraftRevisionRef = useRef<number>(canvas?.draft_revision ?? 0);
   const pendingGeometrySavesRef = useRef(0);
   const geometrySaveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
-    if (pendingGeometrySavesRef.current === 0) persistedVersionRef.current = canvasVersion;
-  }, [canvasVersion]);
+    if (pendingGeometrySavesRef.current === 0) {
+      persistedVersionRef.current = canvasVersion;
+      persistedDraftRevisionRef.current = canvas?.draft_revision ?? 0;
+    }
+  }, [canvasVersion, canvas?.draft_revision]);
+
+  const saveFile = useCallback(
+    async (nextFile: CanvasFile, note: string) => {
+      if (!canvasId || canvasVersion === undefined) return;
+      const saved = await saveCanvasFile({
+        canvasId: canvasId as Id<"canvases">,
+        fileJson: JSON.stringify(nextFile),
+        expectedVersion: canvasVersion,
+        expectedDraftRevision: persistedDraftRevisionRef.current,
+        note,
+      });
+      persistedDraftRevisionRef.current = saved.draftRevision;
+    },
+    [canvasId, canvasVersion, saveCanvasFile],
+  );
   /*
    * Held here rather than inside VersionHistory so the "by …" attribution
    * above can reuse it: one subscription, not two, and with exactly the
@@ -671,7 +1400,36 @@ export function CanvasPage() {
           <div className="canvas-command-title">
             <span>{canvas.title}</span>
             {canvas.version !== undefined && <small>v{canvas.version}</small>}
+            <small className={canvas.dirty ? "canvas-draft-dirty" : undefined}>
+              {canvas.dirty
+                ? `Autosaved · ${canvas.draft_edit_count} unsaved edit${canvas.draft_edit_count === 1 ? "" : "s"}`
+                : "Checkpointed"}
+            </small>
           </div>
+          <fieldset className="canvas-mode-switch" aria-label="Editor mode">
+            <Button
+              size="sm"
+              variant={editorMode === "design" ? "secondary" : "ghost"}
+              onClick={() => setEditorMode("design")}
+            >
+              Design
+            </Button>
+            <Button
+              size="sm"
+              variant={editorMode === "prototype" ? "secondary" : "ghost"}
+              onClick={() => setEditorMode("prototype")}
+            >
+              Prototype
+            </Button>
+          </fieldset>
+          <IconLink
+            to={`/c/${canvas.canvas_id}/present`}
+            icon={Play}
+            label="Present canvas"
+            text="Present"
+            iconSize={15}
+            className="canvas-command-present"
+          />
           <IconButton
             icon={Info}
             label="Open canvas details"
@@ -756,7 +1514,37 @@ export function CanvasPage() {
           artifacts={canvas.artifacts}
         />
 
-        <VersionHistory canvasId={canvas.canvas_id} versions={versions} />
+        <DrawerSection
+          label="Working draft"
+          aside={canvas.dirty ? `${canvas.draft_edit_count} unsaved edits` : "Up to date"}
+        >
+          <p className="muted">
+            Autosaved at draft revision {canvas.draft_revision}. Checkpoints are immutable and
+            appear in Versions.
+          </p>
+          <Button
+            variant="primary"
+            icon={History}
+            disabled={!canvas.dirty}
+            onClick={async () => {
+              try {
+                const saved = await checkpoint({
+                  canvasId: canvas.canvas_id,
+                  expectedDraftRevision: persistedDraftRevisionRef.current,
+                  note: "Manual checkpoint",
+                });
+                persistedDraftRevisionRef.current = saved.draftRevision;
+                notify({ message: `Created checkpoint v${saved.version}.` });
+              } catch (error) {
+                notify(toastError(error, "Couldn't create checkpoint"));
+              }
+            }}
+          >
+            Create checkpoint
+          </Button>
+        </DrawerSection>
+
+        <VersionHistory canvasId={canvas.canvas_id} versions={versions} dirty={canvas.dirty} />
 
         <DrawerSection
           label="Assets"
@@ -828,6 +1616,25 @@ export function CanvasPage() {
       </Drawer>
       {canvas.kind === "canvas" ? (
         <>
+          {file && (
+            <PagesPanel
+              file={file}
+              activePageId={activePageId}
+              collapsed={pagesCollapsed}
+              onCollapsedChange={setPagesCollapsed}
+              onSelect={(pageId) => {
+                const next = new URLSearchParams(searchParams);
+                if (pageId === file.defaultPageId) next.delete("page");
+                else next.set("page", pageId);
+                next.delete("node");
+                setSearchParams(next, { replace: true });
+              }}
+              onSave={saveFile}
+            />
+          )}
+          {file && activePageId && editorMode === "prototype" && (
+            <PrototypePanel file={file} activePageId={activePageId} onSave={saveFile} />
+          )}
           {docError && <p className="error-text canvas-page-loading">{docError}</p>}
           {/* `!doc` alone left a genuinely blank page in the window where
               the doc had landed but its compiled CSS had not: the loading
@@ -862,11 +1669,14 @@ export function CanvasPage() {
                       if (expectedVersion === undefined) return;
                       const result = await patchNodeRect({
                         canvasId: canvasId as Id<"canvases">,
+                        pageId: activePageId,
                         nodeId,
                         rect,
                         expectedVersion,
+                        expectedDraftRevision: persistedDraftRevisionRef.current,
                       });
                       persistedVersionRef.current = result.version;
+                      persistedDraftRevisionRef.current = result.draftRevision;
                     })
                     .catch((error: unknown) => {
                       notify({

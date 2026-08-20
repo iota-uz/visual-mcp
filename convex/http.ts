@@ -32,6 +32,7 @@ import {
   type OAuthTokenVerifier,
   requireBearerAuth,
 } from "@modelcontextprotocol/server";
+import { CanvasFileSchema } from "@visual-canvas/canvas";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -269,15 +270,31 @@ http.route({
   pathPrefix: "/social/",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    const slug = decodeURIComponent(new URL(request.url).pathname.slice("/social/".length));
+    const requestUrl = new URL(request.url);
+    const slug = decodeURIComponent(requestUrl.pathname.slice("/social/".length));
     if (!slug || slug.includes("/")) return new Response("Not found", { status: 404 });
     const metadata = await ctx.runQuery(internal.canvases.resolvePublicSocialMetadata, {
       publicSlug: slug,
     });
     if (!metadata) return new Response("Not found", { status: 404 });
+    let title = metadata.title;
+    const pageId = requestUrl.searchParams.get("page");
+    if (pageId && metadata.docStorageId) {
+      try {
+        const docUrl = await ctx.storage.getUrl(metadata.docStorageId);
+        const response = docUrl ? await fetch(docUrl) : null;
+        if (response?.ok) {
+          const file = CanvasFileSchema.parse(await response.json());
+          const page = file.pages.find((candidate) => candidate.id === pageId);
+          if (page) title = `${metadata.title} — ${page.title}`;
+        }
+      } catch {
+        // Metadata remains useful if a transient storage read cannot enrich the Page title.
+      }
+    }
     return Response.json(
       {
-        title: metadata.title,
+        title,
         description: metadata.description,
         version: metadata.version,
         updated_at: metadata.updatedAt,

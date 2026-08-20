@@ -15,21 +15,14 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-// `users` is deliberately NOT taken from `authTables`: this app had one
-// first, keyed by `googleSub`, and every workspace, canvas and MCP token
-// points at those ids. ../auth.ts's `createOrUpdateUser` owns all writes to
-// it, so Convex Auth never inserts a row of its own — it links its
-// `authAccounts` row to the row that was already there. The optional fields
-// below are the auth table's own; they are declared so a future library
-// write can't fail schema validation, and the `email`/`phone` indexes are
-// the names the library looks up by.
+// The app owns user creation through auth.ts's createOrUpdateUser callback.
+// Auth support tables still use this row id for sessions and accounts.
 const { users: _authUsers, ...authSupportTables } = authTables;
 
 export default defineSchema({
   ...authSupportTables,
 
   users: defineTable({
-    googleSub: v.string(),
     email: v.string(),
     name: v.string(),
     pictureUrl: v.optional(v.string()),
@@ -40,7 +33,6 @@ export default defineSchema({
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
   })
-    .index("by_googleSub", ["googleSub"])
     // Named `email`, not `by_email`: Convex rejects two indexes over the
     // same field, and `email`/`phone` are the names the auth library looks
     // up by. Nothing in this repo queried the old `by_email` index.
@@ -161,24 +153,36 @@ export default defineSchema({
     // unpublishing clears it, which is what makes revocation real.
     publicSlug: v.optional(v.string()),
     theme: v.optional(v.string()),
+    // Durable mutable head. `currentVersionId` remains the latest immutable
+    // checkpoint; draftRevision is the optimistic concurrency token for
+    // autosaves and MCP edits between checkpoints.
+    draftRevision: v.number(),
+    draftEditCount: v.number(),
+    draftUpdatedAt: v.number(),
+    draftDocStorageId: v.optional(v.id("_storage")),
+    draftDocContentHash: v.optional(v.string()),
+    draftCssStorageId: v.optional(v.id("_storage")),
+    draftEntryStorageId: v.optional(v.id("_storage")),
+    draftIframeEntrypoints: v.array(v.string()),
     currentVersionId: v.optional(v.id("canvasVersions")),
+    // Public readers are pinned to the checkpoint selected by Publish and do
+    // not observe later draft changes or unrelated checkpoints.
+    publishedVersionId: v.optional(v.id("canvasVersions")),
     thumbnailId: v.optional(v.id("_storage")),
     // Running total of live storage blobs this canvas has ever caused to be
     // stored (artifacts + canvasFiles writes), minus what sweepCacheTtl has
     // actually deleted. Backs the quota in canvases.ts — see that file's
     // comment above CANVAS_STORAGE_QUOTA_BYTES for why this must be a
-    // monotonic counter rather than a point-in-time table scan. Optional so
-    // pre-existing rows (undefined ⇒ treated as 0) don't need a migration.
-    storageBytesUsed: v.optional(v.number()),
+    // monotonic counter rather than a point-in-time table scan.
+    storageBytesUsed: v.number(),
     createdBy: v.id("users"),
     // Soft-delete tombstone, mirroring workspaces.archivedAt. Archived
     // canvases stay out of listings and searches but keep their blobs and
     // version history, so an accidental delete is recoverable; a hard purge
     // deletes the row outright.
     archivedAt: v.optional(v.number()),
-    // Bumped on every new version — backs by_workspace_updated so the
-    // gallery can sort by recency (PLAN.md section 4's index name implies
-    // this; not itself an explicit field in the plan's abbreviated table).
+    // Bumped on durable draft and checkpoint changes — backs
+    // by_workspace_updated so the gallery can sort by authoring recency.
     updatedAt: v.number(),
   })
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
@@ -194,7 +198,7 @@ export default defineSchema({
     docContentHash: v.optional(v.string()),
     cssStorageId: v.optional(v.id("_storage")),
     entryStorageId: v.optional(v.id("_storage")),
-    iframeEntrypoints: v.optional(v.array(v.string())),
+    iframeEntrypoints: v.array(v.string()),
   }).index("by_canvas_version", ["canvasId", "version"]),
 
   // Immutable source manifest for a CanvasDoc version. Current canvasFiles
@@ -223,24 +227,20 @@ export default defineSchema({
     height: v.number(),
     status: v.union(v.literal("ok"), v.literal("partial")),
     warnings: v.array(v.string()),
-    diagnostics: v.optional(
-      v.object({
-        unresolvedRefs: v.array(v.string()),
-        unresolvedDetails: v.optional(
-          v.array(
-            v.object({
-              ref: v.string(),
-              resourceType: v.string(),
-              reason: v.string(),
-              error: v.optional(v.string()),
-            }),
-          ),
-        ),
-        readinessStatus: v.union(v.literal("ready"), v.literal("partial")),
-        readinessWarnings: v.array(v.string()),
-        attempts: v.optional(v.number()),
-      }),
-    ),
+    diagnostics: v.object({
+      unresolvedRefs: v.array(v.string()),
+      unresolvedDetails: v.array(
+        v.object({
+          ref: v.string(),
+          resourceType: v.string(),
+          reason: v.string(),
+          error: v.optional(v.string()),
+        }),
+      ),
+      readinessStatus: v.union(v.literal("ready"), v.literal("partial")),
+      readinessWarnings: v.array(v.string()),
+      attempts: v.number(),
+    }),
     createdAt: v.number(),
   })
     .index("by_version_cacheKey", ["versionId", "cacheKey"])
@@ -250,7 +250,6 @@ export default defineSchema({
   iframeCapabilities: defineTable({
     token: v.string(),
     canvasId: v.id("canvases"),
-    versionId: v.id("canvasVersions"),
     userId: v.id("users"),
     expiresAt: v.number(),
   }).index("by_token", ["token"]),
@@ -261,6 +260,7 @@ export default defineSchema({
   canvasNodes: defineTable({
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),
+    pageId: v.string(),
     nodeId: v.string(),
     title: v.string(),
     eyebrow: v.optional(v.string()),
@@ -272,6 +272,18 @@ export default defineSchema({
     // deleting a canvas has to remove them, and the search index can filter
     // by canvasId but cannot enumerate by it.
     .index("by_canvas", ["canvasId"])
+    .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
+
+  canvasDraftNodes: defineTable({
+    canvasId: v.id("canvases"),
+    pageId: v.string(),
+    nodeId: v.string(),
+    title: v.string(),
+    eyebrow: v.optional(v.string()),
+    searchText: v.string(),
+  })
+    .index("by_canvas", ["canvasId"])
+    .index("by_canvas_page_node", ["canvasId", "pageId", "nodeId"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
 
   // /src, /output, /cache, /assets are prefixes on relPath, not directories

@@ -8,18 +8,13 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 const VALID_IDENTITY = {
-  subject: "google-sub-123",
-  issuer: "https://accounts.google.com",
-  email: "person@iota.uz",
-  emailVerified: true,
-  name: "Person",
-  hd: "iota.uz",
+  subject: "test-user|session-abc",
+  issuer: "convex",
 };
 
 async function seedUser(t: ReturnType<typeof convexTest>): Promise<Id<"users">> {
   return t.run((ctx) =>
     ctx.db.insert("users", {
-      googleSub: "bootstrap:test@iota.uz",
       email: "test@iota.uz",
       name: "Test User",
       lastSeenAt: 0,
@@ -95,7 +90,6 @@ describe("viewer artifact selection", () => {
     const t = convexTest(schema, modules);
     const seeded = await t.run(async (ctx) => {
       const createdBy = await ctx.db.insert("users", {
-        googleSub: "bootstrap:viewer@iota.uz",
         email: "viewer@iota.uz",
         name: "Viewer",
         lastSeenAt: 0,
@@ -111,6 +105,11 @@ describe("viewer artifact selection", () => {
         title: "Interactive flow",
         kind: "html",
         visibility: "public",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 2,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
         publicSlug: "interactive-flow-public",
         createdBy,
         updatedAt: 2,
@@ -123,6 +122,7 @@ describe("viewer artifact selection", () => {
         version: 1,
         createdBy,
         entryStorageId: htmlStorageId,
+        iframeEntrypoints: [],
       });
       await ctx.db.insert("artifacts", {
         canvasId,
@@ -141,6 +141,7 @@ describe("viewer artifact selection", () => {
         version: 2,
         createdBy,
         entryStorageId: pngStorageId,
+        iframeEntrypoints: [],
       });
       await ctx.db.insert("artifacts", {
         canvasId,
@@ -152,7 +153,12 @@ describe("viewer artifact selection", () => {
         size: 3,
         storageId: pngStorageId,
       });
-      await ctx.db.patch(canvasId, { currentVersionId: pngVersionId, thumbnailId: pngStorageId });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: pngVersionId,
+        publishedVersionId: pngVersionId,
+        draftEntryStorageId: pngStorageId,
+        thumbnailId: pngStorageId,
+      });
       return { htmlStorageId };
     });
 
@@ -190,6 +196,7 @@ describe("reactive canvas resources", () => {
         canvasId,
         version: 1,
         createdBy,
+        iframeEntrypoints: [],
       });
       await ctx.db.insert("canvasVersionFiles", {
         canvasId,
@@ -210,6 +217,19 @@ describe("reactive canvas resources", () => {
       await ctx.db.patch(versionId, {
         iframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
       });
+      for (const [relPath, body, contentHash] of [
+        ["/src/screens/runtime.html", "one", "same-hash"],
+        ["/src/screens/untouched.html", "untouched", "untouched-hash"],
+        ["/src/__canvas.html", "generated preview", "unrelated-generated-file"],
+      ] as const) {
+        await ctx.db.insert("canvasFiles", {
+          canvasId,
+          relPath,
+          storageId: await ctx.storage.store(new Blob([body])),
+          size: body.length,
+          contentHash,
+        });
+      }
       await ctx.db.insert("canvasVersionFiles", {
         canvasId,
         versionId,
@@ -218,7 +238,10 @@ describe("reactive canvas resources", () => {
         size: 17,
         contentHash: "unrelated-generated-file",
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: versionId,
+        draftIframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
+      });
       return versionId;
     });
     const first = await t.query(internal.canvases.get, { canvasId });
@@ -228,6 +251,7 @@ describe("reactive canvas resources", () => {
         canvasId,
         version: 2,
         createdBy,
+        iframeEntrypoints: [],
       });
       await ctx.db.insert("canvasVersionFiles", {
         canvasId,
@@ -259,6 +283,7 @@ describe("reactive canvas resources", () => {
         canvasId,
         version: 3,
         createdBy,
+        iframeEntrypoints: [],
       });
       await ctx.db.insert("canvasVersionFiles", {
         canvasId,
@@ -279,6 +304,17 @@ describe("reactive canvas resources", () => {
       await ctx.db.patch(versionId, {
         iframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
       });
+      const runtimeFile = await ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) =>
+          q.eq("canvasId", canvasId).eq("relPath", "/src/screens/runtime.html"),
+        )
+        .unique();
+      if (!runtimeFile) throw new Error("missing draft runtime fixture");
+      await ctx.db.patch(runtimeFile._id, {
+        storageId: await ctx.storage.store(new Blob(["two"])),
+        contentHash: "different-hash",
+      });
       await ctx.db.patch(canvasId, { currentVersionId: versionId });
     });
     const changed = await t.query(internal.canvases.get, { canvasId });
@@ -289,58 +325,6 @@ describe("reactive canvas resources", () => {
       geometryOnly?.iframe_revisions?.["/src/screens/untouched.html"],
     );
     expect(firstVersion).not.toBe(secondVersion);
-  });
-
-  test("a short-lived capability keeps serving its immutable version after a live update", async () => {
-    const t = convexTest(schema, modules);
-    const createdBy = await seedUser(t);
-    const workspaceId = await seedWorkspace(t, createdBy);
-    const { canvasId } = await t.mutation(internal.canvases.create, {
-      workspaceId,
-      title: "Capability canvas",
-      kind: "canvas",
-      createdBy,
-    });
-    const { token, oldStorageId } = await t.run(async (ctx) => {
-      const oldStorageId = await ctx.storage.store(new Blob(["old"]));
-      const oldVersionId = await ctx.db.insert("canvasVersions", {
-        canvasId,
-        version: 1,
-        createdBy,
-        iframeEntrypoints: ["/src/screens/runtime.html"],
-      });
-      await ctx.db.insert("canvasVersionFiles", {
-        canvasId,
-        versionId: oldVersionId,
-        relPath: "/src/screens/runtime.html",
-        storageId: oldStorageId,
-        size: 3,
-        contentHash: "old",
-      });
-      const newVersionId = await ctx.db.insert("canvasVersions", {
-        canvasId,
-        version: 2,
-        createdBy,
-        iframeEntrypoints: ["/src/screens/runtime.html"],
-      });
-      await ctx.db.patch(canvasId, { currentVersionId: newVersionId });
-      const token = "immutable-version-capability";
-      await ctx.db.insert("iframeCapabilities", {
-        token,
-        canvasId,
-        versionId: oldVersionId,
-        userId: createdBy,
-        expiresAt: Date.now() + 60_000,
-      });
-      return { token, oldStorageId };
-    });
-
-    const resolved = await t.query(internal.canvases.resolveIframeCapability, {
-      token,
-      relPath: "/src/screens/runtime.html",
-      now: Date.now(),
-    });
-    expect(resolved?.storageId).toBe(oldStorageId);
   });
 });
 
@@ -363,6 +347,87 @@ describe("canvases.publish", () => {
     await expect(
       t.mutation(internal.canvases.publish, { canvasId, visibility: "public" }),
     ).rejects.toThrow(/newPublicSlug is required/);
+  });
+
+  test("keeps the public canvas pinned while the durable draft changes", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Pinned public canvas",
+      kind: "canvas",
+      createdBy,
+    });
+    const firstDoc = await seedStorage(t, JSON.stringify({ version: 3, marker: "published" }));
+    const firstEntry = await seedStorage(t, "first entry");
+    const initial = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 0,
+      createdBy,
+      changes: [],
+      doc: {
+        storageId: firstDoc,
+        contentHash: "doc-one",
+        entryStorageId: firstEntry,
+        entrySize: 11,
+        entryContentHash: "entry-one",
+        iframeEntrypoints: [],
+        imagePaths: [],
+        nodes: [],
+      },
+    });
+    expect(initial).toMatchObject({ version: 1, draftRevision: 1 });
+    const published = await t.mutation(internal.canvases.publish, {
+      canvasId,
+      visibility: "public",
+      newPublicSlug: "pinned-public-canvas",
+    });
+    expect(published.version).toBe(2);
+    const before = await t.query(api.canvases.getPublic, {
+      publicSlug: "pinned-public-canvas",
+    });
+
+    const secondDoc = await seedStorage(t, JSON.stringify({ version: 3, marker: "draft" }));
+    const secondEntry = await seedStorage(t, "second entry");
+    const edited = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 2,
+      expectedDraftRevision: 1,
+      createdBy,
+      changes: [],
+      doc: {
+        storageId: secondDoc,
+        contentHash: "doc-two",
+        entryStorageId: secondEntry,
+        entrySize: 12,
+        entryContentHash: "entry-two",
+        iframeEntrypoints: [],
+        imagePaths: [],
+        nodes: [],
+      },
+    });
+    expect(edited).toMatchObject({ version: 2, draftRevision: 2, dirty: true });
+    const draft = await t.query(internal.canvases.get, { canvasId });
+    const stillPublic = await t.query(api.canvases.getPublic, {
+      publicSlug: "pinned-public-canvas",
+    });
+    const social = await t.query(internal.canvases.resolvePublicSocialMetadata, {
+      publicSlug: "pinned-public-canvas",
+    });
+    expect(draft?.doc_url).not.toBe(before?.doc_url);
+    expect(stillPublic?.doc_url).toBe(before?.doc_url);
+    expect(social?.version).toBe(2);
+
+    const republished = await t.mutation(internal.canvases.publish, {
+      canvasId,
+      visibility: "public",
+    });
+    expect(republished.version).toBe(3);
+    const after = await t.query(api.canvases.getPublic, {
+      publicSlug: "pinned-public-canvas",
+    });
+    expect(after?.doc_url).toBe(draft?.doc_url);
   });
 
   test("publishing then unpublishing clears publicSlug, revoking the old link", async () => {
@@ -509,6 +574,7 @@ describe("canvases.listVersionsMine", () => {
     const docStorageId = await seedStorage(t, "{}");
 
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId,
       docStorageId,
       createdBy,
@@ -516,6 +582,7 @@ describe("canvases.listVersionsMine", () => {
       nodes: [],
     });
     const { versionId: v2Id } = await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId,
       docStorageId,
       createdBy,
@@ -588,16 +655,32 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     const docStorageId = await seedStorage(t, "{}");
 
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId,
       docStorageId,
       createdBy,
-      nodes: [{ nodeId: "n1", title: "Sign In Screen", searchText: "sign in screen auth" }],
+      nodes: [
+        {
+          pageId: "overview",
+          nodeId: "n1",
+          title: "Sign In Screen",
+          searchText: "sign in screen auth",
+        },
+      ],
     });
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId,
       docStorageId,
       createdBy,
-      nodes: [{ nodeId: "n1", title: "Sign In Screen v2", searchText: "sign in screen auth v2" }],
+      nodes: [
+        {
+          pageId: "overview",
+          nodeId: "n1",
+          title: "Sign In Screen v2",
+          searchText: "sign in screen auth v2",
+        },
+      ],
     });
 
     const rows = await t.run((ctx) => ctx.db.query("canvasNodes").collect());
@@ -610,11 +693,13 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     const { canvasId, createdBy } = await seedCanvasDocCanvas(t);
     const docStorageId = await seedStorage(t, "{}");
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId,
       docStorageId,
       createdBy,
       nodes: [
         {
+          pageId: "overview",
           nodeId: "checkout",
           title: "Checkout",
           eyebrow: "Payments",
@@ -647,13 +732,12 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
 });
 
 describe("canvases.patchNodeRectMine", () => {
-  test("creates an immutable optimistic version containing only the rect patch", async () => {
+  test("coalesces optimistic geometry into the durable draft", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await t.run((ctx) =>
       ctx.db.insert("users", {
-        googleSub: VALID_IDENTITY.subject,
-        email: VALID_IDENTITY.email,
-        name: VALID_IDENTITY.name,
+        email: "person@iota.uz",
+        name: "Person",
         lastSeenAt: 0,
       }),
     );
@@ -662,7 +746,7 @@ describe("canvases.patchNodeRectMine", () => {
       createdBy,
       kind: "canvas",
     });
-    const doc = {
+    const pageDoc = {
       version: 2,
       title: "Layout",
       world: { width: 800, height: 600 },
@@ -690,17 +774,24 @@ describe("canvases.patchNodeRectMine", () => {
       ],
       edges: [],
     };
+    const doc = {
+      version: 3,
+      defaultPageId: "overview",
+      pages: [{ id: "overview", title: "Overview", order: 0, doc: pageDoc }],
+      prototype: { interactions: [] },
+    };
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, JSON.stringify(doc)),
       createdBy,
-      nodes: [{ nodeId: "node", title: "Node", searchText: "Node" }],
+      nodes: [{ pageId: "overview", nodeId: "node", title: "Node", searchText: "Node" }],
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(JSON.stringify(doc), { status: 200 }));
+      .mockImplementation(async () => new Response(JSON.stringify(doc), { status: 200 }));
 
-    const asMember = t.withIdentity(VALID_IDENTITY);
+    const asMember = t.withIdentity({ subject: `${createdBy}|session-abc`, issuer: "convex" });
     await expect(
       asMember.action(api.canvases.patchNodeRectMine, {
         canvasId: created.canvasId,
@@ -708,25 +799,52 @@ describe("canvases.patchNodeRectMine", () => {
         rect: { x: 30, y: 40, w: 120, h: 90 },
         expectedVersion: 1,
       }),
-    ).resolves.toEqual({ version: 2 });
+    ).resolves.toEqual({ version: 1, draftRevision: 1, dirty: true });
 
     const current = await t.query(internal.canvases.get, { canvasId: created.canvasId });
-    expect(current?.version).toBe(2);
+    expect(current?.version).toBe(1);
+    expect(current?.draft_revision).toBe(1);
+    expect(current?.dirty).toBe(true);
     const versions = await t.run((ctx) =>
       ctx.db
         .query("canvasVersions")
         .withIndex("by_canvas_version", (q) => q.eq("canvasId", created.canvasId))
         .collect(),
     );
-    expect(versions).toHaveLength(2);
+    expect(versions).toHaveLength(1);
     await expect(
       asMember.action(api.canvases.patchNodeRectMine, {
         canvasId: created.canvasId,
         nodeId: "node",
         rect: { x: 50, y: 60, w: 120, h: 90 },
         expectedVersion: 1,
+        expectedDraftRevision: 0,
       }),
-    ).rejects.toThrow(/expected 1, current 2/);
+    ).rejects.toThrow(/expected draft_revision 0, current 1/);
+
+    for (let draftRevision = 1; draftRevision <= 25; draftRevision += 1) {
+      await asMember.action(api.canvases.patchNodeRectMine, {
+        canvasId: created.canvasId,
+        nodeId: "node",
+        rect: { x: 50 + draftRevision, y: 60, w: 120, h: 90 },
+        expectedVersion: 1,
+        expectedDraftRevision: draftRevision,
+      });
+    }
+    const coalesced = await t.query(internal.canvases.get, { canvasId: created.canvasId });
+    expect(coalesced).toMatchObject({
+      version: 1,
+      draft_revision: 26,
+      draft_edit_count: 26,
+      dirty: true,
+    });
+    const retainedVersions = await t.run((ctx) =>
+      ctx.db
+        .query("canvasVersions")
+        .withIndex("by_canvas_version", (q) => q.eq("canvasId", created.canvasId))
+        .collect(),
+    );
+    expect(retainedVersions).toHaveLength(1);
     fetchSpy.mockRestore();
   });
 });
@@ -1373,7 +1491,6 @@ describe("canvases.upsertByRef (the idempotent create)", () => {
     const author = await seedUser(t);
     const other = await t.run((ctx) =>
       ctx.db.insert("users", {
-        googleSub: "bootstrap:other@iota.uz",
         email: "other@iota.uz",
         name: "Other",
         lastSeenAt: 0,
@@ -1430,6 +1547,7 @@ describe("canvases.removeByRef", () => {
     // — exactly the thing a naive delete orphans forever.
     const docStorageId = await seedStorage(t, "{}");
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId,
       createdBy,
@@ -1595,7 +1713,7 @@ describe("canvases.storageAttachment", () => {
 });
 
 describe("canvases.restoreVersionByRef", () => {
-  test("rolls currentVersionId back to an earlier version", async () => {
+  test("restores an earlier checkpoint into a new monotonic checkpoint", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await seedUser(t);
     const created = await t.mutation(internal.canvases.upsertByRef, {
@@ -1613,6 +1731,7 @@ describe("canvases.restoreVersionByRef", () => {
       contentHash: "v1",
     });
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:1}"),
       createdBy,
@@ -1626,6 +1745,7 @@ describe("canvases.restoreVersionByRef", () => {
       contentHash: "v2",
     });
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:2}"),
       createdBy,
@@ -1636,23 +1756,24 @@ describe("canvases.restoreVersionByRef", () => {
       ref: "osago/report",
       version: 1,
     });
-    expect(restored.version).toBe(1);
+    expect(restored.version).toBe(3);
 
     const canvas = await t.query(internal.canvases.get, { canvasId: created.canvasId });
-    expect(canvas?.version).toBe(1);
+    expect(canvas?.version).toBe(3);
     const files = await t.query(internal.canvases.listFilesForCanvas, {
       canvasId: created.canvasId,
     });
     expect(files).toMatchObject([{ relPath: "/src/state.txt", contentHash: "v1" }]);
 
     const docEdit = await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:3}"),
       createdBy,
-      expectedVersion: 1,
+      expectedVersion: 3,
       nodes: [],
     });
-    expect(docEdit.version).toBe(3);
+    expect(docEdit.version).toBe(4);
 
     await t.mutation(internal.canvases.restoreVersionByRef, {
       ref: "osago/report",
@@ -1660,7 +1781,7 @@ describe("canvases.restoreVersionByRef", () => {
     });
     const fileEdit = await t.mutation(internal.canvases.commitFilePatch, {
       canvasId: created.canvasId,
-      expectedVersion: 1,
+      expectedVersion: 5,
       createdBy,
       changes: [
         {
@@ -1673,7 +1794,7 @@ describe("canvases.restoreVersionByRef", () => {
         },
       ],
     });
-    expect(fileEdit.version).toBe(4);
+    expect(fileEdit).toMatchObject({ version: 5, dirty: true });
 
     await t.mutation(internal.canvases.restoreVersionByRef, {
       ref: "osago/report",
@@ -1713,10 +1834,13 @@ describe("canvases.restoreVersionByRef", () => {
       logicalPath: "/assets/logo.png",
       assetId: asset.assetId,
       assetVersionId: asset.assetVersionId,
-      expectedVersion: 1,
+      expectedVersion: 6,
       createdBy,
     });
-    expect(assetEdit.version).toBe(5);
+    expect(assetEdit.version).toBe(6);
+    expect(
+      await t.run(async (ctx) => ((await ctx.db.get(created.canvasId))?.draftEditCount ?? 0) > 0),
+    ).toBe(true);
 
     expect(
       await t.run(async (ctx) =>
@@ -1727,7 +1851,7 @@ describe("canvases.restoreVersionByRef", () => {
             .collect()
         ).map((version) => version.version),
       ),
-    ).toEqual([1, 2, 3, 4, 5]);
+    ).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   test("refuses a render that finishes after the canvas moved to a newer version", async () => {
@@ -1739,6 +1863,7 @@ describe("canvases.restoreVersionByRef", () => {
       kind: "canvas",
     });
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "v1"),
       createdBy,
@@ -1748,6 +1873,7 @@ describe("canvases.restoreVersionByRef", () => {
       async (ctx) => (await ctx.db.get(created.canvasId))?.currentVersionId,
     );
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "v2"),
       createdBy,
@@ -1776,6 +1902,7 @@ describe("canvases.restoreVersionByRef", () => {
       kind: "canvas",
     });
     await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "doc"),
       createdBy,

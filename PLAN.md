@@ -182,20 +182,23 @@ Node-22+ globals are exercised on the same major the image ships).
 ## 4. Data model (Convex) ✅ shipped
 
 ```ts
-users          { googleSub, email, name, pictureUrl, lastSeenAt }        idx: by_googleSub
+users          { email, name, pictureUrl, lastSeenAt }                  idx: email
 mcpTokens      { userId, name, prefix, tokenHash, expiresAt,
                  lastUsedAt, revokedAt }                idx: by_tokenHash, by_userId
 workspaces     { slug, name, description, createdBy, archivedAt }        idx: by_slug
 canvases       { workspaceId, slug, title, description,
                  kind: 'canvas'|'html'|'image'|'pdf',
                  visibility: 'private'|'public', publicSlug?,
-                 theme?, currentVersionId?, thumbnailId?, createdBy }
+                 theme?, currentVersionId?, publishedVersionId?,
+                 draftRevision, draftEditCount, draftUpdatedAt,
+                 draftIframeEntrypoints, storageBytesUsed,
+                 thumbnailId?, createdBy }
                                         idx: by_workspace_updated, by_publicSlug
 canvasVersions { canvasId, version, note, createdBy,
                  docStorageId?,     // kind='canvas' — full CanvasDoc JSON in file storage
                  cssStorageId?,     // compiled Tailwind for node HTML
                  entryStorageId? }  // other kinds
-canvasNodes    { canvasId, versionId, nodeId, title, eyebrow, searchText }
+canvasNodes    { canvasId, versionId, pageId, nodeId, title, eyebrow, searchText }
                                         idx: by_version;  searchIndex: searchText
 canvasFiles    { canvasId, relPath, storageId, size, contentHash }       idx: by_canvas_relPath
 artifacts      { canvasId, versionId, relPath, type, role, mimeType,
@@ -214,22 +217,8 @@ one small document per node, with a Convex search index over title/eyebrow/copy.
 than a single jsonb blob: `?node=` resolution and "find the canvas that mentions Europrotocol"
 become index lookups instead of full-document scans.
 
-**Mapping from the old local runtime:**
-
-- `sessions/<id>/` directory → a `canvases` document. No persistent per-canvas directory anywhere.
-- `output/manifest.json` → the `artifacts` table. The `withLock` promise-chain that existed
-  purely to serialize read-modify-write on that JSON file is gone — a Convex mutation is
-  serializable, so demoting the incumbent primary artifact and inserting the new one is atomic
-  by construction (see `convex/canvases.ts`'s `upsertArtifact`, covered by the regression test in
-  `convex/canvases.test.ts` for the "re-render must keep exactly one primary artifact" invariant).
-- `/src`, `/output`, `/cache`, `/assets` become prefixes on `relPath`, not directories. `/cache`
-  renders stay out of `artifacts`, as before. `/assets` stops being per-canvas: the ApexCharts
-  bundle is baked into the worker image.
-- `publicSlug`: 128-bit base62, minted on publish, rotatable; unpublishing clears it, which is
-  what makes revocation real. ✅ shipped end-to-end: `canvases.rotateMySlug` mints a fresh slug
-  in a single atomic patch (no unpublish→publish round trip, so there's no window where the
-  canvas briefly resolves as private), and `PublishControl` in `apps/web/src/routes/Canvas.tsx`
-  exposes a "Rotate link" button next to the share toggle when the canvas is public.
+`publicSlug` is minted on publish and rotatable; `publishedVersionId` pins the anonymous view to
+an immutable checkpoint while the draft continues to change. Unpublishing clears the slug.
 
 ---
 
@@ -339,45 +328,11 @@ explicitly.
 
 ## 7. Auth ✅ (backend) / ⏳ (SPA client)
 
-**Web — native Convex JWT verification against Google directly, not `@convex-dev/auth`.**
-Superseded from the original plan (which specified the `@convex-dev/auth` library with a custom
-`getUserInfo`/`profile` callback) once implementation started: Convex's own guidelines document a
-simpler, first-party "bring your own OIDC provider" path via `convex/auth.config.ts`
-(`{domain: "https://accounts.google.com", applicationID: <client id>}`), and it fits this
-product better — zero extra schema tables (no collision with the existing hand-rolled `users`
-table), no client secret to hold anywhere (only a public OAuth client ID), and it keeps auth off
-a labs-stage dependency entirely rather than treating that as an accepted risk to fall back from.
-
-The SPA obtains a Google ID token client-side (Google Identity Services, likely via
-`@react-oauth/google` per this project's preference for managed libraries over hand-rolled
-protocol glue) and hands it to `ConvexProviderWithAuth`'s `fetchAccessToken`. Convex verifies the
-token's signature against Google's own JWKS and its `aud` against `applicationID` — that's
-`auth.config.ts`'s whole job. The org restriction is enforced entirely in application code, not
-by that verification step: `convex/lib/auth.ts`'s `requireIotaIdentity(ctx)` checks
-`identity.emailVerified === true` and `identity.hd === 'iota.uz'` on the already-verified
-identity, and is the single choke point every public query/mutation must call — there is no
-second gate behind it, unlike the MCP bearer-token path (gated once in `http.ts`). ✅ shipped and
-covered by `convex/users.test.ts`'s forged-claim tests (missing `hd`, wrong `hd`,
-`email_verified: false`, happy path) using `convex-test`'s `t.withIdentity()`. Users are keyed on
-`identity.subject` (Google's `sub`), not email — Workspace reassigns emails.
-
-`GOOGLE_OAUTH_CLIENT_ID` (Convex env var) and `VITE_GOOGLE_CLIENT_ID` (SPA build env, same value)
-are the only missing pieces to make sign-in actually work end-to-end — creating the OAuth client
-itself requires the Google Cloud Console (gcloud has no API for web-app OAuth clients), which is
-an org-visible account change outside this session's scope. The dev deployment currently has a
-placeholder value set so `npx convex codegen`/typecheck don't hard-fail on a missing env var.
-
-**Bootstrap reconciliation** ✅ shipped (`convex/lib/auth.ts`'s `getOrCreateUserId`, tested in
-`convex/users.test.ts`): MCP tokens can exist before a user's first real sign-in (minted via the
-CLI script against a `bootstrap:<email>` placeholder row, `googleSub = "bootstrap:<email>"`). On
-first real sign-in, `getOrCreateUserId` looks up that placeholder by the synthetic `googleSub`
-and patches it to the real `sub`, so existing tokens keep resolving to the same user row instead
-of orphaning them under a duplicate.
-
-**Known deferral for §8:** `ctx.auth.getUserIdentity()` throws (not returns `null`) inside
-httpActions, which affects the private branch of `/s/:slug` — decide there whether to catch it
-and require an `Authorization: Bearer <google-id-token>` header on that fetch, or sidestep
-entirely with short-TTL signed URLs minted from an authenticated query instead.
+**Web — Convex Auth with Google OAuth.** Google profile claims are validated once in
+`createOrUpdateUser`: the email must be verified and `hd` must equal `iota.uz`. Convex Auth then
+issues the only session shape accepted by application functions: `<usersId>|<sessionId>`.
+Provider JWTs, synthetic bootstrap users, email-based adoption and dual identity lookup are not
+supported. The local stack registers its credentials provider only when `DEV_AUTH_SECRET` is set.
 
 **MCP — static bearer tokens.** ✅ shipped. Format `vct_<base62(160 bits)>`; sha256 + an 8-char
 display prefix stored, never the plaintext; lookup by the `by_tokenHash` index; constant-time

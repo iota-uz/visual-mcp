@@ -272,6 +272,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function frameBounds(bounds: { x: number; y: number; w: number; h: number }): void {
     const scale = clampCanvasScale(
       Math.min(
+        1,
         (viewportRect.width - FIT_PADDING) / bounds.w,
         (viewportRect.height - FIT_PADDING) / bounds.h,
       ),

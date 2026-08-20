@@ -16,6 +16,466 @@
     color var(--app-transition);
 }
 
+.canvas-command-present {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--app-space-2);
+  border-radius: 7px;
+  color: var(--app-accent-text);
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.canvas-command-title .canvas-draft-dirty {
+  color: var(--app-accent-text);
+}
+
+.canvas-mode-switch {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding-left: 4px;
+  border-left: 1px solid var(--app-line);
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.canvas-prototype-panel {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) - 1);
+  top: 64px;
+  right: var(--app-space-3);
+  bottom: var(--app-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  width: 280px;
+  padding: var(--app-space-3);
+  overflow: auto;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.canvas-prototype-panel label,
+.canvas-prototype-panel fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-prototype-panel select,
+.canvas-prototype-panel input {
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+}
+
+.canvas-prototype-panel fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  padding: var(--app-space-2);
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+}
+
+.canvas-prototype-panel fieldset legend {
+  grid-column: 1 / -1;
+}
+
+.canvas-prototype-editor-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-prototype-editor-group > small {
+  color: var(--app-muted);
+  line-height: 1.35;
+}
+
+.canvas-prototype-editor-shell {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: var(--app-paper);
+}
+
+.canvas-prototype-editor-surface {
+  position: relative;
+  max-width: 100%;
+  max-height: 220px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--app-ink) 22%, transparent);
+  border-radius: 4px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(237, 242, 250, 0.92)), var(--app-white);
+  box-shadow: 0 4px 14px rgba(24, 34, 54, 0.08);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas-prototype-hotspot {
+  position: absolute;
+  min-width: 1px;
+  min-height: 1px;
+  padding: 0;
+  border: 2px solid var(--app-accent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--app-accent) 22%, transparent);
+  cursor: move;
+  touch-action: none;
+}
+
+.canvas-prototype-hotspot:focus-visible,
+.canvas-prototype-hotspot-resize:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 42%, white);
+  outline-offset: 2px;
+}
+
+.canvas-prototype-hotspot-resize {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--app-accent);
+  box-shadow: 0 0 0 1px var(--app-accent);
+  transform: translate(-50%, -50%);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.canvas-prototype-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: var(--app-space-2) 0 0;
+  list-style: none;
+}
+
+.canvas-prototype-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-top: 1px solid var(--app-line);
+}
+
+.canvas-prototype-list span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--app-text-xs);
+}
+
+.canvas-pages-panel {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) - 1);
+  inset: 64px auto var(--app-space-3) var(--app-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  width: 260px;
+  padding: var(--app-space-2);
+  overflow: auto;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: blur(12px);
+  transition: width var(--app-transition);
+}
+
+.canvas-pages-panel.is-collapsed {
+  width: 44px;
+  align-items: center;
+}
+
+.canvas-pages-head {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.canvas-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.canvas-pages-list > li {
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.canvas-pages-list > li.is-active {
+  border-color: color-mix(in srgb, var(--app-accent) 35%, var(--app-line));
+  background: color-mix(in srgb, var(--app-accent) 8%, white);
+}
+
+.canvas-page-select {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--app-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.canvas-page-select small {
+  color: var(--app-muted);
+  font-size: 10px;
+}
+
+.canvas-page-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.canvas-pages-list > li:hover .canvas-page-actions,
+.canvas-pages-list > li:focus-within .canvas-page-actions {
+  opacity: 1;
+}
+
+.canvas-page-actions button,
+.canvas-pages-head button,
+.canvas-pages-panel.is-collapsed > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.canvas-page-actions button:hover,
+.canvas-pages-head button:hover {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.canvas-page-delete-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--app-danger);
+  border-radius: 6px;
+  background: var(--app-danger-soft);
+}
+
+.canvas-page-delete-confirm > span {
+  flex: 1 1 100%;
+  color: var(--app-danger);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.canvas-page-name-input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--app-accent);
+  border-radius: 6px;
+  font: inherit;
+}
+
+@media (max-width: 899px) {
+  .canvas-pages-panel {
+    width: min(260px, calc(100vw - 32px));
+  }
+}
+
+.present-root,
+.present-loading {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #111318;
+  color: white;
+}
+
+.present-stage {
+  position: relative;
+  width: min(92vw, 1400px);
+  height: min(86vh, 900px);
+  overflow: hidden;
+}
+
+.present-screen {
+  position: absolute;
+  inset: 0;
+}
+
+.present-screen[hidden] {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.present-screen .vc-viewport {
+  cursor: default;
+}
+
+.present-hotspots {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+}
+
+.present-hotspots button {
+  position: absolute;
+  pointer-events: auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.present-hotspots button:focus-visible {
+  outline: 3px solid #8eb6ff;
+  outline-offset: 2px;
+  background: rgba(142, 182, 255, 0.12);
+}
+
+.present-screen-title {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.present-controls {
+  position: fixed;
+  z-index: 2;
+  left: 50%;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(20, 22, 28, 0.86);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  transition: opacity 180ms ease;
+}
+
+.present-controls.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.present-controls a,
+.present-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: white;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.present-controls a:hover,
+.present-controls button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-transition="dissolve"] .present-screen:not([hidden]) {
+  animation: present-dissolve 220ms ease-out;
+}
+
+[data-transition="slide-left"] .present-screen:not([hidden]) {
+  animation: present-slide-left 260ms ease-out;
+}
+
+[data-transition="slide-right"] .present-screen:not([hidden]) {
+  animation: present-slide-right 260ms ease-out;
+}
+
+@keyframes present-dissolve {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes present-slide-left {
+  from {
+    transform: translateX(8%);
+    opacity: 0;
+  }
+}
+
+@keyframes present-slide-right {
+  from {
+    transform: translateX(-8%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-transition="dissolve"] .present-screen:not([hidden]),
+  [data-transition="slide-left"] .present-screen:not([hidden]),
+  [data-transition="slide-right"] .present-screen:not([hidden]),
+  .present-controls {
+    animation: none;
+    transition: none;
+  }
+}
+
 .canvas-navigation-trigger {
   position: fixed;
   z-index: var(--app-z-drawer-trigger);
@@ -74,7 +534,7 @@
   align-items: center;
   gap: var(--app-space-2);
   min-width: 0;
-  max-width: min(560px, calc(100% - 152px));
+  max-width: min(860px, calc(100% - 152px));
   height: 40px;
   padding: 4px;
   background: rgba(255, 255, 255, 0.92);
@@ -350,6 +810,24 @@
   position: absolute;
   inset: 0;
   background: var(--app-white);
+}
+
+.present-screen .vc-viewport-host {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+@media (min-width: 900px) {
+  .canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host {
+    width: calc(100% - 284px);
+    margin-left: 284px;
+  }
+
+  .canvas-pages-panel.is-collapsed ~ .vc-viewport-host {
+    width: calc(100% - 68px);
+    margin-left: 68px;
+  }
 }
 
 .canvas-asset-list {

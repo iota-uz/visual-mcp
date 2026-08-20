@@ -11,7 +11,6 @@ describe("Asset Library bindings", () => {
     const t = convexTest(schema, modules);
     const { userId } = await t.run(async (ctx) => ({
       userId: await ctx.db.insert("users", {
-        googleSub: "pagination-user",
         email: "pagination@iota.uz",
         name: "Pagination",
         lastSeenAt: 0,
@@ -51,11 +50,10 @@ describe("Asset Library bindings", () => {
     expect(second.page[0]?.asset_id).not.toBe(first.page[0]?.asset_id);
   });
 
-  test("pins an immutable asset revision into a new canvas snapshot", async () => {
+  test("pins an immutable asset revision into the durable canvas draft", async () => {
     const t = convexTest(schema, modules);
     const seeded = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "asset-test",
         email: "asset@iota.uz",
         name: "Asset",
         lastSeenAt: 0,
@@ -71,6 +69,11 @@ describe("Asset Library bindings", () => {
         title: "Flow",
         kind: "canvas",
         visibility: "private",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
         createdBy: userId,
         updatedAt: 0,
       });
@@ -80,8 +83,12 @@ describe("Asset Library bindings", () => {
         version: 1,
         createdBy: userId,
         docStorageId,
+        iframeEntrypoints: [],
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: versionId,
+        draftDocStorageId: docStorageId,
+      });
       return { userId, workspaceId, canvasId };
     });
     const asset = await t.mutation(internal.assets.commitAssetVersion, {
@@ -108,14 +115,26 @@ describe("Asset Library bindings", () => {
       assetId: asset.assetId,
       assetVersionId: asset.versionId,
       expectedVersion: 1,
+      expectedDraftRevision: 0,
       createdBy: seeded.userId,
     });
-    expect(bound.version).toBe(2);
+    expect(bound).toMatchObject({ version: 1, draftRevision: 1, dirty: true });
+    await expect(
+      t.mutation(internal.canvases.bindAssetAndVersion, {
+        canvasId: seeded.canvasId,
+        logicalPath: "/assets/logo-2.svg",
+        assetId: asset.assetId,
+        assetVersionId: asset.versionId,
+        expectedVersion: 1,
+        expectedDraftRevision: 0,
+        createdBy: seeded.userId,
+      }),
+    ).rejects.toThrow(/draft conflict/i);
     const snapshot = await t.run((ctx) =>
       ctx.db
-        .query("canvasVersionAssets")
-        .withIndex("by_version_path", (q) =>
-          q.eq("versionId", bound.versionId).eq("logicalPath", "/assets/logo.svg"),
+        .query("canvasAssetBindings")
+        .withIndex("by_canvas_path", (q) =>
+          q.eq("canvasId", seeded.canvasId).eq("logicalPath", "/assets/logo.svg"),
         )
         .unique(),
     );
@@ -126,7 +145,6 @@ describe("Asset Library bindings", () => {
     const t = convexTest(schema, modules);
     const seeded = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "archive-user",
         email: "archive@iota.uz",
         name: "Archive",
         lastSeenAt: 0,
@@ -142,6 +160,11 @@ describe("Asset Library bindings", () => {
         title: "Bound",
         kind: "canvas",
         visibility: "private",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
         createdBy: userId,
         updatedAt: 0,
       });
@@ -149,6 +172,7 @@ describe("Asset Library bindings", () => {
         canvasId,
         version: 1,
         createdBy: userId,
+        iframeEntrypoints: [],
       });
       await ctx.db.patch(canvasId, { currentVersionId: versionId });
       return { userId, workspaceId, canvasId, versionId };
@@ -240,7 +264,6 @@ describe("Asset Library bindings", () => {
     const t = convexTest(schema, modules);
     const { userId, workspaceId } = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "move-user",
         email: "move@iota.uz",
         name: "Move",
         lastSeenAt: 0,
@@ -303,13 +326,11 @@ describe("Asset Library bindings", () => {
     const t = convexTest(schema, modules);
     const ids = await t.run(async (ctx) => {
       const owner = await ctx.db.insert("users", {
-        googleSub: "owner",
         email: "owner@iota.uz",
         name: "Owner",
         lastSeenAt: 0,
       });
       const other = await ctx.db.insert("users", {
-        googleSub: "other",
         email: "other@iota.uz",
         name: "Other",
         lastSeenAt: 0,

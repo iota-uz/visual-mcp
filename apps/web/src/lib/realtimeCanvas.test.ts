@@ -159,6 +159,52 @@ describe("reactive viewport reconciliation", () => {
     controller.dispose();
   });
 
+  test("switches to a disjoint Page document without recreating the viewport shell", () => {
+    const container = document.createElement("div");
+    container.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1_200,
+        bottom: 800,
+        width: 1_200,
+        height: 800,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(container);
+    const controller = mountViewport({ container, canvas: layoutCanvas(doc()) });
+    flushFrames();
+    const world = container.querySelector(".vc-world");
+    const transform = (world as HTMLElement | null)?.style.transform;
+
+    const architecture = doc();
+    architecture.title = "Architecture";
+    architecture.nodes = [
+      {
+        id: "architecture-product-map-desktop",
+        kind: "native",
+        shape: "note",
+        rect: { x: 80, y: 70, w: 500, h: 300 },
+        caption: { title: "01 · Схема продукта" },
+        anchors,
+      },
+    ];
+    architecture.edges = [];
+    controller.updateCanvas(layoutCanvas(architecture));
+    flushFrames();
+
+    expect(container.querySelector(".vc-world")).toBe(world);
+    expect(container.querySelector('[data-node-id="native"]')).toBeNull();
+    expect(container.querySelector('[data-node-id="screen"]')).toBeNull();
+    expect(
+      container.querySelector('[data-node-id="architecture-product-map-desktop"]'),
+    ).toHaveTextContent("01 · Схема продукта");
+    expect((world as HTMLElement | null)?.style.transform).toBe(transform);
+    controller.dispose();
+  });
+
   test("replaces only the iframe whose content revision changed", () => {
     const container = document.createElement("div");
     container.getBoundingClientRect = () =>

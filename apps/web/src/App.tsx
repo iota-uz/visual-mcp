@@ -1,4 +1,4 @@
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { Blocks, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
@@ -7,7 +7,6 @@ import { clearSignInAttempt, SignInButton, useSessionUser, useSignOut } from "./
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
-import { toastError, useToast } from "./components/Toast";
 import { Button } from "./components/ui/Button";
 import { Drawer } from "./components/ui/Drawer";
 import { IconButton } from "./components/ui/IconButton";
@@ -16,37 +15,16 @@ import { CanvasPage } from "./routes/Canvas";
 import { DevSignInPage } from "./routes/DevSignIn";
 import { HomePage } from "./routes/Home";
 import { KitchenSinkPage } from "./routes/KitchenSink";
+import { PresentPage } from "./routes/Present";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
 
-// Runs once per sign-in: creates (or reconciles) the `users` row this
-// identity maps to. Every other query/mutation assumes that row already
-// exists, so this has to land before any of them fire.
-function EnsureUser({ children }: { children: ReactNode }) {
-  const ensureUser = useMutation(api.users.ensureUser);
-  const { isAuthenticated } = useConvexAuth();
-  const { notify } = useToast();
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      // The round trip worked, so a later sign-out must not land on the
-      // "sign-in didn't complete" message left by this one.
-      clearSignInAttempt();
-      // Everything downstream assumes this row exists, so failing silently
-      // to the console meant the app looked signed-in and then every query
-      // came back empty with no explanation.
-      ensureUser({}).catch((err: unknown) => {
-        console.error("ensureUser failed", err);
-        notify(toastError(err, "Couldn't set up your account"));
-      });
-    }
-  }, [isAuthenticated, ensureUser, notify]);
-
-  return <>{children}</>;
-}
-
 function AuthGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
+
+  useEffect(() => {
+    if (isAuthenticated) clearSignInAttempt();
+  }, [isAuthenticated]);
 
   if (isLoading) {
     return (
@@ -78,7 +56,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <EnsureUser>{children}</EnsureUser>;
+  return <>{children}</>;
 }
 
 function sidebarLinkClass({ isActive }: { isActive: boolean }) {
@@ -193,6 +171,14 @@ export function App() {
   return (
     <Routes>
       <Route
+        path="/s/:slug/present"
+        element={
+          <ErrorBoundary label="This prototype failed to render.">
+            <PresentPage publicView />
+          </ErrorBoundary>
+        }
+      />
+      <Route
         path="/s/:slug"
         element={
           // The brand moved into the canvas's own command bar: two strips of
@@ -258,6 +244,7 @@ function Page({ label, children }: { label?: string; children: ReactNode }) {
 function AuthenticatedApp() {
   const { pathname } = useLocation();
   const isCanvasRoute = pathname.startsWith("/c/");
+  const isPresentRoute = isCanvasRoute && pathname.endsWith("/present");
   const [navigationOpen, setNavigationOpen] = useState(false);
 
   // A canvas owns the whole workspace. If its drawer was open and the user
@@ -273,7 +260,7 @@ function AuthenticatedApp() {
       <a href="#main" className="skip-link">
         Skip to content
       </a>
-      {isCanvasRoute ? (
+      {isCanvasRoute && !isPresentRoute ? (
         <>
           <IconButton
             icon={Menu}
@@ -296,9 +283,9 @@ function AuthenticatedApp() {
             <Sidebar canvasDrawer />
           </Drawer>
         </>
-      ) : (
+      ) : !isPresentRoute ? (
         <Sidebar />
-      )}
+      ) : null}
       {/* tabIndex -1: without it the skip link moves the viewport but not
           focus in Safari and Chrome, so the next Tab goes back to the
           navigation the link just skipped. */}
@@ -333,6 +320,14 @@ function AuthenticatedApp() {
             element={
               <ErrorBoundary label="This canvas failed to render.">
                 <CanvasPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/c/:canvasId/present"
+            element={
+              <ErrorBoundary label="This prototype failed to render.">
+                <PresentPage />
               </ErrorBoundary>
             }
           />

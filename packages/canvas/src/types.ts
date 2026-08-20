@@ -329,3 +329,152 @@ export const CanvasDocSchema = z
     });
   });
 export type CanvasDoc = z.infer<typeof CanvasDocSchema>;
+
+export const CanvasPageSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "page id must be a lowercase URL-safe slug"),
+    title: z.string().min(1).max(120),
+    order: z.number().int().nonnegative(),
+    doc: CanvasDocSchema,
+  })
+  .strict();
+export type CanvasPage = z.infer<typeof CanvasPageSchema>;
+
+export const PrototypeTargetSchema = z
+  .object({ pageId: z.string().min(1), nodeId: z.string().min(1) })
+  .strict();
+export type PrototypeTarget = z.infer<typeof PrototypeTargetSchema>;
+
+export const PrototypeInteractionSchema = z
+  .object({
+    id: z.string().min(1).max(120),
+    source: PrototypeTargetSchema,
+    hotspot: z
+      .object({
+        x: z.number().finite().nonnegative(),
+        y: z.number().finite().nonnegative(),
+        width: z.number().finite().positive(),
+        height: z.number().finite().positive(),
+      })
+      .strict(),
+    trigger: z.enum(["tap", "click"]).default("tap"),
+    destination: PrototypeTargetSchema,
+    transition: z.enum(["instant", "dissolve", "slide-left", "slide-right"]).default("instant"),
+  })
+  .strict();
+export type PrototypeInteraction = z.infer<typeof PrototypeInteractionSchema>;
+
+export const CanvasPrototypeSchema = z
+  .object({
+    start: PrototypeTargetSchema.optional(),
+    interactions: z.array(PrototypeInteractionSchema).max(2_000).default([]),
+  })
+  .strict();
+export type CanvasPrototype = z.infer<typeof CanvasPrototypeSchema>;
+
+/**
+ * A complete canvas file. Pages own independent CanvasDoc worlds while files,
+ * assets, checkpoints, publication and prototype interactions remain atomic at
+ * the file level.
+ */
+export const CanvasFileSchema = z
+  .object({
+    version: z.literal(3),
+    defaultPageId: z.string().min(1),
+    pages: z.array(CanvasPageSchema).min(1).max(100),
+    prototype: CanvasPrototypeSchema.default({ interactions: [] }),
+  })
+  .strict()
+  .superRefine((file, ctx) => {
+    const pageIds = new Set<string>();
+    const pageOrders = new Set<number>();
+    const pages = new Map<string, CanvasPage>();
+    file.pages.forEach((page, index) => {
+      if (pageIds.has(page.id))
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pages", index, "id"],
+          message: `duplicate page id "${page.id}"`,
+        });
+      if (pageOrders.has(page.order))
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pages", index, "order"],
+          message: `duplicate page order ${page.order}`,
+        });
+      pageIds.add(page.id);
+      pageOrders.add(page.order);
+      pages.set(page.id, page);
+    });
+    if (!pageIds.has(file.defaultPageId))
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultPageId"],
+        message: `unknown default page "${file.defaultPageId}"`,
+      });
+
+    const resolveTarget = (target: PrototypeTarget, path: (string | number)[]) => {
+      const page = pages.get(target.pageId);
+      if (!page) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...path, "pageId"],
+          message: `unknown prototype page "${target.pageId}"`,
+        });
+        return undefined;
+      }
+      const node = page.doc.nodes.find((candidate) => candidate.id === target.nodeId);
+      if (!node)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...path, "nodeId"],
+          message: `unknown prototype node "${target.nodeId}" on page "${target.pageId}"`,
+        });
+      return node;
+    };
+
+    if (file.prototype.start) resolveTarget(file.prototype.start, ["prototype", "start"]);
+    const interactionIds = new Set<string>();
+    file.prototype.interactions.forEach((interaction, index) => {
+      const base = ["prototype", "interactions", index] as (string | number)[];
+      if (interactionIds.has(interaction.id))
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...base, "id"],
+          message: `duplicate prototype interaction id "${interaction.id}"`,
+        });
+      interactionIds.add(interaction.id);
+      const source = resolveTarget(interaction.source, [...base, "source"]);
+      resolveTarget(interaction.destination, [...base, "destination"]);
+      if (!source) return;
+      const width = source.kind === "iframe" ? source.viewport.width : source.rect.w;
+      const height = source.kind === "iframe" ? source.viewport.height : source.rect.h;
+      if (
+        interaction.hotspot.x + interaction.hotspot.width > width ||
+        interaction.hotspot.y + interaction.hotspot.height > height
+      )
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...base, "hotspot"],
+          message: `hotspot must stay inside source viewport ${width}x${height}`,
+        });
+    });
+  });
+export type CanvasFile = z.infer<typeof CanvasFileSchema>;
+
+export function orderedCanvasPages(file: CanvasFile): CanvasPage[] {
+  return [...file.pages].sort((left, right) => left.order - right.order);
+}
+
+export function resolveCanvasPage(file: CanvasFile, pageId?: string | null): CanvasPage {
+  const page =
+    file.pages.find((page) => page.id === pageId) ??
+    file.pages.find((page) => page.id === file.defaultPageId) ??
+    orderedCanvasPages(file)[0];
+  if (!page) throw new Error("CanvasFile must contain at least one Page");
+  return page;
+}

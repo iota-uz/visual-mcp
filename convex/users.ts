@@ -4,37 +4,16 @@
  * check standing between these and the public internet.
  */
 
-import { mutation, query } from "./_generated/server";
-import { getOrCreateUserId, requireIotaIdentity, resolveUserId } from "./lib/auth";
-
-// Called once by the SPA right after sign-in, before any other Convex call
-// that depends on a `users` row existing. Idempotent — safe to call on
-// every page load.
-export const ensureUser = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const identity = await requireIotaIdentity(ctx);
-    const userId = await getOrCreateUserId(ctx, identity);
-    await ctx.db.patch(userId, { lastSeenAt: Date.now() });
-    return userId;
-  },
-});
+import { query } from "./_generated/server";
+import { requireIotaIdentity, requireUserId } from "./lib/auth";
 
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
     const identity = await requireIotaIdentity(ctx);
-    // Resolves both token shapes: a Convex Auth subject carries the row's id
-    // directly, a raw Google ID token has to be looked up by `googleSub`.
-    const userId = await resolveUserId(ctx, identity);
-    const user = userId ? await ctx.db.get(userId) : null;
-    if (!user) {
-      // Signed in with a valid @iota.uz token but ensureUser hasn't run yet
-      // (e.g. token refreshed in a second tab before the first tab's mutation
-      // landed) — the SPA should call ensureUser and retry, not treat this
-      // as an error.
-      return null;
-    }
+    const userId = await requireUserId(ctx, identity);
+    const user = await ctx.db.get(userId);
+    if (!user) throw new Error("Session user not found");
     return {
       userId: user._id,
       email: user.email,

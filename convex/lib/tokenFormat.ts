@@ -4,10 +4,6 @@
  * `crypto.getRandomValues`, available in Convex's default runtime — no
  * `node:crypto`, so this can run in both mutations and (if ever needed)
  * queries without `"use node"`.
- *
- * Mirrors scripts/mint-mcp-token.mjs's format exactly (`vct_<base62>`,
- * 160 random bits, 8-char display prefix after the `vct_`) so tokens minted
- * via the SPA and via the CLI script are indistinguishable to `tokens.verify`.
  */
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -29,7 +25,7 @@ function randomBase62(byteLength: number): string {
   return base62(bytes);
 }
 
-/** `vct_<base62(160 random bits)>` — matches scripts/mint-mcp-token.mjs. */
+/** `vct_<base62(160 random bits)>`. */
 export function randomMcpToken(): string {
   return `vct_${randomBase62(20)}`;
 }

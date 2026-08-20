@@ -200,7 +200,6 @@ async function seedUserWithToken(
   const tokenHash = await sha256Hex(token);
   const userId = await t.run((ctx) =>
     ctx.db.insert("users", {
-      googleSub: "bootstrap:mcp@iota.uz",
       email: "mcp@iota.uz",
       name: "MCP Caller",
       lastSeenAt: 0,
@@ -291,7 +290,7 @@ describe("/mcp tool contracts", () => {
         outputSchema?: unknown;
       }>;
     };
-    expect(listed.tools).toHaveLength(20);
+    expect(listed.tools).toHaveLength(30);
     for (const tool of listed.tools) {
       const roots = tool.inputSchema.anyOf ?? [tool.inputSchema];
       expect(
@@ -494,6 +493,12 @@ describe("/mcp canvas_save", () => {
     ],
     edges: [],
   };
+  const canvasFile = (doc: Record<string, unknown> = baseDoc) => ({
+    version: 3,
+    defaultPageId: "overview",
+    pages: [{ id: "overview", title: "Overview", order: 0, doc }],
+    prototype: { interactions: [] },
+  });
 
   function parse(response: { result?: unknown }) {
     const result = response.result as {
@@ -530,6 +535,20 @@ describe("/mcp canvas_save", () => {
     expect(data.published).toBe(true);
   });
 
+  test("new canvas writes require the clean multi-page CanvasFile v3 model", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const invalid = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "pages/invalid-write",
+        kind: "canvas",
+        doc: baseDoc,
+      }),
+    );
+    expect(invalid.isError).toBe(true);
+    expect(invalid.text).toMatch(/version|Invalid input/i);
+  });
+
   test("files-only save publishes exactly one version and identical retry is a no-op", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
@@ -558,9 +577,10 @@ describe("/mcp canvas_save", () => {
     expect(replay.data.version).toBe(1);
     expect(replay.data.previous_version).toBe(1);
     expect(changed.data.previous_version).toBe(1);
-    expect(changed.data.version).toBe(2);
+    expect(changed.data.version).toBe(1);
+    expect(changed.data.dirty).toBe(true);
     const versions = await t.run((ctx) => ctx.db.query("canvasVersions").collect());
-    expect(versions.map((version) => version.version)).toEqual([1, 2]);
+    expect(versions.map((version) => version.version)).toEqual([1]);
   });
 
   test("invalid doc plus files leaves no partial canvas or mutable files", async () => {
@@ -570,7 +590,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "atomic/rejected",
         kind: "canvas",
-        doc: {
+        doc: canvasFile({
           ...baseDoc,
           nodes: [
             {
@@ -587,7 +607,7 @@ describe("/mcp canvas_save", () => {
               activation: "double-click",
             },
           ],
-        },
+        }),
         files: [{ path: "/src/unrelated.html", text: "must not commit" }],
       }),
     );
@@ -615,7 +635,7 @@ describe("/mcp canvas_save", () => {
         visibility: "public",
         expected_version: 1,
         kind: "canvas",
-        doc: {
+        doc: canvasFile({
           ...baseDoc,
           nodes: [
             {
@@ -628,7 +648,7 @@ describe("/mcp canvas_save", () => {
               alt: "Missing",
             },
           ],
-        },
+        }),
       }),
     );
     expect(failed.isError).toBe(true);
@@ -845,7 +865,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "osago/doc",
         kind: "canvas",
-        doc: {
+        doc: canvasFile({
           ...baseDoc,
           nodes: [
             {
@@ -854,7 +874,7 @@ describe("/mcp canvas_save", () => {
               content: { type: "html", html: "<script>alert(1)</script>" },
             },
           ],
-        },
+        }),
       }),
     );
 
@@ -872,7 +892,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "osago/doc",
         kind: "canvas",
-        doc: {
+        doc: canvasFile({
           ...baseDoc,
           nodes: [
             {
@@ -891,7 +911,7 @@ describe("/mcp canvas_save", () => {
               activation: "double-click",
             },
           ],
-        },
+        }),
         files: [{ path: "/src/screens/runtime.html", text: "<!doctype html><button>ok</button>" }],
       }),
     );
@@ -907,7 +927,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "atomic/reserved-entry",
         kind: "canvas",
-        doc: baseDoc,
+        doc: canvasFile(),
         files: [{ path: "/src/__canvas.html", text: "caller-owned" }],
       }),
     );
@@ -947,7 +967,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "gallery/images",
         kind: "canvas",
-        doc: imageDoc,
+        doc: canvasFile(imageDoc),
         files: [{ path: "/assets/reference.svg", text: "<svg/>" }],
       }),
     );
@@ -959,7 +979,7 @@ describe("/mcp canvas_save", () => {
         ref: "gallery/missing-image",
         title: "Must roll back",
         kind: "canvas",
-        doc: imageDoc,
+        doc: canvasFile(imageDoc),
       }),
     );
     expect(missing.isError).toBe(true);
@@ -973,7 +993,7 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/doc",
       kind: "canvas",
-      doc: baseDoc,
+      doc: canvasFile(),
     });
     const snapshotStorageId = await t.run((ctx) =>
       ctx.storage.store(
@@ -1015,13 +1035,68 @@ describe("/mcp canvas_save", () => {
     }
   });
 
+  test("canvas_snapshot selects one Page and rejects stale Page ids before rendering", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "pages/snapshot",
+      kind: "canvas",
+      doc: {
+        ...canvasFile(),
+        pages: [
+          { id: "overview", title: "Overview", order: 0, doc: baseDoc },
+          {
+            id: "details",
+            title: "Details",
+            order: 1,
+            doc: { ...baseDoc, title: "Details", world: { width: 640, height: 960 } },
+          },
+        ],
+      },
+    });
+    const snapshotStorageId = await t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: snapshotStorageId,
+      snapshotStorageId,
+    });
+    try {
+      const focused = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ref: "pages/snapshot",
+          page_id: "details",
+          refresh: true,
+        }),
+      );
+      expect(focused.isError).toBeFalsy();
+      expect(focused.data.page_id).toBe("details");
+      expect(worker.requests.snapshot).toHaveLength(1);
+
+      const stale = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ref: "pages/snapshot",
+          page_id: "removed",
+          refresh: true,
+        }),
+      );
+      expect(stale.isError).toBe(true);
+      expect(stale.text).toMatch(/page_not_found: removed/);
+      expect(worker.requests.snapshot).toHaveLength(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
   test("canvas_snapshot retries transient iframe readiness once and reports attempts", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
     await callTool(t, token, "canvas_save", {
       ref: "osago/retry-snapshot",
       kind: "canvas",
-      doc: baseDoc,
+      doc: canvasFile(),
     });
     const storageIds = await t.run(async (ctx) =>
       Promise.all(
@@ -1066,10 +1141,10 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/large-snapshot",
       kind: "canvas",
-      doc: {
+      doc: canvasFile({
         ...baseDoc,
         world: { width: 5_000, height: 3_000 },
-      },
+      }),
     });
     const storageId = await t.run((ctx) =>
       ctx.storage.store(
@@ -1124,7 +1199,7 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/large-inline-snapshot",
       kind: "canvas",
-      doc: { ...baseDoc, world: { width: 5_000, height: 3_000 } },
+      doc: canvasFile({ ...baseDoc, world: { width: 5_000, height: 3_000 } }),
     });
     const storageId = await t.run((ctx) =>
       ctx.storage.store(
@@ -1163,7 +1238,7 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/large-partial-snapshot",
       kind: "canvas",
-      doc: baseDoc,
+      doc: canvasFile(),
     });
     const storageIds = await Promise.all(
       [1, 2].map(() =>
@@ -1211,7 +1286,7 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/doc",
       kind: "canvas",
-      doc: baseDoc,
+      doc: canvasFile(),
     });
     const conflict = parse(
       await callTool(t, token, "canvas_snapshot", {
@@ -1237,7 +1312,7 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_save", {
         ref: "osago/missing",
         kind: "canvas",
-        doc: {
+        doc: canvasFile({
           ...baseDoc,
           nodes: [
             {
@@ -1256,7 +1331,7 @@ describe("/mcp canvas_save", () => {
               activation: "double-click",
             },
           ],
-        },
+        }),
       }),
     );
     expect(isError).toBe(true);
@@ -1273,7 +1348,7 @@ describe("/mcp canvas_save", () => {
         await callTool(t, token, "canvas_save", {
           ref: "osago/doc",
           kind: "canvas",
-          doc: baseDoc,
+          doc: canvasFile(),
         }),
       );
       expect(isError).toBeFalsy();
@@ -1410,7 +1485,7 @@ describe("/mcp canvas_save", () => {
     await callTool(t, token, "canvas_save", {
       ref: "osago/fast-settlement",
       kind: "canvas",
-      doc: baseDoc,
+      doc: canvasFile(),
     });
 
     const { isError, text } = parse(
@@ -1420,6 +1495,212 @@ describe("/mcp canvas_save", () => {
     );
     expect(isError).toBe(true);
     expect(text).toMatch(/^element_not_found:/);
+  });
+
+  test("Pages, prototype hotspots, and checkpoints round-trip through MCP atomically", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const created = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "prototype/checkout",
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
+    ).data;
+
+    const page = parse(
+      await callTool(t, token, "canvas_page_create", {
+        ref: "prototype/checkout",
+        expected_version: 1,
+        expected_draft_revision: created.draft_revision,
+        page_id: "confirmation",
+        title: "Confirmation",
+        doc: { ...baseDoc, title: "Confirmation" },
+      }),
+    ).data;
+    expect(page).toMatchObject({ version: 1, draft_revision: 2, dirty: true });
+    expect(page.pages.map((item: { id: string }) => item.id)).toEqual(["overview", "confirmation"]);
+
+    const started = parse(
+      await callTool(t, token, "canvas_prototype_set_start", {
+        ref: "prototype/checkout",
+        expected_version: 1,
+        expected_draft_revision: 2,
+        start: { pageId: "overview", nodeId: "n1" },
+      }),
+    ).data;
+    expect(started.draft_revision).toBe(3);
+
+    const linked = parse(
+      await callTool(t, token, "canvas_prototype_patch", {
+        ref: "prototype/checkout",
+        expected_version: 1,
+        expected_draft_revision: 3,
+        operations: [
+          {
+            op: "upsert",
+            interaction: {
+              id: "complete-checkout",
+              source: { pageId: "overview", nodeId: "n1" },
+              hotspot: { x: 10, y: 10, width: 120, height: 44 },
+              trigger: "click",
+              destination: { pageId: "confirmation", nodeId: "n1" },
+              transition: "dissolve",
+            },
+          },
+        ],
+      }),
+    ).data;
+    expect(linked.draft_revision).toBe(4);
+
+    const prototype = parse(
+      await callTool(t, token, "canvas_prototype_get", { ref: "prototype/checkout" }),
+    ).data;
+    expect(prototype.prototype).toMatchObject({
+      start: { pageId: "overview", nodeId: "n1" },
+      interactions: [{ id: "complete-checkout", transition: "dissolve" }],
+    });
+    expect(prototype.present_url).toMatch(/\/present$/);
+
+    const checkpoint = parse(
+      await callTool(t, token, "canvas_checkpoint", {
+        ref: "prototype/checkout",
+        expected_draft_revision: 4,
+        note: "Prototype ready",
+      }),
+    ).data;
+    expect(checkpoint).toMatchObject({ version: 2, draft_revision: 4, dirty: false });
+
+    const deleted = parse(
+      await callTool(t, token, "canvas_page_delete", {
+        ref: "prototype/checkout",
+        expected_version: 2,
+        expected_draft_revision: 4,
+        page_id: "confirmation",
+      }),
+    ).data;
+    expect(deleted.pages).toHaveLength(1);
+    const cleaned = parse(
+      await callTool(t, token, "canvas_prototype_get", { ref: "prototype/checkout" }),
+    ).data;
+    expect(cleaned.prototype.interactions).toEqual([]);
+
+    const finalPage = parse(
+      await callTool(t, token, "canvas_page_delete", {
+        ref: "prototype/checkout",
+        expected_version: 2,
+        expected_draft_revision: 5,
+        page_id: "overview",
+      }),
+    );
+    expect(finalPage.isError).toBe(true);
+    expect(finalPage.text).toMatch(/cannot delete the final Page/);
+
+    const restored = await t.mutation(internal.canvases.restoreVersionByRef, {
+      ref: "prototype/checkout",
+      version: 2,
+    });
+    expect(restored.version).toBe(3);
+    const restoredPages = parse(
+      await callTool(t, token, "canvas_page_list", { ref: "prototype/checkout" }),
+    ).data;
+    expect(restoredPages.pages.map((item: { id: string }) => item.id)).toEqual([
+      "overview",
+      "confirmation",
+    ]);
+    const restoredPrototype = parse(
+      await callTool(t, token, "canvas_prototype_get", { ref: "prototype/checkout" }),
+    ).data;
+    expect(restoredPrototype.prototype).toMatchObject({
+      start: { pageId: "overview", nodeId: "n1" },
+      interactions: [{ id: "complete-checkout", destination: { pageId: "confirmation" } }],
+    });
+  });
+
+  test("all MCP Page operations preserve stable ids, ordering, and draft concurrency", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const created = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "pages/lifecycle",
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
+    ).data;
+    expect(created.draft_revision).toBe(1);
+
+    const added = parse(
+      await callTool(t, token, "canvas_page_create", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 1,
+        page_id: "details",
+        title: "Details",
+      }),
+    ).data;
+    expect(added.draft_revision).toBe(2);
+
+    const renamed = parse(
+      await callTool(t, token, "canvas_page_rename", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 2,
+        page_id: "details",
+        title: "Complete",
+      }),
+    ).data;
+    expect(renamed.pages.find((page: { id: string }) => page.id === "details").title).toBe(
+      "Complete",
+    );
+
+    const duplicated = parse(
+      await callTool(t, token, "canvas_page_duplicate", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 3,
+        page_id: "details",
+        new_page_id: "details-copy",
+      }),
+    ).data;
+    expect(duplicated.page.id).toBe("details-copy");
+
+    const moved = parse(
+      await callTool(t, token, "canvas_page_move", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 4,
+        page_id: "details-copy",
+        to_index: 0,
+      }),
+    ).data;
+    expect(moved.pages.map((page: { id: string }) => page.id)).toEqual([
+      "details-copy",
+      "overview",
+      "details",
+    ]);
+
+    const conflict = parse(
+      await callTool(t, token, "canvas_page_rename", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 4,
+        page_id: "details",
+        title: "Stale write",
+      }),
+    );
+    expect(conflict.isError).toBe(true);
+    expect(conflict.text).toMatch(/draft conflict/i);
+
+    const deleted = parse(
+      await callTool(t, token, "canvas_page_delete", {
+        ref: "pages/lifecycle",
+        expected_version: 1,
+        expected_draft_revision: 5,
+        page_id: "details-copy",
+      }),
+    ).data;
+    expect(deleted.pages.map((page: { id: string }) => page.id)).toEqual(["overview", "details"]);
+    expect(deleted.draft_revision).toBe(6);
   });
 });
 
@@ -1438,7 +1719,7 @@ describe("/mcp incremental edits and pagination", () => {
     };
   }
 
-  test("canvas_edit safely rebases a stale canvas version when the file hash still matches", async () => {
+  test("canvas_edit coalesces file edits into the current draft", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
     await callTool(t, token, "canvas_save", {
@@ -1467,9 +1748,11 @@ describe("/mcp incremental edits and pagination", () => {
     expect(rebased.isError).toBeFalsy();
     expect(rebased.data).toMatchObject({
       requested_version: 1,
-      previous_version: 2,
-      version: 3,
-      rebased: true,
+      previous_version: 1,
+      version: 1,
+      draft_revision: 3,
+      dirty: true,
+      rebased: false,
     });
 
     const unsafe = parse(
@@ -1479,15 +1762,14 @@ describe("/mcp incremental edits and pagination", () => {
         old_string: "bravo",
         new_string: "charlie",
         expected_version: 1,
+        expected_draft_revision: 2,
       }),
     );
     expect(unsafe.isError).toBe(true);
-    expect(unsafe.text).toMatch(/retryable_with_expected_hash/);
-    expect(unsafe.text).toMatch(/changed_paths_since/);
-    expect(unsafe.text).toMatch(/\/src\/b\.txt/);
+    expect(unsafe.text).toMatch(/draft conflict/i);
   });
 
-  test("canvas_apply_patch safely rebases all touched files from explicit hashes", async () => {
+  test("canvas_apply_patch coalesces all touched files into the current draft", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
     await callTool(t, token, "canvas_save", {
@@ -1521,7 +1803,13 @@ describe("/mcp incremental edits and pagination", () => {
       }),
     );
     expect(response.isError).toBeFalsy();
-    expect(response.data).toMatchObject({ previous_version: 2, version: 3, rebased: true });
+    expect(response.data).toMatchObject({
+      previous_version: 1,
+      version: 1,
+      draft_revision: 3,
+      dirty: true,
+      rebased: false,
+    });
   });
 
   test("canvas_get and canvas_find expose resumable cursors", async () => {
@@ -1538,6 +1826,11 @@ describe("/mcp incremental edits and pagination", () => {
       ref: "pages/one",
       expected_version: 1,
       files: [{ path: "/src/index.txt", text: "v-next" }],
+    });
+    await callTool(t, token, "canvas_checkpoint", {
+      ref: "pages/one",
+      note: "Second stable checkpoint",
+      expected_draft_revision: 2,
     });
 
     const firstGet = parse(
@@ -1568,31 +1861,43 @@ describe("/mcp incremental edits and pagination", () => {
         ref: "pages/doc",
         kind: "canvas",
         doc: {
-          version: 2,
-          title: "Large doc",
-          world: { width: 1000, height: 500 },
-          lanes: [],
-          stages: [],
-          labels: [],
-          nodes: [
+          version: 3,
+          defaultPageId: "overview",
+          pages: [
             {
-              id: "wanted",
-              kind: "native",
-              rect: { x: 0, y: 0, w: 100, h: 100 },
-              shape: "note",
-              caption: { title: "Wanted" },
-              anchors: [{ id: "right", side: "right", offset: 0.5 }],
-            },
-            {
-              id: "other",
-              kind: "native",
-              rect: { x: 200, y: 0, w: 100, h: 100 },
-              shape: "note",
-              caption: { title: "Other" },
-              anchors: [{ id: "left", side: "left", offset: 0.5 }],
+              id: "overview",
+              title: "Overview",
+              order: 0,
+              doc: {
+                version: 2,
+                title: "Large doc",
+                world: { width: 1000, height: 500 },
+                lanes: [],
+                stages: [],
+                labels: [],
+                nodes: [
+                  {
+                    id: "wanted",
+                    kind: "native",
+                    rect: { x: 0, y: 0, w: 100, h: 100 },
+                    shape: "note",
+                    caption: { title: "Wanted" },
+                    anchors: [{ id: "right", side: "right", offset: 0.5 }],
+                  },
+                  {
+                    id: "other",
+                    kind: "native",
+                    rect: { x: 200, y: 0, w: 100, h: 100 },
+                    shape: "note",
+                    caption: { title: "Other" },
+                    anchors: [{ id: "left", side: "left", offset: 0.5 }],
+                  },
+                ],
+                edges: [],
+              },
             },
           ],
-          edges: [],
+          prototype: { interactions: [] },
         },
       }),
     );
@@ -1604,9 +1909,9 @@ describe("/mcp incremental edits and pagination", () => {
         doc_projection: { summary: true, node_ids: ["wanted"] },
       }),
     ).data;
-    expect(projection.doc.counts.nodes).toBe(2);
-    expect(projection.doc.nodes).toHaveLength(1);
-    expect(projection.doc.nodes[0].id).toBe("wanted");
+    expect(projection.doc.activePage.doc.counts.nodes).toBe(2);
+    expect(projection.doc.activePage.doc.nodes).toHaveLength(1);
+    expect(projection.doc.activePage.doc.nodes[0].id).toBe("wanted");
 
     const firstFind = parse(
       await callTool(t, token, "canvas_find", { workspace: "pages", limit: 1 }),
@@ -1860,7 +2165,6 @@ describe("GET /s/:slug", () => {
   ) {
     return t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "bootstrap:owner@iota.uz",
         email: "owner@iota.uz",
         name: "Owner",
         lastSeenAt: 0,
@@ -1876,6 +2180,11 @@ describe("GET /s/:slug", () => {
         title: "Public Canvas",
         kind: "html",
         visibility: overrides.visibility ?? "public",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
         publicSlug: overrides.publicSlug ?? "pub-slug-123",
         createdBy: userId,
         updatedAt: 0,
@@ -1884,8 +2193,12 @@ describe("GET /s/:slug", () => {
         canvasId,
         version: 1,
         createdBy: userId,
+        iframeEntrypoints: [],
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: versionId,
+        publishedVersionId: (overrides.visibility ?? "public") === "public" ? versionId : undefined,
+      });
       const storageId = await ctx.storage.store(
         new Blob([overrides.body ?? "<h1>hi</h1>"], {
           type: overrides.artifactMime ?? "text/html",
@@ -1953,6 +2266,7 @@ describe("GET /s/:slug", () => {
         canvasId,
         version: 2,
         createdBy: canvas.createdBy,
+        iframeEntrypoints: [],
       });
       const storageId = await ctx.storage.store(new Blob(["new-version"]));
       await ctx.db.insert("canvasVersionFiles", {
@@ -1963,7 +2277,7 @@ describe("GET /s/:slug", () => {
         size: 11,
         contentHash: "new",
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId, publishedVersionId: versionId });
     });
 
     const html = await (await t.fetch("/s/pub-slug-123")).text();
@@ -2226,7 +2540,6 @@ describe("GET /s/:slug", () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "u",
         email: "u@iota.uz",
         name: "U",
         lastSeenAt: 0,
@@ -2242,6 +2555,11 @@ describe("GET /s/:slug", () => {
         title: "C",
         kind: "canvas",
         visibility: "public",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: ["/src/screens/runtime.html"],
+        storageBytesUsed: 0,
         publicSlug: "iframe-public",
         createdBy: userId,
         updatedAt: 0,
@@ -2252,7 +2570,7 @@ describe("GET /s/:slug", () => {
         createdBy: userId,
         iframeEntrypoints: ["/src/screens/runtime.html"],
       });
-      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId, publishedVersionId: versionId });
       for (const [relPath, body] of [
         ["/src/screens/runtime.html", "<!doctype html><button>Live</button>"],
         ["/src/screens/secret.html", "secret"],
@@ -2316,12 +2634,11 @@ describe("GET /s/:slug", () => {
 });
 
 describe("GET /i/:capability", () => {
-  test("keeps iframe HTML, scripts, styles and assets inside the immutable capability", async () => {
+  test("serves current draft iframe HTML, scripts, styles and assets through the capability", async () => {
     const t = convexTest(schema, modules);
     const token = "private-iframe-capability";
     await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
-        googleSub: "capability-owner",
         email: "owner@iota.uz",
         name: "Owner",
         lastSeenAt: 0,
@@ -2337,6 +2654,11 @@ describe("GET /i/:capability", () => {
         title: "Private canvas",
         kind: "canvas",
         visibility: "private",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: ["/src/screens/runtime.html"],
+        storageBytesUsed: 0,
         createdBy: userId,
         updatedAt: 0,
       });
@@ -2362,9 +2684,8 @@ describe("GET /i/:capability", () => {
         ["/assets/screens/screen.png", "PNG"],
       ] as const) {
         const storageId = await ctx.storage.store(new Blob([body]));
-        await ctx.db.insert("canvasVersionFiles", {
+        await ctx.db.insert("canvasFiles", {
           canvasId,
-          versionId,
           relPath,
           storageId,
           size: body.length,
@@ -2374,7 +2695,6 @@ describe("GET /i/:capability", () => {
       await ctx.db.insert("iframeCapabilities", {
         token,
         canvasId,
-        versionId,
         userId,
         expiresAt: Date.now() + 60_000,
       });

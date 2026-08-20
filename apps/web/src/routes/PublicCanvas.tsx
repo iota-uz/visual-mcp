@@ -1,7 +1,7 @@
 import { useQuery } from "convex/react";
 import { Unplug } from "lucide-react";
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
@@ -16,8 +16,9 @@ import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 // PublishControl or VersionHistory, both of which require a session.
 export function PublicCanvasPage() {
   const { slug } = useParams<{ slug: string }>();
+  const [searchParams] = useSearchParams();
   const canvas = useQuery(api.canvases.getPublic, slug ? { publicSlug: slug } : "skip");
-  const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
+  const { page, doc, docError, cssReady } = useCanvasDocAndCss(canvas, searchParams.get("page"));
   useDocumentTitle(canvas?.title);
 
   /*
@@ -85,7 +86,7 @@ export function PublicCanvasPage() {
       <div className="canvas-command-bar canvas-command-bar-public">
         <span className="public-shell-brand">Visual Canvas</span>
         <div className="canvas-command-title">
-          <span>{canvas.title}</span>
+          <span>{page ? `${canvas.title} · ${page.title}` : canvas.title}</span>
           {canvas.version !== undefined && <small>v{canvas.version}</small>}
         </div>
         {/* `updated_at` and `description` have always been in the payload
