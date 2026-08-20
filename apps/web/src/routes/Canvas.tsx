@@ -17,7 +17,7 @@ import {
   RefreshCw,
   Unplug,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -31,7 +31,6 @@ import { Button, ButtonLink } from "../components/ui/Button";
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
-import { canvasViewportStructureKey } from "../lib/canvasViewportKey";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
 import { mcpBaseUrl } from "../lib/mcpUrl";
@@ -45,11 +44,13 @@ import { useDocumentTitle } from "../lib/useDocumentTitle";
 export function CanvasViewport({
   doc,
   iframeBaseUrl,
+  iframeRevision,
   editable = false,
   onGeometryChange,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
+  iframeRevision?: string | null;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
 }) {
@@ -70,19 +71,19 @@ export function CanvasViewport({
   setSearchParamsRef.current = setSearchParams;
   const onGeometryChangeRef = useRef(onGeometryChange);
   onGeometryChangeRef.current = onGeometryChange;
-
-  // Rects are mutable layout state. Keeping them out of the mount key lets
-  // the immutable persisted version reconcile into the live DOM without
-  // destroying 32 iframe browsing contexts or resetting the camera.
-  const structureKey = canvasViewportStructureKey(doc);
+  const resolveIframeUrl = useCallback(
+    (node: Extract<CanvasDoc["nodes"][number], { kind: "iframe" }>) =>
+      iframeBaseUrl
+        ? `${iframeBaseUrl}${node.source.entrypoint}${iframeRevision ? `?vcv=${encodeURIComponent(iframeRevision)}` : ""}${node.source.route ?? ""}`
+        : `${node.source.entrypoint}${node.source.route ?? ""}`,
+    [iframeBaseUrl, iframeRevision],
+  );
+  const resolveIframeUrlRef = useRef(resolveIframeUrl);
+  resolveIframeUrlRef.current = resolveIframeUrl;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    // Reading the key here documents and enforces that structural changes,
-    // unlike rect-only changes, are mount boundaries.
-    if (canvasViewportStructureKey(docRef.current) !== structureKey) return;
-
     let positioned: ReturnType<typeof layoutCanvas>;
     try {
       positioned = layoutCanvas(docRef.current);
@@ -95,9 +96,9 @@ export function CanvasViewport({
       container,
       canvas: positioned,
       editable,
-      resolveIframeUrl: iframeBaseUrl
-        ? (node) => `${iframeBaseUrl}${node.source.entrypoint}${node.source.route ?? ""}`
-        : undefined,
+      resolveIframeUrl: (node) =>
+        resolveIframeUrlRef.current?.(node) ??
+        `${node.source.entrypoint}${node.source.route ?? ""}`,
       onSelect: (nodeId) => {
         /*
          * `replace`, not push. Selection is view state, not navigation: the
@@ -124,15 +125,17 @@ export function CanvasViewport({
       controllerRef.current = null;
       controller.dispose();
     };
-  }, [structureKey, iframeBaseUrl, editable]);
+  }, [editable]);
 
   useEffect(() => {
     try {
-      controllerRef.current?.updateCanvas(layoutCanvas(doc));
+      controllerRef.current?.updateCanvas(layoutCanvas(doc), {
+        resolveIframeUrl,
+      });
     } catch {
-      // A structural change is handled by the keyed mount effect above.
+      // Keep the last valid reactive document visible if a new one cannot lay out.
     }
-  }, [doc]);
+  }, [doc, resolveIframeUrl]);
 
   return <div ref={containerRef} className="vc-viewport-host" />;
 }
@@ -369,6 +372,7 @@ interface FetchableCanvas {
   kind: string;
   doc_url: string | null;
   css_url: string | null;
+  iframe_revision?: string | null;
 }
 
 // Shared by CanvasPage (signed-in) and PublicCanvasPage (anonymous
@@ -392,7 +396,10 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
     }
     let cancelled = false;
     fetch(docUrl)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Unable to load canvas document (${res.status})`);
+        return res.json();
+      })
       .then((json) => {
         if (cancelled) return;
         const parsed = CanvasDocSchema.safeParse(json);
@@ -416,22 +423,31 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
   // starts false so mounting waits for either the fetch to land or for
   // there being nothing to fetch, rather than racing it.
   const [cssReady, setCssReady] = useState(false);
+  const activeCssRef = useRef<HTMLStyleElement | null>(null);
   useEffect(() => {
-    setCssReady(false);
+    // Keep the previous stylesheet active while a reactive replacement is
+    // fetched. A transient loading state here used to unmount the complete
+    // viewport on every version and looked exactly like a page refresh.
     if (!canvas?.css_url) {
+      activeCssRef.current?.remove();
+      activeCssRef.current = null;
       setCssReady(true);
       return;
     }
     let cancelled = false;
-    let styleEl: HTMLStyleElement | null = null;
     fetch(canvas.css_url)
-      .then((res) => res.text())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Unable to load canvas styles (${res.status})`);
+        return res.text();
+      })
       .then((css) => {
         if (cancelled) return;
-        styleEl = document.createElement("style");
+        const styleEl = document.createElement("style");
         styleEl.setAttribute("data-vc-node-css", "");
         styleEl.textContent = css;
         document.head.appendChild(styleEl);
+        activeCssRef.current?.remove();
+        activeCssRef.current = styleEl;
         setCssReady(true);
       })
       .catch(() => {
@@ -439,9 +455,16 @@ export function useCanvasDocAndCss(canvas: FetchableCanvas | null | undefined) {
       });
     return () => {
       cancelled = true;
-      styleEl?.remove();
     };
   }, [canvas?.css_url]);
+
+  useEffect(
+    () => () => {
+      activeCssRef.current?.remove();
+      activeCssRef.current = null;
+    },
+    [],
+  );
 
   return { doc, docError, cssReady };
 }
@@ -454,25 +477,47 @@ export function CanvasPage() {
   );
   const mintIframeCapability = useMutation(api.canvases.mintIframeCapabilityMine);
   const patchNodeRect = useAction(api.canvases.patchNodeRectMine);
-  const [iframeCapability, setIframeCapability] = useState<string | null>(null);
+  const [iframeCapability, setIframeCapability] = useState<{
+    token: string;
+    expiresAt: number;
+    revision: string;
+  } | null>(null);
   const canvasVersion = canvas?.version;
+  const iframeRevision = canvas?.iframe_revision ?? "";
   useEffect(() => {
     if (!canvasId || canvas?.kind !== "canvas") {
       setIframeCapability(null);
       return;
     }
     let cancelled = false;
-    mintIframeCapability({ canvasId: canvasId as Id<"canvases"> })
-      .then(({ token }) => {
-        if (!cancelled) setIframeCapability(token);
-      })
-      .catch(() => {
+    let renewalTimer: number | null = null;
+    async function refreshCapability() {
+      try {
+        const { token, expiresAt } = await mintIframeCapability({
+          canvasId: canvasId as Id<"canvases">,
+        });
+        if (cancelled) return;
+        setIframeCapability({
+          token,
+          expiresAt,
+          revision: iframeRevision,
+        });
+        renewalTimer = window.setTimeout(
+          () => void refreshCapability(),
+          Math.max(1_000, expiresAt - Date.now() - 60_000),
+        );
+      } catch {
         if (!cancelled) setIframeCapability(null);
-      });
+      }
+    }
+    void refreshCapability();
     return () => {
       cancelled = true;
+      if (renewalTimer !== null) window.clearTimeout(renewalTimer);
     };
-  }, [canvasId, canvas?.kind, mintIframeCapability]);
+  }, [canvasId, canvas?.kind, iframeRevision, mintIframeCapability]);
+  const iframeCapabilityToken = iframeCapability?.token ?? null;
+  const resolvedIframeRevision = iframeCapability?.revision ?? iframeRevision;
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
   useDocumentTitle(canvas?.title);
 
@@ -725,7 +770,7 @@ export function CanvasPage() {
               text was gone and the viewport had not mounted yet. */}
           {(!doc ||
             !cssReady ||
-            (doc.nodes.some((node) => node.kind === "iframe") && !iframeCapability)) &&
+            (doc.nodes.some((node) => node.kind === "iframe") && !iframeCapabilityToken)) &&
             !docError && (
               <div className="canvas-page-loading">
                 <LoadingState label="Loading canvas…" />
@@ -733,9 +778,11 @@ export function CanvasPage() {
             )}
           {doc &&
             cssReady &&
-            (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapability) && (
+            (!doc.nodes.some((node) => node.kind === "iframe") || iframeCapabilityToken) && (
               <CanvasViewport
+                key={canvas.canvas_id}
                 doc={doc}
+                iframeRevision={resolvedIframeRevision}
                 editable
                 onGeometryChange={(nodeId, rect) => {
                   if (!canvasId) return;
@@ -764,8 +811,8 @@ export function CanvasPage() {
                     });
                 }}
                 iframeBaseUrl={
-                  iframeCapability
-                    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapability}`
+                  iframeCapabilityToken
+                    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`
                     : null
                 }
               />

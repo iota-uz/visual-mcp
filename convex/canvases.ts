@@ -382,12 +382,46 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
   let entryStorageId: Id<"_storage"> | undefined;
   let cssStorageId: Id<"_storage"> | undefined;
   let version: number | undefined;
+  let iframeRevision: string | null = null;
   if (canvas.currentVersionId) {
-    const currentVersion = await ctx.db.get(canvas.currentVersionId);
+    const currentVersionId = canvas.currentVersionId;
+    const currentVersion = await ctx.db.get(currentVersionId);
     docStorageId = currentVersion?.docStorageId;
     entryStorageId = currentVersion?.entryStorageId;
     cssStorageId = currentVersion?.cssStorageId;
     version = currentVersion?.version;
+    if (canvas.kind === "canvas") {
+      const [files, assets] = await Promise.all([
+        ctx.db
+          .query("canvasVersionFiles")
+          .withIndex("by_version_relPath", (q) => q.eq("versionId", currentVersionId))
+          .take(500),
+        ctx.db
+          .query("canvasVersionAssets")
+          .withIndex("by_version_path", (q) => q.eq("versionId", currentVersionId))
+          .take(500),
+      ]);
+      const manifest = [
+        ...files
+          .filter(
+            (file) =>
+              file.relPath.startsWith("/src/screens/") || file.relPath.startsWith("/assets/"),
+          )
+          .map((file) => `${file.relPath}:${file.contentHash}`),
+        ...assets.map((asset) => `${asset.logicalPath}:${asset.assetVersionId}`),
+      ]
+        .sort()
+        .join("\n");
+      // A compact deterministic resource identity. Geometry-only versions
+      // copy the same immutable file snapshot and therefore keep this value,
+      // allowing live iframes to remain resident while the canvas updates.
+      let hash = 2166136261;
+      for (let index = 0; index < manifest.length; index += 1) {
+        hash ^= manifest.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      iframeRevision = `${manifest.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+    }
   }
   const viewerArtifact = await getViewerArtifact(ctx, canvas);
   const viewerStorageId = viewerArtifact?.storageId ?? entryStorageId;
@@ -421,6 +455,7 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
       mime_type: artifact.mimeType,
       size_bytes: artifact.size,
     })),
+    iframe_revision: iframeRevision,
     version,
   };
 }
@@ -1767,7 +1802,11 @@ export const resolveIframeCapability = internalQuery({
       .unique();
     if (!capability || capability.expiresAt <= args.now) return null;
     const canvas = await ctx.db.get(capability.canvasId);
-    if (!canvas || canvas.currentVersionId !== capability.versionId) return null;
+    // Capabilities are already bound to an immutable version snapshot and
+    // expire quickly. A newer current version must not break screens that
+    // are still resident in a live viewer; it only causes the client to mint
+    // a new capability when the iframe resource manifest actually changes.
+    if (!canvas || canvas.archivedAt !== undefined) return null;
     const version = await ctx.db.get(capability.versionId);
     const allowed =
       (args.relPath.startsWith("/src/screens/") &&

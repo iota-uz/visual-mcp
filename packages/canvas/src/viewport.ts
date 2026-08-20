@@ -132,6 +132,10 @@ export interface ViewportOptions {
   onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
 }
 
+export interface ViewportUpdateOptions {
+  resolveIframeUrl?: (node: IframeNode) => string;
+}
+
 export interface ViewportController {
   fitAll(): void;
   resetView(): void;
@@ -139,8 +143,8 @@ export interface ViewportController {
   zoomAt(clientX: number, clientY: number, factor: number): void;
   activateIframe(id: string): void;
   deactivateIframe(): void;
-  /** Reconciles persisted rects without rebuilding the world or its iframes. */
-  updateCanvas(canvas: PositionedCanvas): void;
+  /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
+  updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
   dispose(): void;
 }
 
@@ -160,8 +164,9 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
 export function mountViewport(opts: ViewportOptions): ViewportController {
   const { container, canvas, onSelect } = opts;
   let liveCanvas = canvas;
+  let liveResolveIframeUrl = opts.resolveIframeUrl;
   const rendered = renderCanvas(liveCanvas, {
-    resolveIframeUrl: opts.resolveIframeUrl,
+    resolveIframeUrl: liveResolveIframeUrl,
     editable: opts.editable,
   });
 
@@ -206,7 +211,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   // work.
   const residentIframeIds = new Set<string>();
   const loadingIframeIds = new Set<string>();
-  const iframeLoadTimeouts = new Set<number>();
+  const iframeLoadTimeouts = new Map<string, number>();
 
   function paintView(): void {
     viewFrame = null;
@@ -416,7 +421,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       owner.dataset.iframeLoadState = state;
       if (state !== "loaded") loading.remove();
       window.clearTimeout(timeout);
-      iframeLoadTimeouts.delete(timeout);
+      if (iframeLoadTimeouts.get(id) === timeout) iframeLoadTimeouts.delete(id);
       if (state === "loaded") scheduleIframeSync(0);
       pumpIframeQueue();
     };
@@ -427,7 +432,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       owner.dataset.iframeReadinessDetail = "iframe load timed out";
       finish("timeout");
     }, IFRAME_LOAD_TIMEOUT_MS);
-    iframeLoadTimeouts.add(timeout);
+    iframeLoadTimeouts.set(id, timeout);
     placeholder.replaceWith(iframe, loading);
   }
 
@@ -515,7 +520,141 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (geometryFrame === null) geometryFrame = requestAnimationFrame(paintGeometry);
   }
 
-  function updateCanvas(nextCanvas: PositionedCanvas): void {
+  function iframeRuntimeSource(owner: HTMLElement): string | null {
+    return (
+      owner.querySelector<HTMLIFrameElement>("iframe")?.getAttribute("src") ??
+      owner.querySelector<HTMLElement>(".vc-iframe-placeholder[data-src]")?.dataset.src ??
+      null
+    );
+  }
+
+  function iframeRuntimeIdentity(node: PositionedNode): string | null {
+    if (node.kind !== "iframe") return null;
+    return JSON.stringify({
+      viewport: node.viewport,
+      frameKind: node.frame.kind,
+      sandbox: node.sandbox,
+      permissions: node.permissions,
+    });
+  }
+
+  /**
+   * Reconciles the declarative world around stable iframe owners. Moving an
+   * iframe in the DOM can recreate its browsing context in browsers, so a
+   * screen whose source/security identity did not change keeps its exact
+   * existing `.vc-node` element. Lanes, stages, labels, native nodes and SVG
+   * routes are cheap and are replaced from the new declarative render.
+   */
+  function reconcileCanvasDom(nextCanvas: PositionedCanvas): void {
+    const scratch = document.createElement("div");
+    scratch.innerHTML = renderCanvas(nextCanvas, {
+      resolveIframeUrl: liveResolveIframeUrl,
+      editable: opts.editable,
+    }).html;
+    const nextWorld = scratch.querySelector<HTMLElement>(".vc-world");
+    const nextNodesRoot = nextWorld?.querySelector<HTMLElement>(".vc-nodes");
+    if (!nextWorld || !nextNodesRoot) throw new Error("Unable to render reactive canvas update");
+
+    for (const selector of [".vc-lanes", ".vc-stages", ".vc-labels", ".vc-edges"] as const) {
+      const current = world.querySelector<HTMLElement>(selector);
+      const next = nextWorld.querySelector<HTMLElement>(selector);
+      if (current && next) current.replaceWith(next);
+    }
+
+    const previousById = new Map(liveCanvas.nodes.map((node) => [node.id, node]));
+    const nextById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
+    const selectedId = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
+    const nextElements = new Map(
+      [...nextNodesRoot.querySelectorAll<HTMLElement>(".vc-node")].map((element) => [
+        element.dataset.nodeId ?? "",
+        element,
+      ]),
+    );
+
+    for (const [id, nextNode] of nextById) {
+      const currentElement = nodesRoot.querySelector<HTMLElement>(
+        `[data-node-id="${CSS.escape(id)}"]`,
+      );
+      const nextElement = nextElements.get(id);
+      if (!nextElement) continue;
+      const previousNode = previousById.get(id);
+      const canKeepIframe =
+        currentElement &&
+        previousNode?.kind === "iframe" &&
+        nextNode.kind === "iframe" &&
+        iframeRuntimeIdentity(previousNode) === iframeRuntimeIdentity(nextNode) &&
+        iframeRuntimeSource(currentElement) === iframeRuntimeSource(nextElement);
+
+      if (canKeepIframe && currentElement) {
+        const stateClasses = ["selected", "dimmed", "iframe-active"].filter((name) =>
+          currentElement.classList.contains(name),
+        );
+        currentElement.className = nextElement.className;
+        currentElement.classList.add(...stateClasses);
+        currentElement.setAttribute("style", nextElement.getAttribute("style") ?? "");
+        currentElement.dataset.lane = nextElement.dataset.lane ?? "";
+        currentElement.dataset.stage = nextElement.dataset.stage ?? "";
+        const currentCaption = currentElement.querySelector(".vc-caption");
+        const nextCaption = nextElement.querySelector(".vc-caption");
+        if (currentCaption && nextCaption) currentCaption.replaceWith(nextCaption);
+        const currentStatus = currentElement.querySelector(".vc-phone-status");
+        const nextStatus = nextElement.querySelector(".vc-phone-status");
+        if (currentStatus && nextStatus) currentStatus.replaceWith(nextStatus);
+        continue;
+      }
+
+      if (currentElement) {
+        if (activeIframeId === id) deactivateIframe();
+        const timeout = iframeLoadTimeouts.get(id);
+        if (timeout !== undefined) window.clearTimeout(timeout);
+        iframeLoadTimeouts.delete(id);
+        residentIframeIds.delete(id);
+        loadingIframeIds.delete(id);
+        queuedIframeIds.delete(id);
+        currentElement.replaceWith(nextElement);
+      } else {
+        nodesRoot.append(nextElement);
+      }
+    }
+
+    for (const current of [...nodesRoot.querySelectorAll<HTMLElement>(".vc-node")]) {
+      const id = current.dataset.nodeId;
+      if (!id || nextById.has(id)) continue;
+      if (activeIframeId === id) deactivateIframe();
+      const timeout = iframeLoadTimeouts.get(id);
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      iframeLoadTimeouts.delete(id);
+      residentIframeIds.delete(id);
+      loadingIframeIds.delete(id);
+      queuedIframeIds.delete(id);
+      current.remove();
+    }
+
+    const currentLegend = container.querySelector<HTMLElement>(":scope > .vc-legend");
+    const nextLegend = scratch.querySelector<HTMLElement>(":scope > .vc-legend");
+    if (currentLegend && nextLegend) currentLegend.replaceWith(nextLegend);
+    else if (currentLegend) currentLegend.remove();
+    else if (nextLegend) container.insertBefore(nextLegend, minimap);
+
+    nodeById = nextById;
+    if (selectedId && nextById.has(selectedId)) selectNode(selectedId, false);
+    else if (selectedId) selectNode(null);
+  }
+
+  function updateCanvas(nextCanvas: PositionedCanvas, options?: ViewportUpdateOptions): void {
+    if (options?.resolveIframeUrl) liveResolveIframeUrl = options.resolveIframeUrl;
+    // Keep the node being manipulated under the pointer even if a remote
+    // version lands mid-drag. The subsequent optimistic save is based on the
+    // newest Convex version and becomes the next reactive update.
+    if (dragState?.nodeId && dragState.mode !== "pan") {
+      const local = nodeById.get(dragState.nodeId);
+      const incoming = nextCanvas.nodes.find((node) => node.id === dragState?.nodeId);
+      if (local && incoming) {
+        Object.assign(incoming.rect, local.rect);
+        Object.assign(incoming, { x: local.x, y: local.y, w: local.w, h: local.h });
+      }
+    }
+    reconcileCanvasDom(nextCanvas);
     liveCanvas = nextCanvas;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     for (const node of nextCanvas.nodes) updateNodeElement(node);
@@ -804,7 +943,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
       if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
       if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
-      for (const timeout of iframeLoadTimeouts) window.clearTimeout(timeout);
+      for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);

@@ -174,6 +174,138 @@ describe("viewer artifact selection", () => {
   });
 });
 
+describe("reactive canvas resources", () => {
+  test("iframe revision stays stable for geometry-only versions and changes with files", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Realtime canvas",
+      kind: "canvas",
+      createdBy,
+    });
+    const firstVersion = await t.run(async (ctx) => {
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy,
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/runtime.html",
+        storageId: await ctx.storage.store(new Blob(["one"])),
+        size: 3,
+        contentHash: "same-hash",
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/__canvas.html",
+        storageId: await ctx.storage.store(new Blob(["generated preview"])),
+        size: 17,
+        contentHash: "unrelated-generated-file",
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      return versionId;
+    });
+    const first = await t.query(internal.canvases.get, { canvasId });
+
+    const secondVersion = await t.run(async (ctx) => {
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 2,
+        createdBy,
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/runtime.html",
+        storageId: await ctx.storage.store(new Blob(["one"])),
+        size: 3,
+        contentHash: "same-hash",
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+      return versionId;
+    });
+    const geometryOnly = await t.query(internal.canvases.get, { canvasId });
+    expect(geometryOnly?.iframe_revision).toBe(first?.iframe_revision);
+
+    await t.run(async (ctx) => {
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 3,
+        createdBy,
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/runtime.html",
+        storageId: await ctx.storage.store(new Blob(["two"])),
+        size: 3,
+        contentHash: "different-hash",
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+    });
+    const changed = await t.query(internal.canvases.get, { canvasId });
+    expect(changed?.iframe_revision).not.toBe(geometryOnly?.iframe_revision);
+    expect(firstVersion).not.toBe(secondVersion);
+  });
+
+  test("a short-lived capability keeps serving its immutable version after a live update", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Capability canvas",
+      kind: "canvas",
+      createdBy,
+    });
+    const { token, oldStorageId } = await t.run(async (ctx) => {
+      const oldStorageId = await ctx.storage.store(new Blob(["old"]));
+      const oldVersionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy,
+        iframeEntrypoints: ["/src/screens/runtime.html"],
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId: oldVersionId,
+        relPath: "/src/screens/runtime.html",
+        storageId: oldStorageId,
+        size: 3,
+        contentHash: "old",
+      });
+      const newVersionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 2,
+        createdBy,
+        iframeEntrypoints: ["/src/screens/runtime.html"],
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: newVersionId });
+      const token = "immutable-version-capability";
+      await ctx.db.insert("iframeCapabilities", {
+        token,
+        canvasId,
+        versionId: oldVersionId,
+        userId: createdBy,
+        expiresAt: Date.now() + 60_000,
+      });
+      return { token, oldStorageId };
+    });
+
+    const resolved = await t.query(internal.canvases.resolveIframeCapability, {
+      token,
+      relPath: "/src/screens/runtime.html",
+      now: Date.now(),
+    });
+    expect(resolved?.storageId).toBe(oldStorageId);
+  });
+});
+
 describe("canvases.publish", () => {
   async function seedCanvas(t: ReturnType<typeof convexTest>) {
     const createdBy = await seedUser(t);
