@@ -15,9 +15,24 @@ describe("AssetPreview", () => {
     expect(await screen.findByAltText("Preview of Logo")).toHaveAttribute("src", "/logo.svg");
   });
 
-  test("renders a playable video preview without autoplay", async () => {
-    render(<AssetPreview assetId="video-1" kind="video" name="Demo" previewUrl="/demo.mp4" />);
+  test("keeps card videos passive and makes the full preview playable", async () => {
+    const { rerender } = render(
+      <AssetPreview assetId="video-1" kind="video" name="Demo" previewUrl="/demo.mp4" />,
+    );
     const video = await screen.findByLabelText("Preview of Demo");
+    expect(video).not.toHaveAttribute("controls");
+    expect(video).not.toHaveAttribute("autoplay");
+
+    rerender(
+      <AssetPreview
+        assetId="video-1"
+        kind="video"
+        name="Demo"
+        previewUrl="/demo.mp4"
+        mode="full"
+        eager
+      />,
+    );
     expect(video).toHaveAttribute("controls");
     expect(video).not.toHaveAttribute("autoplay");
   });

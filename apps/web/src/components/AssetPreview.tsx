@@ -3,18 +3,24 @@ import { useEffect, useRef, useState } from "react";
 
 export type PreviewableAssetKind = "image" | "svg" | "font" | "video" | "data";
 
-interface AssetPreviewProps {
+export interface AssetPreviewProps {
   assetId: string;
   kind: PreviewableAssetKind;
   name: string;
   previewUrl: string;
+  mode?: "card" | "full";
+  eager?: boolean;
 }
 
-function useNearViewport() {
+function useNearViewport(eager = false) {
   const ref = useRef<HTMLDivElement>(null);
-  const [nearViewport, setNearViewport] = useState(false);
+  const [nearViewport, setNearViewport] = useState(eager);
 
   useEffect(() => {
+    if (eager) {
+      setNearViewport(true);
+      return;
+    }
     const node = ref.current;
     if (!node) return;
     if (!("IntersectionObserver" in window)) {
@@ -32,7 +38,7 @@ function useNearViewport() {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [eager]);
 
   return { ref, nearViewport };
 }
@@ -67,7 +73,12 @@ function ImagePreview({ kind, name, previewUrl }: Omit<AssetPreviewProps, "asset
   );
 }
 
-function FontPreview({ assetId, name, previewUrl }: Omit<AssetPreviewProps, "kind">) {
+function FontPreview({
+  assetId,
+  name,
+  previewUrl,
+  mode = "card",
+}: Omit<AssetPreviewProps, "kind" | "eager">) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const family = `asset-preview-${assetId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
@@ -97,23 +108,29 @@ function FontPreview({ assetId, name, previewUrl }: Omit<AssetPreviewProps, "kin
   return (
     <div className={`asset-font-specimen${state === "ready" ? " ready" : ""}`}>
       <span className="asset-font-glyphs" style={{ fontFamily: family }} aria-hidden="true">
-        Aa
+        {mode === "full" ? "Aa Ўў Ғғ Ққ" : "Aa"}
       </span>
       <span className="asset-font-line" style={{ fontFamily: family }}>
-        {name} · 0123456789
+        {mode === "full"
+          ? `${name} — Oʻzbekiston, sugʻurta va ishonch · 0123456789`
+          : `${name} · 0123456789`}
       </span>
       {state === "loading" && <span className="visually-hidden">Loading font preview</span>}
     </div>
   );
 }
 
-function VideoPreview({ name, previewUrl }: Pick<AssetPreviewProps, "name" | "previewUrl">) {
+function VideoPreview({
+  name,
+  previewUrl,
+  mode = "card",
+}: Pick<AssetPreviewProps, "name" | "previewUrl" | "mode">) {
   const [failed, setFailed] = useState(false);
   if (failed) return <PreviewMessage kind="video" failed />;
   return (
     <video
       src={previewUrl}
-      controls
+      controls={mode === "full"}
       muted
       playsInline
       preload="metadata"
@@ -123,7 +140,11 @@ function VideoPreview({ name, previewUrl }: Pick<AssetPreviewProps, "name" | "pr
   );
 }
 
-function DataPreview({ name, previewUrl }: Pick<AssetPreviewProps, "name" | "previewUrl">) {
+function DataPreview({
+  name,
+  previewUrl,
+  mode = "card",
+}: Pick<AssetPreviewProps, "name" | "previewUrl" | "mode">) {
   const [preview, setPreview] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -134,13 +155,15 @@ function DataPreview({ name, previewUrl }: Pick<AssetPreviewProps, "name" | "pre
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const parsed: unknown = await response.json();
         const formatted = JSON.stringify(parsed, null, 2);
-        setPreview(formatted.length > 900 ? `${formatted.slice(0, 900)}\n…` : formatted);
+        setPreview(
+          mode === "card" && formatted.length > 900 ? `${formatted.slice(0, 900)}\n…` : formatted,
+        );
       })
       .catch((error: unknown) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) setFailed(true);
       });
     return () => controller.abort();
-  }, [previewUrl]);
+  }, [mode, previewUrl]);
 
   if (failed) return <PreviewMessage kind="data" failed />;
   if (preview === null) return <PreviewMessage kind="data" />;
@@ -152,21 +175,24 @@ function DataPreview({ name, previewUrl }: Pick<AssetPreviewProps, "name" | "pre
 }
 
 export function AssetPreview(props: AssetPreviewProps) {
-  const { ref, nearViewport } = useNearViewport();
-  const { assetId, kind, name, previewUrl } = props;
+  const { assetId, kind, name, previewUrl, mode = "card", eager = false } = props;
+  const { ref, nearViewport } = useNearViewport(eager);
 
   return (
-    <div ref={ref} className={`asset-preview-content asset-preview-content-${kind}`}>
+    <div
+      ref={ref}
+      className={`asset-preview-content asset-preview-content-${kind} asset-preview-content-${mode}`}
+    >
       {!nearViewport ? (
         <PreviewMessage kind={kind} />
       ) : kind === "image" || kind === "svg" ? (
         <ImagePreview kind={kind} name={name} previewUrl={previewUrl} />
       ) : kind === "font" ? (
-        <FontPreview assetId={assetId} name={name} previewUrl={previewUrl} />
+        <FontPreview assetId={assetId} name={name} previewUrl={previewUrl} mode={mode} />
       ) : kind === "video" ? (
-        <VideoPreview name={name} previewUrl={previewUrl} />
+        <VideoPreview name={name} previewUrl={previewUrl} mode={mode} />
       ) : (
-        <DataPreview name={name} previewUrl={previewUrl} />
+        <DataPreview name={name} previewUrl={previewUrl} mode={mode} />
       )}
     </div>
   );

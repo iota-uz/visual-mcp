@@ -5,6 +5,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
+import { AssetPreviewDialog } from "../components/AssetPreviewDialog";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
@@ -51,10 +52,23 @@ const MIME_LABELS: Record<string, string> = {
   "application/json": "JSON",
 };
 
-function AssetCard({ asset, onArchive }: { asset: AssetItem; onArchive: () => void }) {
+function AssetCard({
+  asset,
+  onArchive,
+  onPreview,
+}: {
+  asset: AssetItem;
+  onArchive: () => void;
+  onPreview: () => void;
+}) {
   return (
     <li className="asset-card">
-      <div className={`asset-preview asset-preview-${asset.kind}`}>
+      <button
+        type="button"
+        className={`asset-preview asset-preview-${asset.kind}`}
+        aria-label={`Open preview of ${asset.name}`}
+        onClick={onPreview}
+      >
         <AssetPreview
           assetId={asset.asset_id}
           kind={asset.kind}
@@ -63,7 +77,7 @@ function AssetCard({ asset, onArchive }: { asset: AssetItem; onArchive: () => vo
         />
         <span className="asset-kind">{asset.kind}</span>
         <span className="asset-revision">r{asset.revision}</span>
-      </div>
+      </button>
       <div className="asset-card-body">
         <div className="asset-card-title-row">
           <strong>{asset.name}</strong>
@@ -100,6 +114,7 @@ export function AssetsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importName, setImportName] = useState("");
+  const [previewAsset, setPreviewAsset] = useState<AssetItem | null>(null);
   const debouncedQuery = useDebouncedValue(query, 180);
   const listAssets = useAction(api.assets.listMine);
   const prepareUpload = useAction(api.assets.prepareUploadMine);
@@ -295,6 +310,7 @@ export function AssetsPage() {
             <AssetCard
               key={asset.asset_id}
               asset={asset}
+              onPreview={() => setPreviewAsset(asset)}
               onArchive={async () => {
                 await archiveAsset({ assetId: asset.asset_id, archived: true });
                 setAssets(
@@ -305,6 +321,22 @@ export function AssetsPage() {
             />
           ))}
         </ul>
+      )}
+      {previewAsset && (
+        <AssetPreviewDialog
+          asset={{
+            assetId: previewAsset.asset_id,
+            assetRef: previewAsset.asset_ref,
+            kind: previewAsset.kind,
+            mimeType: previewAsset.mime_type,
+            name: previewAsset.name,
+            originalFilename: previewAsset.original_filename,
+            previewUrl: previewAsset.preview_url,
+            revision: previewAsset.revision,
+            sizeBytes: previewAsset.size_bytes,
+          }}
+          onClose={() => setPreviewAsset(null)}
+        />
       )}
     </div>
   );

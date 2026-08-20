@@ -8,6 +8,7 @@ import { anchorPoint, routeEdges } from "../src/router.js";
 import { CanvasDocSchema } from "../src/types.js";
 import {
   cameraGridStyle,
+  clampCanvasScale,
   iframeActiveCandidates,
   iframePrewarmCandidates,
 } from "../src/viewport.js";
@@ -134,6 +135,13 @@ test("grid follows pan and uses readable zoom levels", () => {
   assert.equal(before.size, after.size);
   assert.notEqual(before.x, after.x);
   assert.notEqual(before.y, after.y);
+});
+test("camera supports both whole-canvas overviews and close inspection", () => {
+  assert.equal(clampCanvasScale(0), 0.005);
+  assert.equal(clampCanvasScale(0.001), 0.005);
+  assert.equal(clampCanvasScale(1), 1);
+  assert.equal(clampCanvasScale(4), 4);
+  assert.equal(clampCanvasScale(12), 8);
 });
 test("iframe prewarm is bounded, nearest-first, and disabled at fit-all scale", () => {
   const nodes = [

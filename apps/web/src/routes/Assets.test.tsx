@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AssetsPage } from "./Assets";
@@ -45,7 +46,7 @@ describe("AssetsPage", () => {
     expect(screen.getByRole("link", { name: "Workspaces" })).toHaveAttribute("href", "/");
   });
 
-  test("renders the real preview returned for an image asset", async () => {
+  test("opens and closes a fullscreen preview from an asset card", async () => {
     listAssetsMock.mockResolvedValue([
       {
         asset_id: "asset-1",
@@ -66,9 +67,20 @@ describe("AssetsPage", () => {
         preview_url: "/logo.svg",
       },
     ]);
+    const user = userEvent.setup();
     renderAssets();
 
     expect(await screen.findByAltText("Preview of Iota logo")).toHaveAttribute("src", "/logo.svg");
     expect(screen.getByText("SVG")).toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "Open preview of Iota logo" });
+    await user.click(trigger);
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Iota logo");
+    expect(screen.getAllByAltText("Preview of Iota logo")).toHaveLength(2);
+    expect(screen.getByText("logo.svg · image/svg+xml · 2 KB")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close preview of Iota logo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

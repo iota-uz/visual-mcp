@@ -4,8 +4,10 @@ import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
 import type { IframeNode, Rect } from "./types.js";
 
-const MIN_SCALE = 0.02;
-const MAX_SCALE = 1.35;
+// A wide camera range supports both whole-system overviews and close visual
+// inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
+const MIN_SCALE = 0.005;
+const MAX_SCALE = 8;
 const FIT_PADDING = 56;
 const IFRAME_PREWARM_SCALE = 0.24;
 const IFRAME_OVERSCAN_VIEWPORTS = 0.7;
@@ -103,6 +105,10 @@ export interface CameraGridStyle {
   size: number;
   x: number;
   y: number;
+}
+
+export function clampCanvasScale(scale: number): number {
+  return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
 }
 
 function positiveModulo(value: number, divisor: number): number {
@@ -247,16 +253,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (viewFrame === null) viewFrame = requestAnimationFrame(paintView);
   }
 
-  function clampScale(scale: number): number {
-    return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
-  }
-
   function zoomAt(clientX: number, clientY: number, factor: number): void {
     const localX = clientX - viewportRect.left;
     const localY = clientY - viewportRect.top;
     const worldX = (localX - view.x) / view.scale;
     const worldY = (localY - view.y) / view.scale;
-    const nextScale = clampScale(view.scale * factor);
+    const nextScale = clampCanvasScale(view.scale * factor);
     view.x = localX - worldX * nextScale;
     view.y = localY - worldY * nextScale;
     view.scale = nextScale;
@@ -264,7 +266,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function frameBounds(bounds: { x: number; y: number; w: number; h: number }): void {
-    const scale = clampScale(
+    const scale = clampCanvasScale(
       Math.min(
         (viewportRect.width - FIT_PADDING) / bounds.w,
         (viewportRect.height - FIT_PADDING) / bounds.h,
@@ -781,7 +783,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const centerX = (p0.x + p1.x) / 2;
       const centerY = (p0.y + p1.y) / 2;
       const distance = Math.max(1, Math.hypot(p1.x - p0.x, p1.y - p0.y));
-      const nextScale = clampScale((pinchState.startScale * distance) / pinchState.startDistance);
+      const nextScale = clampCanvasScale(
+        (pinchState.startScale * distance) / pinchState.startDistance,
+      );
       view.scale = nextScale;
       view.x = centerX - viewportRect.left - pinchState.worldX * nextScale;
       view.y = centerY - viewportRect.top - pinchState.worldY * nextScale;
