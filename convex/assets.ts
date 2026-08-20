@@ -803,6 +803,28 @@ export const archiveByRef = internalMutation({
   },
 });
 
+export const restoreByRef = internalMutation({
+  args: { assetRef: v.string(), userId: v.id("users") },
+  returns: v.object({ assetRef: v.string(), mode: v.literal("restored") }),
+  handler: async (ctx, args) => {
+    const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
+    const version = await latestAssetRevision(ctx, asset._id);
+    if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
+    if (asset.archivedAt !== undefined) {
+      await ctx.db.patch(asset._id, { archivedAt: undefined, updatedAt: Date.now() });
+    }
+    return {
+      assetRef: formatAssetRef({
+        scope: asset.scope,
+        workspaceSlug,
+        slug: asset.slug,
+        revision: version.revision,
+      }),
+      mode: "restored" as const,
+    };
+  },
+});
+
 export const moveByRef = internalMutation({
   args: {
     assetRef: v.string(),

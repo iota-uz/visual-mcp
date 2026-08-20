@@ -1475,7 +1475,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Archives the asset addressed by asset_ref. It disappears from asset_list and cannot be " +
         "attached again, while immutable revisions and existing canvas bindings keep working. " +
-        "This is reversible archival, never a hard purge of content-addressed bytes.",
+        "This is reversible archival, never a hard purge of content-addressed bytes. Call " +
+        "asset_restore with the returned asset_ref to make it available again.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
       inputSchema: z.object({ asset_ref: z.string() }),
       outputSchema: z.object({
@@ -1496,6 +1497,36 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           asset_ref: archived.assetRef,
           operation: archived.mode,
           reversible: archived.reversible,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "asset_restore",
+    {
+      title: "Restore an archived Asset Library item",
+      description:
+        "Restores the asset addressed by asset_ref to its original personal or workspace " +
+        "library. No bytes are uploaded and immutable revisions and existing canvas bindings " +
+        "remain unchanged. Repeating the same restore is safe.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z.object({ asset_ref: z.string() }),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        asset_ref: z.string(),
+        operation: z.literal("restored"),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const restored = await ctx.runMutation(internal.assets.restoreByRef, {
+          assetRef: input.asset_ref,
+          userId: principal.userId,
+        });
+        return result({
+          status: "ok" as const,
+          asset_ref: restored.assetRef,
+          operation: restored.mode,
         });
       }),
   );

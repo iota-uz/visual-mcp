@@ -1030,6 +1030,22 @@ describe("/mcp asset lifecycle", () => {
     });
     const listed = parse(await callTool(t, token, "asset_list", { scope: "personal" }));
     expect(listed.data).toMatchObject({ count: 0, assets: [] });
+
+    const restored = parse(
+      await callTool(t, token, "asset_restore", { asset_ref: "asset://personal/logo@1" }),
+    );
+    expect(restored.data).toMatchObject({
+      status: "ok",
+      asset_ref: "asset://personal/logo@1",
+      operation: "restored",
+    });
+    expect(
+      await t.query(internal.assets.listInternal, {
+        userId,
+        scope: "personal",
+        limit: 50,
+      }),
+    ).toHaveLength(1);
   });
 });
 

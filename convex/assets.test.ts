@@ -163,6 +163,29 @@ describe("Asset Library bindings", () => {
     );
     expect(binding?.assetVersionId).toBe(asset.versionId);
     expect(await t.run((ctx) => ctx.db.get(asset.versionId))).not.toBeNull();
+
+    const restored = await t.mutation(internal.assets.restoreByRef, {
+      assetRef: ref,
+      userId: seeded.userId,
+    });
+    expect(restored).toEqual({ assetRef: ref, mode: "restored" });
+    expect(
+      await t.query(internal.assets.listInternal, {
+        userId: seeded.userId,
+        scope: "workspace",
+        workspaceSlug: "archive-ws",
+        limit: 50,
+      }),
+    ).toHaveLength(1);
+    expect(
+      await t.query(internal.assets.resolveRef, { ref, userId: seeded.userId }),
+    ).toMatchObject({ assetVersionId: asset.versionId, assetRef: ref });
+    expect(
+      await t.mutation(internal.assets.restoreByRef, {
+        assetRef: ref,
+        userId: seeded.userId,
+      }),
+    ).toEqual({ assetRef: ref, mode: "restored" });
   });
 
   test("moves personal to workspace and back without changing immutable versions", async () => {
@@ -288,6 +311,18 @@ describe("Asset Library bindings", () => {
       t.mutation(internal.assets.archiveByRef, {
         assetRef: "asset://personal/logo@1",
         userId: ids.other,
+      }),
+    ).rejects.toThrow("Asset not found");
+    await expect(
+      t.mutation(internal.assets.restoreByRef, {
+        assetRef: "asset://personal/logo@1",
+        userId: ids.other,
+      }),
+    ).rejects.toThrow("Asset not found");
+    await expect(
+      t.mutation(internal.assets.restoreByRef, {
+        assetRef: "asset://workspace/two/logo@1",
+        userId: ids.owner,
       }),
     ).rejects.toThrow("Asset not found");
     await expect(

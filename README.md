@@ -48,7 +48,8 @@ Canvas tools use one `ref`, either a canvas id or
 | `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
 | `asset_attach` | Pins one immutable asset revision at an `/assets/…` canvas path. |
 | `asset_move` | Moves an asset between personal and workspace libraries without re-uploading bytes; old refs stop resolving for new work. |
-| `asset_delete` | Reversibly archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
+| `asset_delete` | Archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
+| `asset_restore` | Restores an archived asset to its original library without uploading bytes or changing immutable versions and bindings. |
 
 ### CanvasDoc v2 iframe nodes
 
