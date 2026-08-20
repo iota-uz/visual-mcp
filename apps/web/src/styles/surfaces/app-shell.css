@@ -5,15 +5,18 @@
    viewport height instead of living in normal padded document flow --- */
 .app-shell {
   display: flex;
+  width: 100%;
   height: 100dvh;
+  min-height: 0;
   overflow: hidden;
 }
 
 .app-content {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* A canvas is an immersive workspace, not another document page. Its

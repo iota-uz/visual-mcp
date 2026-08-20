@@ -30,6 +30,7 @@ import { RenameForm } from "../components/RenameForm";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
+import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { formatBytes } from "../lib/formatBytes";
@@ -207,7 +208,7 @@ function DrawerSection({
   return (
     <section className="drawer-section">
       <header className="drawer-section-head">
-        <span className="eyebrow">{label}</span>
+        <h3>{label}</h3>
         {aside && <span className="drawer-section-aside">{aside}</span>}
       </header>
       {children}
@@ -268,10 +269,13 @@ function PublishControl({
   }
 
   return (
-    <DrawerSection label="Share & Embed">
+    <DrawerSection label="Share">
       {visibility === "public" && shareUrl ? (
         <>
-          <p className="drawer-section-note">Anyone with this link can open it. No sign-in.</p>
+          <div className="share-status-row">
+            <span className="share-status share-status-public">Public</span>
+            <p className="drawer-section-note">Anyone with the link can open it.</p>
+          </div>
           {/* The whole point of publishing is handing someone a URL. This
               used to be dead muted text printing a *relative* path, so the
               one thing a human came here for had to be retyped by hand. */}
@@ -281,41 +285,47 @@ function PublishControl({
             value={shareUrl}
             copyLabel="Copy link"
           />
-          <div className="publish-control">
-            <ConfirmButton
-              label="Make private"
-              confirmLabel="Really make private?"
-              busyLabel="Updating…"
-              tone="warning"
-              icon={Lock}
-              description="Every link you have shared stops working."
-              onConfirm={unpublish}
+          <Disclosure summary="Manage link" className="share-disclosure">
+            <p className="drawer-section-note">
+              These actions immediately revoke links already in circulation.
+            </p>
+            <div className="publish-control">
+              <ConfirmButton
+                label="Make private"
+                confirmLabel="Really make private?"
+                busyLabel="Updating…"
+                tone="warning"
+                icon={Lock}
+                description="Every link you have shared stops working."
+                onConfirm={unpublish}
+              />
+              <ConfirmButton
+                label="Replace link"
+                confirmLabel="Really replace?"
+                busyLabel="Replacing…"
+                tone="warning"
+                icon={RefreshCw}
+                description="Mints a new link and permanently breaks the current one."
+                onConfirm={replaceLink}
+              />
+            </div>
+          </Disclosure>
+          <Disclosure summary="Embed in Markdown" className="share-disclosure embed-disclosure">
+            <EmbedControl
+              title={title}
+              publicSlug={publicSlug as string}
+              version={version}
+              doc={doc}
+              artifacts={artifacts}
             />
-            {/* "Rotate" is security jargon for what the user experiences as
-                swapping one URL for another. */}
-            <ConfirmButton
-              label="Replace link"
-              confirmLabel="Really replace?"
-              busyLabel="Replacing…"
-              tone="warning"
-              icon={RefreshCw}
-              description="Mints a new link and permanently breaks the current one."
-              onConfirm={replaceLink}
-            />
-          </div>
-          <EmbedControl
-            title={title}
-            publicSlug={publicSlug as string}
-            version={version}
-            doc={doc}
-            artifacts={artifacts}
-          />
+          </Disclosure>
         </>
       ) : (
         <>
-          <p className="drawer-section-note">
-            Private. Only signed-in @iota.uz accounts can open it.
-          </p>
+          <div className="share-status-row">
+            <span className="share-status">Private</span>
+            <p className="drawer-section-note">Only signed-in @iota.uz accounts can open it.</p>
+          </div>
           <div className="publish-control">
             <Button variant="primary" onClick={publishNow} busy={busy}>
               {busy ? "Publishing…" : "Publish"}

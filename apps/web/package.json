@@ -1,7 +1,7 @@
 {
   "name": "@visual-canvas/web",
   "version": "0.1.0-dev",
-  "description": "SPA (PLAN.md Part 1 section 1): workspaces, canvas gallery, viewer, MCP token settings. Talks to Convex directly via convex/react; built static and deployed to Railway (apps/web/Dockerfile, served by `serve -s`).",
+  "description": "SPA plus crawler-aware public-share server: workspaces, canvas gallery, viewer, MCP token settings, and per-canvas social metadata.",
   "private": true,
   "type": "module",
   "engines": {

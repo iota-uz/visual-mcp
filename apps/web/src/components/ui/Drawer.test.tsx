@@ -1,4 +1,4 @@
-import { render, screen, waitForElementToBeRemoved } from "@testing-library/react";
+import { fireEvent, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -77,6 +77,17 @@ describe("Drawer", () => {
     // which is exactly the path `prefers-reduced-motion` takes in a browser.
     await waitForElementToBeRemoved(dialog, { timeout: 2000 });
     expect(screen.queryByText("Version history")).not.toBeInTheDocument();
+  });
+
+  it("routes native Escape cancellation through onClose", async () => {
+    const user = userEvent.setup();
+    render(<Harness title="Details" />);
+    await user.click(screen.getByRole("button", { name: "Open details" }));
+    const dialog = await screen.findByRole("dialog", { name: "Details" });
+
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+
+    await waitForElementToBeRemoved(dialog, { timeout: 2000 });
   });
 
   it("closes when the press lands on the backdrop rather than the panel", async () => {

@@ -312,7 +312,7 @@ export function AssetsPage() {
               asset={asset}
               onPreview={() => setPreviewAsset(asset)}
               onArchive={async () => {
-                await archiveAsset({ assetId: asset.asset_id, archived: true });
+                await archiveAsset({ assetRef: asset.asset_ref });
                 setAssets(
                   (current) => current?.filter((item) => item.asset_id !== asset.asset_id) ?? [],
                 );

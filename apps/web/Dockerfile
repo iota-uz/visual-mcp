@@ -62,10 +62,9 @@ RUN npm run build --workspace=@visual-canvas/web
 FROM node:22-slim AS run
 ENV NODE_ENV=production
 WORKDIR /app
-RUN npm install --global serve@14
+ARG VITE_CONVEX_URL
+ENV VITE_CONVEX_URL=$VITE_CONVEX_URL
 COPY --from=build /repo/apps/web/dist ./dist
+COPY apps/web/server.mjs ./server.mjs
 EXPOSE 3000
-# `serve -s` rewrites every unmatched path to index.html. This is what makes
-# deep links like /c/:canvasId and /s/:slug work on a hard refresh, and it is
-# the only SPA-fallback mechanism now that the deploy is Railway-hosted.
-CMD ["sh", "-c", "serve -s dist -l ${PORT:-3000}"]
+CMD ["node", "server.mjs"]

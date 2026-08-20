@@ -248,6 +248,11 @@ export const write = internalMutation({
     for (const table of [
       "renders",
       "artifacts",
+      "canvasVersionAssets",
+      "canvasAssetBindings",
+      "assetVersions",
+      "assetUploads",
+      "assets",
       "canvasFiles",
       "canvasNodes",
       "canvasVersions",
@@ -315,6 +320,35 @@ export const write = internalMutation({
       slug: "sandbox",
       name: "Sandbox",
       description: "Deliberately empty, so the empty state is reachable.",
+      createdBy: userId,
+    });
+
+    // A storage-independent lifecycle fixture: move/archive operate only on
+    // metadata and immutable version ids, so MCP can exercise them locally
+    // even though the agent stack intentionally has no Railway object store.
+    const lifecycleAssetId = await ctx.db.insert("assets", {
+      scope: "workspace",
+      workspaceId: osago,
+      slug: "lifecycle-logo",
+      name: "Lifecycle logo",
+      description: "Local fixture for asset_move and asset_delete.",
+      tags: ["fixture", "brand"],
+      kind: "image",
+      searchText: "Lifecycle logo lifecycle-logo fixture brand",
+      createdBy: userId,
+      updatedAt: now,
+    });
+    await ctx.db.insert("assetVersions", {
+      assetId: lifecycleAssetId,
+      revision: 1,
+      sourceObjectKey: "local-fixture/source/lifecycle-logo",
+      deliveryObjectKey: "local-fixture/delivery/lifecycle-logo",
+      previewObjectKey: "local-fixture/delivery/lifecycle-logo",
+      contentHash: "local-fixture-lifecycle-logo",
+      mimeType: "image/png",
+      size: 1,
+      originalFilename: "lifecycle-logo.png",
+      sourceType: "upload",
       createdBy: userId,
     });
 

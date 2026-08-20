@@ -1808,6 +1808,36 @@ const PublicEmbedCardValidator = v.object({
   previewStorageId: v.optional(v.id("_storage")),
 });
 
+const PublicSocialMetadataValidator = v.object({
+  title: v.string(),
+  description: v.string(),
+  version: v.number(),
+  updatedAt: v.number(),
+  thumbnailStorageId: v.optional(v.id("_storage")),
+});
+
+/** Minimal anonymous metadata used by the web origin's crawler-facing HTML. */
+export const resolvePublicSocialMetadata = internalQuery({
+  args: { publicSlug: v.string() },
+  returns: v.union(v.null(), PublicSocialMetadataValidator),
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db
+      .query("canvases")
+      .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
+      .unique();
+    if (canvas?.visibility !== "public" || canvas.archivedAt !== undefined) return null;
+    const version = canvas.currentVersionId ? await ctx.db.get(canvas.currentVersionId) : null;
+    if (!version) return null;
+    return {
+      title: canvas.title,
+      description: canvas.description?.trim() || "A visual canvas shared from Visual Canvas.",
+      version: version.version,
+      updatedAt: canvas.updatedAt,
+      thumbnailStorageId: canvas.thumbnailId,
+    };
+  },
+});
+
 /**
  * Metadata for the static image card used by GitHub/Markdown. This is not a
  * second viewer: the card is only an image, and its surrounding Markdown

@@ -181,11 +181,12 @@
  */
 .canvas-details {
   --drawer-body-padding: 0;
+  --drawer-width: clamp(520px, 42vw, 560px);
 }
 
-.canvas-details-identity,
-.drawer-section {
+.canvas-details-identity {
   padding: var(--app-space-4);
+  background: linear-gradient(180deg, var(--app-paper), var(--app-white));
   border-bottom: 1px solid var(--app-line);
 }
 
@@ -240,7 +241,12 @@
 .drawer-section {
   display: flex;
   flex-direction: column;
-  gap: var(--app-space-2);
+  gap: var(--app-space-3);
+  margin: var(--app-space-3) var(--app-space-4) 0;
+  padding: var(--app-space-4);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
 }
 
 .drawer-section-head {
@@ -248,6 +254,13 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--app-space-2);
+}
+
+.drawer-section-head h3 {
+  margin: 0;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-base);
+  font-weight: 750;
 }
 
 .drawer-section-aside {
@@ -267,8 +280,12 @@
   gap: var(--app-space-3);
   min-width: 0;
   margin-top: var(--app-space-2);
-  padding-top: var(--app-space-4);
-  border-top: 1px solid var(--app-line);
+}
+
+/* This belongs in the surface layer: .embed-control's author-level flex
+   display can otherwise outrank the browser's closed-details stylesheet. */
+.canvas-details .share-disclosure:not([open]) > :not(summary) {
+  display: none;
 }
 
 .embed-control-grid {
@@ -316,7 +333,9 @@
 
 /* Alone, at the end, well away from everything reversible. */
 .canvas-details-danger {
+  margin-top: var(--app-space-6);
   padding: var(--app-space-4);
+  border-top: 1px solid var(--app-line);
 }
 
 .canvas-page-loading {
@@ -426,6 +445,10 @@
 
 @media (max-width: 640px) {
   .canvas-details {
-    --drawer-width: calc(100% - 24px);
+    --drawer-width: calc(100% - max(16px, env(safe-area-inset-left)));
+  }
+
+  .drawer-section {
+    margin-inline: var(--app-space-3);
   }
 }

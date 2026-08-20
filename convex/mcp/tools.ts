@@ -1469,6 +1469,75 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   );
 
   server.registerTool(
+    "asset_delete",
+    {
+      title: "Archive an Asset Library item",
+      description:
+        "Archives the asset addressed by asset_ref. It disappears from asset_list and cannot be " +
+        "attached again, while immutable revisions and existing canvas bindings keep working. " +
+        "This is reversible archival, never a hard purge of content-addressed bytes.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      inputSchema: z.object({ asset_ref: z.string() }),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        asset_ref: z.string(),
+        operation: z.literal("archived"),
+        reversible: z.boolean(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const archived = await ctx.runMutation(internal.assets.archiveByRef, {
+          assetRef: input.asset_ref,
+          userId: principal.userId,
+        });
+        return result({
+          status: "ok" as const,
+          asset_ref: archived.assetRef,
+          operation: archived.mode,
+          reversible: archived.reversible,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "asset_move",
+    {
+      title: "Move an Asset Library item",
+      description:
+        "Moves an asset between personal and workspace libraries without uploading bytes again. " +
+        "For destination_scope=workspace, destination_workspace is required. The old asset_ref " +
+        "stops resolving for new operations; existing canvas bindings remain pinned to their " +
+        "immutable revisions. A destination slug collision is returned as an error and never overwrites.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({
+        asset_ref: z.string(),
+        destination_scope: assetScopeSchema,
+        destination_workspace: z.string().optional(),
+      }),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        previous_asset_ref: z.string(),
+        asset_ref: z.string(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const moved = await ctx.runMutation(internal.assets.moveByRef, {
+          assetRef: input.asset_ref,
+          userId: principal.userId,
+          destinationScope: input.destination_scope,
+          destinationWorkspaceSlug: input.destination_workspace,
+        });
+        return result({
+          status: "ok" as const,
+          previous_asset_ref: moved.previousAssetRef,
+          asset_ref: moved.assetRef,
+        });
+      }),
+  );
+
+  server.registerTool(
     "asset_upload_url",
     {
       title: "Upload media to the Asset Library",

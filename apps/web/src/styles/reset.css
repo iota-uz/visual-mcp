@@ -6,6 +6,18 @@
   box-sizing: border-box;
 }
 
+/* The application owns the viewport. Route surfaces decide which internal
+   region scrolls; letting the document participate creates a second scroll
+   container that can move the signed-in shell and its navigation offscreen. */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /*
  * The paper: the same 24px dot grid the canvas viewport paints behind its
  * nodes (packages/canvas .vc-viewport::before), at a sixth of the ink,

@@ -248,6 +248,40 @@ function embedCardHeaders(pinned: boolean): Headers {
   });
 }
 
+// Private canvases and revoked slugs deliberately collapse to the same 404.
+// The SPA production server consumes this endpoint server-to-server to build
+// crawler-visible metadata without exposing any authenticated query surface.
+http.route({
+  pathPrefix: "/social/",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const slug = decodeURIComponent(new URL(request.url).pathname.slice("/social/".length));
+    if (!slug || slug.includes("/")) return new Response("Not found", { status: 404 });
+    const metadata = await ctx.runQuery(internal.canvases.resolvePublicSocialMetadata, {
+      publicSlug: slug,
+    });
+    if (!metadata) return new Response("Not found", { status: 404 });
+    return Response.json(
+      {
+        title: metadata.title,
+        description: metadata.description,
+        version: metadata.version,
+        updated_at: metadata.updatedAt,
+        thumbnail_url: metadata.thumbnailStorageId
+          ? await ctx.storage.getUrl(metadata.thumbnailStorageId)
+          : null,
+      },
+      {
+        headers: {
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "access-control-allow-origin": process.env.SPA_ORIGIN ?? "null",
+        },
+      },
+    );
+  }),
+});
+
 // `GET /s/:slug` and `/s/:slug/*` — anonymous, cookieless artifact serving
 // (PLAN.md Part 1 section 8). Convex's httpRouter has no named-param
 // syntax (see convex/server's RouteSpec: only exact `path` or

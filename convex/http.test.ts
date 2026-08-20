@@ -964,6 +964,75 @@ describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {
   });
 });
 
+describe("/mcp asset lifecycle", () => {
+  function parse(response: { result?: unknown }) {
+    const result = response.result as {
+      content?: Array<{ type: string; text?: string }>;
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    };
+    const text = result.content?.find((item) => item.type === "text")?.text ?? "";
+    const data = result.isError ? {} : (result.structuredContent ?? JSON.parse(text || "{}"));
+    return { isError: result.isError, text, data };
+  }
+
+  test("moves without re-uploading, invalidates the old ref, and archives reversibly", async () => {
+    const t = convexTest(schema, modules);
+    const { token, userId } = await seedUserWithToken(t);
+    const workspaceId = await t.run((ctx) =>
+      ctx.db.insert("workspaces", { slug: "brand", name: "Brand", createdBy: userId }),
+    );
+    const asset = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      ownerUserId: userId,
+      workspaceId,
+      workspaceSlug: "brand",
+      slug: "logo",
+      name: "Logo",
+      tags: ["brand"],
+      kind: "image",
+      sourceObjectKey: "source/logo",
+      deliveryObjectKey: "delivery/logo",
+      previewObjectKey: "delivery/logo",
+      contentHash: "logo-hash",
+      mimeType: "image/png",
+      size: 12,
+      originalFilename: "logo.png",
+      sourceType: "upload",
+    });
+    const previousRef = "asset://workspace/brand/logo@1";
+    const moved = parse(
+      await callTool(t, token, "asset_move", {
+        asset_ref: previousRef,
+        destination_scope: "personal",
+      }),
+    );
+    expect(moved.isError).toBeFalsy();
+    expect(moved.data).toMatchObject({
+      status: "ok",
+      previous_asset_ref: previousRef,
+      asset_ref: "asset://personal/logo@1",
+    });
+    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.deliveryObjectKey).toBe(
+      "delivery/logo",
+    );
+    expect(parse(await callTool(t, token, "asset_get", { asset_ref: previousRef })).isError).toBe(
+      true,
+    );
+
+    const archived = parse(
+      await callTool(t, token, "asset_delete", { asset_ref: "asset://personal/logo@1" }),
+    );
+    expect(archived.data).toMatchObject({
+      status: "ok",
+      operation: "archived",
+      reversible: true,
+    });
+    const listed = parse(await callTool(t, token, "asset_list", { scope: "personal" }));
+    expect(listed.data).toMatchObject({ count: 0, assets: [] });
+  });
+});
+
 describe("GET /s/:slug", () => {
   async function seedPublicCanvasWithArtifact(
     t: ReturnType<typeof convexTest>,
@@ -1070,6 +1139,24 @@ describe("GET /s/:slug", () => {
     await seedPublicCanvasWithArtifact(t, { visibility: "private" });
     const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
     expect(res.status).toBe(404);
+  });
+
+  test("serves crawler metadata only while the public slug is live", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    const live = await t.fetch("/social/pub-slug-123");
+    expect(live.status).toBe(200);
+    expect(live.headers.get("cache-control")).toBe("no-store");
+    expect(await live.json()).toMatchObject({
+      title: "Public Canvas",
+      description: "A visual canvas shared from Visual Canvas.",
+      version: 1,
+      thumbnail_url: null,
+    });
+
+    await t.run((ctx) => ctx.db.patch(canvasId, { visibility: "private", publicSlug: undefined }));
+    expect((await t.fetch("/social/pub-slug-123")).status).toBe(404);
+    expect((await t.fetch("/social/never-minted")).status).toBe(404);
   });
 
   test("serves a script-free pinned GitHub/Markdown preview card", async () => {

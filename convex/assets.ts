@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { ActionCtx, QueryCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { formatAssetRef, parseAssetRef } from "./lib/assetRef";
 import {
@@ -76,6 +76,46 @@ type AssetListRow = {
   preview_object_key: string;
 };
 type PublicAssetListRow = Omit<AssetListRow, "preview_object_key"> & { preview_url: string };
+
+type AssetLookupCtx = QueryCtx | MutationCtx;
+
+async function findAssetForRef(
+  ctx: AssetLookupCtx,
+  ref: string,
+  userId: Id<"users">,
+): Promise<{ asset: Doc<"assets">; workspaceSlug?: string }> {
+  const parsed = parseAssetRef(ref);
+  if (parsed.scope === "personal") {
+    const asset = await ctx.db
+      .query("assets")
+      .withIndex("by_owner_slug", (q) => q.eq("ownerUserId", userId).eq("slug", parsed.slug))
+      .unique();
+    if (!asset) throw new Error(`Asset not found: ${ref}`);
+    return { asset };
+  }
+
+  const workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_slug", (q) => q.eq("slug", parsed.workspaceSlug))
+    .unique();
+  if (!workspace || workspace.archivedAt !== undefined) throw new Error(`Asset not found: ${ref}`);
+  const asset = await ctx.db
+    .query("assets")
+    .withIndex("by_workspace_slug", (q) =>
+      q.eq("workspaceId", workspace._id).eq("slug", parsed.slug),
+    )
+    .unique();
+  if (!asset) throw new Error(`Asset not found: ${ref}`);
+  return { asset, workspaceSlug: workspace.slug };
+}
+
+async function latestAssetRevision(ctx: AssetLookupCtx, assetId: Id<"assets">) {
+  return ctx.db
+    .query("assetVersions")
+    .withIndex("by_asset_revision", (q) => q.eq("assetId", assetId))
+    .order("desc")
+    .first();
+}
 
 async function userIdForSubject(ctx: QueryCtx, subject: string): Promise<Id<"users">> {
   const direct = subject.includes("|") ? subject.split("|")[0] : null;
@@ -701,31 +741,8 @@ export const resolveRef = internalQuery({
   }),
   handler: async (ctx, args) => {
     const parsed = parseAssetRef(args.ref);
-    let workspace: Doc<"workspaces"> | null = null;
-    let resolvedWorkspaceSlug: string | undefined;
-    const asset =
-      parsed.scope === "personal"
-        ? await ctx.db
-            .query("assets")
-            .withIndex("by_owner_slug", (q) =>
-              q.eq("ownerUserId", args.userId).eq("slug", parsed.slug),
-            )
-            .unique()
-        : await (async () => {
-            workspace = await ctx.db
-              .query("workspaces")
-              .withIndex("by_slug", (q) => q.eq("slug", parsed.workspaceSlug))
-              .unique();
-            if (!workspace) return null;
-            resolvedWorkspaceSlug = workspace.slug;
-            return ctx.db
-              .query("assets")
-              .withIndex("by_workspace_slug", (q) =>
-                q.eq("workspaceId", workspace?._id).eq("slug", parsed.slug),
-              )
-              .unique();
-          })();
-    if (!asset || asset.archivedAt !== undefined) throw new Error(`Asset not found: ${args.ref}`);
+    const { asset, workspaceSlug } = await findAssetForRef(ctx, args.ref, args.userId);
+    if (asset.archivedAt !== undefined) throw new Error(`Asset not found: ${args.ref}`);
     const version = parsed.revision
       ? await ctx.db
           .query("assetVersions")
@@ -750,7 +767,118 @@ export const resolveRef = internalQuery({
       previewObjectKey: version.previewObjectKey,
       assetRef: formatAssetRef({
         scope: asset.scope,
-        workspaceSlug: resolvedWorkspaceSlug,
+        workspaceSlug,
+        slug: asset.slug,
+        revision: version.revision,
+      }),
+    };
+  },
+});
+
+async function archiveAssetByRef(
+  ctx: MutationCtx,
+  args: { assetRef: string; userId: Id<"users"> },
+) {
+  const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
+  const version = await latestAssetRevision(ctx, asset._id);
+  if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
+  await ctx.db.patch(asset._id, { archivedAt: Date.now(), updatedAt: Date.now() });
+  return {
+    assetRef: formatAssetRef({
+      scope: asset.scope,
+      workspaceSlug,
+      slug: asset.slug,
+      revision: version.revision,
+    }),
+    mode: "archived" as const,
+    reversible: true,
+  };
+}
+
+export const archiveByRef = internalMutation({
+  args: { assetRef: v.string(), userId: v.id("users") },
+  returns: v.object({ assetRef: v.string(), mode: v.literal("archived"), reversible: v.boolean() }),
+  handler: async (ctx, args) => {
+    return archiveAssetByRef(ctx, args);
+  },
+});
+
+export const moveByRef = internalMutation({
+  args: {
+    assetRef: v.string(),
+    userId: v.id("users"),
+    destinationScope: scopeValidator,
+    destinationWorkspaceSlug: v.optional(v.string()),
+  },
+  returns: v.object({ previousAssetRef: v.string(), assetRef: v.string() }),
+  handler: async (ctx, args) => {
+    const { asset, workspaceSlug: sourceWorkspaceSlug } = await findAssetForRef(
+      ctx,
+      args.assetRef,
+      args.userId,
+    );
+    if (asset.archivedAt !== undefined) throw new Error(`Asset not found: ${args.assetRef}`);
+    const version = await latestAssetRevision(ctx, asset._id);
+    if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
+
+    let destinationWorkspace: Doc<"workspaces"> | null = null;
+    if (args.destinationScope === "workspace") {
+      if (!args.destinationWorkspaceSlug) {
+        throw new Error("destination_workspace is required for workspace assets");
+      }
+      destinationWorkspace = await ctx.db
+        .query("workspaces")
+        .withIndex("by_slug", (q) => q.eq("slug", args.destinationWorkspaceSlug as string))
+        .unique();
+      if (!destinationWorkspace || destinationWorkspace.archivedAt !== undefined) {
+        throw new Error("Destination workspace not found");
+      }
+    } else if (args.destinationWorkspaceSlug) {
+      throw new Error("destination_workspace is only valid for workspace assets");
+    }
+
+    const sameDestination =
+      asset.scope === args.destinationScope &&
+      (asset.scope === "personal" || asset.workspaceId === destinationWorkspace?._id);
+    if (sameDestination) throw new Error("Asset is already in the destination library");
+
+    const collision =
+      args.destinationScope === "personal"
+        ? await ctx.db
+            .query("assets")
+            .withIndex("by_owner_slug", (q) =>
+              q.eq("ownerUserId", args.userId).eq("slug", asset.slug),
+            )
+            .unique()
+        : await ctx.db
+            .query("assets")
+            .withIndex("by_workspace_slug", (q) =>
+              q.eq("workspaceId", destinationWorkspace?._id).eq("slug", asset.slug),
+            )
+            .unique();
+    if (collision) {
+      throw new Error(
+        `An asset with slug "${asset.slug}" already exists in the destination library`,
+      );
+    }
+
+    const previousAssetRef = formatAssetRef({
+      scope: asset.scope,
+      workspaceSlug: sourceWorkspaceSlug,
+      slug: asset.slug,
+      revision: version.revision,
+    });
+    await ctx.db.patch(asset._id, {
+      scope: args.destinationScope,
+      ownerUserId: args.destinationScope === "personal" ? args.userId : undefined,
+      workspaceId: args.destinationScope === "workspace" ? destinationWorkspace?._id : undefined,
+      updatedAt: Date.now(),
+    });
+    return {
+      previousAssetRef,
+      assetRef: formatAssetRef({
+        scope: args.destinationScope,
+        workspaceSlug: destinationWorkspace?.slug,
         slug: asset.slug,
         revision: version.revision,
       }),
@@ -829,21 +957,12 @@ export const listForCanvasMine = query({
 });
 
 export const archiveMine = mutation({
-  args: { assetId: v.id("assets"), archived: v.boolean() },
-  returns: v.object({ archived: v.boolean() }),
+  args: { assetRef: v.string() },
+  returns: v.object({ assetRef: v.string(), mode: v.literal("archived"), reversible: v.boolean() }),
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
     const userId = await resolveUserId(ctx, identity);
     if (!userId) throw new Error("Signed-in user record not found");
-    const asset = await ctx.db.get(args.assetId);
-    if (!asset) throw new Error("Asset not found");
-    if (asset.scope === "personal" && asset.ownerUserId !== userId) {
-      throw new Error("Asset not found");
-    }
-    await ctx.db.patch(asset._id, {
-      archivedAt: args.archived ? Date.now() : undefined,
-      updatedAt: Date.now(),
-    });
-    return { archived: args.archived };
+    return archiveAssetByRef(ctx, { assetRef: args.assetRef, userId });
   },
 });

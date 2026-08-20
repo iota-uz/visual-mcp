@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--app-white);
   border-right: 1px solid var(--app-line);
   padding: var(--app-space-4) var(--app-space-3);
@@ -29,6 +30,7 @@
   flex-direction: column;
   gap: var(--app-space-1);
   flex: 1;
+  min-height: 0;
 }
 
 .app-sidebar-link {

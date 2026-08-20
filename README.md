@@ -47,6 +47,8 @@ Canvas tools use one `ref`, either a canvas id or
 | `asset_upload_url` / `asset_finalize` | Direct-to-S3 binary upload followed by validation and immutable revision creation. |
 | `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
 | `asset_attach` | Pins one immutable asset revision at an `/assets/…` canvas path. |
+| `asset_move` | Moves an asset between personal and workspace libraries without re-uploading bytes; old refs stop resolving for new work. |
+| `asset_delete` | Reversibly archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
 
 ### CanvasDoc v2 iframe nodes
 
@@ -73,8 +75,9 @@ Convex is the control plane (metadata, auth, versions, bindings, `/mcp` and
 `/s/:slug`). Private Railway S3-compatible buckets store Asset Library source
 and delivery objects. Two Railway services provide a render worker (Playwright/Chromium, D2,
 Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
-Vite+React SPA (Dockerfile static build, served via `serve -s`) for the
-human-facing gallery/viewer, live at
+Vite+React SPA plus a minimal Node static server for the human-facing
+gallery/viewer. The server injects canvas-specific OG/Twitter metadata into
+the initial `/s/:slug` HTML and proxies a revocable raster social preview. It is live at
 https://canvas.iota.uz. Full design, current
 milestone status, and accepted risks: [PLAN.md](./PLAN.md).
 
@@ -88,9 +91,8 @@ packages/canvas/    the canvas-document engine (types, layout, edge
                      routing, render, browser viewport) — isomorphic
 convex/             schema, queries/mutations/actions, /mcp and /s/:slug
 apps/worker/        Hono worker: render/exec plus DNS-pinned HTTPS asset import (Railway)
-apps/web/           Vite + React SPA (workspaces, canvas gallery, viewer,
-                     MCP token settings) — builds static, deploys to Railway
-                     (Dockerfile + serve)
+apps/web/           Vite + React SPA and crawler-aware static server
+                     (workspaces, gallery, viewer, MCP tokens, social cards)
 scripts/            mint-mcp-token.mjs — local token minting (see above)
 ```
 
@@ -119,8 +121,8 @@ Live at https://canvas.iota.uz (Railway project
 Vite app in a monorepo-aware multi-stage build (see the Dockerfile's own
 comments for why it needs a *bare* `npm ci` — no `--workspace=` flags —
 plus the full `convex/`, `packages/canvas/`, and `packages/runtime/`
-sources, not just `apps/web/`) and serves the static output with `serve -s`
-for SPA-route fallback.
+sources, not just `apps/web/`). `server.mjs` preserves SPA-route fallback and
+serves dynamic, safely escaped social metadata for public share links.
 
 To redeploy or stand up a fresh copy:
 

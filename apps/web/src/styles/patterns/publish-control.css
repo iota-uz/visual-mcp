@@ -10,3 +10,40 @@
 .share-link-row {
   width: 100%;
 }
+
+.share-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+.share-status {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+}
+
+.share-status-public {
+  border-color: color-mix(in srgb, var(--app-success) 38%, var(--app-line));
+  background: color-mix(in srgb, var(--app-success) 9%, var(--app-white));
+  color: var(--app-success);
+}
+
+.share-disclosure {
+  --disclosure-summary-color: var(--app-ink-soft);
+  --disclosure-summary-padding: var(--app-space-2) 0;
+  border-top: 1px solid var(--app-line);
+}
+
+.share-disclosure[open] {
+  padding-bottom: var(--app-space-1);
+}
+
+.share-disclosure > .drawer-section-note,
+.share-disclosure > .publish-control {
+  margin-bottom: var(--app-space-2);
+}
