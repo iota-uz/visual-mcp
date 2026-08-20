@@ -1039,6 +1039,26 @@ describe("GET /s/:slug", () => {
     expect(csp).toMatch(/script-src[^;]*cdn\.tailwindcss\.com/);
   });
 
+  test("scopes workspace-root references inside public HTML", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t, {
+      body: [
+        '<img src="/assets/screen.png">',
+        '<script>const runtime="/src/runtime.js";</script>',
+        "<style>.hero{background:url(/assets/background.png)}</style>",
+        '<img src="https://cdn.example/assets/external.png">',
+      ].join(""),
+    });
+
+    const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
+    const html = await res.text();
+
+    expect(html).toContain('src="/s/pub-slug-123/assets/screen.png"');
+    expect(html).toContain('runtime="/s/pub-slug-123/src/runtime.js"');
+    expect(html).toContain("url(/s/pub-slug-123/assets/background.png)");
+    expect(html).toContain('src="https://cdn.example/assets/external.png"');
+  });
+
   test("404s for an unknown slug", async () => {
     const t = convexTest(schema, modules);
     const res = await t.fetch("/s/does-not-exist", { method: "GET" });
@@ -1143,17 +1163,19 @@ describe("GET /s/:slug", () => {
 
   test("SVG is served as an attachment, never inline", async () => {
     const t = convexTest(schema, modules);
+    const svg = '<svg><image href="/assets/logo.png"/></svg>';
     await seedPublicCanvasWithArtifact(t, {
       artifactType: "svg",
       artifactMime: "image/svg+xml",
       relPath: "/output/diagram.svg",
-      body: "<svg></svg>",
+      body: svg,
     });
 
     const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
     expect(res.headers.get("content-disposition")).toMatch(/diagram\.svg/);
+    expect(await res.text()).toBe(svg);
   });
 
   // A shared HTML artifact is a *page*, and a page has subresources. Until
@@ -1282,5 +1304,92 @@ describe("GET /s/:slug", () => {
     const res = await t.fetch("/s/pub-slug-123/assets/logo.png", { method: "GET" });
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /i/:capability", () => {
+  test("keeps iframe HTML, scripts, styles and assets inside the immutable capability", async () => {
+    const t = convexTest(schema, modules);
+    const token = "private-iframe-capability";
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        googleSub: "capability-owner",
+        email: "owner@iota.uz",
+        name: "Owner",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "private-workspace",
+        name: "Private workspace",
+        createdBy: userId,
+      });
+      const canvasId = await ctx.db.insert("canvases", {
+        workspaceId,
+        slug: "private-canvas",
+        title: "Private canvas",
+        kind: "canvas",
+        visibility: "private",
+        createdBy: userId,
+        updatedAt: 0,
+      });
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy: userId,
+        iframeEntrypoints: ["/src/screens/runtime.html"],
+      });
+      await ctx.db.patch(canvasId, { currentVersionId: versionId });
+
+      for (const [relPath, body] of [
+        [
+          "/src/screens/runtime.html",
+          [
+            '<link rel="stylesheet" href="/src/screen.css">',
+            '<img src="/assets/screens/screen.png">',
+            '<script>const runtime="/src/runtime.js";</script>',
+            '<img src="https://cdn.example/assets/external.png">',
+          ].join(""),
+        ],
+        ["/src/screen.css", ".hero{background:url(/assets/background.png)}"],
+        ["/assets/screens/screen.png", "PNG"],
+      ] as const) {
+        const storageId = await ctx.storage.store(new Blob([body]));
+        await ctx.db.insert("canvasVersionFiles", {
+          canvasId,
+          versionId,
+          relPath,
+          storageId,
+          size: body.length,
+          contentHash: `hash:${relPath}`,
+        });
+      }
+      await ctx.db.insert("iframeCapabilities", {
+        token,
+        canvasId,
+        versionId,
+        userId,
+        expiresAt: Date.now() + 60_000,
+      });
+    });
+
+    const htmlResponse = await t.fetch(`/i/${token}/src/screens/runtime.html`);
+    const html = await htmlResponse.text();
+    expect(htmlResponse.status).toBe(200);
+    expect(html).toContain(`href="/i/${token}/src/screen.css"`);
+    expect(html).toContain(`src="/i/${token}/assets/screens/screen.png"`);
+    expect(html).toContain(`runtime="/i/${token}/src/runtime.js"`);
+    expect(html).toContain('src="https://cdn.example/assets/external.png"');
+    expect(html).toContain("visual-canvas:readiness");
+
+    const cssResponse = await t.fetch(`/i/${token}/src/screen.css`);
+    expect(cssResponse.status).toBe(200);
+    expect(await cssResponse.text()).toBe(
+      `.hero{background:url(/i/${token}/assets/background.png)}`,
+    );
+
+    const assetResponse = await t.fetch(`/i/${token}/assets/screens/screen.png`);
+    expect(assetResponse.status).toBe(200);
+    expect(await assetResponse.text()).toBe("PNG");
+    expect((await t.fetch("/assets/screens/screen.png")).status).toBe(404);
   });
 });

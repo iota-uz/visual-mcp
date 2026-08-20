@@ -166,6 +166,45 @@ function iframeBridge(nonce: string): string {
   return `<script nonce="${nonce}">(function(){const send=(state,detail)=>parent.postMessage({type:'visual-canvas:readiness',state,detail},'*');const style=document.createElement('style');style.textContent='html[data-visual-canvas-suspended] *,html[data-visual-canvas-suspended] *::before,html[data-visual-canvas-suspended] *::after{animation-play-state:paused!important}';document.head.appendChild(style);addEventListener('message',e=>{if(e.source!==parent||e.data?.type!=='visual-canvas:lifecycle'||!['suspend','resume'].includes(e.data.state))return;const suspended=e.data.state==='suspend';document.documentElement.toggleAttribute('data-visual-canvas-suspended',suspended);window.visualCanvasSuspended=suspended;dispatchEvent(new CustomEvent(suspended?'visual-canvas:suspend':'visual-canvas:resume'));parent.postMessage({type:'visual-canvas:lifecycle-ack',state:suspended?'suspended':'active'},'*')});addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();parent.postMessage({type:'visual-canvas:escape'},'*')}});Promise.all([document.fonts?document.fonts.ready:Promise.resolve(),Promise.all(Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.addEventListener('load',r,{once:true});i.addEventListener('error',()=>j(new Error('image '+i.src)),{once:true})}))),window.visualCanvasScreenReady||Promise.resolve()]).then(()=>send('ready')).catch(e=>send('partial',String(e&&e.message||e)));})();</script>`;
 }
 
+const SCOPED_CANVAS_TEXT_MIME =
+  /^(?:text\/(?:html|css|javascript)|application\/javascript)(?:;|$)/i;
+
+/**
+ * Canvas paths beginning with `/assets/` or `/src/` are workspace-root
+ * relative by contract. The browser instead treats them as origin-root
+ * relative, which drops the `/i/:capability` or `/s/:slug` scope and turns a
+ * valid versioned resource into a 404. Scope quoted references (HTML, JS and
+ * quoted CSS URLs) plus the common unquoted CSS url(...) form while leaving
+ * remote URLs such as https://cdn.example/assets/x.png untouched.
+ */
+function scopeCanvasRootReferences(source: string, scopedBasePath: string): string {
+  return source
+    .replace(
+      /(["'`])\/(assets|src)\//g,
+      (_match, quote: string, root: string) => `${quote}${scopedBasePath}/${root}/`,
+    )
+    .replace(
+      /(url\(\s*)\/(assets|src)\//gi,
+      (_match, start: string, root: string) => `${start}${scopedBasePath}/${root}/`,
+    );
+}
+
+async function prepareScopedCanvasBlob(
+  blob: Blob,
+  mimeType: string,
+  scopedBasePath: string,
+  bridgeNonce?: string,
+): Promise<Blob> {
+  if (!bridgeNonce && !SCOPED_CANVAS_TEXT_MIME.test(mimeType)) return blob;
+  let source = scopeCanvasRootReferences(await blob.text(), scopedBasePath);
+  if (bridgeNonce) {
+    source = source.includes("</body>")
+      ? source.replace("</body>", `${iframeBridge(bridgeNonce)}</body>`)
+      : source + iframeBridge(bridgeNonce);
+  }
+  return new Blob([source], { type: mimeType });
+}
+
 const EMBED_PREVIEW_INLINE_LIMIT = 2 * 1024 * 1024;
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -298,17 +337,12 @@ http.route({
           })()
         : await ctx.storage.get(artifact.storageId);
     if (!blob) return new Response("Not found", { status: 404 });
-    if (isIframe) {
-      const html = await blob.text();
-      blob = new Blob(
-        [
-          html.includes("</body>")
-            ? html.replace("</body>", `${iframeBridge(nonce)}</body>`)
-            : html + iframeBridge(nonce),
-        ],
-        { type: "text/html; charset=utf-8" },
-      );
-    }
+    blob = await prepareScopedCanvasBlob(
+      blob,
+      artifact.mimeType,
+      `/s/${slug}`,
+      isIframe ? nonce : undefined,
+    );
     headers.set("content-type", artifact.mimeType);
     return new Response(blob, { status: 200, headers });
   }),
@@ -337,17 +371,12 @@ http.route({
         : await ctx.storage.get(file.storageId);
     if (!blob) return new Response("Not found", { status: 404 });
     const nonce = crypto.randomUUID().replaceAll("-", "");
-    if (file.iframe) {
-      const html = await blob.text();
-      blob = new Blob(
-        [
-          html.includes("</body>")
-            ? html.replace("</body>", `${iframeBridge(nonce)}</body>`)
-            : html + iframeBridge(nonce),
-        ],
-        { type: "text/html; charset=utf-8" },
-      );
-    }
+    blob = await prepareScopedCanvasBlob(
+      blob,
+      file.mimeType,
+      `/i/${token}`,
+      file.iframe ? nonce : undefined,
+    );
     return new Response(blob, {
       headers: {
         "content-type": file.mimeType,
