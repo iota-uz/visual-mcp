@@ -110,7 +110,7 @@ export function PublicCanvasPage() {
             <CanvasViewport
               key={canvas.canvas_id}
               doc={doc}
-              iframeRevision={canvas.iframe_revision}
+              iframeRevisions={canvas.iframe_revisions}
               iframeBaseUrl={`${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`}
             />
           )}

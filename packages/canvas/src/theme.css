@@ -880,6 +880,50 @@
   color: #7f8ea0;
   font: 600 8px / 1.4 var(--vc-mono);
 }
+.vc-inspector-ref {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f3;
+}
+.vc-inspector-ref-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--vc-muted);
+  font: 650 8px / 1 var(--vc-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.vc-inspector-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vc-inspector-ref-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--vc-ink-soft);
+  font: 500 9px / 1.4 var(--vc-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vc-inspector-ref-copy {
+  appearance: none;
+  border: 1px solid var(--vc-line);
+  border-radius: 8px;
+  background: var(--vc-white);
+  padding: 6px 9px;
+  color: var(--vc-ink);
+  cursor: pointer;
+  font: 650 9px / 1 var(--vc-body);
+}
+.vc-inspector-ref-copy:hover {
+  border-color: var(--vc-role-primary);
+}
+.vc-inspector-ref-copy:focus-visible {
+  outline: 3px solid rgba(47, 109, 246, 0.28);
+  outline-offset: 2px;
+}
 
 /* --- minimap --- */
 .vc-minimap {

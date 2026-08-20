@@ -1,3 +1,4 @@
+export * from "./element-ref.js";
 export * from "./layout.js";
 export * from "./patch.js";
 export * from "./phone-frame.js";

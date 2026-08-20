@@ -1,4 +1,4 @@
-import { layoutCanvas, mountViewport, type CanvasDoc } from "@visual-canvas/canvas";
+import { type CanvasDoc, layoutCanvas, mountViewport } from "@visual-canvas/canvas";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const anchors = [
@@ -11,9 +11,7 @@ function doc(): CanvasDoc {
     version: 2,
     title: "Realtime",
     world: { width: 1_000, height: 600 },
-    lanes: [
-      { id: "lane", label: "Lane", role: "primary", rect: { x: 0, y: 0, w: 1_000, h: 600 } },
-    ],
+    lanes: [{ id: "lane", label: "Lane", role: "primary", rect: { x: 0, y: 0, w: 1_000, h: 600 } }],
     stages: [
       { id: "one", index: 0, label: "One", rect: { x: 0, y: 0, w: 500, h: 600 } },
       { id: "two", index: 1, label: "Two", rect: { x: 500, y: 0, w: 500, h: 600 } },
@@ -87,13 +85,25 @@ describe("reactive viewport reconciliation", () => {
   test("updates structure and routes without resetting camera or a stable iframe", () => {
     const container = document.createElement("div");
     container.getBoundingClientRect = () =>
-      ({ x: 0, y: 0, left: 0, top: 0, right: 1_200, bottom: 800, width: 1_200, height: 800, toJSON() {} }) as DOMRect;
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1_200,
+        bottom: 800,
+        width: 1_200,
+        height: 800,
+        toJSON() {},
+      }) as DOMRect;
     document.body.appendChild(container);
     const initial = doc();
     const controller = mountViewport({
       container,
       canvas: layoutCanvas(initial),
-      resolveIframeUrl: (node) => `https://screens.test/v1${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeUrl: (node) =>
+        `https://screens.test/v1${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeIdentity: () => "runtime@1",
     });
     flushFrames();
     controller.activateIframe("screen");
@@ -114,7 +124,9 @@ describe("reactive viewport reconciliation", () => {
     native.caption.title = "After";
     screen.rect.x = 720;
     controller.updateCanvas(layoutCanvas(changed), {
-      resolveIframeUrl: (node) => `https://screens.test/v1${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeUrl: (node) =>
+        `https://screens.test/v1${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeIdentity: () => "runtime@1",
     });
     flushFrames();
 
@@ -128,10 +140,116 @@ describe("reactive viewport reconciliation", () => {
     expect(container.querySelector(".vc-edge path")?.getAttribute("d")).toContain("720");
 
     controller.updateCanvas(layoutCanvas(changed), {
-      resolveIframeUrl: (node) => `https://screens.test/v2${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeUrl: (node) =>
+        `https://screens.test/v2${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeIdentity: () => "runtime@1",
+    });
+    expect(container.querySelector('[data-node-id="screen"]')).toBe(screenOwner);
+    expect(container.querySelector('[data-node-id="screen"] iframe')).toBe(iframe);
+
+    controller.updateCanvas(layoutCanvas(changed), {
+      resolveIframeUrl: (node) =>
+        `https://screens.test/v2${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeIdentity: () => "runtime@2",
     });
     expect(container.querySelector('[data-node-id="screen"]')).not.toBe(screenOwner);
-    expect(container.querySelector('[data-node-id="screen"] .vc-iframe-placeholder')).not.toBeNull();
+    expect(
+      container.querySelector('[data-node-id="screen"] .vc-iframe-placeholder'),
+    ).not.toBeNull();
+    controller.dispose();
+  });
+
+  test("replaces only the iframe whose content revision changed", () => {
+    const container = document.createElement("div");
+    container.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1_200,
+        bottom: 800,
+        width: 1_200,
+        height: 800,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(container);
+    const initial = doc();
+    const firstScreen = initial.nodes[1];
+    if (firstScreen?.kind !== "iframe") throw new Error("Missing screen fixture");
+    initial.nodes.push({
+      ...structuredClone(firstScreen),
+      id: "untouched-screen",
+      rect: { x: 430, y: 100, w: 200, h: 500 },
+      source: { entrypoint: "/src/screens/untouched.html", route: "#/start" },
+    });
+    const revisions: Record<string, string> = {
+      "/src/screens/runtime.html": "runtime@1",
+      "/src/screens/untouched.html": "untouched@1",
+    };
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(initial),
+      resolveIframeUrl: (node) => `https://screens.test/token-1${node.source.entrypoint}`,
+      resolveIframeIdentity: (node) => revisions[node.source.entrypoint] ?? "",
+    });
+    controller.activateIframe("screen");
+    controller.deactivateIframe();
+    controller.activateIframe("untouched-screen");
+    const changedOwner = container.querySelector('[data-node-id="screen"]');
+    const untouchedOwner = container.querySelector('[data-node-id="untouched-screen"]');
+    const untouchedIframe = untouchedOwner?.querySelector("iframe");
+    expect(changedOwner?.querySelector("iframe")).not.toBeNull();
+    expect(untouchedIframe).not.toBeNull();
+
+    const nextRevisions: Record<string, string> = {
+      ...revisions,
+      "/src/screens/runtime.html": "runtime@2",
+    };
+    controller.updateCanvas(layoutCanvas(structuredClone(initial)), {
+      resolveIframeUrl: (node) => `https://screens.test/token-2${node.source.entrypoint}`,
+      resolveIframeIdentity: (node) => nextRevisions[node.source.entrypoint] ?? "",
+    });
+
+    expect(container.querySelector('[data-node-id="screen"]')).not.toBe(changedOwner);
+    expect(container.querySelector('[data-node-id="untouched-screen"]')).toBe(untouchedOwner);
+    expect(container.querySelector('[data-node-id="untouched-screen"] iframe')).toBe(
+      untouchedIframe,
+    );
+    controller.dispose();
+  });
+
+  test("reveals and copies the selected node ref when a resolver is provided", () => {
+    const container = document.createElement("div");
+    container.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1_200,
+        bottom: 800,
+        width: 1_200,
+        height: 800,
+        toJSON() {},
+      }) as DOMRect;
+    document.body.appendChild(container);
+    const onCopy = vi.fn();
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(doc()),
+      resolveElementRef: (nodeId) => `canvas://osago/realtime?node=${nodeId}`,
+      onCopyElementRef: onCopy,
+    });
+
+    controller.selectNode("screen");
+    const ref = container.querySelector<HTMLElement>(".vc-inspector-ref");
+    expect(ref?.hidden).toBe(false);
+    expect(container.querySelector(".vc-inspector-ref-value")).toHaveTextContent(
+      "canvas://osago/realtime?node=screen",
+    );
+    container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy")?.click();
+    expect(onCopy).toHaveBeenCalledWith("canvas://osago/realtime?node=screen");
     controller.dispose();
   });
 });

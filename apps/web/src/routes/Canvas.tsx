@@ -2,6 +2,7 @@ import "@visual-canvas/canvas/theme.css";
 import {
   type CanvasDoc,
   CanvasDocSchema,
+  formatElementRef,
   layoutCanvas,
   mountViewport,
   type ViewportController,
@@ -17,7 +18,7 @@ import {
   RefreshCw,
   Unplug,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -44,21 +45,24 @@ import { useDocumentTitle } from "../lib/useDocumentTitle";
 export function CanvasViewport({
   doc,
   iframeBaseUrl,
-  iframeRevision,
+  iframeRevisions,
   editable = false,
   onGeometryChange,
+  canvasRef,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
-  iframeRevision?: string | null;
+  iframeRevisions?: Record<string, string> | null;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+  canvasRef?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
   const setSearchParams = useSearchParams()[1];
+  const { notify } = useToast();
   /*
    * Held in a ref, and deliberately out of the effect's dep array below.
    * react-router rebuilds `setSearchParams` whenever `location.search`
@@ -69,15 +73,37 @@ export function CanvasViewport({
    */
   const setSearchParamsRef = useRef(setSearchParams);
   setSearchParamsRef.current = setSearchParams;
+  const canvasRefRef = useRef(canvasRef);
+  canvasRefRef.current = canvasRef;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const onGeometryChangeRef = useRef(onGeometryChange);
   onGeometryChangeRef.current = onGeometryChange;
-  const resolveIframeUrl = useCallback(
-    (node: Extract<CanvasDoc["nodes"][number], { kind: "iframe" }>) =>
-      iframeBaseUrl
-        ? `${iframeBaseUrl}${node.source.entrypoint}${iframeRevision ? `?vcv=${encodeURIComponent(iframeRevision)}` : ""}${node.source.route ?? ""}`
-        : `${node.source.entrypoint}${node.source.route ?? ""}`,
-    [iframeBaseUrl, iframeRevision],
+  const iframeRevisionsKey = JSON.stringify(iframeRevisions ?? null);
+  const stableIframeRevisions = useMemo(
+    () => JSON.parse(iframeRevisionsKey) as Record<string, string> | null,
+    [iframeRevisionsKey],
   );
+  const resolveIframeUrl = useCallback(
+    (node: Extract<CanvasDoc["nodes"][number], { kind: "iframe" }>) => {
+      const revision = stableIframeRevisions?.[node.source.entrypoint];
+      return iframeBaseUrl
+        ? `${iframeBaseUrl}${node.source.entrypoint}${revision ? `?vcv=${encodeURIComponent(revision)}` : ""}${node.source.route ?? ""}`
+        : `${node.source.entrypoint}${node.source.route ?? ""}`;
+    },
+    [iframeBaseUrl, stableIframeRevisions],
+  );
+  const resolveIframeIdentity = useCallback(
+    (node: Extract<CanvasDoc["nodes"][number], { kind: "iframe" }>) =>
+      JSON.stringify({
+        entrypoint: node.source.entrypoint,
+        route: node.source.route ?? "",
+        revision: stableIframeRevisions?.[node.source.entrypoint] ?? "",
+      }),
+    [stableIframeRevisions],
+  );
+  const resolveIframeIdentityRef = useRef(resolveIframeIdentity);
+  resolveIframeIdentityRef.current = resolveIframeIdentity;
   const resolveIframeUrlRef = useRef(resolveIframeUrl);
   resolveIframeUrlRef.current = resolveIframeUrl;
 
@@ -99,6 +125,7 @@ export function CanvasViewport({
       resolveIframeUrl: (node) =>
         resolveIframeUrlRef.current?.(node) ??
         `${node.source.entrypoint}${node.source.route ?? ""}`,
+      resolveIframeIdentity: (node) => resolveIframeIdentityRef.current(node),
       onSelect: (nodeId) => {
         /*
          * `replace`, not push. Selection is view state, not navigation: the
@@ -111,6 +138,18 @@ export function CanvasViewport({
         setSearchParamsRef.current(nodeId ? { node: nodeId } : {}, { replace: true });
       },
       onGeometryChange: (nodeId, rect) => onGeometryChangeRef.current?.(nodeId, rect),
+      resolveElementRef: (nodeId) => {
+        const currentCanvasRef = canvasRefRef.current;
+        return currentCanvasRef ? formatElementRef(currentCanvasRef, nodeId) : undefined;
+      },
+      onCopyElementRef: async (refId) => {
+        try {
+          await navigator.clipboard.writeText(refId);
+          notifyRef.current({ message: "Element ref copied." });
+        } catch (err: unknown) {
+          notifyRef.current(toastError(err, "Couldn't copy element ref"));
+        }
+      },
     });
     controllerRef.current = controller;
 
@@ -131,11 +170,12 @@ export function CanvasViewport({
     try {
       controllerRef.current?.updateCanvas(layoutCanvas(doc), {
         resolveIframeUrl,
+        resolveIframeIdentity,
       });
     } catch {
       // Keep the last valid reactive document visible if a new one cannot lay out.
     }
-  }, [doc, resolveIframeUrl]);
+  }, [doc, resolveIframeIdentity, resolveIframeUrl]);
 
   return <div ref={containerRef} className="vc-viewport-host" />;
 }
@@ -372,7 +412,7 @@ interface FetchableCanvas {
   kind: string;
   doc_url: string | null;
   css_url: string | null;
-  iframe_revision?: string | null;
+  iframe_revisions?: Record<string, string> | null;
 }
 
 // Shared by CanvasPage (signed-in) and PublicCanvasPage (anonymous
@@ -480,10 +520,11 @@ export function CanvasPage() {
   const [iframeCapability, setIframeCapability] = useState<{
     token: string;
     expiresAt: number;
-    revision: string;
+    revisions: Record<string, string> | null;
   } | null>(null);
   const canvasVersion = canvas?.version;
-  const iframeRevision = canvas?.iframe_revision ?? "";
+  const iframeRevisions = canvas?.iframe_revisions ?? null;
+  const iframeRevisionsKey = JSON.stringify(iframeRevisions);
   useEffect(() => {
     if (!canvasId || canvas?.kind !== "canvas") {
       setIframeCapability(null);
@@ -491,6 +532,7 @@ export function CanvasPage() {
     }
     let cancelled = false;
     let renewalTimer: number | null = null;
+    const revisionsSnapshot = JSON.parse(iframeRevisionsKey) as Record<string, string> | null;
     async function refreshCapability() {
       try {
         const { token, expiresAt } = await mintIframeCapability({
@@ -500,7 +542,7 @@ export function CanvasPage() {
         setIframeCapability({
           token,
           expiresAt,
-          revision: iframeRevision,
+          revisions: revisionsSnapshot,
         });
         renewalTimer = window.setTimeout(
           () => void refreshCapability(),
@@ -515,9 +557,9 @@ export function CanvasPage() {
       cancelled = true;
       if (renewalTimer !== null) window.clearTimeout(renewalTimer);
     };
-  }, [canvasId, canvas?.kind, iframeRevision, mintIframeCapability]);
+  }, [canvasId, canvas?.kind, iframeRevisionsKey, mintIframeCapability]);
   const iframeCapabilityToken = iframeCapability?.token ?? null;
-  const resolvedIframeRevision = iframeCapability?.revision ?? iframeRevision;
+  const resolvedIframeRevisions = iframeCapability?.revisions ?? iframeRevisions;
   const { doc, docError, cssReady } = useCanvasDocAndCss(canvas);
   useDocumentTitle(canvas?.title);
 
@@ -694,9 +736,7 @@ export function CanvasPage() {
 
         <DrawerSection
           label="Assets"
-          aside={
-            workspace ? <Link to={`/w/${workspace.slug}`}>Open library</Link> : undefined
-          }
+          aside={workspace ? <Link to={`/w/${workspace.slug}`}>Open library</Link> : undefined}
         >
           {canvasAssets === undefined ? (
             <p className="muted">Loading assets…</p>
@@ -782,8 +822,9 @@ export function CanvasPage() {
               <CanvasViewport
                 key={canvas.canvas_id}
                 doc={doc}
-                iframeRevision={resolvedIframeRevision}
+                iframeRevisions={resolvedIframeRevisions}
                 editable
+                canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
                 onGeometryChange={(nodeId, rect) => {
                   if (!canvasId) return;
                   pendingGeometrySavesRef.current += 1;

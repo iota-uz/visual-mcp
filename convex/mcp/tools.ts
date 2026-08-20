@@ -33,6 +33,11 @@
  */
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import {
+  formatElementRef,
+  parseElementRef,
+  resolveElementSelection,
+} from "@visual-canvas/canvas/element-ref.js";
 import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
@@ -1647,39 +1652,93 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Read canvas",
       description:
-        "Reads one canvas: metadata and URLs always, plus whichever of doc / files / artifacts / " +
-        "versions / renders / storage you ask for. Artifact bytes are returned as links, not " +
-        "inlined — fetch raw_url if you need the content.",
+        "Reads one canvas by ref, or resolves a copied canvas:// element ref to the exact current " +
+        "node and its lane, stage, and connected edges. Metadata and URLs are always returned; " +
+        "include selects optional canvas facets. Artifact bytes are links, not inline content.",
       annotations: { readOnlyHint: true },
-      inputSchema: z.object({
-        ref: RefArg,
-        include: z
-          .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
-          .optional(),
-      }),
+      inputSchema: z
+        .object({
+          ref: RefArg.optional(),
+          ref_id: z
+            .string()
+            .optional()
+            .describe("A copied canvas://workspace/canvas?node=<id> element ref."),
+          include: z
+            .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
+            .optional(),
+        })
+        .superRefine((input, check) => {
+          if (Boolean(input.ref) === Boolean(input.ref_id)) {
+            check.addIssue({
+              code: "custom",
+              message: "Pass exactly one of ref or ref_id.",
+            });
+          }
+        }),
     },
     async (input) =>
       runTool(async () => {
+        const elementRef = input.ref_id ? parseElementRef(input.ref_id) : null;
+        const ref = elementRef?.canvasRef ?? input.ref;
+        if (!ref) throw new Error("Pass exactly one of ref or ref_id.");
         const include = new Set(input.include ?? []);
+        const needsDoc = include.has("doc") || elementRef !== null;
         const detail = await ctx.runQuery(internal.canvases.detailByRef, {
-          ref: input.ref,
-          includeDoc: include.has("doc"),
+          ref,
+          includeDoc: needsDoc,
           includeFiles: include.has("files"),
           includeArtifacts: include.has("artifacts"),
           includeVersions: include.has("versions"),
           includeRenders: include.has("renders"),
         });
         if (!detail) {
-          throw new Error(
-            `No canvas found for ref "${input.ref}". Use canvas_find to see what exists.`,
-          );
+          throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
         }
 
-        let doc: unknown;
-        if (include.has("doc") && detail.canvas.doc_url) {
-          const res = await fetch(detail.canvas.doc_url);
-          if (res.ok) doc = await res.json();
+        if (elementRef && detail.canvas.kind !== "canvas") {
+          throw new Error("unsupported_element_type: element refs require a native canvas.");
         }
+        if (elementRef) {
+          const currentNode = await ctx.runQuery(internal.canvases.currentNodeByRef, {
+            ref,
+            nodeId: elementRef.nodeId,
+          });
+          if (!currentNode) {
+            throw new Error(
+              `element_not_found: Canvas "${ref}" exists at version ${detail.canvas.version ?? 0}, ` +
+                `but node "${elementRef.nodeId}" does not. Read the current doc or search its nodes.`,
+            );
+          }
+        }
+
+        let canvasDoc: CanvasDoc | undefined;
+        if (needsDoc && detail.canvas.doc_url) {
+          const res = await fetch(detail.canvas.doc_url);
+          if (!res.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${res.status}`);
+          canvasDoc = CanvasDocSchema.parse(await res.json());
+        }
+
+        let selection: Record<string, unknown> | undefined;
+        if (elementRef) {
+          if (!canvasDoc) throw new Error("CanvasDoc storage object is unavailable.");
+          const resolved = resolveElementSelection(canvasDoc, elementRef.nodeId);
+          if (!resolved) {
+            throw new Error(
+              `element_not_found: Canvas "${ref}" exists at version ${detail.canvas.version ?? 0}, ` +
+                `but node "${elementRef.nodeId}" does not. Read the current doc or search its nodes.`,
+            );
+          }
+          selection = {
+            ref_id: formatElementRef(ref, resolved.node.id),
+            type: "node",
+            node_id: resolved.node.id,
+            node: resolved.node,
+            context: resolved.context,
+          };
+        }
+
+        const focusedCanvasUrl = new URL(canvasUrl(detail.canvas.canvas_id));
+        if (elementRef) focusedCanvasUrl.searchParams.set("node", elementRef.nodeId);
 
         return result({
           canvas: {
@@ -1694,7 +1753,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             version: detail.canvas.version ?? 0,
             updated_at: detail.canvas.updated_at,
             created_by_email: detail.created_by_email,
-            canvas_url: canvasUrl(detail.canvas.canvas_id),
+            canvas_url: focusedCanvasUrl.toString(),
             share_url: shareUrl(detail.canvas.public_slug),
             thumbnail_url: detail.canvas.thumbnail_url,
             embed: (() => {
@@ -1710,7 +1769,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 : null;
             })(),
           },
-          doc,
+          selection,
+          doc: include.has("doc") ? canvasDoc : undefined,
           files: detail.files,
           artifacts: detail.artifacts?.map((artifact) => {
             const target = { kind: "artifact" as const, id: artifact.path };

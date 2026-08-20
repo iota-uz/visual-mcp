@@ -382,7 +382,7 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
   let entryStorageId: Id<"_storage"> | undefined;
   let cssStorageId: Id<"_storage"> | undefined;
   let version: number | undefined;
-  let iframeRevision: string | null = null;
+  let iframeRevisions: Record<string, string> | null = null;
   if (canvas.currentVersionId) {
     const currentVersionId = canvas.currentVersionId;
     const currentVersion = await ctx.db.get(currentVersionId);
@@ -401,26 +401,37 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
           .withIndex("by_version_path", (q) => q.eq("versionId", currentVersionId))
           .take(500),
       ]);
-      const manifest = [
+      const entrypoints = new Set(currentVersion?.iframeEntrypoints ?? []);
+      const sharedResources = [
         ...files
           .filter(
             (file) =>
-              file.relPath.startsWith("/src/screens/") || file.relPath.startsWith("/assets/"),
+              (file.relPath.startsWith("/src/screens/") && !entrypoints.has(file.relPath)) ||
+              file.relPath.startsWith("/assets/"),
           )
           .map((file) => `${file.relPath}:${file.contentHash}`),
         ...assets.map((asset) => `${asset.logicalPath}:${asset.assetVersionId}`),
-      ]
-        .sort()
-        .join("\n");
-      // A compact deterministic resource identity. Geometry-only versions
-      // copy the same immutable file snapshot and therefore keep this value,
-      // allowing live iframes to remain resident while the canvas updates.
-      let hash = 2166136261;
-      for (let index = 0; index < manifest.length; index += 1) {
-        hash ^= manifest.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-      }
-      iframeRevision = `${manifest.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+      ];
+      iframeRevisions = Object.fromEntries(
+        [...entrypoints].map((entrypoint) => {
+          const entrypointFile = files.find((file) => file.relPath === entrypoint);
+          const manifest = [
+            ...sharedResources,
+            `${entrypoint}:${entrypointFile?.contentHash ?? "missing"}`,
+          ]
+            .sort()
+            .join("\n");
+          // Entry points get independent identities. Shared JS/CSS/assets are
+          // conservative dependencies, but editing one screen HTML no longer
+          // invalidates every iframe in the canvas.
+          let hash = 2166136261;
+          for (let index = 0; index < manifest.length; index += 1) {
+            hash ^= manifest.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+          }
+          return [entrypoint, `${manifest.length.toString(36)}-${(hash >>> 0).toString(36)}`];
+        }),
+      );
     }
   }
   const viewerArtifact = await getViewerArtifact(ctx, canvas);
@@ -455,7 +466,7 @@ async function getCanvas(ctx: QueryCtx, canvasId: Id<"canvases">) {
       mime_type: artifact.mimeType,
       size_bytes: artifact.size,
     })),
-    iframe_revision: iframeRevision,
+    iframe_revisions: iframeRevisions,
     version,
   };
 }
@@ -2342,6 +2353,36 @@ export const detailByRef = internalQuery({
       versions,
       renders,
     };
+  },
+});
+
+/** Fast existence check for a current-version element ref before fetching the full CanvasDoc. */
+export const currentNodeByRef = internalQuery({
+  args: { ref: v.string(), nodeId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      version: v.number(),
+      title: v.string(),
+      eyebrow: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const canvas = await findCanvasByRef(ctx, args.ref);
+    if (!canvas?.currentVersionId || canvas.archivedAt !== undefined) return null;
+    const version = await ctx.db.get(canvas.currentVersionId);
+    if (!version) return null;
+    const node = await ctx.db
+      .query("canvasNodes")
+      .withIndex("by_versionId_and_nodeId", (q) =>
+        q
+          .eq("versionId", canvas.currentVersionId as Id<"canvasVersions">)
+          .eq("nodeId", args.nodeId),
+      )
+      .unique();
+    return node
+      ? { version: version.version, title: node.title, eyebrow: node.eyebrow ?? null }
+      : null;
   },
 });
 

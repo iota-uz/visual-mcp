@@ -766,6 +766,24 @@ describe("/mcp canvas_save", () => {
     expect(isError).toBe(true);
     expect(text).toMatch(/already exists/i);
   });
+
+  test("canvas_get returns a typed stale-ref error instead of guessing", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "osago/fast-settlement",
+      kind: "canvas",
+      doc: baseDoc,
+    });
+
+    const { isError, text } = parse(
+      await callTool(t, token, "canvas_get", {
+        ref_id: "canvas://osago/fast-settlement?node=deleted",
+      }),
+    );
+    expect(isError).toBe(true);
+    expect(text).toMatch(/^element_not_found:/);
+  });
 });
 
 describe("/mcp canvas_delete, canvas_find, canvas_upload_url", () => {

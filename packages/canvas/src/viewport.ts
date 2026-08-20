@@ -128,12 +128,16 @@ export interface ViewportOptions {
   initialScale?: number;
   onSelect?: (nodeId: string | null) => void;
   resolveIframeUrl?: (node: IframeNode) => string;
+  resolveIframeIdentity?: (node: IframeNode) => string;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
+  resolveElementRef?: (nodeId: string) => string | undefined;
+  onCopyElementRef?: (refId: string) => void | Promise<void>;
 }
 
 export interface ViewportUpdateOptions {
   resolveIframeUrl?: (node: IframeNode) => string;
+  resolveIframeIdentity?: (node: IframeNode) => string;
 }
 
 export interface ViewportController {
@@ -154,6 +158,13 @@ const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
     <h2 class="vc-inspector-title"></h2>
     <p class="vc-inspector-copy"></p>
     <div class="vc-inspector-points"></div>
+    <div class="vc-inspector-ref" hidden>
+      <span class="vc-inspector-ref-label">Element ref</span>
+      <div class="vc-inspector-ref-row">
+        <code class="vc-inspector-ref-value"></code>
+        <button type="button" class="vc-inspector-ref-copy">Copy</button>
+      </div>
+    </div>
   </aside>`;
 
 const MINIMAP_SHELL = `<div class="vc-minimap">
@@ -165,6 +176,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const { container, canvas, onSelect } = opts;
   let liveCanvas = canvas;
   let liveResolveIframeUrl = opts.resolveIframeUrl;
+  let liveResolveIframeIdentity = opts.resolveIframeIdentity;
   const rendered = renderCanvas(liveCanvas, {
     resolveIframeUrl: liveResolveIframeUrl,
     editable: opts.editable,
@@ -191,6 +203,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorCopy = must(".vc-inspector-copy");
   const inspectorPoints = must(".vc-inspector-points");
   const inspectorClose = must(".vc-inspector-close");
+  const inspectorRef = must(".vc-inspector-ref");
+  const inspectorRefValue = must(".vc-inspector-ref-value");
+  const inspectorRefCopy = must(".vc-inspector-ref-copy");
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let activeIframeId: string | null = null;
@@ -304,6 +319,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
           `<div><b>${String(i + 1).padStart(2, "0")}</b><span>${escapeHtml(point)}</span></div>`,
       )
       .join("");
+    const refId = opts.resolveElementRef?.(node.id);
+    inspectorRef.hidden = !refId;
+    inspectorRefValue.textContent = refId ?? "";
     inspector.classList.add("visible");
     if (focus) focusNode(node);
     onSelect?.(id);
@@ -382,9 +400,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (!id) break;
       queuedIframeIds.delete(id);
       if (residentIframeIds.has(id)) continue;
-      const owner = nodesRoot.querySelector<HTMLElement>(
-        `[data-node-id="${CSS.escape(id)}"]`,
-      );
+      const owner = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
       if (owner) ensureIframeLoaded(owner);
     }
   }
@@ -442,9 +458,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const active = new Set(iframeActiveCandidates(liveCanvas.nodes, view, viewportRect));
     if (activeIframeId) active.add(activeIframeId);
     for (const id of residentIframeIds) {
-      const owner = nodesRoot.querySelector<HTMLElement>(
-        `[data-node-id="${CSS.escape(id)}"]`,
-      );
+      const owner = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
       if (owner) setIframeLifecycle(owner, active.has(id) ? "active" : "suspended");
     }
     const missing = candidates.filter(
@@ -520,14 +534,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (geometryFrame === null) geometryFrame = requestAnimationFrame(paintGeometry);
   }
 
-  function iframeRuntimeSource(owner: HTMLElement): string | null {
-    return (
-      owner.querySelector<HTMLIFrameElement>("iframe")?.getAttribute("src") ??
-      owner.querySelector<HTMLElement>(".vc-iframe-placeholder[data-src]")?.dataset.src ??
-      null
-    );
-  }
-
   function iframeRuntimeIdentity(node: PositionedNode): string | null {
     if (node.kind !== "iframe") return null;
     return JSON.stringify({
@@ -538,6 +544,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     });
   }
 
+  function iframeContentIdentity(
+    node: PositionedNode,
+    resolveIdentity: ((node: IframeNode) => string) | undefined,
+  ): string | null {
+    if (node.kind !== "iframe") return null;
+    return (
+      resolveIdentity?.(node) ??
+      JSON.stringify({ entrypoint: node.source.entrypoint, route: node.source.route ?? "" })
+    );
+  }
+
   /**
    * Reconciles the declarative world around stable iframe owners. Moving an
    * iframe in the DOM can recreate its browsing context in browsers, so a
@@ -545,10 +562,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    * existing `.vc-node` element. Lanes, stages, labels, native nodes and SVG
    * routes are cheap and are replaced from the new declarative render.
    */
-  function reconcileCanvasDom(nextCanvas: PositionedCanvas): void {
+  function reconcileCanvasDom(
+    nextCanvas: PositionedCanvas,
+    nextResolveIframeUrl: ((node: IframeNode) => string) | undefined,
+    nextResolveIframeIdentity: ((node: IframeNode) => string) | undefined,
+  ): void {
     const scratch = document.createElement("div");
     scratch.innerHTML = renderCanvas(nextCanvas, {
-      resolveIframeUrl: liveResolveIframeUrl,
+      resolveIframeUrl: nextResolveIframeUrl,
       editable: opts.editable,
     }).html;
     const nextWorld = scratch.querySelector<HTMLElement>(".vc-world");
@@ -583,7 +604,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         previousNode?.kind === "iframe" &&
         nextNode.kind === "iframe" &&
         iframeRuntimeIdentity(previousNode) === iframeRuntimeIdentity(nextNode) &&
-        iframeRuntimeSource(currentElement) === iframeRuntimeSource(nextElement);
+        iframeContentIdentity(previousNode, liveResolveIframeIdentity) ===
+          iframeContentIdentity(nextNode, nextResolveIframeIdentity);
 
       if (canKeepIframe && currentElement) {
         const stateClasses = ["selected", "dimmed", "iframe-active"].filter((name) =>
@@ -642,7 +664,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function updateCanvas(nextCanvas: PositionedCanvas, options?: ViewportUpdateOptions): void {
-    if (options?.resolveIframeUrl) liveResolveIframeUrl = options.resolveIframeUrl;
+    const nextResolveIframeUrl = options?.resolveIframeUrl ?? liveResolveIframeUrl;
+    const nextResolveIframeIdentity = options?.resolveIframeIdentity ?? liveResolveIframeIdentity;
     // Keep the node being manipulated under the pointer even if a remote
     // version lands mid-drag. The subsequent optimistic save is based on the
     // newest Convex version and becomes the next reactive update.
@@ -654,7 +677,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         Object.assign(incoming, { x: local.x, y: local.y, w: local.w, h: local.h });
       }
     }
-    reconcileCanvasDom(nextCanvas);
+    reconcileCanvasDom(nextCanvas, nextResolveIframeUrl, nextResolveIframeIdentity);
+    liveResolveIframeUrl = nextResolveIframeUrl;
+    liveResolveIframeIdentity = nextResolveIframeIdentity;
     liveCanvas = nextCanvas;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     for (const node of nextCanvas.nodes) updateNodeElement(node);
@@ -873,6 +898,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     selectNode(null);
   }
 
+  function onInspectorRefCopy(): void {
+    const refId = inspectorRefValue.textContent;
+    if (refId) void opts.onCopyElementRef?.(refId);
+  }
+
   function onNodesDoubleClick(event: MouseEvent): void {
     const id = (event.target as HTMLElement).closest<HTMLElement>(".vc-node")?.dataset.nodeId;
     if (id) activateIframe(id);
@@ -923,6 +953,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("keydown", onKeyDown);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
   inspectorClose.addEventListener("click", onInspectorClose);
+  inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
   nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
   nodesRoot.addEventListener("click", onNodesClick);
   window.addEventListener("message", onWindowMessage);
@@ -953,6 +984,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("keydown", onKeyDown);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);
       inspectorClose.removeEventListener("click", onInspectorClose);
+      inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);
       nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);
       nodesRoot.removeEventListener("click", onNodesClick);
       window.removeEventListener("message", onWindowMessage);

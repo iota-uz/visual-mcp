@@ -229,6 +229,7 @@ export default defineSchema({
     searchText: v.string(),
   })
     .index("by_version", ["versionId"])
+    .index("by_versionId_and_nodeId", ["versionId", "nodeId"])
     // Needed to enumerate a canvas's nodes without walking its versions —
     // deleting a canvas has to remove them, and the search index can filter
     // by canvasId but cannot enumerate by it.

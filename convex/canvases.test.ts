@@ -175,7 +175,7 @@ describe("viewer artifact selection", () => {
 });
 
 describe("reactive canvas resources", () => {
-  test("iframe revision stays stable for geometry-only versions and changes with files", async () => {
+  test("iframe revisions stay stable for geometry and only change for the edited entrypoint", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await seedUser(t);
     const workspaceId = await seedWorkspace(t, createdBy);
@@ -198,6 +198,17 @@ describe("reactive canvas resources", () => {
         storageId: await ctx.storage.store(new Blob(["one"])),
         size: 3,
         contentHash: "same-hash",
+      });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/untouched.html",
+        storageId: await ctx.storage.store(new Blob(["untouched"])),
+        size: 9,
+        contentHash: "untouched-hash",
+      });
+      await ctx.db.patch(versionId, {
+        iframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
       });
       await ctx.db.insert("canvasVersionFiles", {
         canvasId,
@@ -226,11 +237,22 @@ describe("reactive canvas resources", () => {
         size: 3,
         contentHash: "same-hash",
       });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/untouched.html",
+        storageId: await ctx.storage.store(new Blob(["untouched"])),
+        size: 9,
+        contentHash: "untouched-hash",
+      });
+      await ctx.db.patch(versionId, {
+        iframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
+      });
       await ctx.db.patch(canvasId, { currentVersionId: versionId });
       return versionId;
     });
     const geometryOnly = await t.query(internal.canvases.get, { canvasId });
-    expect(geometryOnly?.iframe_revision).toBe(first?.iframe_revision);
+    expect(geometryOnly?.iframe_revisions).toEqual(first?.iframe_revisions);
 
     await t.run(async (ctx) => {
       const versionId = await ctx.db.insert("canvasVersions", {
@@ -246,10 +268,26 @@ describe("reactive canvas resources", () => {
         size: 3,
         contentHash: "different-hash",
       });
+      await ctx.db.insert("canvasVersionFiles", {
+        canvasId,
+        versionId,
+        relPath: "/src/screens/untouched.html",
+        storageId: await ctx.storage.store(new Blob(["untouched"])),
+        size: 9,
+        contentHash: "untouched-hash",
+      });
+      await ctx.db.patch(versionId, {
+        iframeEntrypoints: ["/src/screens/runtime.html", "/src/screens/untouched.html"],
+      });
       await ctx.db.patch(canvasId, { currentVersionId: versionId });
     });
     const changed = await t.query(internal.canvases.get, { canvasId });
-    expect(changed?.iframe_revision).not.toBe(geometryOnly?.iframe_revision);
+    expect(changed?.iframe_revisions?.["/src/screens/runtime.html"]).not.toBe(
+      geometryOnly?.iframe_revisions?.["/src/screens/runtime.html"],
+    );
+    expect(changed?.iframe_revisions?.["/src/screens/untouched.html"]).toBe(
+      geometryOnly?.iframe_revisions?.["/src/screens/untouched.html"],
+    );
     expect(firstVersion).not.toBe(secondVersion);
   });
 
@@ -636,9 +674,7 @@ describe("canvases.patchNodeRectMine", () => {
           rect: { x: 0, y: 0, w: 800, h: 600 },
         },
       ],
-      stages: [
-        { id: "stage", index: 0, label: "Stage", rect: { x: 0, y: 0, w: 800, h: 600 } },
-      ],
+      stages: [{ id: "stage", index: 0, label: "Stage", rect: { x: 0, y: 0, w: 800, h: 600 } }],
       labels: [],
       nodes: [
         {

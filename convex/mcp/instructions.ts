@@ -24,6 +24,8 @@ export function buildInstructions(): string {
     "Prefer the slug form: it is stable, human-readable, and makes canvas_save idempotent, so a",
     "retried call updates the same canvas instead of creating a duplicate. File paths are never",
     "part of the ref — they go in their own `path` field.",
+    "A user may paste an element locator like canvas://osago/fast-settlement?node=phone-checkout.",
+    "Pass it unchanged as canvas_get({ref_id}); do not ask them to name the canvas separately.",
     "",
     "AUTHORING. One canvas_save call does the whole job: it creates the workspace and canvas if",
     "needed, writes files, renders, and publishes. You rarely need more than one call.",
