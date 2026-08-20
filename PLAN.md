@@ -832,6 +832,6 @@ Every successful operation creates an immutable canvas snapshot and uses optimis
 
 Reusable media lives in a personal or workspace Asset Library. Convex stores metadata,
 permissions, revisions and canvas bindings; private S3-compatible Railway buckets store
-source and sanitized delivery objects. Canvas versions pin exact asset revisions. Asset
+source and validated delivery objects. Canvas versions pin exact asset revisions. Asset
 updates never propagate implicitly, and public/private viewers can only resolve objects
 present in their version manifest.

@@ -82,7 +82,6 @@ export default defineSchema({
       v.literal("svg"),
       v.literal("font"),
       v.literal("video"),
-      v.literal("audio"),
       v.literal("data"),
     ),
     searchText: v.string(),

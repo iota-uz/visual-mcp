@@ -29,6 +29,13 @@ requires compatibility for a specific change.
   Do not build them unless they are required for correctness, security,
   debugging, or an explicit user/compliance requirement.
 
+## Asset product decisions
+
+- SVG assets are trusted internal `@iota.uz` workspace content. Preserve SVG
+  bytes as authored; do not sanitize or rewrite their markup on ingestion.
+- Audio is not a supported asset kind. Do not add audio upload, import,
+  storage, filtering, preview, MCP, fixture, or documentation support.
+
 ## Local stack
 
 Every authenticated surface sits behind Google OAuth restricted to `@iota.uz`,

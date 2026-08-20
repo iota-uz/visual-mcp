@@ -1346,7 +1346,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   );
 
   const assetScopeSchema = z.enum(["personal", "workspace"]);
-  const assetKindSchema = z.enum(["image", "svg", "font", "video", "audio", "data"]);
+  const assetKindSchema = z.enum(["image", "svg", "font", "video", "data"]);
 
   server.registerTool(
     "asset_list",
@@ -1485,7 +1485,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Finalize an uploaded asset",
       description:
-        "Validates MIME/size/hash, sanitizes SVG, stores immutable source and delivery objects, " +
+        "Validates MIME/size/hash, stores immutable source and delivery objects, " +
         "and creates a new Asset Library revision.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.object({

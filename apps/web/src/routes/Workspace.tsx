@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { Compass, Globe, Pencil } from "lucide-react";
+import { Compass, Globe, Images, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
@@ -11,7 +11,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { CardGridSkeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
-import { Button } from "../components/ui/Button";
+import { Button, ButtonLink } from "../components/ui/Button";
 import { RefChip } from "../components/ui/CopyableValue";
 import { kindIcon } from "../lib/canvasKind";
 import { formatBytes } from "../lib/formatBytes";
@@ -168,15 +168,15 @@ export function WorkspacePage() {
           </>
         }
         back={{ to: "/", label: "Workspaces" }}
-        actions={<RefChip refValue={workspace.slug} className="workspace-ref" />}
+        actions={
+          <>
+            <ButtonLink to={`/w/${workspace.slug}/assets`} variant="secondary" icon={Images}>
+              Assets
+            </ButtonLink>
+            <RefChip refValue={workspace.slug} className="workspace-ref" />
+          </>
+        }
       />
-
-      <nav className="workspace-tabs" aria-label="Workspace sections">
-        <Link to={`/w/${workspace.slug}`} className="active">
-          Canvases
-        </Link>
-        <Link to={`/w/${workspace.slug}/assets`}>Assets</Link>
-      </nav>
 
       {canvases === undefined && <CardGridSkeleton cards={3} />}
       {canvases?.length === 0 && (

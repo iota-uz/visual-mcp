@@ -22,7 +22,6 @@ const kindValidator = v.union(
   v.literal("svg"),
   v.literal("font"),
   v.literal("video"),
-  v.literal("audio"),
   v.literal("data"),
 );
 
@@ -67,7 +66,7 @@ type AssetListRow = {
   name: string;
   description: string | null;
   tags: string[];
-  kind: "image" | "svg" | "font" | "video" | "audio" | "data";
+  kind: "image" | "svg" | "font" | "video" | "data";
   revision: number;
   mime_type: string;
   size_bytes: number;

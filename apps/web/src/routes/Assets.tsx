@@ -1,19 +1,10 @@
 import { useAction, useMutation } from "convex/react";
-import {
-  Archive,
-  FileJson,
-  FileType2,
-  Image as ImageIcon,
-  Link2,
-  Music2,
-  Search,
-  Upload,
-  Video,
-} from "lucide-react";
+import { Archive, Image as ImageIcon, Link2, Search, Upload } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { useToast } from "../components/Toast";
@@ -24,7 +15,7 @@ import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
-type AssetKind = "image" | "svg" | "font" | "video" | "audio" | "data";
+type AssetKind = PreviewableAssetKind;
 interface AssetItem {
   asset_id: Id<"assets">;
   asset_ref: string;
@@ -44,26 +35,32 @@ interface AssetItem {
   preview_url: string;
 }
 
-const KIND_ICONS = {
-  image: ImageIcon,
-  svg: ImageIcon,
-  font: FileType2,
-  video: Video,
-  audio: Music2,
-  data: FileJson,
-} as const;
+const MIME_LABELS: Record<string, string> = {
+  "image/png": "PNG",
+  "image/jpeg": "JPEG",
+  "image/webp": "WebP",
+  "image/avif": "AVIF",
+  "image/gif": "GIF",
+  "image/svg+xml": "SVG",
+  "font/woff2": "WOFF2",
+  "font/woff": "WOFF",
+  "font/ttf": "TTF",
+  "font/otf": "OTF",
+  "video/mp4": "MP4",
+  "video/webm": "WebM",
+  "application/json": "JSON",
+};
 
 function AssetCard({ asset, onArchive }: { asset: AssetItem; onArchive: () => void }) {
-  const KindIcon = KIND_ICONS[asset.kind];
-  const visual = asset.kind === "image" || asset.kind === "svg";
   return (
     <li className="asset-card">
       <div className={`asset-preview asset-preview-${asset.kind}`}>
-        {visual ? (
-          <img src={asset.preview_url} alt={`Preview of ${asset.name}`} loading="lazy" />
-        ) : (
-          <KindIcon size={34} strokeWidth={1.35} aria-hidden="true" />
-        )}
+        <AssetPreview
+          assetId={asset.asset_id}
+          kind={asset.kind}
+          name={asset.name}
+          previewUrl={asset.preview_url}
+        />
         <span className="asset-kind">{asset.kind}</span>
         <span className="asset-revision">r{asset.revision}</span>
       </div>
@@ -77,7 +74,7 @@ function AssetCard({ asset, onArchive }: { asset: AssetItem; onArchive: () => vo
         </div>
         <span className="asset-filename">{asset.original_filename}</span>
         <div className="asset-card-facts">
-          <span>{asset.mime_type.replace("image/", "")}</span>
+          <span>{MIME_LABELS[asset.mime_type] ?? asset.mime_type}</span>
           <span>{formatBytes(asset.size_bytes)}</span>
         </div>
         {asset.tags.length > 0 && (
@@ -138,10 +135,7 @@ export function AssetsPage() {
     };
   }, [reload, notify]);
 
-  const tabs = useMemo(
-    () => ["all", "image", "svg", "font", "video", "audio", "data"] as const,
-    [],
-  );
+  const tabs = useMemo(() => ["all", "image", "svg", "font", "video", "data"] as const, []);
 
   async function uploadFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = [...(event.target.files ?? [])];
@@ -208,7 +202,7 @@ export function AssetsPage() {
         subtitle={
           wsSlug ? (
             <>
-              Reusable media pinned to <strong>{wsSlug}</strong>.
+              Reusable media for <strong>{wsSlug}</strong>.
             </>
           ) : (
             "Reusable media available across your workspaces."
@@ -228,15 +222,6 @@ export function AssetsPage() {
           </div>
         }
       />
-
-      {wsSlug && (
-        <nav className="workspace-tabs" aria-label="Workspace sections">
-          <Link to={`/w/${wsSlug}`}>Canvases</Link>
-          <Link to={`/w/${wsSlug}/assets`} className="active">
-            Assets
-          </Link>
-        </nav>
-      )}
 
       {importOpen && (
         <section className="asset-import-panel">
@@ -274,18 +259,20 @@ export function AssetsPage() {
             aria-label="Search assets"
           />
         </div>
-        <div className="asset-kind-tabs" role="tablist" aria-label="Asset kind">
+        <fieldset className="asset-kind-tabs">
+          <legend className="visually-hidden">Filter by asset kind</legend>
           {tabs.map((tab) => (
             <button
               key={tab}
               type="button"
               className={kind === tab ? "active" : ""}
+              aria-pressed={kind === tab}
               onClick={() => setKind(tab)}
             >
               {tab}
             </button>
           ))}
-        </div>
+        </fieldset>
       </div>
 
       {assets === null && (
