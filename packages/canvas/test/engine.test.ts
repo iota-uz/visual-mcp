@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { layoutCanvas, patchNodeRect } from "../src/layout.js";
-import { escapeHtml, renderCanvas } from "../src/render.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "../src/phone-frame.js";
+import { escapeHtml, renderCanvas } from "../src/render.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
+import { CanvasDocSchema } from "../src/types.js";
 import {
   cameraGridStyle,
   iframeActiveCandidates,
   iframePrewarmCandidates,
 } from "../src/viewport.js";
-import { fixture } from "./fixture.js";
-import { CanvasDocSchema } from "../src/types.js";
+import { anchors, fixture } from "./fixture.js";
 
 test("explicit geometry is deterministic", () => {
   const a = layoutCanvas(fixture());
@@ -35,6 +35,35 @@ test("waypoint routing is preserved", () => {
     { x: 600, y: 30 },
   ];
   assert.match(routeEdges(layoutCanvas(doc))[0]!.d, /400 30 L 600 30/);
+});
+test("orthogonal routing leaves and enters through the declared anchor sides", () => {
+  const doc = fixture();
+  doc.nodes[0]!.anchors.push({ id: "bottom", side: "bottom", offset: 0.5 });
+  doc.nodes[1]!.anchors.push({ id: "top", side: "top", offset: 0.5 });
+  doc.nodes[1]!.rect.y = 320;
+  doc.nodes[1]!.rect.h = 80;
+  doc.edges[0]!.source = { nodeId: "a", anchorId: "bottom" };
+  doc.edges[0]!.target = { nodeId: "b", anchorId: "top" };
+  const path = routeEdges(layoutCanvas(doc))[0]!.d;
+  assert.match(path, /^M 160 180 L 160 /);
+  assert.match(path, /Q 800 [\d.]+ 800 [\d.]+ L 800 320$/);
+});
+test("orthogonal routing chooses a clear corridor around intervening nodes", () => {
+  const doc = fixture();
+  doc.nodes[1]!.rect = { x: 700, y: 100, w: 120, h: 80 };
+  doc.nodes.push({
+    id: "obstacle",
+    kind: "native",
+    shape: "note",
+    laneId: "lane",
+    stageId: "s1",
+    rect: { x: 400, y: 90, w: 100, h: 100 },
+    caption: { title: "Obstacle" },
+    anchors,
+  });
+  const path = routeEdges(layoutCanvas(doc))[0]!.d;
+  assert.match(path, / 78(?: |$)/);
+  assert.doesNotMatch(path, /^M 220 140 L 700 140$/);
 });
 test("bezier routing follows the endpoint anchor directions", () => {
   const doc = fixture();
@@ -73,7 +102,10 @@ test("phone iframe renders one canonical canvas-owned shell and clean content vi
   assert.doesNotMatch(html, /class="phone(?:-screen|-status)?"/);
 });
 test("phone frame scales uniformly and keeps its canonical aspect on resize", () => {
-  assert.equal(phoneFrameScale(PHONE_FRAME.width, PHONE_FRAME.height + PHONE_FRAME.captionHeight), 1);
+  assert.equal(
+    phoneFrameScale(PHONE_FRAME.width, PHONE_FRAME.height + PHONE_FRAME.captionHeight),
+    1,
+  );
   assert.equal(phoneFrameScale(PHONE_FRAME.width / 2, 10_000), 0.5);
   assert.equal(phoneNodeHeightForWidth(155), PHONE_FRAME.height / 2 + PHONE_FRAME.captionHeight);
 });
@@ -89,7 +121,10 @@ test("OSAGO mobile routes all use the same canvas phone chrome", async () => {
   assert.equal(phoneNodes.length, 17);
   for (const node of phoneNodes) {
     assert.deepEqual(node.viewport, { width: 284, height: 642 });
-    assert.match(node.frame.kind === "phone" ? node.frame.time : "", /^(?:[01]\d|2[0-3]|\d):[0-5]\d$/);
+    assert.match(
+      node.frame.kind === "phone" ? node.frame.time : "",
+      /^(?:[01]\d|2[0-3]|\d):[0-5]\d$/,
+    );
   }
 });
 test("grid follows pan and uses readable zoom levels", () => {
