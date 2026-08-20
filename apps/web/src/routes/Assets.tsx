@@ -208,7 +208,7 @@ export function AssetsPage() {
             "Reusable media available across your workspaces."
           )
         }
-        back={wsSlug ? { to: `/w/${wsSlug}`, label: wsSlug } : undefined}
+        back={wsSlug ? { to: "/", label: "Workspaces" } : undefined}
         actions={
           <div className="asset-header-actions">
             <Button variant="secondary" icon={Link2} onClick={() => setImportOpen((open) => !open)}>

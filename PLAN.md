@@ -42,7 +42,7 @@ version, never destroys the old one.
 | Route | Host | Auth | Purpose | Status |
 |---|---|---|---|---|
 | `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
-| `/assets` · `/w/:wsSlug/assets` | SPA | Convex session | personal/workspace reusable media | ✅ |
+| `/assets` · `/w/:wsSlug` | SPA | Convex session | personal/workspace reusable media | ✅ |
 | `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
 | `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |

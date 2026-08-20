@@ -18,7 +18,6 @@ import { HomePage } from "./routes/Home";
 import { KitchenSinkPage } from "./routes/KitchenSink";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
-import { WorkspacePage } from "./routes/Workspace";
 
 // Runs once per sign-in: creates (or reconciles) the `users` row this
 // identity maps to. Every other query/mutation assumes that row already
@@ -315,14 +314,6 @@ function AuthenticatedApp() {
           />
           <Route
             path="/w/:wsSlug"
-            element={
-              <Page label="This workspace failed to load.">
-                <WorkspacePage />
-              </Page>
-            }
-          />
-          <Route
-            path="/w/:wsSlug/assets"
             element={
               <Page label="Workspace assets failed to load.">
                 <AssetsPage />

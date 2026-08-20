@@ -695,7 +695,7 @@ export function CanvasPage() {
         <DrawerSection
           label="Assets"
           aside={
-            workspace ? <Link to={`/w/${workspace.slug}/assets`}>Open library</Link> : undefined
+            workspace ? <Link to={`/w/${workspace.slug}`}>Open library</Link> : undefined
           }
         >
           {canvasAssets === undefined ? (

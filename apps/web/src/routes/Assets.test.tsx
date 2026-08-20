@@ -16,9 +16,9 @@ vi.mock("convex/react", () => ({
 
 function renderAssets() {
   return render(
-    <MemoryRouter initialEntries={["/w/osago/assets"]}>
+    <MemoryRouter initialEntries={["/w/osago"]}>
       <Routes>
-        <Route path="/w/:wsSlug/assets" element={<AssetsPage />} />
+        <Route path="/w/:wsSlug" element={<AssetsPage />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -42,6 +42,7 @@ describe("AssetsPage", () => {
     expect(screen.queryByRole("button", { name: "audio" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "all" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/Reusable media for/)).toHaveTextContent("Reusable media for osago.");
+    expect(screen.getByRole("link", { name: "Workspaces" })).toHaveAttribute("href", "/");
   });
 
   test("renders the real preview returned for an image asset", async () => {
