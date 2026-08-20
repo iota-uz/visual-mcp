@@ -89,6 +89,18 @@ backend at all, starts in a second. `loading` holds every skeleton on screen,
 an account with nothing in it. `/dev/kitchen-sink` remains the primitive matrix
 and needs neither.
 
+### Codex browser automation
+
+- When working in Codex, use the built-in in-app Browser through the
+  `browser:control-in-app-browser` skill for UI inspection, interaction, and
+  visual verification.
+- Do not switch to Playwright MCP or the Playwright CLI merely because those
+  tools are available. Use Playwright only when the user explicitly requests
+  it or when the in-app Browser cannot perform a required operation; state the
+  limitation before switching.
+- Keep authenticated and local-stack browser checks in the in-app Browser so
+  the user can inspect the same visible browser state.
+
 ### Rules
 
 - **Never change `SITE_URL` or `SPA_ORIGIN` on the live deployment.** They are
