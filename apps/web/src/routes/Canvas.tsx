@@ -12,13 +12,13 @@ import {
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
   Copy,
   ExternalLink,
+  GripVertical,
   History,
   Info,
   Lock,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -644,13 +644,42 @@ export function PagesPanel({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    pageId: string;
+    position: "before" | "after";
+  } | null>(null);
+  const [menuPageId, setMenuPageId] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const { notify } = useToast();
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  const dropTargetRef = useRef<{ pageId: string; position: "before" | "after" } | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const ordered = [...file.pages].sort((a, b) => a.order - b.order);
   useEffect(() => {
     if (creating || editingId) nameInputRef.current?.focus();
   }, [creating, editingId]);
+
+  useEffect(() => {
+    if (!menuPageId) return;
+    const closeMenu = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(`[data-page-menu="${menuPageId}"]`)) return;
+      setMenuPageId(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuPageId(null);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuPageId]);
+
+  useEffect(() => () => dragCleanupRef.current?.(), []);
 
   async function createPage() {
     const title = value.trim();
@@ -683,6 +712,12 @@ export function PagesPanel({
   async function renamePage(pageId: string) {
     const title = value.trim();
     if (!title) return;
+    const current = file.pages.find((page) => page.id === pageId);
+    if (current?.title === title) {
+      setEditingId(null);
+      setValue("");
+      return;
+    }
     await onSave(
       CanvasFileSchema.parse({
         ...file,
@@ -709,6 +744,80 @@ export function PagesPanel({
       }),
       `Move Page: ${pageId}`,
     );
+  }
+
+  async function dropPage(pageId: string, targetPageId: string, position: "before" | "after") {
+    if (pageId === targetPageId) return;
+    const pages = [...ordered];
+    const from = pages.findIndex((page) => page.id === pageId);
+    const [page] = pages.splice(from, 1);
+    if (!page) return;
+    const targetIndex = pages.findIndex((candidate) => candidate.id === targetPageId);
+    if (targetIndex < 0) return;
+    pages.splice(targetIndex + (position === "after" ? 1 : 0), 0, page);
+    await onSave(
+      CanvasFileSchema.parse({
+        ...file,
+        pages: pages.map((candidate, order) => ({ ...candidate, order })),
+      }),
+      `Move Page: ${pageId}`,
+    );
+  }
+
+  function dropTargetAtPoint(clientX: number, clientY: number) {
+    const row = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-page-id]");
+    const pageId = row?.dataset.pageId;
+    if (!row || !pageId || pageId === draggingIdRef.current) return null;
+    const bounds = row.getBoundingClientRect();
+    return {
+      pageId,
+      position: clientY < bounds.top + bounds.height / 2 ? ("before" as const) : ("after" as const),
+    };
+  }
+
+  function updateDropTarget(target: { pageId: string; position: "before" | "after" } | null) {
+    dropTargetRef.current = target;
+    setDropTarget(target);
+  }
+
+  function finishDragging() {
+    draggingIdRef.current = null;
+    dropTargetRef.current = null;
+    setDraggingId(null);
+    setDropTarget(null);
+  }
+
+  function beginDragging(event: ReactPointerEvent<HTMLButtonElement>, pageId: string) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragCleanupRef.current?.();
+    draggingIdRef.current = pageId;
+    setDraggingId(pageId);
+    setMenuPageId(null);
+
+    const cleanup = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", drop);
+      document.removeEventListener("pointercancel", cancel);
+      dragCleanupRef.current = null;
+    };
+    const move = (moveEvent: PointerEvent) => {
+      updateDropTarget(dropTargetAtPoint(moveEvent.clientX, moveEvent.clientY));
+    };
+    const drop = (upEvent: PointerEvent) => {
+      const target = dropTargetAtPoint(upEvent.clientX, upEvent.clientY) ?? dropTargetRef.current;
+      cleanup();
+      finishDragging();
+      if (target) void dropPage(pageId, target.pageId, target.position);
+    };
+    const cancel = () => {
+      cleanup();
+      finishDragging();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", drop);
+    document.addEventListener("pointercancel", cancel);
+    dragCleanupRef.current = cleanup;
   }
 
   async function duplicatePage(pageId: string) {
@@ -793,8 +902,35 @@ export function PagesPanel({
             />
           )}
           <ol className="canvas-pages-list">
-            {ordered.map((page, index) => (
-              <li key={page.id} className={page.id === activePageId ? "is-active" : ""}>
+            {ordered.map((page) => (
+              <li
+                key={page.id}
+                data-page-id={page.id}
+                className={[
+                  page.id === activePageId ? "is-active" : "",
+                  page.id === draggingId ? "is-dragging" : "",
+                  dropTarget?.pageId === page.id ? `is-drop-${dropTarget.position}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <IconButton
+                  icon={GripVertical}
+                  label={`Drag to reorder ${page.title}`}
+                  iconSize={15}
+                  className="canvas-page-drag-handle"
+                  onPointerDown={(event) => beginDragging(event, page.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      void movePage(page.id, -1);
+                    }
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      void movePage(page.id, 1);
+                    }
+                  }}
+                />
                 {editingId === page.id ? (
                   <input
                     ref={nameInputRef}
@@ -805,7 +941,10 @@ export function PagesPanel({
                     onBlur={() => void renamePage(page.id)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void renamePage(page.id);
-                      if (event.key === "Escape") setEditingId(null);
+                      if (event.key === "Escape") {
+                        setValue(page.title);
+                        setEditingId(null);
+                      }
                     }}
                   />
                 ) : (
@@ -813,6 +952,10 @@ export function PagesPanel({
                     type="button"
                     className="canvas-page-select"
                     onClick={() => onSelect(page.id)}
+                    onDoubleClick={() => {
+                      setEditingId(page.id);
+                      setValue(page.title);
+                    }}
                   >
                     <span>{page.title}</span>
                     {page.id === file.defaultPageId && <small>default</small>}
@@ -831,46 +974,46 @@ export function PagesPanel({
                       Cancel
                     </Button>
                   </fieldset>
-                ) : (
+                ) : editingId !== page.id ? (
                   <div className="canvas-page-actions">
                     <IconButton
-                      icon={Pencil}
-                      label={`Rename ${page.title}`}
-                      iconSize={13}
-                      onClick={() => {
-                        setEditingId(page.id);
-                        setValue(page.title);
-                      }}
+                      icon={MoreHorizontal}
+                      label={`More actions for ${page.title}`}
+                      iconSize={15}
+                      aria-expanded={menuPageId === page.id}
+                      aria-haspopup="menu"
+                      onClick={() => setMenuPageId(menuPageId === page.id ? null : page.id)}
                     />
-                    <IconButton
-                      icon={Copy}
-                      label={`Duplicate ${page.title}`}
-                      iconSize={13}
-                      onClick={() => void duplicatePage(page.id)}
-                    />
-                    <IconButton
-                      icon={ChevronUp}
-                      label={`Move ${page.title} up`}
-                      iconSize={13}
-                      disabled={index === 0}
-                      onClick={() => void movePage(page.id, -1)}
-                    />
-                    <IconButton
-                      icon={ChevronDown}
-                      label={`Move ${page.title} down`}
-                      iconSize={13}
-                      disabled={index === ordered.length - 1}
-                      onClick={() => void movePage(page.id, 1)}
-                    />
-                    <IconButton
-                      icon={Trash2}
-                      label={`Delete ${page.title}`}
-                      iconSize={13}
-                      disabled={ordered.length === 1}
-                      onClick={() => setPendingDeleteId(page.id)}
-                    />
+                    {menuPageId === page.id && (
+                      <div className="canvas-page-menu" role="menu" data-page-menu={page.id}>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuPageId(null);
+                            void duplicatePage(page.id);
+                          }}
+                        >
+                          <Copy size={14} aria-hidden="true" />
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="is-danger"
+                          disabled={ordered.length === 1}
+                          onClick={() => {
+                            setMenuPageId(null);
+                            setPendingDeleteId(page.id);
+                          }}
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                          Delete Page…
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
+                ) : null}
               </li>
             ))}
           </ol>

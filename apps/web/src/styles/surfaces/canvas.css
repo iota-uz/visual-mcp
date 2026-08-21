@@ -231,9 +231,37 @@
 }
 
 .canvas-pages-list > li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 26px;
+  align-items: center;
   padding: 4px;
   border: 1px solid transparent;
   border-radius: 8px;
+}
+
+.canvas-pages-list > li.is-dragging {
+  opacity: 0.42;
+}
+
+.canvas-pages-list > li.is-drop-before::before,
+.canvas-pages-list > li.is-drop-after::after {
+  position: absolute;
+  z-index: 2;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--app-accent);
+  content: "";
+}
+
+.canvas-pages-list > li.is-drop-before::before {
+  top: -3px;
+}
+
+.canvas-pages-list > li.is-drop-after::after {
+  bottom: -3px;
 }
 
 .canvas-pages-list > li.is-active {
@@ -255,22 +283,31 @@
   cursor: pointer;
 }
 
+.canvas-page-drag-handle {
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
 .canvas-page-select small {
   color: var(--app-muted);
   font-size: 10px;
 }
 
 .canvas-page-actions {
+  position: relative;
   display: flex;
-  gap: 2px;
   opacity: 0;
 }
 
+.canvas-pages-list > li:hover .canvas-page-drag-handle,
+.canvas-pages-list > li:focus-within .canvas-page-drag-handle,
 .canvas-pages-list > li:hover .canvas-page-actions,
 .canvas-pages-list > li:focus-within .canvas-page-actions {
   opacity: 1;
 }
 
+.canvas-page-drag-handle,
 .canvas-page-actions button,
 .canvas-pages-head button,
 .canvas-pages-panel.is-collapsed > button {
@@ -293,7 +330,55 @@
   color: var(--app-ink);
 }
 
+.canvas-page-drag-handle {
+  cursor: grab;
+}
+
+.canvas-page-drag-handle:active {
+  cursor: grabbing;
+}
+
+.canvas-page-menu {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) + 1);
+  top: 30px;
+  right: 0;
+  display: grid;
+  width: 156px;
+  padding: 4px;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: var(--app-surface, white);
+  box-shadow: var(--app-shadow-md);
+}
+
+.canvas-pages-list > li:nth-last-child(-n + 2) .canvas-page-menu {
+  top: auto;
+  bottom: 30px;
+}
+
+.canvas-page-actions .canvas-page-menu > button {
+  width: 100%;
+  height: 32px;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--app-ink);
+  font-size: var(--app-text-xs);
+  white-space: nowrap;
+}
+
+.canvas-page-actions .canvas-page-menu > button.is-danger {
+  color: var(--app-danger);
+}
+
+.canvas-page-actions .canvas-page-menu > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .canvas-page-delete-confirm {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -312,6 +397,7 @@
 }
 
 .canvas-page-name-input {
+  grid-column: 2 / -1;
   width: 100%;
   min-width: 0;
   padding: 6px 8px;
