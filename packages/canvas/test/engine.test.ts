@@ -8,9 +8,15 @@ import { anchorPoint, routeEdges } from "../src/router.js";
 import { CanvasDocSchema } from "../src/types.js";
 import {
   cameraGridStyle,
+  canvasContentBounds,
   clampCanvasScale,
+  fitCameraToBounds,
+  fitPageCamera,
   iframeActiveCandidates,
   iframePrewarmCandidates,
+  screenToWorld,
+  worldToScreen,
+  zoomCameraAt,
 } from "../src/viewport.js";
 import { anchors, fixture } from "./fixture.js";
 
@@ -185,6 +191,32 @@ test("camera supports both whole-canvas overviews and close inspection", () => {
   assert.equal(clampCanvasScale(1), 1);
   assert.equal(clampCanvasScale(4), 4);
   assert.equal(clampCanvasScale(12), 8);
+});
+test("camera coordinate conversion and pointer-anchored zoom are exact inverses", () => {
+  const view = { x: 120, y: -40, scale: 0.75 };
+  const world = { x: 420, y: 280 };
+  const screen = worldToScreen(view, world);
+  assert.deepEqual(screenToWorld(view, screen), world);
+  const zoomed = zoomCameraAt(view, screen, 1.8);
+  assert.deepEqual(worldToScreen(zoomed, world), screen);
+});
+test("fit policy preserves natural frame geometry and never enlarges automatically", () => {
+  const mobile = fitCameraToBounds(
+    { x: 100, y: 200, width: 390, height: 844 },
+    { width: 1200, height: 900 },
+    { heightRatio: 0.8 },
+  );
+  assert.ok((844 * mobile.scale) / 900 >= 0.75 && (844 * mobile.scale) / 900 <= 0.82);
+  const small = fitCameraToBounds(
+    { x: 0, y: 0, width: 200, height: 100 },
+    { width: 1200, height: 900 },
+  );
+  assert.equal(small.scale, 1);
+
+  const canvas = layoutCanvas(fixture());
+  const fitted = fitPageCamera(canvas, { width: 1200, height: 800 });
+  const bounds = canvasContentBounds(canvas);
+  assert.ok(bounds.width * fitted.scale <= 1200 - 128 + 0.001);
 });
 test("iframe prewarm is bounded, nearest-first, and disabled at fit-all scale", () => {
   const nodes = [

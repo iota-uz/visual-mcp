@@ -42,7 +42,7 @@ describe("presentHotspotBox", () => {
     );
     expect(box.left).toBeGreaterThan(300);
     expect(box.top).toBeGreaterThan(100);
-    expect(box.width).toBeGreaterThan(280);
-    expect(box.height).toBeGreaterThan(45);
+    expect(box.width).toBeGreaterThan(260);
+    expect(box.height).toBeGreaterThan(40);
   });
 });

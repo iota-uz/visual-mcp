@@ -108,6 +108,38 @@ test("snapshotCanvas captures exact world-coordinate regions and rejects outside
   }
 });
 
+test("snapshotCanvas captures a valid lower region of a world taller than the compositor surface", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-tall-region-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:16080px;height:27600px;background:white}.vc-node{position:absolute;left:1600px;top:120px;width:1440px;height:27300px}.vc-node iframe{display:block;width:100%;height:100%;border:0}</style><div class="vc-world"><div class="vc-node vc-kind-iframe" data-node-id="long-screen" data-iframe-readiness="ready"><iframe srcdoc="<style>html,body{margin:0;height:27300px}.marker{position:absolute;left:0;top:25680px;width:1440px;height:1540px;background:#ef4444}</style><div class='marker'></div>"></iframe></div></div>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "lower-region.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "region", x: 1600, y: 25800, width: 1440, height: 1540 },
+    });
+    assert.deepEqual([result.width, result.height], [1440, 1540]);
+    const pixel = await sharp(await fs.readFile(outputPath))
+      .extract({ left: 20, top: 20, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    assert.ok(
+      pixel[0] && pixel[0] > 200 && (pixel[1] ?? 255) < 100 && (pixel[2] ?? 255) < 100,
+      "the translated lower-region iframe marker should be captured",
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------------------------
  * (a) plain HTML + Tailwind class -> PNG produced, non-empty, valid magic
  * ---------------------------------------------------------------------- */

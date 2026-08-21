@@ -449,4 +449,60 @@ describe("reactive viewport reconciliation", () => {
     expect(onGeometryChange).toHaveBeenCalledOnce();
     controller.dispose();
   });
+
+  test("uses one zoom control for restored camera, Fit Page, Fit Selection, and fixed scales", () => {
+    const container = viewportContainer();
+    const onViewChange = vi.fn();
+    const positioned = layoutCanvas(doc());
+    const controller = mountViewport({
+      container,
+      canvas: positioned,
+      initialView: { x: 24, y: 36, scale: 0.5 },
+      onViewChange,
+    });
+    flushFrames();
+
+    expect(controller.getView()).toEqual({ x: 24, y: 36, scale: 0.5 });
+    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("50%");
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      '[data-node-id="screen"] .vc-iframe-viewport',
+    );
+    const naturalSize = iframe?.getAttribute("style");
+
+    container.querySelector<HTMLButtonElement>('[data-zoom="in"]')?.click();
+    flushFrames();
+    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("60%");
+
+    container.querySelector<HTMLButtonElement>('[data-zoom-action="200"]')?.click();
+    flushFrames();
+    expect(controller.getView().scale).toBe(2);
+    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("200%");
+
+    controller.selectNode("screen");
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "2", shiftKey: true, bubbles: true }),
+    );
+    flushFrames();
+    expect(controller.getView().scale).toBe(1);
+
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "1", shiftKey: true, bubbles: true }),
+    );
+    flushFrames();
+    expect(controller.getView().scale).toBe(1);
+    expect(iframe?.getAttribute("style")).toBe(naturalSize);
+    expect(onViewChange).toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  test("does not animate Fit when reduced motion is requested", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    const container = viewportContainer();
+    const controller = mountViewport({ container, canvas: layoutCanvas(doc()) });
+    flushFrames();
+    controller.fitAll();
+    flushFrames();
+    expect(container).not.toHaveClass("is-camera-animating");
+    controller.dispose();
+  });
 });

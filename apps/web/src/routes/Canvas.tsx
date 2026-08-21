@@ -40,6 +40,7 @@ import {
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { useSessionUser } from "../auth";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
@@ -77,6 +78,7 @@ export function CanvasViewport({
   editable = false,
   onGeometryChange,
   canvasRef,
+  cameraStorageKey,
   immersive = false,
   syncSelectionToUrl = true,
 }: {
@@ -87,6 +89,7 @@ export function CanvasViewport({
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
   canvasRef?: string;
+  cameraStorageKey?: string;
   immersive?: boolean;
   syncSelectionToUrl?: boolean;
 }) {
@@ -160,9 +163,39 @@ export function CanvasViewport({
       return;
     }
 
+    let initialView: { x: number; y: number; scale: number } | undefined;
+    if (cameraStorageKey) {
+      try {
+        const stored = window.localStorage.getItem(cameraStorageKey);
+        if (stored) {
+          const parsed = JSON.parse(stored) as { x?: unknown; y?: unknown; scale?: unknown };
+          if (
+            typeof parsed.x === "number" &&
+            typeof parsed.y === "number" &&
+            typeof parsed.scale === "number"
+          ) {
+            initialView = { x: parsed.x, y: parsed.y, scale: parsed.scale };
+          }
+        }
+      } catch {
+        // A corrupt personal camera preference should fall back to deterministic Fit.
+      }
+    }
+
     const controller = mountViewport({
       container,
       canvas: positioned,
+      initialView,
+      fitOnResize: immersive,
+      onViewChange: cameraStorageKey
+        ? (view) => {
+            try {
+              window.localStorage.setItem(cameraStorageKey, JSON.stringify(view));
+            } catch {
+              // Storage can be unavailable in privacy modes; camera behavior remains functional.
+            }
+          }
+        : undefined,
       editable,
       resolveIframeUrl: (node) =>
         resolveIframeUrlRef.current?.(node) ??
@@ -216,7 +249,7 @@ export function CanvasViewport({
       controllerRef.current = null;
       controller.dispose();
     };
-  }, [editable, immersive, syncSelectionToUrl]);
+  }, [cameraStorageKey, editable, immersive, syncSelectionToUrl]);
 
   useEffect(() => {
     try {
@@ -1239,6 +1272,7 @@ function PrototypePanel({
 export function CanvasPage() {
   const { canvasId } = useParams<{ canvasId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const sessionUser = useSessionUser();
   const requestedPageId = searchParams.get("page");
   const canvas = useQuery(
     api.canvases.getMine,
@@ -1653,12 +1687,13 @@ export function CanvasPage() {
             (!doc.nodes.some((node) => node.kind === "iframe" || node.kind === "image") ||
               iframeCapabilityToken) && (
               <CanvasViewport
-                key={canvas.canvas_id}
+                key={`${canvas.canvas_id}:${activePageId}`}
                 doc={doc}
                 iframeRevisions={resolvedIframeRevisions}
                 version={canvasVersion}
                 editable
                 canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
+                cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
                 onGeometryChange={(nodeId, rect) => {
                   if (!canvasId) return;
                   pendingGeometrySavesRef.current += 1;

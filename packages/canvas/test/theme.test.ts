@@ -19,3 +19,10 @@ test("immersive viewports hide every editor-only canvas control", async () => {
     assert.match(immersiveRule, new RegExp(className.replace(".", "\\.")));
   }
 });
+
+test("semantic zoom keeps labels and handles in screen space and hides secondary metadata", async () => {
+  const css = await readFile(new URL("../src/theme.css", import.meta.url), "utf8");
+  assert.match(css, /calc\(10px \* var\(--vc-camera-inverse\)\)/);
+  assert.match(css, /calc\(8px \* var\(--vc-camera-inverse\)\)/);
+  assert.match(css, /\.vc-viewport\[data-zoom="low"\] \.vc-caption-subtitle/);
+});

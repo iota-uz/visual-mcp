@@ -109,7 +109,7 @@ export function PublicCanvasPage() {
           )}
           {doc && cssReady && (
             <CanvasViewport
-              key={canvas.canvas_id}
+              key={`${canvas.canvas_id}:${page?.id ?? "default"}`}
               doc={doc}
               iframeRevisions={canvas.iframe_revisions}
               version={canvas.version}

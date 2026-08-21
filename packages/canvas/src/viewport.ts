@@ -8,7 +8,8 @@ import type { IframeNode, ImageNode, Rect } from "./types.js";
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
 const MIN_SCALE = 0.005;
 const MAX_SCALE = 8;
-const FIT_PADDING = 56;
+const FIT_GUTTER = 64;
+const SINGLE_SCREEN_HEIGHT_RATIO = 0.8;
 const IFRAME_PREWARM_SCALE = 0.24;
 const IFRAME_OVERSCAN_VIEWPORTS = 0.7;
 const IFRAME_LOAD_IDLE_MS = 90;
@@ -22,9 +23,22 @@ export interface ViewState {
   scale: number;
 }
 
+export interface CameraBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface CameraFitOptions {
+  gutter?: number;
+  maxScale?: number;
+  heightRatio?: number;
+}
+
 export type ViewportTool = "view" | "pan" | "move";
 
-interface ViewportSize {
+export interface ViewportSize {
   width: number;
   height: number;
 }
@@ -113,6 +127,80 @@ export function clampCanvasScale(scale: number): number {
   return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
 }
 
+/** Converts a screen-space point into the single canvas world coordinate system. */
+export function screenToWorld(view: ViewState, point: { x: number; y: number }) {
+  return {
+    x: (point.x - view.x) / view.scale,
+    y: (point.y - view.y) / view.scale,
+  };
+}
+
+/** Converts a world point through the same camera used by rendering and input. */
+export function worldToScreen(view: ViewState, point: { x: number; y: number }) {
+  return {
+    x: view.x + point.x * view.scale,
+    y: view.y + point.y * view.scale,
+  };
+}
+
+/** Returns a zoomed camera while keeping the chosen screen-space anchor stable. */
+export function zoomCameraAt(
+  view: ViewState,
+  anchor: { x: number; y: number },
+  nextScale: number,
+): ViewState {
+  const world = screenToWorld(view, anchor);
+  const scale = clampCanvasScale(nextScale);
+  return {
+    x: anchor.x - world.x * scale,
+    y: anchor.y - world.y * scale,
+    scale,
+  };
+}
+
+/** Deterministic centered fit shared by editor focus and Present. */
+export function fitCameraToBounds(
+  bounds: CameraBounds,
+  viewport: ViewportSize,
+  options: CameraFitOptions = {},
+): ViewState {
+  const gutter = options.gutter ?? FIT_GUTTER;
+  const availableWidth = Math.max(1, viewport.width - gutter * 2);
+  const availableHeight = Math.max(
+    1,
+    options.heightRatio
+      ? Math.min(viewport.height * options.heightRatio, viewport.height - gutter * 2)
+      : viewport.height - gutter * 2,
+  );
+  const scale = clampCanvasScale(
+    Math.min(options.maxScale ?? 1, availableWidth / bounds.width, availableHeight / bounds.height),
+  );
+  return {
+    x: (viewport.width - bounds.width * scale) / 2 - bounds.x * scale,
+    y: (viewport.height - bounds.height * scale) / 2 - bounds.y * scale,
+    scale,
+  };
+}
+
+/** The authored content bounds of a Page, excluding deliberate empty world space. */
+export function canvasContentBounds(canvas: PositionedCanvas): CameraBounds {
+  if (canvas.nodes.length === 0) {
+    return { x: 0, y: 0, width: canvas.width, height: canvas.height };
+  }
+  const left = Math.min(...canvas.nodes.map((node) => node.x));
+  const top = Math.min(...canvas.nodes.map((node) => node.y));
+  const right = Math.max(...canvas.nodes.map((node) => node.x + node.w));
+  const bottom = Math.max(...canvas.nodes.map((node) => node.y + node.h));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** Default Page fit: a lone screen occupies 80% height; galleries use 64px gutters. */
+export function fitPageCamera(canvas: PositionedCanvas, viewport: ViewportSize): ViewState {
+  return fitCameraToBounds(canvasContentBounds(canvas), viewport, {
+    heightRatio: canvas.nodes.length === 1 ? SINGLE_SCREEN_HEIGHT_RATIO : undefined,
+  });
+}
+
 function positiveModulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -134,6 +222,9 @@ export interface ViewportOptions {
   container: HTMLElement;
   canvas: PositionedCanvas;
   initialScale?: number;
+  initialView?: ViewState;
+  onViewChange?: (view: ViewState) => void;
+  fitOnResize?: boolean;
   onSelect?: (nodeId: string | null) => void;
   resolveIframeUrl?: (node: IframeNode) => string;
   resolveImageUrl?: (node: ImageNode) => string;
@@ -152,6 +243,7 @@ export interface ViewportUpdateOptions {
 
 export interface ViewportController {
   fitAll(): void;
+  fitSelection(): void;
   resetView(): void;
   selectNode(id: string | null, focus?: boolean): void;
   zoomAt(clientX: number, clientY: number, factor: number): void;
@@ -159,6 +251,7 @@ export interface ViewportController {
   deactivateIframe(): void;
   setTool(tool: ViewportTool): void;
   getTool(): ViewportTool;
+  getView(): ViewState;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
   dispose(): void;
@@ -186,9 +279,24 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
 
 function toolbarShell(editable: boolean): string {
   return `<div class="vc-toolbar" role="toolbar" aria-label="Canvas tools">
-    <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
-    <button type="button" class="vc-tool" data-tool="pan" aria-label="Pan tool" aria-pressed="false" title="Pan (H or hold Space)"><span>Pan</span><kbd>H</kbd></button>
-    <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
+    <div class="vc-tool-group">
+      <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
+      <button type="button" class="vc-tool" data-tool="pan" aria-label="Pan tool" aria-pressed="false" title="Pan (H or hold Space)"><span>Pan</span><kbd>H</kbd></button>
+      <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
+    </div>
+    <div class="vc-zoom-control" aria-label="Canvas zoom">
+      <button type="button" class="vc-zoom-step" data-zoom="out" aria-label="Zoom out" title="Zoom out">−</button>
+      <details class="vc-zoom-menu">
+        <summary aria-label="Zoom options"><span class="vc-zoom-value">100%</span><span aria-hidden="true">▾</span></summary>
+        <div class="vc-zoom-options">
+          <button type="button" data-zoom-action="fit-page"><span>Fit Page</span><kbd>⇧1</kbd></button>
+          <button type="button" data-zoom-action="fit-selection"><span>Fit Selection</span><kbd>⇧2</kbd></button>
+          <button type="button" data-zoom-action="100"><span>100%</span></button>
+          <button type="button" data-zoom-action="200"><span>200%</span></button>
+        </div>
+      </details>
+      <button type="button" class="vc-zoom-step" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+    </div>
     <span class="vc-tool-status visually-hidden" role="status" aria-live="polite">View tool</span>
   </div>`;
 }
@@ -231,13 +339,16 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorRefCopy = must(".vc-inspector-ref-copy");
   const toolbar = must(".vc-toolbar");
   const toolStatus = must(".vc-tool-status");
+  const zoomValue = must(".vc-zoom-value");
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let activeIframeId: string | null = null;
   let selectedNodeId: string | null = null;
   let activeTool: ViewportTool = "view";
   let temporaryPan = false;
-  const view: ViewState = { x: 40, y: 40, scale: opts.initialScale ?? 0.6 };
+  const view: ViewState = opts.initialView
+    ? { ...opts.initialView, scale: clampCanvasScale(opts.initialView.scale) }
+    : { x: 40, y: 40, scale: opts.initialScale ?? 0.6 };
   let miniScale = 1;
   let miniOffsetX = 0;
   let miniOffsetY = 0;
@@ -245,6 +356,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let viewFrame: number | null = null;
   let geometryFrame: number | null = null;
   let iframeSyncTimer: number | null = null;
+  let fitAnimationTimer: number | null = null;
   const pendingGeometryIds = new Set<string>();
   const iframeQueue: string[] = [];
   const queuedIframeIds = new Set<string>();
@@ -259,6 +371,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function paintView(): void {
     viewFrame = null;
     world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
+    world.style.setProperty("--vc-camera-scale", String(view.scale));
+    world.style.setProperty(
+      "--vc-camera-inverse",
+      String(Math.min(20, Math.max(0.125, 1 / view.scale))),
+    );
+    container.dataset.zoom = view.scale < 0.24 ? "low" : view.scale > 1.5 ? "high" : "normal";
+    zoomValue.textContent = `${Math.round(view.scale * 100)}%`;
 
     // The grid lives in screen space, so explicitly project a world-space
     // interval through the camera. The power-of-four LOD keeps dots legible
@@ -269,6 +388,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.style.setProperty("--grid-y", `${grid.y}px`);
     updateMinimapViewport();
     scheduleIframeSync();
+    opts.onViewChange?.({ ...view });
   }
 
   function applyView(): void {
@@ -278,46 +398,53 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function zoomAt(clientX: number, clientY: number, factor: number): void {
     const localX = clientX - viewportRect.left;
     const localY = clientY - viewportRect.top;
-    const worldX = (localX - view.x) / view.scale;
-    const worldY = (localY - view.y) / view.scale;
-    const nextScale = clampCanvasScale(view.scale * factor);
-    view.x = localX - worldX * nextScale;
-    view.y = localY - worldY * nextScale;
-    view.scale = nextScale;
+    Object.assign(view, zoomCameraAt(view, { x: localX, y: localY }, view.scale * factor));
+    container.classList.remove("is-camera-animating");
     applyView();
   }
 
-  function frameBounds(bounds: { x: number; y: number; w: number; h: number }): void {
-    const scale = clampCanvasScale(
-      Math.min(
-        1,
-        (viewportRect.width - FIT_PADDING) / bounds.w,
-        (viewportRect.height - FIT_PADDING) / bounds.h,
-      ),
-    );
-    view.scale = scale;
-    view.x = (viewportRect.width - bounds.w * scale) / 2 - bounds.x * scale;
-    view.y = (viewportRect.height - bounds.h * scale) / 2 - bounds.y * scale;
+  function setView(next: ViewState, animate = false): void {
+    if (fitAnimationTimer !== null) {
+      window.clearTimeout(fitAnimationTimer);
+      fitAnimationTimer = null;
+    }
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    container.classList.toggle("is-camera-animating", animate && !reduceMotion);
+    if (animate && !reduceMotion) {
+      fitAnimationTimer = window.setTimeout(() => {
+        container.classList.remove("is-camera-animating");
+        fitAnimationTimer = null;
+      }, 190);
+    }
+    Object.assign(view, next);
     applyView();
   }
 
   function fitAll(): void {
-    frameBounds({ x: 0, y: 0, w: liveCanvas.width, h: liveCanvas.height });
+    setView(fitPageCamera(liveCanvas, viewportRect), true);
+  }
+
+  function fitSelection(): void {
+    const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+    if (!node) {
+      fitAll();
+      return;
+    }
+    setView(
+      fitCameraToBounds({ x: node.x, y: node.y, width: node.w, height: node.h }, viewportRect),
+      true,
+    );
   }
 
   function resetView(): void {
-    view.x = 40;
-    view.y = 40;
-    view.scale = opts.initialScale ?? 0.6;
-    applyView();
+    setView(zoomCameraAt(view, { x: viewportRect.width / 2, y: viewportRect.height / 2 }, 1), true);
   }
 
   function focusNode(node: PositionedNode): void {
-    const targetScale = Math.max(0.48, Math.min(0.78, view.scale));
-    view.scale = targetScale;
-    view.x = viewportRect.width / 2 - (node.x + node.w / 2) * targetScale;
-    view.y = viewportRect.height / 2 - (node.y + node.h / 2) * targetScale;
-    applyView();
+    setView(
+      fitCameraToBounds({ x: node.x, y: node.y, width: node.w, height: node.h }, viewportRect),
+      true,
+    );
   }
 
   function selectNode(id: string | null, focus = false): void {
@@ -835,6 +962,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // double-click reliable even when the native `dblclick` event is not
     // emitted after pointer capture.
     if (nodeId && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500) {
+      if (node) focusNode(node);
       activateIframe(nodeId);
     }
     const tool = effectiveTool();
@@ -983,7 +1111,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     } else if (event.key === "v" || event.key === "V") setTool("view");
     else if (event.key === "h" || event.key === "H") setTool("pan");
     else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
-    else if (event.key === "0") fitAll();
+    else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
+      event.preventDefault();
+      fitAll();
+    } else if (event.shiftKey && (event.code === "Digit2" || event.key === "2")) {
+      event.preventDefault();
+      fitSelection();
+    } else if (event.key === "0") fitAll();
     else if (event.key === "r" || event.key === "R") resetView();
     else if (event.key === "Escape") {
       cancelDrag();
@@ -1012,9 +1146,34 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onToolbarClick(event: MouseEvent): void {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
-    if (!button || button.disabled) return;
-    const tool = button.dataset.tool;
-    if (tool === "view" || tool === "pan" || tool === "move") setTool(tool);
+    if (button && !button.disabled) {
+      const tool = button.dataset.tool;
+      if (tool === "view" || tool === "pan" || tool === "move") setTool(tool);
+    }
+    const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-zoom]");
+    if (zoomStep) {
+      const factor = zoomStep.dataset.zoom === "in" ? 1.2 : 1 / 1.2;
+      zoomAt(
+        viewportRect.left + viewportRect.width / 2,
+        viewportRect.top + viewportRect.height / 2,
+        factor,
+      );
+    }
+    const zoomAction = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      "[data-zoom-action]",
+    );
+    if (zoomAction) {
+      if (zoomAction.dataset.zoomAction === "fit-page") fitAll();
+      else if (zoomAction.dataset.zoomAction === "fit-selection") fitSelection();
+      else {
+        const scale = zoomAction.dataset.zoomAction === "200" ? 2 : 1;
+        setView(
+          zoomCameraAt(view, { x: viewportRect.width / 2, y: viewportRect.height / 2 }, scale),
+          true,
+        );
+      }
+      zoomAction.closest<HTMLDetailsElement>("details")?.removeAttribute("open");
+    }
     container.focus({ preventScroll: true });
   }
 
@@ -1038,7 +1197,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onNodesDoubleClick(event: MouseEvent): void {
     const id = (event.target as HTMLElement).closest<HTMLElement>(".vc-node")?.dataset.nodeId;
-    if (id) activateIframe(id);
+    const node = id ? nodeById.get(id) : undefined;
+    if (node) {
+      focusNode(node);
+      activateIframe(node.id);
+    }
   }
 
   function onNodesClick(event: MouseEvent): void {
@@ -1079,7 +1242,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       : new ResizeObserver(() => {
           viewportRect = container.getBoundingClientRect();
           renderMinimap();
-          applyView();
+          if (opts.fitOnResize) setView(fitPageCamera(liveCanvas, viewportRect));
+          else applyView();
         });
 
   container.addEventListener("pointerdown", onPointerDown);
@@ -1101,10 +1265,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   renderMinimap();
   paintToolState();
-  fitAll();
+  if (opts.initialView) applyView();
+  else fitAll();
 
   return {
     fitAll,
+    fitSelection,
     resetView,
     selectNode,
     zoomAt,
@@ -1112,11 +1278,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     deactivateIframe,
     setTool,
     getTool: () => activeTool,
+    getView: () => ({ ...view }),
     updateCanvas,
     dispose() {
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
       if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
       if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
+      if (fitAnimationTimer !== null) window.clearTimeout(fitAnimationTimer);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);

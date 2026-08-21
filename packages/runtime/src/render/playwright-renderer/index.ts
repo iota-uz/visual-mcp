@@ -215,6 +215,29 @@ export async function snapshotCanvas(
           width: target.width,
           height: target.height,
         };
+
+        // Chromium rejects clips whose origin sits beyond its bounded
+        // compositor surface even when that rectangle is valid inside a
+        // very tall document. Translate the requested world region to the
+        // capture origin instead of asking Chromium to address a 25k+ y
+        // coordinate. The world, node and iframe keep their authored sizes;
+        // only the temporary export camera moves.
+        if (target.x > 0 || target.y > 0) {
+          await world.evaluate((element, region) => {
+            const owner = element as HTMLElement;
+            owner.style.transformOrigin = "0 0";
+            owner.style.transform = `translate3d(${-region.x}px, ${-region.y}px, 0)`;
+            document.documentElement.style.overflow = "hidden";
+            document.body.style.overflow = "hidden";
+            window.scrollTo(0, 0);
+          }, target);
+          clip = {
+            x: worldBox.x,
+            y: worldBox.y,
+            width: target.width,
+            height: target.height,
+          };
+        }
       }
 
       // A padded node at the right/bottom edge may extend beyond the document's initial surface.
@@ -222,6 +245,9 @@ export async function snapshotCanvas(
       const viewportHeight = Math.min(16_000, Math.max(1, Math.ceil(clip.y + clip.height)));
       await page.setViewportSize({ width: viewportWidth, height: viewportHeight });
       await warmIframeSurfaces(page);
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
       const screenshot = await page.screenshot({ type: "png", clip });
       const image = sharp(screenshot).png({ compressionLevel: 9 });
       let metadata = await image.metadata();

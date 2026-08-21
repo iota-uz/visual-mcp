@@ -1,4 +1,9 @@
-import { type CanvasNode, PHONE_FRAME, type PrototypeInteraction } from "@visual-canvas/canvas";
+import {
+  type CanvasNode,
+  fitCameraToBounds,
+  PHONE_FRAME,
+  type PrototypeInteraction,
+} from "@visual-canvas/canvas";
 
 /** Maps a prototype hotspot from authored frame coordinates into the fitted Present stage. */
 export function presentHotspotBox(
@@ -6,13 +11,12 @@ export function presentHotspotBox(
   hotspot: PrototypeInteraction["hotspot"],
   stage: { width: number; height: number },
 ) {
-  const padding = 56;
-  const cameraScale = Math.max(
-    0.005,
-    Math.min(1, (stage.width - padding) / node.rect.w, (stage.height - padding) / node.rect.h),
-  );
-  const frameLeft = (stage.width - node.rect.w * cameraScale) / 2;
-  const frameTop = (stage.height - node.rect.h * cameraScale) / 2;
+  const camera = fitCameraToBounds({ x: 0, y: 0, width: node.rect.w, height: node.rect.h }, stage, {
+    heightRatio: 0.8,
+  });
+  const cameraScale = camera.scale;
+  const frameLeft = camera.x;
+  const frameTop = camera.y;
   let contentX = 0;
   let contentY = 0;
   let contentScale = 1;
