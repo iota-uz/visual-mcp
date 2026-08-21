@@ -22,6 +22,8 @@ export interface ViewState {
   scale: number;
 }
 
+export type ViewportTool = "view" | "pan" | "move";
+
 interface ViewportSize {
   width: number;
   height: number;
@@ -155,6 +157,8 @@ export interface ViewportController {
   zoomAt(clientX: number, clientY: number, factor: number): void;
   activateIframe(id: string): void;
   deactivateIframe(): void;
+  setTool(tool: ViewportTool): void;
+  getTool(): ViewportTool;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
   dispose(): void;
@@ -180,6 +184,15 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
     <i class="vc-minimap-viewport"></i>
   </div>`;
 
+function toolbarShell(editable: boolean): string {
+  return `<div class="vc-toolbar" role="toolbar" aria-label="Canvas tools">
+    <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
+    <button type="button" class="vc-tool" data-tool="pan" aria-label="Pan tool" aria-pressed="false" title="Pan (H or hold Space)"><span>Pan</span><kbd>H</kbd></button>
+    <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
+    <span class="vc-tool-status visually-hidden" role="status" aria-live="polite">View tool</span>
+  </div>`;
+}
+
 export function mountViewport(opts: ViewportOptions): ViewportController {
   const { container, canvas, onSelect } = opts;
   let liveCanvas = canvas;
@@ -194,7 +207,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
-  container.innerHTML = `${rendered.html}${MINIMAP_SHELL}${INSPECTOR_SHELL}`;
+  container.innerHTML = `${rendered.html}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -216,9 +229,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorRef = must(".vc-inspector-ref");
   const inspectorRefValue = must(".vc-inspector-ref-value");
   const inspectorRefCopy = must(".vc-inspector-ref-copy");
+  const toolbar = must(".vc-toolbar");
+  const toolStatus = must(".vc-tool-status");
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let activeIframeId: string | null = null;
+  let selectedNodeId: string | null = null;
+  let activeTool: ViewportTool = "view";
+  let temporaryPan = false;
   const view: ViewState = { x: 40, y: 40, scale: opts.initialScale ?? 0.6 };
   let miniScale = 1;
   let miniOffsetX = 0;
@@ -305,6 +323,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function selectNode(id: string | null, focus = false): void {
     const node = id ? nodeById.get(id) : undefined;
     if (!node) {
+      selectedNodeId = null;
       inspector.classList.remove("visible");
       for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
         el.classList.remove("selected", "dimmed");
@@ -312,6 +331,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       onSelect?.(null);
       return;
     }
+    selectedNodeId = id;
     for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
       el.classList.toggle("selected", el.dataset.nodeId === id);
       el.classList.toggle("dimmed", el.dataset.stage !== node.stageId);
@@ -332,6 +352,31 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     inspector.classList.add("visible");
     if (focus) focusNode(node);
     onSelect?.(id);
+  }
+
+  function effectiveTool(): ViewportTool {
+    return temporaryPan ? "pan" : activeTool;
+  }
+
+  function paintToolState(announce = false): void {
+    const current = effectiveTool();
+    container.dataset.tool = current;
+    container.classList.toggle("is-tool-view", current === "view");
+    container.classList.toggle("is-tool-pan", current === "pan");
+    container.classList.toggle("is-tool-move", current === "move");
+    for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.tool === current));
+    }
+    if (announce) {
+      const label = `${current[0]?.toUpperCase()}${current.slice(1)} tool${temporaryPan ? ", temporary" : ""}`;
+      toolStatus.textContent = label;
+    }
+  }
+
+  function setTool(tool: ViewportTool): void {
+    activeTool = tool === "move" && !opts.editable ? "view" : tool;
+    temporaryPan = false;
+    paintToolState(true);
   }
 
   function deactivateIframe(): void {
@@ -729,12 +774,37 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   } | null = null;
   let lastClick: { nodeId: string; at: number } | null = null;
 
+  function clearDragClasses(): void {
+    container.classList.remove("is-panning", "is-pinching", "is-moving-node");
+  }
+
+  function cancelDrag(): void {
+    if (dragState?.nodeId && dragState.originRect && dragState.mode !== "pan") {
+      const node = nodeById.get(dragState.nodeId);
+      if (node) {
+        Object.assign(node.rect, dragState.originRect);
+        Object.assign(node, {
+          x: dragState.originRect.x,
+          y: dragState.originRect.y,
+          w: dragState.originRect.w,
+          h: dragState.originRect.h,
+        });
+        scheduleGeometry(node.id);
+      }
+    }
+    dragState = null;
+    activePointers.clear();
+    pinchState = null;
+    clearDragClasses();
+  }
+
   function onPointerDown(event: PointerEvent): void {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest(".vc-node.iframe-active iframe")) return;
     if (target.closest("input, button, a, summary, details")) return;
     event.preventDefault();
+    container.focus({ preventScroll: true });
     const nodeElement = target.closest<HTMLElement>(".vc-node");
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     container.setPointerCapture(event.pointerId);
@@ -767,10 +837,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (nodeId && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500) {
       activateIframe(nodeId);
     }
+    const tool = effectiveTool();
+    const selected = nodeId !== null && nodeId === selectedNodeId;
     const mode =
-      opts.editable && node && target.closest(".vc-resize-handle")
+      tool === "move" && opts.editable && selected && node && target.closest(".vc-resize-handle")
         ? "resize"
-        : opts.editable && node
+        : tool === "move" && opts.editable && selected && node
           ? "move"
           : "pan";
     dragState = {
@@ -783,7 +855,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       mode,
       originRect: node?.rect ? { ...node.rect } : undefined,
     };
-    container.classList.add("is-panning");
+    container.classList.add(mode === "pan" ? "is-panning" : "is-moving-node");
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -856,7 +928,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onPointerUp(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
-    container.classList.remove("is-panning", "is-pinching");
+    clearDragClasses();
     if (activePointers.size < 2) pinchState = null;
     const finishedDrag = dragState;
     dragState = null;
@@ -879,6 +951,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  function onPointerCancel(event: PointerEvent): void {
+    activePointers.delete(event.pointerId);
+    cancelDrag();
+    scheduleIframeSync(0);
+  }
+
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
@@ -892,15 +970,52 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onKeyDown(event: KeyboardEvent): void {
-    if (event.key === "0") fitAll();
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.matches("input, textarea, select, button, a, [contenteditable='true']") ||
+      target?.isContentEditable
+    )
+      return;
+    if (event.code === "Space" && !event.repeat) {
+      event.preventDefault();
+      temporaryPan = true;
+      paintToolState(true);
+    } else if (event.key === "v" || event.key === "V") setTool("view");
+    else if (event.key === "h" || event.key === "H") setTool("pan");
+    else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
+    else if (event.key === "0") fitAll();
     else if (event.key === "r" || event.key === "R") resetView();
     else if (event.key === "Escape") {
+      cancelDrag();
+      setTool("view");
       deactivateIframe();
       selectNode(null);
     } else if (event.key === "Enter") {
       const selected = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
       if (selected) activateIframe(selected);
     }
+  }
+
+  function onKeyUp(event: KeyboardEvent): void {
+    if (event.code !== "Space" || !temporaryPan) return;
+    event.preventDefault();
+    temporaryPan = false;
+    paintToolState(true);
+  }
+
+  function onWindowBlur(): void {
+    cancelDrag();
+    if (!temporaryPan) return;
+    temporaryPan = false;
+    paintToolState();
+  }
+
+  function onToolbarClick(event: MouseEvent): void {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
+    if (!button || button.disabled) return;
+    const tool = button.dataset.tool;
+    if (tool === "view" || tool === "pan" || tool === "move") setTool(tool);
+    container.focus({ preventScroll: true });
   }
 
   function onMinimapPointerDown(event: PointerEvent): void {
@@ -939,8 +1054,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     );
     if (!iframe) return;
     const owner = iframe.closest<HTMLElement>(".vc-node");
-    if (event.data?.type === "visual-canvas:escape" && owner?.dataset.nodeId === activeIframeId)
+    if (event.data?.type === "visual-canvas:escape" && owner?.dataset.nodeId === activeIframeId) {
+      cancelDrag();
+      setTool("view");
       deactivateIframe();
+      selectNode(null);
+    }
     if (
       event.data?.type === "visual-canvas:readiness" &&
       ["ready", "partial", "failed"].includes(event.data.state)
@@ -966,9 +1085,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("pointerdown", onPointerDown);
   container.addEventListener("pointermove", onPointerMove);
   container.addEventListener("pointerup", onPointerUp);
-  container.addEventListener("pointercancel", onPointerUp);
+  container.addEventListener("pointercancel", onPointerCancel);
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", onWindowBlur);
+  toolbar.addEventListener("click", onToolbarClick);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
   inspectorClose.addEventListener("click", onInspectorClose);
   inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
@@ -978,6 +1100,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   resizeObserver?.observe(container);
 
   renderMinimap();
+  paintToolState();
   fitAll();
 
   return {
@@ -987,6 +1110,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     zoomAt,
     activateIframe,
     deactivateIframe,
+    setTool,
+    getTool: () => activeTool,
     updateCanvas,
     dispose() {
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
@@ -997,9 +1122,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerUp);
-      container.removeEventListener("pointercancel", onPointerUp);
+      container.removeEventListener("pointercancel", onPointerCancel);
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+      toolbar.removeEventListener("click", onToolbarClick);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);
       inspectorClose.removeEventListener("click", onInspectorClose);
       inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);

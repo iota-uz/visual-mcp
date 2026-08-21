@@ -40,85 +40,191 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** A small but complete CanvasDoc — lanes, stages, nodes, edges, legend. */
-const CANVAS_DOC = {
-  version: 1,
-  title: "Claim intake",
-  subtitle: "Seeded locally so the kind=canvas viewport has something to draw",
-  lanes: [
-    { id: "people", label: "People", role: "actors", height: 220 },
-    { id: "app", label: "Product", role: "primary", height: 300 },
-    { id: "jobs", label: "Automation", role: "automation", height: 240 },
-  ],
-  stages: [
-    { id: "s1", index: 0, label: "Report", summary: "The claimant opens a claim" },
-    { id: "s2", index: 1, label: "Assess", summary: "Damage is priced" },
-    { id: "s3", index: 2, label: "Settle" },
-  ],
-  nodes: [
+/** A small but complete strict CanvasFile v3 — one Page with a CanvasDoc v2. */
+const CANVAS_FILE = {
+  version: 3,
+  defaultPageId: "overview",
+  pages: [
     {
-      id: "claimant",
-      lane: "people",
-      stage: "s1",
-      shape: "actor",
-      caption: { title: "Claimant", subtitle: "Web and mobile" },
-    },
-    {
-      id: "intake",
-      lane: "app",
-      stage: "s1",
-      shape: "screen",
-      caption: { title: "Intake form", tag: "3 steps" },
-      badge: { text: "live", tone: "live" },
-      content: { type: "text", body: "Photos, plate number, and a short description." },
-      inspector: {
-        eyebrow: "Screen",
-        title: "Intake form",
-        copy: "Collects the minimum needed to price the claim.",
-        points: ["Autosaves per step", "Photos go straight to storage"],
+      id: "overview",
+      title: "Overview",
+      order: 0,
+      doc: {
+        version: 2,
+        title: "Claim intake",
+        subtitle: "Seeded locally so the kind=canvas viewport has something to draw",
+        world: { width: 1_500, height: 780 },
+        lanes: [
+          {
+            id: "people",
+            label: "People",
+            role: "actors",
+            rect: { x: 40, y: 70, w: 1_420, h: 180 },
+          },
+          {
+            id: "app",
+            label: "Product",
+            role: "primary",
+            rect: { x: 40, y: 285, w: 1_420, h: 205 },
+          },
+          {
+            id: "jobs",
+            label: "Automation",
+            role: "automation",
+            rect: { x: 40, y: 525, w: 1_420, h: 175 },
+          },
+        ],
+        stages: [
+          {
+            id: "s1",
+            index: 0,
+            label: "Report",
+            summary: "The claimant opens a claim",
+            rect: { x: 40, y: 40, w: 460, h: 680 },
+          },
+          {
+            id: "s2",
+            index: 1,
+            label: "Assess",
+            summary: "Damage is priced",
+            rect: { x: 500, y: 40, w: 480, h: 680 },
+          },
+          {
+            id: "s3",
+            index: 2,
+            label: "Settle",
+            rect: { x: 980, y: 40, w: 480, h: 680 },
+          },
+        ],
+        labels: [],
+        nodes: [
+          {
+            id: "claimant",
+            kind: "native",
+            shape: "actor",
+            laneId: "people",
+            stageId: "s1",
+            rect: { x: 90, y: 115, w: 230, h: 100 },
+            caption: { title: "Claimant", subtitle: "Web and mobile" },
+            body: { text: "Starts a claim from any device." },
+            anchors: [{ id: "right", side: "right", offset: 0.5 }],
+          },
+          {
+            id: "intake",
+            kind: "native",
+            shape: "screen",
+            laneId: "app",
+            stageId: "s1",
+            rect: { x: 170, y: 325, w: 270, h: 135 },
+            caption: { title: "Intake form", tag: "3 steps" },
+            maturity: "live",
+            body: { text: "Photos, plate number, and a short description." },
+            anchors: [
+              { id: "left", side: "left", offset: 0.5 },
+              { id: "right", side: "right", offset: 0.5 },
+              { id: "bottom", side: "bottom", offset: 0.5 },
+            ],
+            inspector: {
+              eyebrow: "Screen",
+              title: "Intake form",
+              copy: "Collects the minimum needed to price the claim.",
+              points: ["Autosaves per step", "Photos go straight to storage"],
+            },
+          },
+          {
+            id: "pricing",
+            kind: "native",
+            shape: "automation",
+            laneId: "jobs",
+            stageId: "s2",
+            rect: { x: 625, y: 560, w: 250, h: 105 },
+            caption: { title: "Pricing engine" },
+            maturity: "partial",
+            anchors: [
+              { id: "left", side: "left", offset: 0.5 },
+              { id: "right", side: "right", offset: 0.5 },
+              { id: "top", side: "top", offset: 0.5 },
+            ],
+          },
+          {
+            id: "review",
+            kind: "native",
+            shape: "window",
+            laneId: "app",
+            stageId: "s2",
+            rect: { x: 660, y: 325, w: 270, h: 135 },
+            caption: { title: "Adjuster review" },
+            anchors: [
+              { id: "left", side: "left", offset: 0.5 },
+              { id: "right", side: "right", offset: 0.5 },
+              { id: "bottom", side: "bottom", offset: 0.5 },
+            ],
+          },
+          {
+            id: "payout",
+            kind: "native",
+            shape: "service",
+            laneId: "app",
+            stageId: "s3",
+            rect: { x: 1_120, y: 325, w: 230, h: 135 },
+            caption: { title: "Payout" },
+            maturity: "to-be",
+            anchors: [{ id: "left", side: "left", offset: 0.5 }],
+          },
+        ],
+        edges: [
+          {
+            id: "claimant-intake",
+            source: { nodeId: "claimant", anchorId: "right" },
+            target: { nodeId: "intake", anchorId: "left" },
+            kind: "actor",
+            route: { type: "orthogonal" },
+          },
+          {
+            id: "intake-pricing",
+            source: { nodeId: "intake", anchorId: "bottom" },
+            target: { nodeId: "pricing", anchorId: "left" },
+            kind: "main",
+            route: { type: "orthogonal" },
+          },
+          {
+            id: "pricing-review",
+            source: { nodeId: "pricing", anchorId: "top" },
+            target: { nodeId: "review", anchorId: "bottom" },
+            kind: "main",
+            route: { type: "orthogonal" },
+          },
+          {
+            id: "review-payout",
+            source: { nodeId: "review", anchorId: "right" },
+            target: { nodeId: "payout", anchorId: "left" },
+            kind: "main",
+            route: { type: "orthogonal" },
+            label: { text: "approved" },
+          },
+          {
+            id: "review-intake",
+            source: { nodeId: "review", anchorId: "left" },
+            target: { nodeId: "intake", anchorId: "right" },
+            kind: "exception",
+            route: { type: "bezier" },
+            label: { text: "needs more photos" },
+          },
+        ],
+        legend: [
+          {
+            title: "Status",
+            items: [
+              { label: "Live", maturity: "live" },
+              { label: "In progress", maturity: "partial" },
+              { label: "Planned", maturity: "to-be" },
+            ],
+          },
+        ],
       },
     },
-    {
-      id: "pricing",
-      lane: "jobs",
-      stage: "s2",
-      shape: "automation",
-      caption: { title: "Pricing engine" },
-      badge: { text: "partial", tone: "partial" },
-    },
-    {
-      id: "review",
-      lane: "app",
-      stage: "s2",
-      shape: "window",
-      caption: { title: "Adjuster review" },
-    },
-    {
-      id: "payout",
-      lane: "app",
-      stage: "s3",
-      shape: "service",
-      caption: { title: "Payout" },
-      badge: { text: "planned", tone: "planned" },
-    },
   ],
-  edges: [
-    { from: "claimant", to: "intake", kind: "actor" },
-    { from: "intake", to: "pricing", kind: "main" },
-    { from: "pricing", to: "review", kind: "main" },
-    { from: "review", to: "payout", kind: "main", label: "approved" },
-    { from: "review", to: "intake", kind: "exception", label: "needs more photos" },
-  ],
-  legend: [
-    {
-      title: "Status",
-      items: [
-        { label: "Live", tone: "live" },
-        { label: "In progress", tone: "partial" },
-        { label: "Planned", tone: "planned" },
-      ],
-    },
-  ],
+  prototype: { interactions: [] },
 };
 
 /** Self-contained, so it renders in the viewer's iframe with no subresources. */
@@ -197,7 +303,7 @@ export const reset = internalAction({
     assertLocalStack();
 
     const docStorageId = await ctx.storage.store(
-      new Blob([JSON.stringify(CANVAS_DOC)], { type: "application/json" }),
+      new Blob([JSON.stringify(CANVAS_FILE)], { type: "application/json" }),
     );
     const htmlStorageId = await ctx.storage.store(new Blob([HTML_ENTRY], { type: "text/html" }));
     const svgStorageId = await ctx.storage.store(new Blob([SVG_ENTRY], { type: "image/svg+xml" }));

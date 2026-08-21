@@ -72,6 +72,7 @@ describe("reactive viewport reconciliation", () => {
 
   afterEach(() => {
     frames.clear();
+    document.body.innerHTML = "";
     vi.unstubAllGlobals();
   });
 
@@ -80,6 +81,46 @@ describe("reactive viewport reconciliation", () => {
       frames.delete(id);
       callback(performance.now());
     }
+  }
+
+  function dispatchPointer(
+    target: Element,
+    type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+    x: number,
+    y: number,
+    pointerType: "mouse" | "touch" = "mouse",
+  ) {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 },
+      pointerType: { value: pointerType },
+    });
+    target.dispatchEvent(event);
+  }
+
+  function viewportContainer() {
+    const container = document.createElement("div");
+    container.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1_200,
+        bottom: 800,
+        width: 1_200,
+        height: 800,
+        toJSON() {},
+      }) as DOMRect;
+    container.setPointerCapture = vi.fn();
+    document.body.appendChild(container);
+    return container;
   }
 
   test("updates structure and routes without resetting camera or a stable iframe", () => {
@@ -296,6 +337,116 @@ describe("reactive viewport reconciliation", () => {
     );
     container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy")?.click();
     expect(onCopy).toHaveBeenCalledWith("canvas://osago/realtime?node=screen");
+    controller.dispose();
+  });
+
+  test("starts in safe View and persists geometry only after explicit Move", () => {
+    const container = viewportContainer();
+    const onGeometryChange = vi.fn();
+    const positioned = layoutCanvas(doc());
+    const positionedNode = positioned.nodes[0];
+    if (!positionedNode) throw new Error("Missing positioned node");
+    const original = { ...positionedNode.rect };
+    const controller = mountViewport({
+      container,
+      canvas: positioned,
+      editable: true,
+      onGeometryChange,
+    });
+    flushFrames();
+
+    const node = container.querySelector<HTMLElement>('[data-node-id="native"]');
+    const view = container.querySelector<HTMLButtonElement>('[data-tool="view"]');
+    const move = container.querySelector<HTMLButtonElement>('[data-tool="move"]');
+    if (!node || !view || !move) throw new Error("Missing viewport controls");
+
+    expect(controller.getTool()).toBe("view");
+    expect(container.dataset.tool).toBe("view");
+    expect(view).toHaveAttribute("aria-pressed", "true");
+
+    dispatchPointer(node, "pointerdown", 100, 100);
+    dispatchPointer(node, "pointerup", 100, 100);
+    expect(node).toHaveClass("selected");
+    expect(document.activeElement).toBe(container);
+
+    dispatchPointer(node, "pointerdown", 100, 100);
+    dispatchPointer(node, "pointermove", 160, 130);
+    dispatchPointer(node, "pointerup", 160, 130);
+    flushFrames();
+    expect(positionedNode.rect).toEqual(original);
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    move.click();
+    expect(controller.getTool()).toBe("move");
+    expect(move).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector(".vc-resize-handle")).not.toBeNull();
+
+    dispatchPointer(node, "pointerdown", 100, 100);
+    dispatchPointer(node, "pointermove", 160, 130);
+    dispatchPointer(node, "pointerup", 160, 130);
+    flushFrames();
+    expect(positionedNode.rect.x).toBe(original.x + 60);
+    expect(positionedNode.rect.y).toBe(original.y + 30);
+    expect(onGeometryChange).toHaveBeenCalledOnce();
+    expect(onGeometryChange).toHaveBeenCalledWith("native", positionedNode.rect);
+
+    const committed = { ...positionedNode.rect };
+    dispatchPointer(node, "pointerdown", 160, 130);
+    dispatchPointer(node, "pointermove", 220, 180);
+    dispatchPointer(node, "pointercancel", 220, 180);
+    flushFrames();
+    expect(positionedNode.rect).toEqual(committed);
+    expect(onGeometryChange).toHaveBeenCalledOnce();
+    controller.dispose();
+  });
+
+  test("supports keyboard tools, temporary Space pan, Escape, and touch-safe movement", () => {
+    const container = viewportContainer();
+    const onGeometryChange = vi.fn();
+    const positioned = layoutCanvas(doc());
+    const controller = mountViewport({
+      container,
+      canvas: positioned,
+      editable: true,
+      onGeometryChange,
+    });
+    flushFrames();
+
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true }));
+    expect(controller.getTool()).toBe("move");
+    expect(container.dataset.tool).toBe("move");
+
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true }),
+    );
+    expect(container.dataset.tool).toBe("pan");
+    expect(container.querySelector(".vc-tool-status")).toHaveTextContent("Pan tool, temporary");
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: " ", code: "Space" }));
+    expect(container.dataset.tool).toBe("move");
+
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(controller.getTool()).toBe("view");
+    expect(container.dataset.tool).toBe("view");
+
+    const input = document.createElement("input");
+    container.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true }));
+    expect(controller.getTool()).toBe("view");
+
+    const node = container.querySelector<HTMLElement>('[data-node-id="native"]');
+    if (!node) throw new Error("Missing node");
+    dispatchPointer(node, "pointerdown", 100, 100, "touch");
+    dispatchPointer(node, "pointermove", 150, 130, "touch");
+    dispatchPointer(node, "pointerup", 150, 130, "touch");
+    expect(onGeometryChange).not.toHaveBeenCalled();
+
+    dispatchPointer(node, "pointerdown", 100, 100, "touch");
+    dispatchPointer(node, "pointerup", 100, 100, "touch");
+    controller.setTool("move");
+    dispatchPointer(node, "pointerdown", 100, 100, "touch");
+    dispatchPointer(node, "pointermove", 150, 130, "touch");
+    dispatchPointer(node, "pointerup", 150, 130, "touch");
+    expect(onGeometryChange).toHaveBeenCalledOnce();
     controller.dispose();
   });
 });

@@ -13,6 +13,7 @@ test("immersive viewports hide every editor-only canvas control", async () => {
     ".vc-inspector",
     ".vc-iframe-guard",
     ".vc-iframe-exit",
+    ".vc-toolbar",
     ".vc-resize-handle",
   ]) {
     assert.match(immersiveRule, new RegExp(className.replace(".", "\\.")));
