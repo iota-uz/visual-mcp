@@ -36,7 +36,7 @@ export interface CameraFitOptions {
   heightRatio?: number;
 }
 
-export type ViewportTool = "view" | "pan" | "move";
+export type ViewportTool = "view" | "move";
 
 export interface ViewportSize {
   width: number;
@@ -281,7 +281,6 @@ function toolbarShell(editable: boolean): string {
   return `<div class="vc-toolbar" role="toolbar" aria-label="Canvas tools">
     <div class="vc-tool-group">
       <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
-      <button type="button" class="vc-tool" data-tool="pan" aria-label="Pan tool" aria-pressed="false" title="Pan (H or hold Space)"><span>Pan</span><kbd>H</kbd></button>
       <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
     </div>
     <div class="vc-zoom-control" aria-label="Canvas zoom">
@@ -345,7 +344,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let activeIframeId: string | null = null;
   let selectedNodeId: string | null = null;
   let activeTool: ViewportTool = "view";
-  let temporaryPan = false;
   const view: ViewState = opts.initialView
     ? { ...opts.initialView, scale: clampCanvasScale(opts.initialView.scale) }
     : { x: 40, y: 40, scale: opts.initialScale ?? 0.6 };
@@ -481,28 +479,21 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     onSelect?.(id);
   }
 
-  function effectiveTool(): ViewportTool {
-    return temporaryPan ? "pan" : activeTool;
-  }
-
   function paintToolState(announce = false): void {
-    const current = effectiveTool();
+    const current = activeTool;
     container.dataset.tool = current;
     container.classList.toggle("is-tool-view", current === "view");
-    container.classList.toggle("is-tool-pan", current === "pan");
     container.classList.toggle("is-tool-move", current === "move");
     for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) {
       button.setAttribute("aria-pressed", String(button.dataset.tool === current));
     }
     if (announce) {
-      const label = `${current[0]?.toUpperCase()}${current.slice(1)} tool${temporaryPan ? ", temporary" : ""}`;
-      toolStatus.textContent = label;
+      toolStatus.textContent = `${current[0]?.toUpperCase()}${current.slice(1)} tool`;
     }
   }
 
   function setTool(tool: ViewportTool): void {
     activeTool = tool === "move" && !opts.editable ? "view" : tool;
-    temporaryPan = false;
     paintToolState(true);
   }
 
@@ -851,7 +842,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // Keep the node being manipulated under the pointer even if a remote
     // version lands mid-drag. The subsequent optimistic save is based on the
     // newest Convex version and becomes the next reactive update.
-    if (dragState?.nodeId && dragState.mode !== "pan") {
+    if (dragState?.nodeId && dragState.mode !== "camera") {
       const local = nodeById.get(dragState.nodeId);
       const incoming = nextCanvas.nodes.find((node) => node.id === dragState?.nodeId);
       if (local && incoming) {
@@ -881,7 +872,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     scheduleIframeSync(0);
   }
 
-  // --- pan / pinch-zoom (pointer events cover mouse + touch + pen in one path) ---
+  // --- camera movement / pinch-zoom (pointer events cover mouse + touch + pen) ---
   const activePointers = new Map<number, { x: number; y: number }>();
   let dragState: {
     startX: number;
@@ -890,7 +881,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     originY: number;
     moved: boolean;
     nodeId: string | null;
-    mode: "pan" | "move" | "resize";
+    mode: "camera" | "move" | "resize";
     originRect?: Rect;
   } | null = null;
   let pinchState: {
@@ -906,7 +897,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function cancelDrag(): void {
-    if (dragState?.nodeId && dragState.originRect && dragState.mode !== "pan") {
+    if (dragState?.nodeId && dragState.originRect && dragState.mode !== "camera") {
       const node = nodeById.get(dragState.nodeId);
       if (node) {
         Object.assign(node.rect, dragState.originRect);
@@ -965,14 +956,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (node) focusNode(node);
       activateIframe(nodeId);
     }
-    const tool = effectiveTool();
+    const tool = activeTool;
     const selected = nodeId !== null && nodeId === selectedNodeId;
     const mode =
       tool === "move" && opts.editable && selected && node && target.closest(".vc-resize-handle")
         ? "resize"
         : tool === "move" && opts.editable && selected && node
           ? "move"
-          : "pan";
+          : "camera";
     dragState = {
       startX: event.clientX,
       startY: event.clientY,
@@ -983,7 +974,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       mode,
       originRect: node?.rect ? { ...node.rect } : undefined,
     };
-    container.classList.add(mode === "pan" ? "is-panning" : "is-moving-node");
+    container.classList.add(mode === "camera" ? "is-panning" : "is-moving-node");
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -1011,7 +1002,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const dy = event.clientY - dragState.startY;
     if (Math.abs(dx) + Math.abs(dy) > 5) dragState.moved = true;
     if (!dragState.moved) return;
-    if (dragState.mode === "pan" || !dragState.nodeId || !dragState.originRect) {
+    if (dragState.mode === "camera" || !dragState.nodeId || !dragState.originRect) {
       view.x = dragState.originX + dx;
       view.y = dragState.originY + dy;
       applyView();
@@ -1062,7 +1053,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     dragState = null;
     scheduleIframeSync(0);
     if (!finishedDrag) return;
-    if (finishedDrag.moved && finishedDrag.mode !== "pan" && finishedDrag.nodeId) {
+    if (finishedDrag.moved && finishedDrag.mode !== "camera" && finishedDrag.nodeId) {
       const node = nodeById.get(finishedDrag.nodeId);
       if (node) void opts.onGeometryChange?.(node.id, { ...node.rect });
     }
@@ -1104,12 +1095,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       target?.isContentEditable
     )
       return;
-    if (event.code === "Space" && !event.repeat) {
-      event.preventDefault();
-      temporaryPan = true;
-      paintToolState(true);
-    } else if (event.key === "v" || event.key === "V") setTool("view");
-    else if (event.key === "h" || event.key === "H") setTool("pan");
+    if (event.key === "v" || event.key === "V") setTool("view");
     else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
     else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
       event.preventDefault();
@@ -1130,27 +1116,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
-  function onKeyUp(event: KeyboardEvent): void {
-    if (event.code !== "Space" || !temporaryPan) return;
-    event.preventDefault();
-    temporaryPan = false;
-    paintToolState(true);
-  }
-
   function onWindowBlur(): void {
     cancelDrag();
-    if (!temporaryPan) return;
-    temporaryPan = false;
-    paintToolState();
   }
 
   function onToolbarClick(event: MouseEvent): void {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
     if (button && !button.disabled) {
       const tool = button.dataset.tool;
-      if (tool === "view" || tool === "pan" || tool === "move") setTool(tool);
+      if (tool === "view" || tool === "move") setTool(tool);
     }
-    const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-zoom]");
+    const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-zoom]");
     if (zoomStep) {
       const factor = zoomStep.dataset.zoom === "in" ? 1.2 : 1 / 1.2;
       zoomAt(
@@ -1160,7 +1136,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       );
     }
     const zoomAction = (event.target as HTMLElement).closest<HTMLButtonElement>(
-      "[data-zoom-action]",
+      "button[data-zoom-action]",
     );
     if (zoomAction) {
       if (zoomAction.dataset.zoomAction === "fit-page") fitAll();
@@ -1252,7 +1228,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("pointercancel", onPointerCancel);
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", onWindowBlur);
   toolbar.addEventListener("click", onToolbarClick);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
@@ -1293,7 +1268,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("pointercancel", onPointerCancel);
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       toolbar.removeEventListener("click", onToolbarClick);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);

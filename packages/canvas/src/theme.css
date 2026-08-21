@@ -80,9 +80,6 @@
   transform: translate3d(var(--grid-x), var(--grid-y), 0);
   will-change: transform;
 }
-.vc-viewport.is-tool-pan {
-  cursor: grab;
-}
 .vc-viewport.is-panning,
 .vc-viewport.is-pinching {
   cursor: grabbing;

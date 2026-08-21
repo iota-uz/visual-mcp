@@ -400,7 +400,7 @@ describe("reactive viewport reconciliation", () => {
     controller.dispose();
   });
 
-  test("supports keyboard tools, temporary Space pan, Escape, and touch-safe movement", () => {
+  test("supports keyboard tools, preserves camera on tool changes, Escape, and touch movement", () => {
     const container = viewportContainer();
     const onGeometryChange = vi.fn();
     const positioned = layoutCanvas(doc());
@@ -412,17 +412,25 @@ describe("reactive viewport reconciliation", () => {
     });
     flushFrames();
 
-    container.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true }));
+    const initialView = controller.getView();
+
+    const moveTool = container.querySelector<HTMLButtonElement>('[data-tool="move"]');
+    const viewTool = container.querySelector<HTMLButtonElement>('[data-tool="view"]');
+    if (!moveTool || !viewTool) throw new Error("Missing viewport tools");
+
+    moveTool.click();
     expect(controller.getTool()).toBe("move");
     expect(container.dataset.tool).toBe("move");
+    expect(controller.getView()).toEqual(initialView);
 
-    container.dispatchEvent(
-      new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true }),
-    );
-    expect(container.dataset.tool).toBe("pan");
-    expect(container.querySelector(".vc-tool-status")).toHaveTextContent("Pan tool, temporary");
-    window.dispatchEvent(new KeyboardEvent("keyup", { key: " ", code: "Space" }));
-    expect(container.dataset.tool).toBe("move");
+    viewTool.click();
+    expect(controller.getTool()).toBe("view");
+    expect(controller.getView()).toEqual(initialView);
+
+    expect(container.querySelector('[data-tool="pan"]')).toBeNull();
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "h", bubbles: true }));
+    expect(controller.getTool()).toBe("view");
+    expect(controller.getView()).toEqual(initialView);
 
     container.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(controller.getTool()).toBe("view");
