@@ -730,7 +730,20 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const edge = world.querySelector<SVGGElement>(
         `.vc-edge[data-edge-id="${CSS.escape(routed.edge.id)}"]`,
       );
-      edge?.querySelector<SVGPathElement>("path")?.setAttribute("d", routed.d);
+      for (const path of edge?.querySelectorAll<SVGPathElement>(".vc-edge-halo, .vc-edge-line") ??
+        []) {
+        path.setAttribute("d", routed.d);
+      }
+      const junctionPoints = [routed.junctionPoint, routed.mergePoint].filter(
+        (point) => point !== undefined,
+      );
+      const junctions = edge?.querySelectorAll<SVGCircleElement>(".vc-edge-junction") ?? [];
+      junctions.forEach((junction, index) => {
+        const point = junctionPoints[index];
+        if (!point) return;
+        junction.setAttribute("cx", String(point.x));
+        junction.setAttribute("cy", String(point.y));
+      });
       const label = edge?.querySelector<SVGTextElement>(".vc-edge-label");
       if (label) {
         label.setAttribute("x", String(routed.labelPoint.x));

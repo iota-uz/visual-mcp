@@ -111,7 +111,11 @@ const MARKERS: Record<EdgePath["edge"]["kind"], string> = {
 };
 function renderEdge(path: EdgePath): string {
   const marker = MARKERS[path.edge.kind];
-  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}" data-edge-id="${escapeHtml(path.edge.id)}"><path d="${path.d}" marker-end="url(#${marker})" ${path.edge.bidirectional ? `marker-start="url(#${marker})"` : ""}/>${path.edge.label ? `<text class="vc-edge-label" x="${path.labelPoint.x}" y="${path.labelPoint.y}">${escapeHtml(path.edge.label.text)}</text>` : ""}</g>`;
+  const junctions = [path.junctionPoint, path.mergePoint]
+    .filter((point) => point !== undefined)
+    .map((point) => `<circle class="vc-edge-junction" cx="${point.x}" cy="${point.y}" r="4" />`)
+    .join("");
+  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}" data-edge-id="${escapeHtml(path.edge.id)}"><path class="vc-edge-halo" d="${path.d}" aria-hidden="true"/><path class="vc-edge-line" d="${path.d}" marker-end="url(#${marker})" ${path.edge.bidirectional ? `marker-start="url(#${marker})"` : ""}/>${junctions}${path.edge.label ? `<text class="vc-edge-label" x="${path.labelPoint.x}" y="${path.labelPoint.y}">${escapeHtml(path.edge.label.text)}</text>` : ""}</g>`;
 }
 function markerDefs(): string {
   return `<defs>${Object.entries(MARKERS)

@@ -5,13 +5,20 @@ export interface EdgePath {
   edge: CanvasEdge;
   route: CanvasEdge["route"]["type"];
   d: string;
+  points: Point[];
   labelPoint: Point;
+  junctionPoint?: Point;
+  mergePoint?: Point;
 }
 export class RouterError extends Error {}
 
 const ORTHOGONAL_CLEARANCE = 24;
 const ORTHOGONAL_OBSTACLE_PADDING = 12;
 const ORTHOGONAL_BEND_RADIUS = 10;
+const ENDPOINT_TRACK_GAP = 14;
+const MAX_ENDPOINT_SPREAD = 70;
+const PARALLEL_TRACK_GAP = 18;
+const MAX_OCCUPIED_SEGMENTS = 800;
 const ROUTE_EPSILON = 0.001;
 
 interface Bounds {
@@ -19,6 +26,17 @@ interface Bounds {
   top: number;
   right: number;
   bottom: number;
+}
+
+interface ResolvedEndpoint {
+  point: Point;
+  node: PositionedNode;
+  anchor: ConnectorAnchor;
+}
+
+interface Segment {
+  from: Point;
+  to: Point;
 }
 
 export function anchorPoint(node: PositionedNode, anchor: ConnectorAnchor): Point {
@@ -57,13 +75,13 @@ function pointAtPolyline(points: Point[], position: number): Point {
   return points.at(-1) ?? { x: 0, y: 0 };
 }
 
-function endpoint(canvas: PositionedCanvas, value: CanvasEdge["source"]): Point {
+function endpoint(canvas: PositionedCanvas, value: CanvasEdge["source"]): ResolvedEndpoint {
   const node = canvas.nodes.find((candidate) => candidate.id === value.nodeId);
   if (!node) throw new RouterError(`unknown node "${value.nodeId}"`);
   const anchor = node.anchors.find((candidate) => candidate.id === value.anchorId);
   if (!anchor)
     throw new RouterError(`unknown anchor "${value.anchorId}" on node "${value.nodeId}"`);
-  return anchorPoint(node, anchor);
+  return { point: anchorPoint(node, anchor), node, anchor };
 }
 
 function bezierControl(point: Point, side: AnchorSide, distance: number): Point {
@@ -79,6 +97,12 @@ function bezierControl(point: Point, side: AnchorSide, distance: number): Point 
   }
 }
 
+function offsetBezierControl(point: Point, side: AnchorSide, offset: number): Point {
+  return side === "left" || side === "right"
+    ? { x: point.x, y: point.y + offset }
+    : { x: point.x + offset, y: point.y };
+}
+
 function sideVector(side: AnchorSide): Point {
   switch (side) {
     case "top":
@@ -92,12 +116,86 @@ function sideVector(side: AnchorSide): Point {
   }
 }
 
-function moveOutward(point: Point, side: AnchorSide): Point {
+function moveOutward(point: Point, side: AnchorSide, distance = ORTHOGONAL_CLEARANCE): Point {
   const vector = sideVector(side);
   return {
-    x: point.x + vector.x * ORTHOGONAL_CLEARANCE,
-    y: point.y + vector.y * ORTHOGONAL_CLEARANCE,
+    x: point.x + vector.x * distance,
+    y: point.y + vector.y * distance,
   };
+}
+
+function endpointKey(value: CanvasEdge["source"]): string {
+  return `${value.nodeId}\u0000${value.anchorId}`;
+}
+
+function canonicalPairKey(edge: CanvasEdge): string {
+  const source = endpointKey(edge.source);
+  const target = endpointKey(edge.target);
+  return source < target ? `${source}\u0001${target}` : `${target}\u0001${source}`;
+}
+
+function perpendicularDistance(side: AnchorSide, source: Point, target: Point): number {
+  return side === "left" || side === "right"
+    ? Math.abs(target.y - source.y)
+    : Math.abs(target.x - source.x);
+}
+
+function endpointClearances(
+  role: "source" | "target",
+  clusters: Iterable<CanvasEdge[]>,
+  resolved: Map<string, { source: ResolvedEndpoint; target: ResolvedEndpoint }>,
+): Map<string, number> {
+  const clearances = new Map<string, number>();
+  const otherRole = role === "source" ? "target" : "source";
+  for (const cluster of clusters) {
+    const own = cluster[0] ? resolved.get(cluster[0].id)?.[role] : undefined;
+    if (!own) continue;
+    const ordered = [...cluster].sort((a, b) => {
+      const aOther = resolved.get(a.id)?.[otherRole].point ?? own.point;
+      const bOther = resolved.get(b.id)?.[otherRole].point ?? own.point;
+      return (
+        perpendicularDistance(own.anchor.side, own.point, aOther) -
+          perpendicularDistance(own.anchor.side, own.point, bOther) ||
+        aOther.y - bOther.y ||
+        aOther.x - bOther.x ||
+        a.id.localeCompare(b.id)
+      );
+    });
+    const gap =
+      ordered.length > 1
+        ? Math.min(ENDPOINT_TRACK_GAP, MAX_ENDPOINT_SPREAD / (ordered.length - 1))
+        : 0;
+    ordered.forEach((edge, rank) => {
+      clearances.set(edge.id, ORTHOGONAL_CLEARANCE + rank * gap);
+    });
+  }
+  return clearances;
+}
+
+function parallelOffsets(clusters: Iterable<CanvasEdge[]>): Map<string, number> {
+  const offsets = new Map<string, number>();
+  for (const pairCluster of clusters) {
+    const cluster = [...pairCluster].sort((a, b) => a.id.localeCompare(b.id));
+    cluster.forEach((edge, index) => {
+      offsets.set(edge.id, (index - (cluster.length - 1) / 2) * PARALLEL_TRACK_GAP);
+    });
+  }
+  return offsets;
+}
+
+const EDGE_KIND_PRIORITY: Record<CanvasEdge["kind"], number> = {
+  main: 0,
+  secondary: 1,
+  sync: 2,
+  actor: 3,
+  external: 4,
+  exception: 5,
+};
+
+function clusterOwner(cluster: CanvasEdge[]): string | undefined {
+  return [...cluster].sort(
+    (a, b) => EDGE_KIND_PRIORITY[a.kind] - EDGE_KIND_PRIORITY[b.kind] || a.id.localeCompare(b.id),
+  )[0]?.id;
 }
 
 function samePoint(a: Point, b: Point): boolean {
@@ -116,7 +214,8 @@ function simplifyOrthogonalPoints(points: Point[]): Point[] {
       ((Math.abs(previous.x - last.x) < ROUTE_EPSILON &&
         Math.abs(last.x - point.x) < ROUTE_EPSILON) ||
         (Math.abs(previous.y - last.y) < ROUTE_EPSILON &&
-          Math.abs(last.y - point.y) < ROUTE_EPSILON))
+          Math.abs(last.y - point.y) < ROUTE_EPSILON)) &&
+      (last.x - previous.x) * (point.x - last.x) + (last.y - previous.y) * (point.y - last.y) >= 0
     ) {
       simplified[simplified.length - 1] = point;
     } else {
@@ -153,7 +252,58 @@ function segmentCrossesBounds(from: Point, to: Point, bounds: Bounds): boolean {
   return true;
 }
 
-function routeScore(points: Point[], obstacles: Bounds[], canvas: PositionedCanvas): number {
+function isHorizontal(segment: Segment): boolean {
+  return Math.abs(segment.from.y - segment.to.y) < ROUTE_EPSILON;
+}
+
+function segmentOverlapLength(a: Segment, b: Segment): number {
+  if (isHorizontal(a) !== isHorizontal(b)) return 0;
+  if (isHorizontal(a)) {
+    if (Math.abs(a.from.y - b.from.y) >= ROUTE_EPSILON) return 0;
+    return Math.max(
+      0,
+      Math.min(Math.max(a.from.x, a.to.x), Math.max(b.from.x, b.to.x)) -
+        Math.max(Math.min(a.from.x, a.to.x), Math.min(b.from.x, b.to.x)),
+    );
+  }
+  if (Math.abs(a.from.x - b.from.x) >= ROUTE_EPSILON) return 0;
+  return Math.max(
+    0,
+    Math.min(Math.max(a.from.y, a.to.y), Math.max(b.from.y, b.to.y)) -
+      Math.max(Math.min(a.from.y, a.to.y), Math.min(b.from.y, b.to.y)),
+  );
+}
+
+function segmentsCross(a: Segment, b: Segment): boolean {
+  if (isHorizontal(a) === isHorizontal(b)) return false;
+  const horizontal = isHorizontal(a) ? a : b;
+  const vertical = isHorizontal(a) ? b : a;
+  const x = vertical.from.x;
+  const y = horizontal.from.y;
+  return (
+    x > Math.min(horizontal.from.x, horizontal.to.x) + ROUTE_EPSILON &&
+    x < Math.max(horizontal.from.x, horizontal.to.x) - ROUTE_EPSILON &&
+    y > Math.min(vertical.from.y, vertical.to.y) + ROUTE_EPSILON &&
+    y < Math.max(vertical.from.y, vertical.to.y) - ROUTE_EPSILON
+  );
+}
+
+function middleSegments(points: Point[]): Segment[] {
+  const segments: Segment[] = [];
+  for (let index = 1; index < points.length - 2; index += 1) {
+    const from = points[index];
+    const to = points[index + 1];
+    if (from && to && !samePoint(from, to)) segments.push({ from, to });
+  }
+  return segments;
+}
+
+function routeScore(
+  points: Point[],
+  obstacles: Bounds[],
+  canvas: PositionedCanvas,
+  occupied: Segment[],
+): number {
   let score = Math.max(0, points.length - 2) * 18;
   for (let index = 0; index < points.length - 1; index += 1) {
     const from = points[index];
@@ -162,6 +312,13 @@ function routeScore(points: Point[], obstacles: Bounds[], canvas: PositionedCanv
     score += Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
     for (const obstacle of obstacles) {
       if (segmentCrossesBounds(from, to, obstacle)) score += 1_000_000;
+    }
+  }
+  for (const segment of middleSegments(points)) {
+    for (const used of occupied) {
+      const overlap = segmentOverlapLength(segment, used);
+      if (overlap > ROUTE_EPSILON) score += 4_000 + overlap * 8;
+      else if (segmentsCross(segment, used)) score += 140;
     }
   }
   for (const point of points) {
@@ -225,29 +382,178 @@ function orthogonalMiddleCandidates(
   return candidates.map(simplifyOrthogonalPoints);
 }
 
-function smartOrthogonalPoints(
-  canvas: PositionedCanvas,
+function parallelTrackCandidate(
   source: Point,
   target: Point,
   sourceSide: AnchorSide,
   targetSide: AnchorSide,
+  offset: number,
+): Point[] | undefined {
+  if (Math.abs(offset) < ROUTE_EPSILON) return undefined;
+  const sourceVertical = sourceSide === "top" || sourceSide === "bottom";
+  const targetVertical = targetSide === "top" || targetSide === "bottom";
+  if (!sourceVertical && !targetVertical) {
+    const y = (source.y + target.y) / 2 + offset;
+    return simplifyOrthogonalPoints([source, { x: source.x, y }, { x: target.x, y }, target]);
+  }
+  if (sourceVertical && targetVertical) {
+    const x = (source.x + target.x) / 2 + offset;
+    return simplifyOrthogonalPoints([source, { x, y: source.y }, { x, y: target.y }, target]);
+  }
+  const y = target.y + offset;
+  return simplifyOrthogonalPoints([source, { x: source.x, y }, { x: target.x, y }, target]);
+}
+
+function respectsEndpointDirections(
+  points: Point[],
+  sourceSide: AnchorSide,
+  targetSide: AnchorSide,
+): boolean {
+  if (points.length < 2) return true;
+  const first = points[0];
+  const second = points[1];
+  const beforeLast = points.at(-2);
+  const last = points.at(-1);
+  if (!first || !second || !beforeLast || !last) return true;
+  const sourceDirection = sideVector(sourceSide);
+  const targetDirection = sideVector(targetSide);
+  const departure = { x: second.x - first.x, y: second.y - first.y };
+  const arrival = { x: last.x - beforeLast.x, y: last.y - beforeLast.y };
+  return (
+    departure.x * sourceDirection.x + departure.y * sourceDirection.y >= -ROUTE_EPSILON &&
+    arrival.x * -targetDirection.x + arrival.y * -targetDirection.y >= -ROUTE_EPSILON
+  );
+}
+
+function fansAtTrackedEndpoints(
+  points: Point[],
+  sourceSide: AnchorSide,
+  targetSide: AnchorSide,
+  sourceTracked: boolean,
+  targetTracked: boolean,
+): boolean {
+  if (points.length < 2) return true;
+  const first = points[0];
+  const second = points[1];
+  const beforeLast = points.at(-2);
+  const last = points.at(-1);
+  if (!first || !second || !beforeLast || !last) return true;
+  const sourceDirection = sideVector(sourceSide);
+  const targetDirection = sideVector(targetSide);
+  const departure = { x: second.x - first.x, y: second.y - first.y };
+  const arrival = { x: last.x - beforeLast.x, y: last.y - beforeLast.y };
+  const sourceTurnsAtTrack =
+    Math.abs(departure.x * sourceDirection.x + departure.y * sourceDirection.y) < ROUTE_EPSILON;
+  const targetTurnsAtTrack =
+    Math.abs(arrival.x * targetDirection.x + arrival.y * targetDirection.y) < ROUTE_EPSILON;
+  return (!sourceTracked || sourceTurnsAtTrack) && (!targetTracked || targetTurnsAtTrack);
+}
+
+function sameEndpointLoop(
+  point: Point,
+  side: AnchorSide,
+  clearance: number,
+  offset: number,
 ): Point[] {
-  const sourceExit = moveOutward(source, sourceSide);
-  const targetEntry = moveOutward(target, targetSide);
-  const obstacles = canvas.nodes.map(paddedBounds);
-  const candidates = orthogonalMiddleCandidates(
+  const normal = sideVector(side);
+  const tangent = { x: -normal.y, y: normal.x };
+  const stem = clearance;
+  const halfWidth = 34 + Math.abs(offset) / 2;
+  const depth = clearance + 52 + Math.abs(offset);
+  const stemPoint = {
+    x: point.x + normal.x * stem,
+    y: point.y + normal.y * stem,
+  };
+  return simplifyOrthogonalPoints([
+    point,
+    stemPoint,
+    {
+      x: stemPoint.x + tangent.x * halfWidth,
+      y: stemPoint.y + tangent.y * halfWidth,
+    },
+    {
+      x: point.x + normal.x * depth + tangent.x * halfWidth,
+      y: point.y + normal.y * depth + tangent.y * halfWidth,
+    },
+    {
+      x: point.x + normal.x * depth - tangent.x * halfWidth,
+      y: point.y + normal.y * depth - tangent.y * halfWidth,
+    },
+    {
+      x: stemPoint.x - tangent.x * halfWidth,
+      y: stemPoint.y - tangent.y * halfWidth,
+    },
+    stemPoint,
+    point,
+  ]);
+}
+
+function smartOrthogonalPoints(
+  canvas: PositionedCanvas,
+  source: ResolvedEndpoint,
+  target: ResolvedEndpoint,
+  sourceClearance: number,
+  targetClearance: number,
+  trackOffset: number,
+  occupied: Segment[],
+): Point[] {
+  if (
+    source.node.id === target.node.id &&
+    source.anchor.id === target.anchor.id &&
+    samePoint(source.point, target.point)
+  ) {
+    return sameEndpointLoop(source.point, source.anchor.side, sourceClearance, trackOffset);
+  }
+  const sourceExit = moveOutward(source.point, source.anchor.side, sourceClearance);
+  const targetEntry = moveOutward(target.point, target.anchor.side, targetClearance);
+  const obstacles = canvas.nodes
+    .filter((node) => node.id !== source.node.id && node.id !== target.node.id)
+    .map(paddedBounds);
+  const rawCandidates = orthogonalMiddleCandidates(
     sourceExit,
     targetEntry,
-    sourceSide,
-    targetSide,
+    source.anchor.side,
+    target.anchor.side,
     obstacles,
   );
-  const best = candidates.reduce((currentBest, candidate) =>
-    routeScore(candidate, obstacles, canvas) < routeScore(currentBest, obstacles, canvas)
-      ? candidate
-      : currentBest,
+  const directionalCandidates = rawCandidates.filter((candidate) =>
+    respectsEndpointDirections(candidate, source.anchor.side, target.anchor.side),
   );
-  return simplifyOrthogonalPoints([source, ...best, target]);
+  const candidates = directionalCandidates.length ? directionalCandidates : rawCandidates;
+  const trackedCandidates = candidates.filter((candidate) =>
+    fansAtTrackedEndpoints(
+      candidate,
+      source.anchor.side,
+      target.anchor.side,
+      sourceClearance > ORTHOGONAL_CLEARANCE + ROUTE_EPSILON,
+      targetClearance > ORTHOGONAL_CLEARANCE + ROUTE_EPSILON,
+    ),
+  );
+  const parallel = parallelTrackCandidate(
+    sourceExit,
+    targetEntry,
+    source.anchor.side,
+    target.anchor.side,
+    trackOffset,
+  );
+  const validParallel =
+    parallel && respectsEndpointDirections(parallel, source.anchor.side, target.anchor.side)
+      ? parallel
+      : undefined;
+  const parallelScore = validParallel
+    ? routeScore(validParallel, obstacles, canvas, occupied)
+    : Number.POSITIVE_INFINITY;
+  const best =
+    validParallel && parallelScore < 1_000_000
+      ? validParallel
+      : (trackedCandidates.length ? trackedCandidates : candidates).reduce(
+          (currentBest, candidate) =>
+            routeScore(candidate, obstacles, canvas, occupied) <
+            routeScore(currentBest, obstacles, canvas, occupied)
+              ? candidate
+              : currentBest,
+        );
+  return simplifyOrthogonalPoints([source.point, ...best, target.point]);
 }
 
 function roundedOrthogonalPath(points: Point[]): string {
@@ -279,56 +585,101 @@ function roundedOrthogonalPath(points: Point[]): string {
 }
 
 export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
-  return canvas.doc.edges.map((edge) => {
-    const source = endpoint(canvas, edge.source);
-    const target = endpoint(canvas, edge.target);
+  const edges = canvas.doc.edges;
+  const resolved = new Map(
+    edges.map((edge) => [
+      edge.id,
+      { source: endpoint(canvas, edge.source), target: endpoint(canvas, edge.target) },
+    ]),
+  );
+  const sourceClusters = new Map<string, CanvasEdge[]>();
+  const targetClusters = new Map<string, CanvasEdge[]>();
+  const pairClusters = new Map<string, CanvasEdge[]>();
+  for (const edge of edges) {
+    const sourceKey = endpointKey(edge.source);
+    const sourceCluster = sourceClusters.get(sourceKey) ?? [];
+    sourceCluster.push(edge);
+    sourceClusters.set(sourceKey, sourceCluster);
+    const targetKey = endpointKey(edge.target);
+    const targetCluster = targetClusters.get(targetKey) ?? [];
+    targetCluster.push(edge);
+    targetClusters.set(targetKey, targetCluster);
+    const pairKey = canonicalPairKey(edge);
+    const pairCluster = pairClusters.get(pairKey) ?? [];
+    pairCluster.push(edge);
+    pairClusters.set(pairKey, pairCluster);
+  }
+  const sourceClearances = endpointClearances("source", sourceClusters.values(), resolved);
+  const targetClearances = endpointClearances("target", targetClusters.values(), resolved);
+  const trackOffsets = parallelOffsets(pairClusters.values());
+  const occupied: Segment[] = [];
+
+  return edges.map((edge) => {
+    const endpoints = resolved.get(edge.id);
+    if (!endpoints) throw new RouterError(`cannot resolve edge "${edge.id}"`);
+    const { source, target } = endpoints;
+    const sourceCluster = sourceClusters.get(endpointKey(edge.source)) ?? [edge];
+    const targetCluster = targetClusters.get(endpointKey(edge.target)) ?? [edge];
+    const sourceClearance = sourceClearances.get(edge.id) ?? ORTHOGONAL_CLEARANCE;
+    const targetClearance = targetClearances.get(edge.id) ?? ORTHOGONAL_CLEARANCE;
+    const trackOffset = trackOffsets.get(edge.id) ?? 0;
     const position = edge.label?.position ?? 0.5;
     const offset = edge.label?.offset ?? { x: 0, y: 0 };
-    let points: Point[] = [source, ...(edge.route.waypoints ?? []), target];
+    let points: Point[] = [source.point, ...(edge.route.waypoints ?? []), target.point];
     let d: string;
     if (edge.route.type === "bezier" && points.length === 2) {
-      const sourceAnchor = canvas.nodes
-        .find((node) => node.id === edge.source.nodeId)
-        ?.anchors.find((anchor) => anchor.id === edge.source.anchorId);
-      const targetAnchor = canvas.nodes
-        .find((node) => node.id === edge.target.nodeId)
-        ?.anchors.find((anchor) => anchor.id === edge.target.anchorId);
-      if (!sourceAnchor || !targetAnchor) {
-        throw new RouterError(`cannot route bezier edge "${edge.id}" with unresolved anchors`);
+      if (
+        source.node.id === target.node.id &&
+        source.anchor.id === target.anchor.id &&
+        samePoint(source.point, target.point)
+      ) {
+        points = sameEndpointLoop(source.point, source.anchor.side, sourceClearance, trackOffset);
+        d = roundedOrthogonalPath(points);
+      } else {
+        const verticalPair =
+          (source.anchor.side === "top" || source.anchor.side === "bottom") &&
+          (target.anchor.side === "top" || target.anchor.side === "bottom");
+        const horizontalPair =
+          (source.anchor.side === "left" || source.anchor.side === "right") &&
+          (target.anchor.side === "left" || target.anchor.side === "right");
+        const distance = verticalPair
+          ? Math.max(1, Math.abs(target.point.y - source.point.y) / 2)
+          : horizontalPair
+            ? Math.max(1, Math.abs(target.point.x - source.point.x) / 2)
+            : Math.max(
+                40,
+                Math.hypot(target.point.x - source.point.x, target.point.y - source.point.y) / 2,
+              );
+        const first = offsetBezierControl(
+          bezierControl(
+            source.point,
+            source.anchor.side,
+            Math.max(distance, sourceClearance) + sourceClearance - ORTHOGONAL_CLEARANCE,
+          ),
+          source.anchor.side,
+          trackOffset,
+        );
+        const second = offsetBezierControl(
+          bezierControl(
+            target.point,
+            target.anchor.side,
+            Math.max(distance, targetClearance) + targetClearance - ORTHOGONAL_CLEARANCE,
+          ),
+          target.anchor.side,
+          trackOffset,
+        );
+        d = `M ${source.point.x} ${source.point.y} C ${first.x} ${first.y}, ${second.x} ${second.y}, ${target.point.x} ${target.point.y}`;
       }
-      const verticalPair =
-        (sourceAnchor.side === "top" || sourceAnchor.side === "bottom") &&
-        (targetAnchor.side === "top" || targetAnchor.side === "bottom");
-      const horizontalPair =
-        (sourceAnchor.side === "left" || sourceAnchor.side === "right") &&
-        (targetAnchor.side === "left" || targetAnchor.side === "right");
-      const distance = verticalPair
-        ? Math.max(1, Math.abs(target.y - source.y) / 2)
-        : horizontalPair
-          ? Math.max(1, Math.abs(target.x - source.x) / 2)
-          : Math.max(40, Math.hypot(target.x - source.x, target.y - source.y) / 2);
-      const first = bezierControl(source, sourceAnchor.side, distance);
-      const second = bezierControl(target, targetAnchor.side, distance);
-      d = `M ${source.x} ${source.y} C ${first.x} ${first.y}, ${second.x} ${second.y}, ${target.x} ${target.y}`;
     } else {
       if (edge.route.type === "orthogonal" && points.length === 2) {
-        const sourceAnchor = canvas.nodes
-          .find((node) => node.id === edge.source.nodeId)
-          ?.anchors.find((anchor) => anchor.id === edge.source.anchorId);
-        const targetAnchor = canvas.nodes
-          .find((node) => node.id === edge.target.nodeId)
-          ?.anchors.find((anchor) => anchor.id === edge.target.anchorId);
-        if (!sourceAnchor || !targetAnchor) {
-          throw new RouterError(
-            `cannot route orthogonal edge "${edge.id}" with unresolved anchors`,
-          );
-        }
         points = smartOrthogonalPoints(
           canvas,
           source,
           target,
-          sourceAnchor.side,
-          targetAnchor.side,
+          sourceClearance,
+          targetClearance,
+          trackOffset,
+          occupied,
         );
       }
       d =
@@ -336,12 +687,27 @@ export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
           ? roundedOrthogonalPath(points)
           : points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
     }
+    if (edge.route.type === "orthogonal" && !edge.route.waypoints?.length) {
+      occupied.push(...middleSegments(points));
+      if (occupied.length > MAX_OCCUPIED_SEGMENTS) {
+        occupied.splice(0, occupied.length - MAX_OCCUPIED_SEGMENTS);
+      }
+    }
     const labelBase = pointAtPolyline(points, position);
     return {
       edge,
       route: edge.route.type,
       d,
+      points,
       labelPoint: { x: labelBase.x + offset.x, y: labelBase.y + offset.y },
+      junctionPoint:
+        sourceCluster.length > 1 && edge.id === clusterOwner(sourceCluster)
+          ? { ...source.point }
+          : undefined,
+      mergePoint:
+        targetCluster.length > 1 && edge.id === clusterOwner(targetCluster)
+          ? { ...target.point }
+          : undefined,
     };
   });
 }

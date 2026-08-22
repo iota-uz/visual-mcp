@@ -179,7 +179,9 @@ describe("reactive viewport reconciliation", () => {
     expect(container.querySelector('[data-node-id="screen"]')).toBe(screenOwner);
     expect(container.querySelector('[data-node-id="screen"] iframe')).toBe(iframe);
     expect(container.querySelector<HTMLElement>(".vc-world")?.style.transform).toBe(transform);
-    expect(container.querySelector(".vc-edge path")?.getAttribute("d")).toContain("720");
+    const edgePaths = [...container.querySelectorAll(".vc-edge path")];
+    expect(edgePaths).toHaveLength(2);
+    expect(edgePaths.every((path) => path.getAttribute("d")?.includes("720"))).toBe(true);
 
     controller.updateCanvas(layoutCanvas(changed), {
       resolveIframeUrl: (node) =>

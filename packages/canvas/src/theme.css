@@ -177,40 +177,55 @@
 }
 .vc-edge path {
   fill: none;
-  stroke-width: 2.2;
   vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.vc-edge-main path {
+.vc-edge-halo {
+  stroke: rgba(255, 255, 255, 0.94);
+  stroke-width: 7;
+}
+.vc-edge-line {
+  stroke-width: 2.2;
+}
+.vc-edge-main .vc-edge-line {
   stroke: var(--vc-edge-main);
   stroke-width: 2.6;
 }
-.vc-edge-secondary path {
+.vc-edge-secondary .vc-edge-line {
   stroke: var(--vc-edge-secondary);
 }
-.vc-edge-sync path {
+.vc-edge-sync .vc-edge-line {
   stroke: var(--vc-edge-sync);
   stroke-dasharray: 7 7;
 }
-.vc-edge-actor path {
+.vc-edge-actor .vc-edge-line {
   stroke: var(--vc-edge-actor);
   stroke-width: 1.8;
   stroke-dasharray: 4 5;
 }
-.vc-edge-exception path {
+.vc-edge-exception .vc-edge-line {
   stroke: var(--vc-edge-exception);
   stroke-dasharray: 8 7;
 }
-.vc-edge-external path {
+.vc-edge-external .vc-edge-line {
   stroke: var(--vc-edge-external);
+}
+.vc-edge-junction {
+  fill: var(--vc-white);
+  stroke: var(--vc-edge-main);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 .vc-edge-label {
   fill: var(--vc-muted);
-  font: 600 9px var(--vc-mono);
+  font: 650 calc(9.5px * var(--vc-camera-inverse)) var(--vc-mono);
   text-anchor: middle;
   dominant-baseline: middle;
   paint-order: stroke;
-  stroke: var(--vc-white);
-  stroke-width: 4px;
+  stroke: rgba(255, 255, 255, 0.96);
+  stroke-width: calc(5px * var(--vc-camera-inverse));
+  stroke-linejoin: round;
 }
 .vc-marker path {
   fill: currentColor;
