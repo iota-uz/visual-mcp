@@ -49,6 +49,68 @@
   --vc-phone-notch-radius: 16px;
   --vc-phone-status-height: 40px;
   --vc-phone-ink: #07111f;
+
+  /*
+   * The accent. `#2f6df6` and its rgba() forms were retyped at two dozen
+   * call sites — focus rings, selection outlines, pressed tool states, the
+   * minimap viewport, retry buttons — so changing the accent meant a
+   * find-and-replace across the file and the alphas drifted apart.
+   * Translucencies derive from the base with `color-mix(… , transparent)`,
+   * which is exactly equivalent to the rgba() they replace.
+   */
+  --vc-accent: #2f6df6;
+  --vc-accent-text: #1d4fd7;
+  --vc-accent-surface: #eaf1ff;
+  /* Focus rings and selection outlines. Previously 0.28/0.30/0.32/0.34 at
+     thirteen call sites — four alphas nobody could tell apart. */
+  --vc-accent-ring: color-mix(in srgb, var(--vc-accent) 32%, transparent);
+  --vc-accent-wash: color-mix(in srgb, var(--vc-accent) 8%, transparent);
+
+  /*
+   * Radii. Fourteen distinct literals ran from 2px to 28px with no names,
+   * so 12/13/14/15 all meant "a panel" and 7/8 both meant "a button". Six
+   * steps, and every old literal lands within 2px of where it was.
+   */
+  --vc-radius-xs: 5px;
+  --vc-radius-sm: 8px;
+  --vc-radius-md: 10px;
+  --vc-radius-lg: 14px;
+  --vc-radius-xl: 18px;
+  --vc-radius-2xl: 24px;
+
+  /*
+   * Elevation. Seven recipes for four levels: 8/24 and 10/30 were the same
+   * shadow typed twice, as were 12/35 and 16/45.
+   */
+  --vc-shadow-sm: 0 8px 24px rgba(20, 44, 72, 0.08);
+  --vc-shadow-md: 0 14px 36px rgba(18, 42, 70, 0.12);
+  --vc-shadow-lg: 0 18px 46px rgba(18, 42, 70, 0.14);
+  --vc-shadow-xl: 0 14px 42px rgba(18, 42, 70, 0.17);
+
+  /*
+   * Motion. `--vc-duration-camera` is read back by viewport.ts's animation
+   * cleanup timer, which used to be a second hardcoded number (190ms
+   * against this 180ms) maintained by hand alongside it.
+   */
+  --vc-duration-camera: 180ms;
+  --vc-duration-fast: 150ms;
+  --vc-ease-out: cubic-bezier(0.22, 0.8, 0.3, 1);
+
+  /* Consumed by .vc-image-viewport, which had always silently fallen
+     through to the literal in its own var() fallback. */
+  --vc-color-surface: #ffffff;
+}
+
+/*
+ * The chrome reflows on how much room the canvas actually has, not on how
+ * wide the window is: the app insets this box away from its own floating
+ * panels, so a 1440px window with the Pages rail and the Prototype panel
+ * open leaves the viewport ~850px, and a window-width media query would
+ * happily let the toolbar and the minimap overlap inside it.
+ */
+.vc-viewport-host {
+  container-type: inline-size;
+  container-name: vc-viewport;
 }
 
 .vc-viewport {
@@ -61,10 +123,20 @@
   height: 100%;
   min-height: 0;
   background: #f4f6f8;
-  cursor: default;
+  /* An open hand is the only thing that says "this surface moves". The
+     viewport used to sit on `default` until you were already dragging, so
+     panning was a thing you had to be told about. Nodes and controls set
+     their own cursor over the top. */
+  cursor: grab;
   touch-action: none;
   user-select: none;
   outline: none;
+}
+/* The container is tabIndex=0 and owns every shortcut in the viewport, so
+   it needs to show when it holds focus. Inset rather than an outline: the
+   viewport is clipped, so an outline-offset ring would be cut off. */
+.vc-viewport:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--vc-accent) 55%, transparent);
 }
 .vc-viewport::before {
   content: "";
@@ -96,7 +168,7 @@
   will-change: transform;
 }
 .vc-viewport.is-camera-animating .vc-world {
-  transition: transform 180ms cubic-bezier(0.22, 0.8, 0.3, 1);
+  transition: transform var(--vc-duration-camera) var(--vc-ease-out);
 }
 
 /* --- lanes --- */
@@ -109,7 +181,7 @@
   left: 0;
   right: 0;
   border: 1px solid rgba(44, 66, 92, 0.1);
-  border-radius: 24px;
+  border-radius: var(--vc-radius-2xl);
   background: rgba(255, 255, 255, 0.4);
 }
 .vc-lane-label {
@@ -258,16 +330,16 @@
 .vc-group {
   position: absolute;
   box-sizing: border-box;
-  border: calc(1px * var(--vc-camera-inverse)) dashed rgba(47, 109, 246, 0.42);
-  border-radius: 12px;
-  background: rgba(47, 109, 246, 0.025);
+  border: calc(1px * var(--vc-camera-inverse)) dashed color-mix(in srgb, var(--vc-accent) 42%, transparent);
+  border-radius: var(--vc-radius-md);
+  background: color-mix(in srgb, var(--vc-accent) 2.5%, transparent);
   cursor: pointer;
 }
 .vc-group > span {
   position: absolute;
   left: 8px;
   top: calc(-20px * var(--vc-camera-inverse));
-  color: #2f6df6;
+  color: var(--vc-accent);
   font: 650 calc(11px * var(--vc-camera-inverse)) / 1.2 var(--vc-body);
   white-space: nowrap;
 }
@@ -275,10 +347,10 @@
   z-index: 4;
   border-style: solid;
   border-width: calc(2px * var(--vc-camera-inverse));
-  background: rgba(47, 109, 246, 0.055);
+  background: color-mix(in srgb, var(--vc-accent) 5.5%, transparent);
 }
 .vc-group:focus-visible {
-  outline: calc(3px * var(--vc-camera-inverse)) solid rgba(47, 109, 246, 0.3);
+  outline: calc(3px * var(--vc-camera-inverse)) solid var(--vc-accent-ring);
   outline-offset: calc(3px * var(--vc-camera-inverse));
 }
 .vc-nodes {
@@ -289,10 +361,10 @@
 }
 .vc-node {
   position: absolute;
-  border-radius: 18px;
+  border-radius: var(--vc-radius-xl);
   background: var(--vc-white);
   border: 1px solid var(--vc-line);
-  box-shadow: 0 10px 30px rgba(20, 44, 72, 0.08);
+  box-shadow: var(--vc-shadow-sm);
   cursor: pointer;
   overflow: hidden;
   contain: layout paint style;
@@ -306,7 +378,7 @@
   filter: brightness(1.015);
 }
 .vc-node:focus-visible {
-  outline: 4px solid rgba(47, 109, 246, 0.34);
+  outline: 4px solid var(--vc-accent-ring);
   outline-offset: 5px;
 }
 .vc-node.selected {
@@ -314,7 +386,7 @@
   overflow: visible;
   contain: layout style;
   box-shadow:
-    0 0 0 calc(3px * var(--vc-camera-inverse)) rgba(47, 109, 246, 0.24),
+    0 0 0 calc(3px * var(--vc-camera-inverse)) color-mix(in srgb, var(--vc-accent) 24%, transparent),
     0 24px 60px rgba(19, 43, 71, 0.2);
 }
 .vc-node.dimmed {
@@ -322,7 +394,7 @@
   filter: saturate(0.55);
 }
 .vc-node.vc-shape-decision {
-  border-radius: 12px;
+  border-radius: var(--vc-radius-md);
   transform: rotate(45deg);
 }
 .vc-caption {
@@ -372,20 +444,96 @@
 
 .vc-kind-image {
   overflow: hidden;
-  background: var(--vc-color-surface, #fff);
+  background: var(--vc-color-surface);
 }
 
 .vc-image-viewport {
   position: absolute;
   inset: 47px 0 0;
   overflow: hidden;
-  border-radius: 0 0 14px 14px;
+  border-radius: 0 0 var(--vc-radius-lg) var(--vc-radius-lg);
 }
 
 .vc-image-viewport img {
   display: block;
   width: 100%;
   height: 100%;
+}
+/* No `data-image-state` at all means no script is driving it — the static
+   artifact render — so the image is simply shown, as it always was. */
+.vc-image-viewport[data-image-state="loading"] {
+  background: linear-gradient(100deg, #eef2f7 30%, #f7fafc 46%, #eef2f7 62%) 0 0 / 300% 100%;
+  animation: vc-image-shimmer 1.15s ease-in-out infinite;
+}
+.vc-image-viewport[data-image-state="loading"] img,
+.vc-image-viewport[data-image-state="error"] img {
+  opacity: 0;
+}
+@keyframes vc-image-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.vc-image-failure {
+  display: none;
+}
+.vc-image-viewport[data-image-state="error"] {
+  display: grid;
+  place-items: center;
+  background: #f7f9fc;
+}
+.vc-image-viewport[data-image-state="error"] .vc-image-failure {
+  display: block;
+  margin: 0;
+  padding: 0 12px;
+  color: var(--vc-muted);
+  text-align: center;
+  font: 500 11px / 1.4 var(--vc-body);
+}
+
+/* A screen that failed to load. Replaces the shimmer rather than simply
+   removing it, which is what used to leave a blank white rectangle.
+
+   Above `.vc-iframe-guard`, which is also z-index 2 and comes later in DOM
+   order: the guard would otherwise sit over the Retry button and swallow
+   the click. */
+.vc-iframe-failure {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  gap: 9px;
+  align-content: center;
+  justify-items: center;
+  padding: 12px;
+  background: #f7f9fc;
+}
+.vc-iframe-failure-text {
+  margin: 0;
+  max-width: 210px;
+  color: var(--vc-ink-soft);
+  text-align: center;
+  font: 500 11px / 1.4 var(--vc-body);
+}
+.vc-iframe-retry {
+  appearance: none;
+  border: 1px solid var(--vc-accent-ring);
+  border-radius: var(--vc-radius-sm);
+  padding: 5px 12px;
+  background: #ffffff;
+  color: var(--vc-accent-text);
+  cursor: pointer;
+  font: 650 10px / 1 var(--vc-body);
+}
+.vc-iframe-retry:hover {
+  background: var(--vc-accent-surface);
+}
+.vc-iframe-retry:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 2px;
 }
 .vc-labels {
   position: absolute;
@@ -471,7 +619,8 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .vc-iframe-loading::after {
+  .vc-iframe-loading::after,
+  .vc-image-viewport[data-image-state="loading"] {
     animation: none;
   }
 }
@@ -484,14 +633,20 @@
   padding: 12px;
   background: transparent;
 }
+/* Nothing to interact with on a screen that never loaded, so the
+   "Double-click to interact" affordance would be a lie. */
+.vc-node[data-iframe-load-state="error"] .vc-iframe-guard,
+.vc-node[data-iframe-load-state="timeout"] .vc-iframe-guard {
+  display: none;
+}
 .vc-iframe-guard span {
   opacity: 0;
   padding: 6px 9px;
-  border-radius: 7px;
+  border-radius: var(--vc-radius-sm);
   background: rgba(6, 27, 54, 0.82);
   color: white;
   font: 600 8px var(--vc-mono);
-  transition: opacity 0.15s;
+  transition: opacity var(--vc-duration-fast);
 }
 .vc-kind-iframe:hover .vc-iframe-guard span {
   opacity: 1;
@@ -516,11 +671,11 @@
 }
 .vc-node.vc-shape-iframe-phone > .vc-caption {
   border: 1px solid var(--vc-line);
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(20, 44, 72, 0.08);
+  border-radius: var(--vc-radius-lg);
+  box-shadow: var(--vc-shadow-sm);
 }
 .vc-node.vc-shape-iframe-phone.selected {
-  box-shadow: 0 0 0 5px rgba(47, 109, 246, 0.18);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--vc-accent) 18%, transparent);
 }
 .vc-frame-phone.vc-iframe-clip {
   overflow: visible;
@@ -610,7 +765,7 @@
   border: 2px solid #cfd9e3;
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.99);
-  box-shadow: 0 18px 42px rgba(20, 44, 72, 0.13);
+  box-shadow: var(--vc-shadow-lg);
   overflow: hidden;
 }
 .vc-node[data-node-id*="-actor-victim"] {
@@ -632,13 +787,13 @@
   border: 1px solid currentColor;
   background: #fff;
 }
-.vc-person-icon.vc-person-victim {
+.vc-person-icon.vc-person-subject {
   border-radius: 50%;
   color: #18734e;
   background: #edf9f3;
 }
-.vc-person-icon.vc-person-culprit {
-  border-radius: 7px;
+.vc-person-icon.vc-person-counterparty {
+  border-radius: var(--vc-radius-sm);
   color: #235fae;
   background: #eef4ff;
 }
@@ -722,7 +877,7 @@
   right: 8px;
   top: 55px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--vc-radius-sm);
   padding: 6px 9px;
   background: #061b36;
   color: white;
@@ -732,24 +887,87 @@
 .vc-node.iframe-active .vc-iframe-exit {
   display: block;
 }
+/* Eight of them, sized in inverse-camera units so they stay a constant 8px
+   on screen at every zoom. The ::before pad is the real hit target — an 8px
+   dot is a hard thing to grab, and harder still on a trackpad. */
 .vc-resize-handle {
   display: none;
   position: absolute;
   z-index: 6;
-  right: calc(-4px * var(--vc-camera-inverse));
-  bottom: calc(-4px * var(--vc-camera-inverse));
   width: calc(8px * var(--vc-camera-inverse));
   height: calc(8px * var(--vc-camera-inverse));
   border: calc(1.5px * var(--vc-camera-inverse)) solid white;
   border-radius: 50%;
-  background: #2f6df6;
-  box-shadow: 0 0 0 calc(1px * var(--vc-camera-inverse)) #2f6df6;
-  cursor: nwse-resize;
+  background: var(--vc-accent);
+  box-shadow: 0 0 0 calc(1px * var(--vc-camera-inverse)) var(--vc-accent);
 }
 .vc-resize-handle::before {
   position: absolute;
   inset: calc(-8px * var(--vc-camera-inverse));
   content: "";
+}
+.vc-resize-n,
+.vc-resize-s {
+  left: 50%;
+  margin-left: calc(-4px * var(--vc-camera-inverse));
+  cursor: ns-resize;
+}
+.vc-resize-e,
+.vc-resize-w {
+  top: 50%;
+  margin-top: calc(-4px * var(--vc-camera-inverse));
+  cursor: ew-resize;
+}
+.vc-resize-n,
+.vc-resize-ne,
+.vc-resize-nw {
+  top: calc(-4px * var(--vc-camera-inverse));
+}
+.vc-resize-s,
+.vc-resize-se,
+.vc-resize-sw {
+  bottom: calc(-4px * var(--vc-camera-inverse));
+}
+.vc-resize-e,
+.vc-resize-ne,
+.vc-resize-se {
+  right: calc(-4px * var(--vc-camera-inverse));
+}
+.vc-resize-w,
+.vc-resize-nw,
+.vc-resize-sw {
+  left: calc(-4px * var(--vc-camera-inverse));
+}
+.vc-resize-nw,
+.vc-resize-se {
+  cursor: nwse-resize;
+}
+.vc-resize-ne,
+.vc-resize-sw {
+  cursor: nesw-resize;
+}
+
+/*
+ * Alignment guides. Screen-space siblings of the world, so they are always
+ * exactly one pixel and survive the world being re-rendered underneath a
+ * drag. Above the nodes but below the chrome.
+ */
+.vc-guides {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.vc-guide {
+  position: absolute;
+  background: var(--vc-accent);
+}
+.vc-guide-x {
+  width: 1px;
+}
+.vc-guide-y {
+  height: 1px;
 }
 .vc-viewport.is-tool-move .vc-node.selected .vc-resize-handle {
   display: block;
@@ -777,7 +995,7 @@
 .vc-caption-tag {
   flex: none;
   padding: 5px 7px;
-  border-radius: 7px;
+  border-radius: var(--vc-radius-sm);
   background: #eef2f6;
   color: #687b90;
   font: 650 calc(7px * var(--vc-camera-inverse)) / 1 var(--vc-mono);
@@ -785,7 +1003,7 @@
 .vc-badge {
   flex: none;
   padding: 3px 7px;
-  border-radius: 6px;
+  border-radius: var(--vc-radius-xs);
   font: 700 calc(6.5px * var(--vc-camera-inverse)) / 1 var(--vc-mono);
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -838,7 +1056,7 @@
 }
 .vc-frame-phone .vc-frame-chrome {
   height: 18px;
-  border-radius: 12px 12px 0 0;
+  border-radius: var(--vc-radius-md) var(--vc-radius-md) 0 0;
 }
 .vc-frame .vc-content-html {
   height: calc(100% - 22px);
@@ -857,9 +1075,9 @@
   gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--vc-line);
-  border-radius: 14px;
+  border-radius: var(--vc-radius-lg);
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 16px 45px rgba(18, 42, 70, 0.12);
+  box-shadow: var(--vc-shadow-md);
   backdrop-filter: blur(18px);
   pointer-events: none;
 }
@@ -924,9 +1142,9 @@
   width: 320px;
   padding: 18px 20px 19px;
   border: 1px solid var(--vc-line);
-  border-radius: 18px;
+  border-radius: var(--vc-radius-xl);
   background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 18px 50px rgba(18, 42, 70, 0.14);
+  box-shadow: var(--vc-shadow-lg);
   backdrop-filter: blur(18px);
   opacity: 0;
   transform: translateY(12px);
@@ -1013,7 +1231,7 @@
 .vc-inspector-ref-copy {
   appearance: none;
   border: 1px solid var(--vc-line);
-  border-radius: 8px;
+  border-radius: var(--vc-radius-sm);
   background: var(--vc-white);
   padding: 6px 9px;
   color: var(--vc-ink);
@@ -1024,11 +1242,42 @@
   border-color: var(--vc-role-primary);
 }
 .vc-inspector-ref-copy:focus-visible {
-  outline: 3px solid rgba(47, 109, 246, 0.28);
+  outline: 3px solid var(--vc-accent-ring);
   outline-offset: 2px;
 }
 
 /* --- minimap --- */
+/* Shown only when the Page has no nodes at all. */
+.vc-empty {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 18px 22px;
+  transform: translate(-50%, -50%);
+  border: 1px dashed var(--vc-line);
+  border-radius: var(--vc-radius-lg);
+  background: rgba(255, 255, 255, 0.86);
+  text-align: center;
+  pointer-events: none;
+}
+.vc-empty[hidden] {
+  display: none;
+}
+.vc-empty-title {
+  margin: 0;
+  color: var(--vc-ink-soft);
+  font: 650 13px / 1.3 var(--vc-body);
+}
+.vc-empty-hint {
+  margin: 0;
+  color: var(--vc-muted);
+  font: 500 11px / 1.4 var(--vc-body);
+}
+
 .vc-minimap {
   position: absolute;
   z-index: 20;
@@ -1038,10 +1287,14 @@
   height: 90px;
   overflow: hidden;
   border: 1px solid var(--vc-line);
-  border-radius: 13px;
+  border-radius: var(--vc-radius-lg);
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 35px rgba(18, 42, 70, 0.12);
+  box-shadow: var(--vc-shadow-md);
   cursor: crosshair;
+  touch-action: none;
+}
+.vc-minimap.is-scrubbing {
+  cursor: grabbing;
 }
 .vc-minimap-node {
   position: absolute;
@@ -1051,8 +1304,8 @@
 .vc-minimap-viewport {
   position: absolute;
   border: 1.5px solid #1d5daa;
-  border-radius: 4px;
-  background: rgba(47, 109, 246, 0.08);
+  border-radius: var(--vc-radius-xs);
+  background: var(--vc-accent-wash);
   pointer-events: none;
 }
 
@@ -1070,9 +1323,9 @@
   min-height: 48px;
   padding: 5px;
   border: 1px solid rgba(143, 160, 180, 0.42);
-  border-radius: 15px;
+  border-radius: var(--vc-radius-lg);
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 42px rgba(18, 42, 70, 0.17);
+  box-shadow: var(--vc-shadow-xl);
   transform: translateX(-50%);
   backdrop-filter: blur(14px);
 }
@@ -1097,7 +1350,7 @@
   min-width: 72px;
   min-height: 38px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--vc-radius-md);
   padding: 0 9px;
   background: transparent;
   color: var(--vc-muted);
@@ -1107,7 +1360,7 @@
 .vc-tool kbd {
   min-width: 17px;
   border: 1px solid rgba(107, 126, 148, 0.28);
-  border-radius: 5px;
+  border-radius: var(--vc-radius-xs);
   padding: 3px 4px;
   background: rgba(244, 247, 251, 0.9);
   color: inherit;
@@ -1118,23 +1371,60 @@
   background: #f1f5f9;
 }
 .vc-tool[aria-pressed="true"] {
-  border-color: rgba(47, 109, 246, 0.3);
-  background: #eaf1ff;
+  border-color: var(--vc-accent-ring);
+  background: var(--vc-accent-surface);
   color: #174ea6;
-  box-shadow: inset 0 0 0 1px rgba(47, 109, 246, 0.08);
+  box-shadow: inset 0 0 0 1px var(--vc-accent-wash);
 }
 .vc-tool[aria-pressed="true"] kbd {
-  border-color: rgba(47, 109, 246, 0.28);
+  border-color: var(--vc-accent-ring);
   background: #ffffff;
 }
 .vc-tool:focus-visible {
-  outline: 3px solid rgba(47, 109, 246, 0.32);
+  outline: 3px solid var(--vc-accent-ring);
   outline-offset: 2px;
 }
 .vc-tool:disabled {
   cursor: not-allowed;
   opacity: 0.42;
 }
+.vc-help-toggle {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  margin-left: 3px;
+  padding: 0;
+  border-left: 1px solid rgba(107, 126, 148, 0.2);
+  border-radius: var(--vc-radius-sm);
+  font-size: 13px;
+}
+/* Typed zoom. Sized to fit "1000%" so committing an extreme value does not
+   reflow the whole dock. */
+.vc-zoom-value {
+  width: 52px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--vc-radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--vc-ink-soft);
+  text-align: center;
+  font: 650 10px / 1 var(--vc-mono);
+}
+.vc-zoom-value:hover {
+  background: #f1f5f9;
+}
+.vc-zoom-value:focus {
+  border-color: color-mix(in srgb, var(--vc-accent) 45%, transparent);
+  background: #ffffff;
+  outline: none;
+}
+.vc-zoom-value:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 1px;
+}
+
 .vc-zoom-step,
 .vc-zoom-menu summary,
 .vc-zoom-options button {
@@ -1151,7 +1441,7 @@
   height: 30px;
   padding: 0;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--vc-radius-sm);
   font-size: 17px;
 }
 .vc-zoom-step:hover,
@@ -1168,12 +1458,20 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border-radius: 8px;
+  border-radius: var(--vc-radius-sm);
   list-style: none;
   font-family: var(--vc-mono);
 }
 .vc-zoom-menu summary::-webkit-details-marker {
   display: none;
+}
+/* These four were reachable by keyboard and gave no sign of it. */
+.vc-zoom-step:focus-visible,
+.vc-zoom-menu summary:focus-visible,
+.vc-zoom-options button:focus-visible,
+.vc-inspector-close:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 2px;
 }
 .vc-zoom-options {
   position: absolute;
@@ -1183,9 +1481,9 @@
   width: 184px;
   padding: 5px;
   border: 1px solid rgba(143, 160, 180, 0.42);
-  border-radius: 12px;
+  border-radius: var(--vc-radius-md);
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 14px 42px rgba(18, 42, 70, 0.17);
+  box-shadow: var(--vc-shadow-xl);
 }
 .vc-zoom-options button {
   display: flex;
@@ -1193,7 +1491,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 9px;
-  border-radius: 8px;
+  border-radius: var(--vc-radius-sm);
   text-align: left;
 }
 .vc-zoom-options button:hover {
@@ -1215,16 +1513,142 @@
 /* Immersive consumers such as Present render the canvas content without any
    editor affordances. This lives in the unlayered canvas theme beside the
    controls it overrides, so hosts do not need cascade-breaking !important. */
+/* Keyboard shortcuts, on `?`. Anchored to the toolbar's corner rather than
+   centred: it is a reference you read while still driving the canvas, not
+   a modal that takes the stage. */
+.vc-shortcut-help {
+  position: absolute;
+  z-index: 25;
+  right: 18px;
+  bottom: 122px;
+  width: 268px;
+  padding: 12px 14px 13px;
+  border: 1px solid rgba(143, 160, 180, 0.42);
+  border-radius: var(--vc-radius-lg);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--vc-shadow-xl);
+  color: var(--vc-ink);
+  backdrop-filter: blur(14px);
+}
+.vc-shortcut-help[hidden] {
+  display: none;
+}
+.vc-shortcut-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.vc-shortcut-help-head strong {
+  font: 650 10px / 1 var(--vc-body);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--vc-muted);
+}
+.vc-shortcut-help-close {
+  appearance: none;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--vc-radius-xs);
+  background: transparent;
+  color: var(--vc-muted);
+  cursor: pointer;
+  font-size: 15px;
+}
+.vc-shortcut-help-close:hover {
+  background: #f1f5f9;
+  color: var(--vc-ink);
+}
+.vc-shortcut-help-close:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 2px;
+}
+.vc-shortcut-help dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.vc-shortcut-help dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.vc-shortcut-help dt {
+  font: 500 11px / 1.3 var(--vc-body);
+  color: var(--vc-ink-soft);
+}
+.vc-shortcut-help dd {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0;
+  color: var(--vc-muted);
+  font: 500 10px / 1 var(--vc-body);
+}
+.vc-shortcut-help kbd {
+  min-width: 17px;
+  border: 1px solid rgba(107, 126, 148, 0.28);
+  border-radius: var(--vc-radius-xs);
+  padding: 3px 4px;
+  background: rgba(244, 247, 251, 0.9);
+  color: var(--vc-ink-soft);
+  text-align: center;
+  font: 650 9px / 1 var(--vc-mono);
+}
+
 .vc-viewport-host.vc-immersive .vc-minimap,
 .vc-viewport-host.vc-immersive .vc-inspector,
 .vc-viewport-host.vc-immersive .vc-iframe-guard,
 .vc-viewport-host.vc-immersive .vc-iframe-exit,
 .vc-viewport-host.vc-immersive .vc-toolbar,
+.vc-viewport-host.vc-immersive .vc-shortcut-help,
+.vc-viewport-host.vc-immersive .vc-empty,
 .vc-viewport-host.vc-immersive .vc-resize-handle {
   display: none;
 }
 
-@media (max-width: 640px) {
+/* The toolbar is ~390px wide and centred, the minimap 220px on the right:
+   below roughly 900px of canvas they meet. Lift the minimap above the dock
+   rather than letting them overlap. */
+@container vc-viewport (max-width: 900px) {
+  .vc-minimap {
+    right: 12px;
+    bottom: 76px;
+    width: 180px;
+    height: 74px;
+  }
+  /*
+   * The inspector is anchored bottom-left and the toolbar is centred in the
+   * same band, so as the viewport narrows the centre slides left until the
+   * two overlap — measured from ~1100px of window, well before anything
+   * that reads as "small". It moves above the toolbar instead, and stops
+   * being wider than the space it is in.
+   */
+  .vc-inspector {
+    bottom: 84px;
+    width: min(320px, calc(100% - 36px));
+  }
+  .vc-shortcut-help {
+    right: 12px;
+    bottom: 160px;
+  }
+  /*
+   * Two explanatory overlays, one narrow viewport: the shortcut list is
+   * tall enough here to reach down into the inspector, and two cards
+   * overlapping is worse than one at a time. The help panel is transient
+   * and deliberately opened, so it wins for as long as it is up.
+   */
+  .vc-viewport:has(.vc-shortcut-help:not([hidden])) .vc-inspector {
+    display: none;
+  }
+}
+
+@container vc-viewport (max-width: 640px) {
   .vc-toolbar {
     bottom: 12px;
     width: max-content;
@@ -1244,12 +1668,13 @@
   .vc-zoom-step {
     width: 28px;
   }
+  .vc-zoom-value {
+    width: 46px;
+  }
   .vc-zoom-menu summary {
-    min-width: 55px;
+    min-width: 30px;
   }
   .vc-minimap {
-    right: 12px;
-    bottom: 76px;
     width: 160px;
   }
 }

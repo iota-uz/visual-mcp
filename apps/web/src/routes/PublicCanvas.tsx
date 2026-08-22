@@ -83,21 +83,30 @@ export function PublicCanvasPage() {
       {/* One bar, not two. This used to be a wordmark on its own white
           strip with a floating title pill under it — two layers of chrome
           for one line of text, on the only surface outsiders ever see. */}
-      <div className="canvas-command-bar canvas-command-bar-public">
-        <span className="public-shell-brand">Visual Canvas</span>
-        <div className="canvas-command-title">
-          <span>{page ? `${canvas.title} · ${page.title}` : canvas.title}</span>
-          {canvas.version !== undefined && <small>v{canvas.version}</small>}
+      <header className="canvas-command-bar canvas-command-bar-public">
+        <div className="canvas-command-lead">
+          <span className="public-shell-brand">Visual Canvas</span>
+          <span className="canvas-command-crumb-sep" aria-hidden="true">
+            /
+          </span>
+          <h1 className="canvas-command-name">
+            {page ? `${canvas.title} · ${page.title}` : canvas.title}
+          </h1>
+          <span className="canvas-command-state">
+            {canvas.version !== undefined && <span>v{canvas.version}</span>}
+          </span>
         </div>
-        {/* `updated_at` and `description` have always been in the payload
-            and were rendered nowhere. */}
-        <span className="public-shell-meta" title={formatAbsoluteTime(canvas.updated_at)}>
-          <time dateTime={new Date(canvas.updated_at).toISOString()}>
-            {formatRelativeTime(canvas.updated_at)}
-          </time>
-        </span>
-        <CopyButton value={window.location.href} label="Copy link" />
-      </div>
+        <div className="canvas-command-actions">
+          {/* `updated_at` and `description` have always been in the payload
+              and were rendered nowhere. */}
+          <span className="public-shell-meta" title={formatAbsoluteTime(canvas.updated_at)}>
+            <time dateTime={new Date(canvas.updated_at).toISOString()}>
+              {formatRelativeTime(canvas.updated_at)}
+            </time>
+          </span>
+          <CopyButton value={window.location.href} label="Copy link" />
+        </div>
+      </header>
 
       {canvas.kind === "canvas" ? (
         <>

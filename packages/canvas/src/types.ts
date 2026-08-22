@@ -34,7 +34,10 @@ const ANCHOR_SIDES = ["top", "right", "bottom", "left"] as const;
 export type AnchorSide = (typeof ANCHOR_SIDES)[number];
 const SANDBOX_TOKENS = ["allow-scripts", "allow-forms"] as const;
 export type IframeSandboxToken = (typeof SANDBOX_TOKENS)[number];
-const PERMISSIONS = ["camera", "microphone", "geolocation", "clipboard-write"] as const;
+const ACTOR_ROLES = ["subject", "counterparty"] as const;
+export type ActorRole = (typeof ACTOR_ROLES)[number];
+
+export const PERMISSIONS = ["camera", "microphone", "geolocation", "clipboard-write"] as const;
 export type IframePermission = (typeof PERMISSIONS)[number];
 
 export const PointSchema = z.object({ x: z.number().finite(), y: z.number().finite() });
@@ -126,6 +129,19 @@ export const NativeNodeSchema = z.object({
   kind: z.literal("native"),
   ...BaseNodeFields,
   shape: z.enum(NODE_SHAPES),
+  /*
+   * Which side of the interaction an `actor` node stands on: the person the
+   * flow is about, or the party they deal with. Purely a rendering variant
+   * (round avatar vs. squared one) and meaningless on every other shape,
+   * which is why it is optional rather than defaulted — a `note` should not
+   * carry an actor field just because it went through the parser.
+   *
+   * It exists because the renderer used to infer this by comparing the
+   * caption to a hardcoded Russian string — so the engine only drew the
+   * distinction for one document in one language, and any other canvas got
+   * every actor styled as a counterparty.
+   */
+  actorRole: z.enum(ACTOR_ROLES).optional(),
   body: NativeBodySchema.optional(),
 });
 export type NativeNode = z.infer<typeof NativeNodeSchema>;

@@ -70,8 +70,14 @@
 
   --app-radius-sm: 7px;
   --app-radius-md: 8px;
-  --app-radius-xl: 11px;
   --app-radius-lg: 13px;
+
+  /* The canvas chrome floats over the viewport: command bar, Pages rail,
+     Prototype panel, artifact trigger. Each used to pick its own white
+     alpha — 0.92, 0.94, 0.96 — for one visual concept, so panels sitting
+     side by side read as different materials. One material, one blur. */
+  --app-surface-floating: rgba(255, 255, 255, 0.94);
+  --app-surface-floating-blur: blur(12px);
 
   --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
   --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
@@ -81,7 +87,6 @@
   --app-transition: 0.15s;
   --app-duration-fast: 0.12s;
   --app-duration-base: 0.2s;
-  --app-duration-slow: 0.32s;
   --app-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --app-ease-in: cubic-bezier(0.5, 0, 0.75, 0);
   /* Everything that translates reads this instead of a literal, so the
@@ -100,15 +105,30 @@
   --app-z-toast: 100;
   --app-z-skip-link: 200;
 
-  /* `left: 64px` appears at three call sites and has to stay in step with
-     the trigger's own box; nothing enforced that. */
+  /* Canvas chrome geometry. `64px` used to be typed at four call sites and
+     had to stay in step with the command bar's own box; nothing enforced
+     that, and `--app-trigger-size` — added for exactly this — had zero
+     uses. The panel widths are read by both the panels and the rules that
+     inset the viewport away from them, which is what keeps the canvas from
+     rendering underneath its own chrome. */
+  /* The canvas top bar is real chrome, not a floating pill: it spans the
+     window, the viewport starts below it, and everything anchored to the
+     top of the canvas measures from its height. */
+  --app-canvas-bar-h: 52px;
+  --app-canvas-chrome-top: calc(var(--app-canvas-bar-h) + var(--app-space-3));
+  --app-pages-panel-w: 260px;
+  --app-pages-panel-collapsed-w: 44px;
+  --app-pages-panel-gap: calc(var(--app-pages-panel-w) + var(--app-space-6));
+  --app-pages-panel-collapsed-gap: calc(var(--app-pages-panel-collapsed-w) + var(--app-space-6));
+  --app-prototype-panel-w: 280px;
+  --app-prototype-panel-gap: calc(var(--app-prototype-panel-w) + var(--app-space-6));
+
   --app-sidebar-w: 220px;
   --app-page-max: 1040px;
   --app-trigger-size: 40px;
-  /* Mirrors the Lucide `size=` values used at the call sites; the search
-     input's left padding used to hardcode 14px to match one of them. */
+  /* Mirrors the Lucide `size=` the search input's icon is rendered at; its
+     left padding used to hardcode 14px to match. */
   --app-icon-sm: 14px;
-  --app-icon-md: 16px;
 
   font-family: var(--app-font-body);
 }

@@ -38,7 +38,11 @@ describe("public embed URLs", () => {
 
   it("escapes Markdown alt text", () => {
     expect(
-      buildEmbedMarkdown({ alt: "Flow [v2]\nready", cardUrl: "https://image", clickUrl: "https://go" }),
+      buildEmbedMarkdown({
+        alt: "Flow [v2]\nready",
+        cardUrl: "https://image",
+        clickUrl: "https://go",
+      }),
     ).toBe("[![Flow [v2\\] ready](https://image)](https://go)");
   });
 });

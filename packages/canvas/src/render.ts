@@ -1,7 +1,7 @@
 import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
-import type { IframeNode, ImageNode, LegendGroup } from "./types.js";
+import { type IframeNode, type ImageNode, type LegendGroup, PERMISSIONS } from "./types.js";
 
 export function escapeHtml(input: string): string {
   return input
@@ -30,7 +30,7 @@ function nativeBody(node: Extract<PositionedNode, { kind: "native" }>): string {
   return `<div class="vc-native-body">${body.text ? `<p>${escapeHtml(body.text)}</p>` : ""}${body.points?.length ? `<ul>${body.points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${body.code ? `<pre>${escapeHtml(body.code)}</pre>` : ""}</div>`;
 }
 function actorBody(node: Extract<PositionedNode, { kind: "native" }>): string {
-  const role = node.caption.title === "Потерпевший" ? "victim" : "culprit";
+  const role = node.actorRole ?? "subject";
   const progress = node.body?.progress;
   const pips = progress
     ? Array.from({ length: progress.total }, (_, index) => {
@@ -52,7 +52,21 @@ function iframeBody(
 ): string {
   const url =
     options.resolveIframeUrl?.(node) ?? `${node.source.entrypoint}${node.source.route ?? ""}`;
-  const allow = node.permissions.map((permission) => `${permission} 'none'`).join("; ");
+  /*
+   * `permissions` is an allow-list — the features this screen may use — but
+   * this line used to emit `${permission} 'none'` for each entry, so naming
+   * a feature *denied* it and naming nothing left the attribute empty.
+   *
+   * Emit the whole closed enum instead: `'src'` for the features the node
+   * asked for, `'none'` for the rest. The policy is then explicit and
+   * default-deny rather than relying on the embedder's inherited one. The
+   * common `permissions: []` goes from an empty attribute to an explicit
+   * deny-all, which is a tightening.
+   */
+  const granted = new Set<string>(node.permissions);
+  const allow = PERMISSIONS.map(
+    (permission) => `${permission} ${granted.has(permission) ? "'src'" : "'none'"}`,
+  ).join("; ");
   const scale = Math.min(
     node.w / node.viewport.width,
     Math.max(1, node.h - 47) / node.viewport.height,
@@ -79,8 +93,31 @@ function imageBody(
 ): string {
   const position = `${node.focalPosition.x * 100}% ${node.focalPosition.y * 100}%`;
   const url = options.resolveImageUrl?.(node) ?? node.source.path;
-  return `<div class="vc-image-viewport"><img src="${escapeHtml(url)}" alt="${escapeHtml(node.alt)}" style="object-fit:${node.fit};object-position:${position}" /></div>`;
+  /*
+   * Image nodes used to be a bare <img>: no loading state, no decode hint,
+   * no error fallback — a stark contrast with the iframe scheduler right
+   * next to them.
+   *
+   * The states are driven from viewport.ts, not from inline `onload` /
+   * `onerror` attributes: this same markup is served on the public
+   * artifact path under a CSP with no `unsafe-inline`, where inline
+   * handlers never run — images would have sat in a permanent skeleton.
+   * With no script, the element carries no `data-image-state` at all and
+   * renders exactly as it always did. `decoding=async` keeps a large
+   * screenshot off the main thread either way.
+   */
+  return `<div class="vc-image-viewport"><img src="${escapeHtml(url)}" alt="${escapeHtml(node.alt)}" decoding="async" style="object-fit:${node.fit};object-position:${position}" /><p class="vc-image-failure" aria-hidden="true">Image couldn’t be loaded.</p></div>`;
 }
+/*
+ * Eight handles, not the one south-east dot this used to carry. With only
+ * that corner, a node's top and left edges could not be moved at all — you
+ * resized from the bottom-right and then dragged the whole node back to
+ * where its other corner had been.
+ */
+const RESIZE_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"]
+  .map((direction) => `<i class="vc-resize-handle vc-resize-${direction}" data-resize="${direction}"></i>`)
+  .join("");
+
 function renderNode(node: PositionedNode, options: RenderOptions): string {
   const shape =
     node.kind === "native"
@@ -96,7 +133,7 @@ function renderNode(node: PositionedNode, options: RenderOptions): string {
       : node.kind === "iframe"
         ? `${caption(node)}${iframeBody(node, options)}`
         : `${caption(node)}${imageBody(node, options)}`;
-  return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? `<i class="vc-resize-handle" data-resize="se"></i>` : ""}</div>`;
+  return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? RESIZE_HANDLES : ""}</div>`;
 }
 function renderGroup(group: PositionedGroup): string {
   return `<div class="vc-group" tabindex="0" data-group-id="${escapeHtml(group.id)}" style="left:${group.x}px;top:${group.y}px;width:${group.w}px;height:${group.h}px"><span>${escapeHtml(group.label ?? group.id)}</span></div>`;

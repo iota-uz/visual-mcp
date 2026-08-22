@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { Link } from "react-router-dom";
 
 /*
@@ -37,7 +37,14 @@ function Content({ icon: Icon, text, iconSize = 16 }: IconControl) {
 
 export interface IconButtonProps
   extends IconControl,
-    Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children"> {}
+    Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children"> {
+  /*
+   * React 19 passes `ref` to function components as an ordinary prop, so
+   * this only has to be declared, not forwarded. Needed by controls that
+   * own a popup and have to put focus back on themselves when it closes.
+   */
+  ref?: Ref<HTMLButtonElement>;
+}
 
 export function IconButton({
   icon,

@@ -12,9 +12,7 @@
         "description": "Реконструированные вызовы в трёх продуктовых сценариях.",
         "dataset": "summary",
         "sourceId": "audit_dataset",
-        "metrics": [
-          { "label": "Вызовов MCP", "field": "product_calls", "format": "number" }
-        ]
+        "metrics": [{ "label": "Вызовов MCP", "field": "product_calls", "format": "number" }]
       },
       {
         "id": "product_workflows",
@@ -30,9 +28,7 @@
         "description": "Фактический реестр инструментов на момент аудита.",
         "dataset": "summary",
         "sourceId": "audit_dataset",
-        "metrics": [
-          { "label": "Текущих tools", "field": "current_tools", "format": "number" }
-        ]
+        "metrics": [{ "label": "Текущих tools", "field": "current_tools", "format": "number" }]
       },
       {
         "id": "template_resources",
@@ -95,10 +91,26 @@
       }
     ],
     "sources": [
-      { "id": "audit_dataset", "label": "Derived audit dataset", "path": "docs/audits/visual-canvas-mcp-agent-usage/audit-dataset.sql" },
-      { "id": "session_corpus", "label": "Локальный корпус Claude Code и Codex", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" },
-      { "id": "current_implementation", "label": "Текущая реализация Visual Canvas MCP", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" },
-      { "id": "synthesis_notes", "label": "Сводные заметки аудита", "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md" }
+      {
+        "id": "audit_dataset",
+        "label": "Derived audit dataset",
+        "path": "docs/audits/visual-canvas-mcp-agent-usage/audit-dataset.sql"
+      },
+      {
+        "id": "session_corpus",
+        "label": "Локальный корпус Claude Code и Codex",
+        "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+      },
+      {
+        "id": "current_implementation",
+        "label": "Текущая реализация Visual Canvas MCP",
+        "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+      },
+      {
+        "id": "synthesis_notes",
+        "label": "Сводные заметки аудита",
+        "path": "docs/audits/visual-canvas-mcp-agent-usage/source-notes.md"
+      }
     ],
     "blocks": [
       {

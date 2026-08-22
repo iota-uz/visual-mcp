@@ -17,6 +17,46 @@ const IFRAME_PREWARM_BATCH = 8;
 const IFRAME_MAX_CONCURRENT = 2;
 const IFRAME_LOAD_TIMEOUT_MS = 12_000;
 
+/*
+ * How much of the content has to stay on screen. `view.x/y` used to be
+ * clamped nowhere at all, so a fast trackpad flick could throw the world
+ * into empty infinity with no visual feedback and no way back except a
+ * fit shortcut the user had no reason to know about.
+ */
+const PAN_KEEP_VISIBLE = 96;
+
+/* Slack between the CSS camera transition and the timer that clears the
+   class driving it; the duration itself comes from --vc-duration-camera. */
+const CAMERA_TIMER_SLACK_MS = 10;
+
+/*
+ * Alignment snapping. The threshold is in screen pixels, not world units:
+ * how close two things look is what decides whether they should line up,
+ * and at 25% zoom a world-unit threshold would snap things that are
+ * visibly far apart.
+ */
+const SNAP_THRESHOLD_PX = 6;
+
+/*
+ * Momentum. Sampled over a short window so a flick reads as intent and a
+ * slow reposition does not drift after the finger lifts.
+ */
+const FLICK_SAMPLE_MS = 90;
+const FLICK_MIN_SPEED = 0.08; // px/ms — below this the pan just stops
+const FLICK_MAX_SPEED = 4; // px/ms — caps a violent flick
+const FLICK_DECAY = 0.94; // per 16ms frame
+const FLICK_STOP_SPEED = 0.015;
+
+/*
+ * The canonical zoom ladder, shared by the toolbar buttons and the
+ * keyboard. Wheel and pinch deliberately stay continuous — snapping a
+ * live gesture to rungs feels broken — but a discrete press should land
+ * on a round, recognisable number rather than multiplying by 1.2 forever.
+ */
+const ZOOM_LADDER = [
+  0.005, 0.01, 0.02, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8,
+] as const;
+
 export interface ViewState {
   x: number;
   y: number;
@@ -127,6 +167,205 @@ export function clampCanvasScale(scale: number): number {
   return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
 }
 
+/**
+ * Returns the next rung of the canonical zoom ladder above or below
+ * `scale`. Used by the toolbar's ± and by keyboard zoom so repeated
+ * presses walk round numbers instead of compounding a factor.
+ */
+export function nextLadderScale(scale: number, direction: 1 | -1): number {
+  // A hair of tolerance so a camera sitting on 1 from a fit does not
+  // "step" to 1 again because of float drift.
+  const epsilon = scale * 1e-6;
+  if (direction > 0) {
+    const up = ZOOM_LADDER.find((rung) => rung > scale + epsilon);
+    return clampCanvasScale(up ?? MAX_SCALE);
+  }
+  const down = [...ZOOM_LADDER].reverse().find((rung) => rung < scale - epsilon);
+  return clampCanvasScale(down ?? MIN_SCALE);
+}
+
+const RESIZE_DIRECTIONS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
+export type ResizeDirection = (typeof RESIZE_DIRECTIONS)[number];
+
+/** The smallest a node may be dragged to, in world units. */
+const MIN_NODE_SIDE = 80;
+
+function asResizeDirection(value: string | undefined): ResizeDirection | undefined {
+  return RESIZE_DIRECTIONS.find((direction) => direction === value);
+}
+
+/**
+ * Applies a pointer delta to one rect from one handle.
+ *
+ * Nodes used to carry a single south-east handle, so a resize could only
+ * ever grow down and right and repositioning a node's top edge meant
+ * resizing it and then moving it back. Dragging a west or north handle
+ * moves the opposite edge instead, which is what every direct-manipulation
+ * editor does and what the eight handles now promise.
+ *
+ * `lockAspect` is the phone frame: its viewport is a fixed 284×642 content
+ * area, so the height always derives from the width and the axis with the
+ * larger travel wins.
+ */
+export function resizeRect(
+  origin: Rect,
+  from: ResizeDirection,
+  wx: number,
+  wy: number,
+  lockAspect = false,
+): Rect {
+  const west = from.includes("w");
+  const north = from.includes("n");
+  const horizontal = west || from.includes("e");
+  const vertical = north || from.includes("s");
+
+  if (lockAspect) {
+    const fromX = horizontal ? origin.w + (west ? -wx : wx) : Number.NaN;
+    const fromY = vertical
+      ? ((Math.max(MIN_NODE_SIDE, origin.h + (north ? -wy : wy)) - PHONE_FRAME.captionHeight) *
+          PHONE_FRAME.width) /
+        PHONE_FRAME.height
+      : Number.NaN;
+    const preferX = !vertical || (horizontal && Math.abs(wx) >= Math.abs(wy));
+    const width = Math.max(MIN_NODE_SIDE, preferX ? fromX : fromY);
+    const height = phoneNodeHeightForWidth(width);
+    return {
+      x: west ? origin.x + origin.w - width : origin.x,
+      y: north ? origin.y + origin.h - height : origin.y,
+      w: width,
+      h: height,
+    };
+  }
+
+  const w = horizontal ? Math.max(MIN_NODE_SIDE, origin.w + (west ? -wx : wx)) : origin.w;
+  const h = vertical ? Math.max(MIN_NODE_SIDE, origin.h + (north ? -wy : wy)) : origin.h;
+  // Anchoring on the far edge rather than adding the raw delta is what keeps
+  // the opposite side still once the minimum size has been reached.
+  return {
+    x: west ? origin.x + origin.w - w : origin.x,
+    y: north ? origin.y + origin.h - h : origin.y,
+    w,
+    h,
+  };
+}
+
+/** One alignment line the drag is currently holding, in world units. */
+export interface AlignmentGuide {
+  axis: "x" | "y";
+  /** World coordinate of the line itself. */
+  at: number;
+  /** Extent along the other axis, so the line spans only what it relates. */
+  from: number;
+  to: number;
+}
+
+export interface SnapResult {
+  /** World-unit correction to add to the dragged rect. */
+  dx: number;
+  dy: number;
+  guides: AlignmentGuide[];
+}
+
+/**
+ * Snaps a dragged rect to the edges and centres of the rects around it.
+ *
+ * Both the left/centre/right and top/middle/bottom of the moving rect are
+ * candidates against the same three lines on every neighbour, which is what
+ * makes "centre this under that" and "line these two up" the same gesture.
+ * Only the closest line per axis wins, and only inside `threshold` — given
+ * in *world* units by the caller, who converts from screen pixels so the
+ * behaviour is the same at every zoom.
+ *
+ * Ties are broken toward the smaller correction, then toward the earlier
+ * candidate, so a rect equidistant from two neighbours does not flicker
+ * between them as the pointer moves.
+ */
+export function snapRectToNeighbours(
+  rect: Rect,
+  neighbours: readonly Rect[],
+  threshold: number,
+): SnapResult {
+  if (threshold <= 0 || neighbours.length === 0) return { dx: 0, dy: 0, guides: [] };
+
+  function axisSnap(
+    movingSpan: readonly [number, number],
+    otherSpan: readonly [number, number],
+    pick: (r: Rect) => readonly [number, number, number, number, number],
+  ): { delta: number; guides: AlignmentGuide[] } {
+    const [mLow, mHigh] = movingSpan;
+    const moving = [mLow, (mLow + mHigh) / 2, mHigh];
+    let best: { delta: number; at: number } | null = null;
+    for (const neighbour of neighbours) {
+      const [nLow, nCentre, nHigh] = pick(neighbour);
+      for (const line of [nLow, nCentre, nHigh]) {
+        for (const edge of moving) {
+          const delta = line - edge;
+          if (Math.abs(delta) > threshold) continue;
+          if (!best || Math.abs(delta) < Math.abs(best.delta) - 1e-9) best = { delta, at: line };
+        }
+      }
+    }
+    if (!best) return { delta: 0, guides: [] };
+    // The line spans everything it is currently aligning, so a guide that
+    // reaches three nodes visibly says so.
+    const winner = best;
+    let from = otherSpan[0];
+    let to = otherSpan[1];
+    for (const neighbour of neighbours) {
+      const [nLow, nCentre, nHigh, oLow, oHigh] = pick(neighbour);
+      if (![nLow, nCentre, nHigh].some((line) => Math.abs(line - winner.at) < 1e-6)) continue;
+      from = Math.min(from, oLow);
+      to = Math.max(to, oHigh);
+    }
+    return { delta: winner.delta, guides: [{ axis: "x", at: winner.at, from, to }] };
+  }
+
+  const x = axisSnap(
+    [rect.x, rect.x + rect.w],
+    [rect.y, rect.y + rect.h],
+    (r) => [r.x, r.x + r.w / 2, r.x + r.w, r.y, r.y + r.h] as const,
+  );
+  const y = axisSnap(
+    [rect.y, rect.y + rect.h],
+    [rect.x, rect.x + rect.w],
+    (r) => [r.y, r.y + r.h / 2, r.y + r.h, r.x, r.x + r.w] as const,
+  );
+  return {
+    dx: x.delta,
+    dy: y.delta,
+    guides: [...x.guides, ...y.guides.map((guide) => ({ ...guide, axis: "y" as const }))],
+  };
+}
+
+/**
+ * Keeps the camera somewhere the content can still be found.
+ *
+ * The world stays effectively infinite — this only refuses positions where
+ * less than `keepVisible` pixels of the content rect would remain inside
+ * the viewport on either axis. The permitted range is always non-empty
+ * (its width is `viewport + content - 2·keepVisible + …`, which grows with
+ * the content), so this can never fight a legitimate pan; it only catches
+ * the overshoot.
+ */
+export function clampCameraToBounds(
+  view: ViewState,
+  bounds: CameraBounds,
+  viewport: ViewportSize,
+  keepVisible = PAN_KEEP_VISIBLE,
+): ViewState {
+  const slackX = Math.min(keepVisible, viewport.width / 2, bounds.width * view.scale);
+  const slackY = Math.min(keepVisible, viewport.height / 2, bounds.height * view.scale);
+  const left = bounds.x * view.scale;
+  const right = (bounds.x + bounds.width) * view.scale;
+  const top = bounds.y * view.scale;
+  const bottom = (bounds.y + bounds.height) * view.scale;
+  return {
+    x: Math.min(viewport.width - slackX - left, Math.max(slackX - right, view.x)),
+    y: Math.min(viewport.height - slackY - top, Math.max(slackY - bottom, view.y)),
+    scale: view.scale,
+  };
+}
+
 /** Converts a screen-space point into the single canvas world coordinate system. */
 export function screenToWorld(view: ViewState, point: { x: number; y: number }) {
   return {
@@ -182,15 +421,46 @@ export function fitCameraToBounds(
   };
 }
 
-/** The authored content bounds of a Page, excluding deliberate empty world space. */
+/*
+ * The chrome a stage or a lane draws outside its own rect, in world units.
+ * A stage header is absolutely positioned at `top: -30px` and a lane label
+ * sits 20px inside its left edge; neither is inside the rect the layout
+ * reports, so a fit that only measured rects cropped both.
+ */
+const STAGE_HEADER_OVERHANG = 34;
+const LANE_LABEL_INSET = 24;
+
+/**
+ * The authored content bounds of a Page, excluding deliberate empty world
+ * space.
+ *
+ * Nodes alone were not enough. Lanes and stages are content — they are what
+ * a swimlane diagram *is* — and their labels hang outside the rects, so
+ * Fit Page on the app's flagship document type left the lane names clipped
+ * to single letters at the left edge and the stage headers sliced off the
+ * top. Lanes contribute their vertical extent and their label gutter but
+ * not their width: a lane is authored to span the whole world, and letting
+ * that drive the fit is exactly the empty space this is meant to exclude.
+ */
 export function canvasContentBounds(canvas: PositionedCanvas): CameraBounds {
   if (canvas.nodes.length === 0) {
     return { x: 0, y: 0, width: canvas.width, height: canvas.height };
   }
-  const left = Math.min(...canvas.nodes.map((node) => node.x));
-  const top = Math.min(...canvas.nodes.map((node) => node.y));
-  const right = Math.max(...canvas.nodes.map((node) => node.x + node.w));
-  const bottom = Math.max(...canvas.nodes.map((node) => node.y + node.h));
+  let left = Math.min(...canvas.nodes.map((node) => node.x));
+  let top = Math.min(...canvas.nodes.map((node) => node.y));
+  let right = Math.max(...canvas.nodes.map((node) => node.x + node.w));
+  let bottom = Math.max(...canvas.nodes.map((node) => node.y + node.h));
+  for (const stage of canvas.stages) {
+    left = Math.min(left, stage.rect.x);
+    top = Math.min(top, stage.rect.y - STAGE_HEADER_OVERHANG);
+    right = Math.max(right, stage.rect.x + stage.rect.w);
+    bottom = Math.max(bottom, stage.rect.y + stage.rect.h);
+  }
+  for (const lane of canvas.lanes) {
+    left = Math.min(left, lane.rect.x + LANE_LABEL_INSET);
+    top = Math.min(top, lane.rect.y);
+    bottom = Math.max(bottom, lane.rect.y + lane.rect.h);
+  }
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
@@ -226,6 +496,12 @@ export interface ViewportOptions {
   onViewChange?: (view: ViewState) => void;
   fitOnResize?: boolean;
   onSelect?: (nodeId: string | null) => void;
+  /**
+   * Per-canvas iframe load progress, so the surrounding app can report
+   * "N of M screens loaded" and surface failures. Fires on every load,
+   * failure, retry and reactive canvas replacement.
+   */
+  onIframeStateChange?: (state: { total: number; loaded: number; failed: string[] }) => void;
   resolveIframeUrl?: (node: IframeNode) => string;
   resolveImageUrl?: (node: ImageNode) => string;
   resolveIframeIdentity?: (node: IframeNode) => string;
@@ -273,6 +549,48 @@ const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
     </div>
   </aside>`;
 
+/*
+ * Half the viewport's shortcuts appeared in no UI at all: the toolbar shows
+ * V, M, ⇧1 and ⇧2, while 0, R, Escape, Enter and the zoom keys were
+ * discoverable only by reading the source. `?` opens this.
+ */
+const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" aria-modal="false" aria-label="Keyboard shortcuts">
+    <div class="vc-shortcut-help-head">
+      <strong>Keyboard</strong>
+      <button type="button" class="vc-shortcut-help-close" aria-label="Close keyboard shortcuts">×</button>
+    </div>
+    <dl>
+      <div><dt>View tool</dt><dd><kbd>V</kbd></dd></div>
+      <div><dt>Move tool</dt><dd><kbd>M</kbd></dd></div>
+      <div><dt>Fit page</dt><dd><kbd>⇧1</kbd> <kbd>0</kbd></dd></div>
+      <div><dt>Fit selection</dt><dd><kbd>⇧2</kbd></dd></div>
+      <div><dt>Zoom to 100%</dt><dd><kbd>⇧0</kbd> <kbd>R</kbd></dd></div>
+      <div><dt>Zoom in / out</dt><dd><kbd>+</kbd> <kbd>−</kbd></dd></div>
+      <div><dt>Zoom to pointer</dt><dd><kbd>⌘</kbd> <span aria-hidden="true">+</span> scroll</dd></div>
+      <div><dt>Nudge selection</dt><dd><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <span aria-hidden="true">·</span> <kbd>⇧</kbd> ×10</dd></div>
+      <div><dt>Open screen</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
+      <div><dt>Deselect / exit</dt><dd><kbd>Esc</kbd></dd></div>
+      <div><dt>This panel</dt><dd><kbd>?</kbd></dd></div>
+    </dl>
+  </div>`;
+
+/*
+ * A Page with no nodes used to render as a bare dot grid: indistinguishable
+ * from a canvas whose camera had wandered off into empty space, which is
+ * exactly the confusion the pan clamp was added to prevent.
+ */
+/*
+ * Alignment guides live outside `.vc-world`, in screen space. Inside it
+ * they would be wiped by every re-render — the world element is replaced
+ * wholesale — and would need the camera-inverse dance to stay hairline.
+ */
+const GUIDES_SHELL = `<div class="vc-guides" aria-hidden="true"></div>`;
+
+const EMPTY_SHELL = `<div class="vc-empty" hidden>
+    <p class="vc-empty-title">This page is empty.</p>
+    <p class="vc-empty-hint">Ask your agent to add screens or nodes to it.</p>
+  </div>`;
+
 const MINIMAP_SHELL = `<div class="vc-minimap">
     <div class="vc-minimap-nodes"></div>
     <i class="vc-minimap-viewport"></i>
@@ -285,18 +603,20 @@ function toolbarShell(editable: boolean): string {
       <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
     </div>
     <div class="vc-zoom-control" aria-label="Canvas zoom">
-      <button type="button" class="vc-zoom-step" data-zoom="out" aria-label="Zoom out" title="Zoom out">−</button>
+      <button type="button" class="vc-zoom-step" data-zoom="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+      <input class="vc-zoom-value" type="text" inputmode="numeric" aria-label="Zoom level, in percent" value="100%" size="5" />
       <details class="vc-zoom-menu">
-        <summary aria-label="Zoom options"><span class="vc-zoom-value">100%</span><span aria-hidden="true">▾</span></summary>
+        <summary aria-label="Zoom options"><span aria-hidden="true">▾</span></summary>
         <div class="vc-zoom-options">
           <button type="button" data-zoom-action="fit-page"><span>Fit Page</span><kbd>⇧1</kbd></button>
           <button type="button" data-zoom-action="fit-selection"><span>Fit Selection</span><kbd>⇧2</kbd></button>
-          <button type="button" data-zoom-action="100"><span>100%</span></button>
+          <button type="button" data-zoom-action="100"><span>100%</span><kbd>⇧0</kbd></button>
           <button type="button" data-zoom-action="200"><span>200%</span></button>
         </div>
       </details>
-      <button type="button" class="vc-zoom-step" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+      <button type="button" class="vc-zoom-step" data-zoom="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
     </div>
+    <button type="button" class="vc-tool vc-help-toggle" data-help="toggle" aria-label="Keyboard shortcuts" aria-expanded="false" title="Keyboard shortcuts (?)"><span aria-hidden="true">?</span></button>
     <span class="vc-tool-status visually-hidden" role="status" aria-live="polite">View tool</span>
   </div>`;
 }
@@ -315,7 +635,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
-  container.innerHTML = `${rendered.html}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -324,6 +644,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   const world = must(".vc-world");
+  const guidesLayer = must(".vc-guides");
   const groupsRoot = must(".vc-groups");
   const nodesRoot = must(".vc-nodes");
   const minimap = must(".vc-minimap");
@@ -340,7 +661,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorRefCopy = must(".vc-inspector-ref-copy");
   const toolbar = must(".vc-toolbar");
   const toolStatus = must(".vc-tool-status");
-  const zoomValue = must(".vc-zoom-value");
+  const zoomValue = must(".vc-zoom-value") as HTMLInputElement;
+  const shortcutHelp = must(".vc-shortcut-help");
+  const helpToggle = must(".vc-help-toggle");
+  const shortcutHelpClose = must(".vc-shortcut-help-close");
+  const emptyState = must(".vc-empty");
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let groupById = new Map(liveCanvas.groups.map((group) => [group.id, group]));
@@ -359,6 +684,16 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let geometryFrame: number | null = null;
   let iframeSyncTimer: number | null = null;
   let fitAnimationTimer: number | null = null;
+  let flickFrame: number | null = null;
+  let flickSample: { x: number; y: number; at: number } | null = null;
+  let flickVelocity: { x: number; y: number } | null = null;
+  /*
+   * Content bounds drive the pan clamp and are recomputed on every camera
+   * move, so they are cached and invalidated rather than folded over every
+   * node each frame — at the 1000-node schema cap that is the difference
+   * between a free clamp and a measurable one.
+   */
+  let contentBoundsCache: CameraBounds | null = null;
   const pendingGeometryIds = new Set<string>();
   const iframeQueue: string[] = [];
   const queuedIframeIds = new Set<string>();
@@ -379,7 +714,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       String(Math.min(20, Math.max(0.125, 1 / view.scale))),
     );
     container.dataset.zoom = view.scale < 0.24 ? "low" : view.scale > 1.5 ? "high" : "normal";
-    zoomValue.textContent = `${Math.round(view.scale * 100)}%`;
+    // Never fight the user mid-edit: the field is an input now, and
+    // rewriting it under a cursor would make typing a percentage
+    // impossible.
+    if (document.activeElement !== zoomValue) {
+      zoomValue.value = `${Math.round(view.scale * 100)}%`;
+    }
 
     // The grid lives in screen space, so explicitly project a world-space
     // interval through the camera. The power-of-four LOD keeps dots legible
@@ -397,12 +737,92 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (viewFrame === null) viewFrame = requestAnimationFrame(paintView);
   }
 
+  function contentBounds(): CameraBounds {
+    if (!contentBoundsCache) contentBoundsCache = canvasContentBounds(liveCanvas);
+    return contentBoundsCache;
+  }
+
+  /**
+   * Applies the pan clamp in place. Every free camera move — drag, wheel,
+   * pinch, minimap, momentum — goes through this; fits and resets compute
+   * a centred camera and are already in range.
+   */
+  function clampPan(): void {
+    Object.assign(view, clampCameraToBounds(view, contentBounds(), viewportRect));
+  }
+
+  function stopFlick(): void {
+    if (flickFrame !== null) cancelAnimationFrame(flickFrame);
+    flickFrame = null;
+  }
+
+  /**
+   * Momentum after a pan flick. Deliberately not a physics engine: a fixed
+   * per-frame decay, normalised to 16 ms so it behaves the same on a 120 Hz
+   * display, and it dies the moment the clamp refuses to move any further
+   * so a flick into the void does not keep burning frames.
+   */
+  function startFlick(vx: number, vy: number): void {
+    stopFlick();
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const speed = Math.hypot(vx, vy);
+    if (speed < FLICK_MIN_SPEED) return;
+    const capped = Math.min(1, FLICK_MAX_SPEED / speed);
+    let dx = vx * capped;
+    let dy = vy * capped;
+    let last = performance.now();
+    const step = (now: number) => {
+      const elapsed = Math.min(64, now - last);
+      last = now;
+      const decay = FLICK_DECAY ** (elapsed / 16);
+      const beforeX = view.x;
+      const beforeY = view.y;
+      view.x += dx * elapsed;
+      view.y += dy * elapsed;
+      clampPan();
+      applyView();
+      const moved = Math.abs(view.x - beforeX) + Math.abs(view.y - beforeY);
+      dx *= decay;
+      dy *= decay;
+      if (moved < 0.1 || Math.hypot(dx, dy) < FLICK_STOP_SPEED) {
+        flickFrame = null;
+        scheduleIframeSync(0);
+        return;
+      }
+      flickFrame = requestAnimationFrame(step);
+    };
+    flickFrame = requestAnimationFrame(step);
+  }
+
   function zoomAt(clientX: number, clientY: number, factor: number): void {
-    const localX = clientX - viewportRect.left;
-    const localY = clientY - viewportRect.top;
-    Object.assign(view, zoomCameraAt(view, { x: localX, y: localY }, view.scale * factor));
+    zoomTo(view.scale * factor, clientX - viewportRect.left, clientY - viewportRect.top);
+  }
+
+  /** Anchored absolute zoom. `zoomAt` is the relative-factor wrapper. */
+  function zoomTo(nextScale: number, localX: number, localY: number, animate = false): void {
+    const target = zoomCameraAt(view, { x: localX, y: localY }, nextScale);
+    if (animate) {
+      setView(clampCameraToBounds(target, contentBounds(), viewportRect), true);
+      return;
+    }
+    Object.assign(view, target);
+    clampPan();
     container.classList.remove("is-camera-animating");
     applyView();
+  }
+
+  /*
+   * How long to hold `is-camera-animating` before dropping it. The class
+   * turns on a CSS transition, so the timer has to outlive that transition
+   * or the camera snaps mid-flight — which is why this used to be a second
+   * hardcoded 190ms sitting next to theme.css's 180ms, maintained by hand.
+   * Read the token instead; the slack is the only number left here.
+   */
+  function cameraAnimationMs(): number {
+    const raw = window.getComputedStyle(container).getPropertyValue("--vc-duration-camera").trim();
+    const value = Number.parseFloat(raw);
+    const ms = Number.isFinite(value) ? (raw.endsWith("ms") ? value : value * 1000) : 180;
+    return ms + CAMERA_TIMER_SLACK_MS;
   }
 
   function setView(next: ViewState, animate = false): void {
@@ -416,7 +836,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       fitAnimationTimer = window.setTimeout(() => {
         container.classList.remove("is-camera-animating");
         fitAnimationTimer = null;
-      }, 190);
+      }, cameraAnimationMs());
     }
     Object.assign(view, next);
     applyView();
@@ -445,6 +865,60 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
     setView(
       fitCameraToBounds({ x: node.x, y: node.y, width: node.w, height: node.h }, viewportRect),
+      true,
+    );
+  }
+
+  /**
+   * One discrete zoom press: walks the canonical ladder and anchors at the
+   * viewport centre, which is the only anchor a keyboard press has. The
+   * button used to multiply by 1.2 forever, so a few presses left you at
+   * 86% or 149% — numbers no one asked for.
+   */
+  /**
+   * Arrow-key nudge for the Move tool. 1px, or 10 with Shift — the
+   * convention every design tool uses, and the only way to place a node
+   * precisely without fighting the pointer at low zoom.
+   *
+   * Returns false when there is nothing to nudge, so the caller can let the
+   * key fall through to whatever else arrows might mean.
+   */
+  function nudgeSelection(dx: number, dy: number): boolean {
+    if (activeTool !== "move" || !opts.editable) return false;
+
+    const group = selectedGroupId ? groupById.get(selectedGroupId) : undefined;
+    if (group) {
+      const origin = new Map<string, Rect>();
+      for (const id of group.nodeIds) {
+        const node = nodeById.get(id);
+        if (!node) continue;
+        origin.set(id, { ...node.rect });
+        const next = { ...node.rect, x: node.rect.x + dx, y: node.rect.y + dy };
+        Object.assign(node.rect, next);
+        Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
+        scheduleGeometry(id);
+      }
+      if (origin.size === 0) return false;
+      void opts.onGroupMove?.(group.id, dx, dy);
+      return true;
+    }
+
+    const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+    if (!node) return false;
+    const next = { ...node.rect, x: node.rect.x + dx, y: node.rect.y + dy };
+    Object.assign(node.rect, next);
+    Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
+    scheduleGeometry(node.id);
+    void opts.onGeometryChange?.(node.id, { ...node.rect });
+    return true;
+  }
+
+  function stepZoom(direction: 1 | -1): void {
+    stopFlick();
+    zoomTo(
+      nextLadderScale(view.scale, direction),
+      viewportRect.width / 2,
+      viewportRect.height / 2,
       true,
     );
   }
@@ -558,6 +1032,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     el?.querySelector<HTMLIFrameElement>("iframe")?.focus({ preventScroll: true });
   }
 
+  function paintEmptyState(): void {
+    emptyState.toggleAttribute("hidden", liveCanvas.nodes.length > 0);
+  }
+
   function renderMinimap(): void {
     const rect = minimap.getBoundingClientRect();
     const innerW = Math.max(1, rect.width - 12);
@@ -612,6 +1090,96 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  /*
+   * Image nodes render as a plain <img> so the same markup works under the
+   * public artifact CSP, which forbids inline handlers. In the SPA we can
+   * attach real listeners, so the skeleton and the failure panel only ever
+   * appear where something is actually driving them.
+   */
+  function trackImageStates(): void {
+    for (const img of nodesRoot.querySelectorAll<HTMLImageElement>(".vc-image-viewport img")) {
+      if (img.dataset.vcTracked) continue;
+      img.dataset.vcTracked = "1";
+      const owner = img.parentElement;
+      if (!owner) continue;
+      const settle = (state: "loaded" | "error") => {
+        owner.dataset.imageState = state;
+      };
+      // A cached image can already be complete before this runs, in which
+      // case no event is ever coming.
+      if (img.complete) {
+        settle(img.naturalWidth > 0 ? "loaded" : "error");
+        continue;
+      }
+      owner.dataset.imageState = "loading";
+      img.addEventListener("load", () => settle("loaded"), { once: true });
+      img.addEventListener("error", () => settle("error"), { once: true });
+    }
+  }
+
+  function iframeFailureNotice(state: "error" | "timeout"): HTMLElement {
+    const notice = document.createElement("div");
+    notice.className = "vc-iframe-failure";
+    notice.dataset.failure = state;
+    const message =
+      state === "timeout"
+        ? "This screen took too long to load."
+        : "This screen couldn't be loaded.";
+    notice.innerHTML = `<p class="vc-iframe-failure-text">${escapeHtml(message)}</p><button type="button" class="vc-iframe-retry">Retry</button>`;
+    return notice;
+  }
+
+  /** Re-mounts one failed screen from scratch, back through the queue. */
+  function retryIframe(owner: HTMLElement): void {
+    const id = owner.dataset.nodeId;
+    if (!id) return;
+    const node = nodeById.get(id);
+    if (node?.kind !== "iframe") return;
+    owner.querySelector(".vc-iframe-failure")?.remove();
+    owner.querySelector("iframe")?.remove();
+    residentIframeIds.delete(id);
+    loadingIframeIds.delete(id);
+    delete owner.dataset.iframeLoadState;
+    delete owner.dataset.iframeReadiness;
+    delete owner.dataset.iframeReadinessDetail;
+    // Rebuild the placeholder the loader consumes, so the retry takes the
+    // exact same path a first load does — including the skeleton.
+    const viewportEl = owner.querySelector<HTMLElement>(".vc-iframe-viewport");
+    if (!viewportEl) return;
+    const placeholder = document.createElement("div");
+    placeholder.className = "vc-iframe-placeholder";
+    placeholder.dataset.src =
+      liveResolveIframeUrl?.(node) ?? `${node.source.entrypoint}${node.source.route ?? ""}`;
+    placeholder.dataset.sandbox = node.sandbox.join(" ");
+    placeholder.dataset.allow = node.permissions
+      .map((permission) => `${permission} 'none'`)
+      .join("; ");
+    placeholder.dataset.entrypoint = node.source.entrypoint;
+    placeholder.innerHTML = "<span>Loading screen</span>";
+    viewportEl.appendChild(placeholder);
+    reportIframeState();
+    ensureIframeLoaded(owner);
+  }
+
+  /*
+   * Per-screen load state used to terminate at a DOM data-attribute read
+   * only by CSS, so the page around the canvas could not say "4 of 12
+   * screens loaded, 2 failed" — or even know that anything had failed.
+   */
+  function reportIframeState(): void {
+    if (!opts.onIframeStateChange) return;
+    const iframeNodes = liveCanvas.nodes.filter((node) => node.kind === "iframe");
+    let loaded = 0;
+    const failed: string[] = [];
+    for (const node of iframeNodes) {
+      const owner = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
+      const state = owner?.dataset.iframeLoadState;
+      if (state === "loaded") loaded += 1;
+      else if (state === "error" || state === "timeout") failed.push(node.id);
+    }
+    opts.onIframeStateChange({ total: iframeNodes.length, loaded, failed });
+  }
+
   function ensureIframeLoaded(owner: HTMLElement): void {
     const placeholder = owner.querySelector<HTMLElement>(".vc-iframe-placeholder[data-src]");
     const source = placeholder?.dataset.src;
@@ -642,10 +1210,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       settled = true;
       loadingIframeIds.delete(id);
       owner.dataset.iframeLoadState = state;
-      if (state !== "loaded") loading.remove();
+      if (state !== "loaded") {
+        /*
+         * A failed screen used to be a blank white rectangle under a
+         * caption: the shimmer was removed, a data-attribute was written,
+         * and nothing in the CSS or the UI ever read it. Now it says what
+         * happened and offers the only useful action.
+         */
+        loading.replaceWith(iframeFailureNotice(state));
+      }
       window.clearTimeout(timeout);
       if (iframeLoadTimeouts.get(id) === timeout) iframeLoadTimeouts.delete(id);
       if (state === "loaded") scheduleIframeSync(0);
+      reportIframeState();
       pumpIframeQueue();
     };
     iframe.addEventListener("load", () => finish("loaded"), { once: true });
@@ -768,6 +1345,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function scheduleGeometry(id: string): void {
     pendingGeometryIds.add(id);
+    // Moving or resizing a node changes what the pan clamp is clamping to.
+    contentBoundsCache = null;
     if (geometryFrame === null) geometryFrame = requestAnimationFrame(paintGeometry);
   }
 
@@ -953,6 +1532,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     liveResolveImageUrl = nextResolveImageUrl;
     liveResolveIframeIdentity = nextResolveIframeIdentity;
     liveCanvas = nextCanvas;
+    contentBoundsCache = null;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     groupById = new Map(nextCanvas.groups.map((group) => [group.id, group]));
     for (const node of nextCanvas.nodes) updateNodeElement(node);
@@ -963,6 +1543,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     edges?.setAttribute("height", String(nextCanvas.height));
     updateEdgeGeometry();
     renderMinimap();
+    paintEmptyState();
+    trackImageStates();
+    reportIframeState();
     scheduleIframeSync(0);
   }
 
@@ -977,6 +1560,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     nodeId: string | null;
     groupId: string | null;
     mode: "camera" | "move" | "resize";
+    /** Which handle a resize is being driven from; absent for other modes. */
+    resizeFrom?: ResizeDirection;
     originRect?: Rect;
     originMemberRects?: Map<string, Rect>;
   } | null = null;
@@ -988,11 +1573,61 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   } | null = null;
   let lastClick: { nodeId: string; at: number } | null = null;
 
+  /*
+   * Everything a dragged node could line up with. Off-screen nodes are
+   * excluded: a guide the user cannot see is a correction they cannot
+   * explain, and on a large canvas comparing against all thousand nodes
+   * every pointer move is work with nothing to show for it.
+   */
+  function neighbourRects(movingId: string): Rect[] {
+    const left = -view.x / view.scale;
+    const top = -view.y / view.scale;
+    const right = left + viewportRect.width / view.scale;
+    const bottom = top + viewportRect.height / view.scale;
+    const rects: Rect[] = [];
+    for (const node of liveCanvas.nodes) {
+      if (node.id === movingId) continue;
+      const rect = node.rect;
+      if (rect.x > right || rect.x + rect.w < left) continue;
+      if (rect.y > bottom || rect.y + rect.h < top) continue;
+      rects.push(rect);
+    }
+    return rects;
+  }
+
+  function paintGuides(guides: readonly AlignmentGuide[]): void {
+    if (guides.length === 0) {
+      if (guidesLayer.childElementCount > 0) guidesLayer.replaceChildren();
+      return;
+    }
+    guidesLayer.replaceChildren(
+      ...guides.map((guide) => {
+        const line = document.createElement("i");
+        line.className = `vc-guide vc-guide-${guide.axis}`;
+        const at = guide.axis === "x" ? guide.at * view.scale + view.x : guide.at * view.scale + view.y;
+        const from = guide.axis === "x" ? guide.from * view.scale + view.y : guide.from * view.scale + view.x;
+        const span = (guide.to - guide.from) * view.scale;
+        if (guide.axis === "x") {
+          line.style.left = `${at}px`;
+          line.style.top = `${from}px`;
+          line.style.height = `${span}px`;
+        } else {
+          line.style.top = `${at}px`;
+          line.style.left = `${from}px`;
+          line.style.width = `${span}px`;
+        }
+        return line;
+      }),
+    );
+  }
+
   function clearDragClasses(): void {
     container.classList.remove("is-panning", "is-pinching", "is-moving-node");
   }
 
   function cancelDrag(): void {
+    flickSample = null;
+    flickVelocity = null;
     if (dragState?.groupId && dragState.originMemberRects) {
       for (const [id, rect] of dragState.originMemberRects) {
         const node = nodeById.get(id);
@@ -1027,6 +1662,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (target.closest(".vc-node.iframe-active iframe")) return;
     if (target.closest("input, button, a, summary, details")) return;
     event.preventDefault();
+    // Touching the canvas always stops a coasting camera dead — the same
+    // way it does in every scroll surface on every platform.
+    stopFlick();
+    flickSample = { x: event.clientX, y: event.clientY, at: performance.now() };
+    flickVelocity = null;
     container.focus({ preventScroll: true });
     const nodeElement = target.closest<HTMLElement>(".vc-node");
     const groupElement = target.closest<HTMLElement>(".vc-group");
@@ -1067,8 +1707,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const tool = activeTool;
     const selected = nodeId !== null && nodeId === selectedNodeId;
     const groupSelected = groupId !== null && groupId === selectedGroupId;
+    const handle = target.closest<HTMLElement>(".vc-resize-handle");
+    const resizeFrom = asResizeDirection(handle?.dataset.resize);
     const mode =
-      tool === "move" && opts.editable && selected && node && target.closest(".vc-resize-handle")
+      tool === "move" && opts.editable && selected && node && resizeFrom
         ? "resize"
         : tool === "move" && opts.editable && selected && node
           ? "move"
@@ -1084,6 +1726,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       nodeId,
       groupId,
       mode,
+      resizeFrom: mode === "resize" ? resizeFrom : undefined,
       originRect: node?.rect ? { ...node.rect } : undefined,
       originMemberRects: group
         ? new Map(
@@ -1114,6 +1757,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       view.scale = nextScale;
       view.x = centerX - viewportRect.left - pinchState.worldX * nextScale;
       view.y = centerY - viewportRect.top - pinchState.worldY * nextScale;
+      clampPan();
       applyView();
       return;
     }
@@ -1125,6 +1769,21 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (dragState.mode === "camera") {
       view.x = dragState.originX + dx;
       view.y = dragState.originY + dy;
+      clampPan();
+      // Sampled over a short trailing window rather than frame-to-frame:
+      // a single 16ms delta is mostly noise, and a pause before release
+      // should read as "stop here", which a short window gives for free.
+      const now = performance.now();
+      const previous = flickSample;
+      flickSample = { x: event.clientX, y: event.clientY, at: now };
+      if (previous && now - previous.at > 0 && now - previous.at <= FLICK_SAMPLE_MS) {
+        flickVelocity = {
+          x: (event.clientX - previous.x) / (now - previous.at),
+          y: (event.clientY - previous.y) / (now - previous.at),
+        };
+      } else if (previous && now - previous.at > FLICK_SAMPLE_MS) {
+        flickVelocity = null;
+      }
       applyView();
     } else if (dragState.groupId && dragState.originMemberRects) {
       const wx = dx / view.scale;
@@ -1143,34 +1802,32 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (!node) return;
       const wx = dx / view.scale;
       const wy = dy / view.scale;
-      const next =
+      const dragged =
         dragState.mode === "move"
           ? {
               ...dragState.originRect,
               x: dragState.originRect.x + wx,
               y: dragState.originRect.y + wy,
             }
-          : node.kind === "iframe" && node.frame.kind === "phone"
-            ? (() => {
-                const widthFromX = Math.max(80, dragState.originRect.w + wx);
-                const widthFromY = Math.max(
-                  80,
-                  ((Math.max(80, dragState.originRect.h + wy) - PHONE_FRAME.captionHeight) *
-                    PHONE_FRAME.width) /
-                    PHONE_FRAME.height,
-                );
-                const width = Math.abs(wx) >= Math.abs(wy) ? widthFromX : widthFromY;
-                return {
-                  ...dragState.originRect,
-                  w: width,
-                  h: phoneNodeHeightForWidth(width),
-                };
-              })()
-            : {
-                ...dragState.originRect,
-                w: Math.max(80, dragState.originRect.w + wx),
-                h: Math.max(80, dragState.originRect.h + wy),
-              };
+          : resizeRect(
+              dragState.originRect,
+              dragState.resizeFrom ?? "se",
+              wx,
+              wy,
+              node.kind === "iframe" && node.frame.kind === "phone",
+            );
+      /*
+       * Snapping applies to a move, not a resize: a resize already has one
+       * edge pinned and the other following the pointer exactly, and pulling
+       * that edge onto a neighbour's line would silently change the size the
+       * pointer is asking for.
+       */
+      const snap =
+        dragState.mode === "move"
+          ? snapRectToNeighbours(dragged, neighbourRects(node.id), SNAP_THRESHOLD_PX / view.scale)
+          : { dx: 0, dy: 0, guides: [] };
+      const next = { ...dragged, x: dragged.x + snap.dx, y: dragged.y + snap.dy };
+      paintGuides(snap.guides);
       Object.assign(node.rect, next, {});
       Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
       scheduleGeometry(node.id);
@@ -1180,11 +1837,30 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function onPointerUp(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
     clearDragClasses();
+    paintGuides([]);
     if (activePointers.size < 2) pinchState = null;
     const finishedDrag = dragState;
+    const releaseVelocity = flickVelocity;
+    const releasedAt = flickSample?.at;
     dragState = null;
+    flickSample = null;
+    flickVelocity = null;
     scheduleIframeSync(0);
     if (!finishedDrag) return;
+    /*
+     * Only a camera drag coasts, and only one still in motion at release:
+     * a drag that ended with the pointer parked for longer than the sample
+     * window is a deliberate placement, not a throw.
+     */
+    if (
+      finishedDrag.moved &&
+      finishedDrag.mode === "camera" &&
+      releaseVelocity &&
+      releasedAt !== undefined &&
+      performance.now() - releasedAt <= FLICK_SAMPLE_MS
+    ) {
+      startFlick(releaseVelocity.x, releaseVelocity.y);
+    }
     if (finishedDrag.moved && finishedDrag.mode !== "camera" && finishedDrag.nodeId) {
       const node = nodeById.get(finishedDrag.nodeId);
       if (node) void opts.onGeometryChange?.(node.id, { ...node.rect });
@@ -1223,28 +1899,48 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
     cancelDrag();
+    paintGuides([]);
     scheduleIframeSync(0);
   }
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
+    stopFlick();
     if (event.ctrlKey || event.metaKey) {
       const factor = Math.exp(-event.deltaY * 0.01);
       zoomAt(event.clientX, event.clientY, factor);
     } else {
       view.x -= event.deltaX;
       view.y -= event.deltaY;
+      clampPan();
       applyView();
     }
   }
 
   function onKeyDown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
+    // Text entry owns the keyboard outright. (The zoom field also stops
+    // propagation itself, so "150" cannot fire Fit Page underneath.)
     if (
-      target?.matches("input, textarea, select, button, a, [contenteditable='true']") ||
-      target?.isContentEditable
+      target?.isContentEditable ||
+      target?.matches("input, textarea, select, [contenteditable='true']")
     )
       return;
+    /*
+     * Buttons and links used to be in that list too, which quietly killed
+     * every shortcut the moment the toolbar was clicked: the toolbar and
+     * the inspector are inside this container, so pressing the help toggle
+     * moved focus onto a button and Escape then did nothing at all.
+     *
+     * Only the keys a focused control genuinely needs are surrendered —
+     * Enter and Space activate it, and arrows step the zoom menu — while
+     * Escape, the tool letters and the zoom keys keep working from
+     * anywhere on the canvas.
+     */
+    if (target?.matches("button, a, summary")) {
+      if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") return;
+      if (event.key.startsWith("Arrow") && target.closest(".vc-zoom-menu")) return;
+    }
     if (event.key === "v" || event.key === "V") setTool("view");
     else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
     else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
@@ -1253,10 +1949,41 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     } else if (event.shiftKey && (event.code === "Digit2" || event.key === "2")) {
       event.preventDefault();
       fitSelection();
+    } else if (event.shiftKey && (event.code === "Digit0" || event.key === ")")) {
+      // Shift+0 is Figma's "back to 100%". `R` keeps doing the same thing
+      // for anyone who already learned it here.
+      event.preventDefault();
+      resetView();
+    } else if (event.key === "+" || event.key === "=") {
+      // Cmd/Ctrl is accepted but not required: the canvas owns its keyboard
+      // and the browser's own page zoom is not what anyone means here.
+      event.preventDefault();
+      stepZoom(1);
+    } else if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      stepZoom(-1);
+    } else if (event.key === "?") {
+      event.preventDefault();
+      toggleShortcutHelp();
+    } else if (
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowRight"
+    ) {
+      const step = event.shiftKey ? 10 : 1;
+      const dx = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
+      const dy = event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
+      if (nudgeSelection(dx, dy)) event.preventDefault();
     } else if (event.key === "0") fitAll();
     else if (event.key === "r" || event.key === "R") resetView();
     else if (event.key === "Escape") {
+      if (shortcutHelpOpen()) {
+        toggleShortcutHelp(false);
+        return;
+      }
       cancelDrag();
+      stopFlick();
       setTool("view");
       deactivateIframe();
       selectNode(null);
@@ -1271,6 +1998,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onToolbarClick(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest("[data-help='toggle']")) {
+      toggleShortcutHelp();
+      return;
+    }
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
     if (button && !button.disabled) {
       const tool = button.dataset.tool;
@@ -1278,12 +2009,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
     const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-zoom]");
     if (zoomStep) {
-      const factor = zoomStep.dataset.zoom === "in" ? 1.2 : 1 / 1.2;
-      zoomAt(
-        viewportRect.left + viewportRect.width / 2,
-        viewportRect.top + viewportRect.height / 2,
-        factor,
-      );
+      stepZoom(zoomStep.dataset.zoom === "in" ? 1 : -1);
     }
     const zoomAction = (event.target as HTMLElement).closest<HTMLButtonElement>(
       "button[data-zoom-action]",
@@ -1303,13 +2029,90 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.focus({ preventScroll: true });
   }
 
-  function onMinimapPointerDown(event: PointerEvent): void {
+  function centreOnMinimapPoint(clientX: number, clientY: number): void {
     const rect = minimap.getBoundingClientRect();
-    const worldX = (event.clientX - rect.left - miniOffsetX) / miniScale;
-    const worldY = (event.clientY - rect.top - miniOffsetY) / miniScale;
+    const worldX = (clientX - rect.left - miniOffsetX) / miniScale;
+    const worldY = (clientY - rect.top - miniOffsetY) / miniScale;
     view.x = viewportRect.width / 2 - worldX * view.scale;
     view.y = viewportRect.height / 2 - worldY * view.scale;
+    clampPan();
     applyView();
+  }
+
+  /*
+   * Press *and drag*. The minimap used to be click-to-centre only — it had
+   * no pointermove at all — so the viewport rectangle drawn on it looked
+   * like a handle and behaved like a picture.
+   */
+  function onMinimapPointerDown(event: PointerEvent): void {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    stopFlick();
+    minimap.setPointerCapture(event.pointerId);
+    minimap.classList.add("is-scrubbing");
+    centreOnMinimapPoint(event.clientX, event.clientY);
+  }
+
+  function onMinimapPointerMove(event: PointerEvent): void {
+    if (!minimap.hasPointerCapture(event.pointerId)) return;
+    event.preventDefault();
+    centreOnMinimapPoint(event.clientX, event.clientY);
+  }
+
+  function onMinimapPointerUp(event: PointerEvent): void {
+    if (minimap.hasPointerCapture(event.pointerId)) minimap.releasePointerCapture(event.pointerId);
+    minimap.classList.remove("is-scrubbing");
+    scheduleIframeSync(0);
+  }
+
+  function shortcutHelpOpen(): boolean {
+    return !shortcutHelp.hasAttribute("hidden");
+  }
+
+  function toggleShortcutHelp(next = !shortcutHelpOpen()): void {
+    shortcutHelp.toggleAttribute("hidden", !next);
+    helpToggle.setAttribute("aria-expanded", String(next));
+    if (!next) container.focus({ preventScroll: true });
+  }
+
+  /** Commits a typed zoom percentage, anchored at the viewport centre. */
+  function commitTypedZoom(): void {
+    const parsed = Number.parseFloat(zoomValue.value.replace("%", "").trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      zoomValue.value = `${Math.round(view.scale * 100)}%`;
+      return;
+    }
+    stopFlick();
+    zoomTo(clampCanvasScale(parsed / 100), viewportRect.width / 2, viewportRect.height / 2, true);
+    zoomValue.value = `${Math.round(clampCanvasScale(parsed / 100) * 100)}%`;
+  }
+
+  function onZoomValueKeyDown(event: KeyboardEvent): void {
+    // The field lives inside the canvas, whose keydown handler owns every
+    // bare letter. Stopping propagation is what lets someone type "150"
+    // without `0` firing Fit Page underneath.
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitTypedZoom();
+      container.focus({ preventScroll: true });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      zoomValue.value = `${Math.round(view.scale * 100)}%`;
+      container.focus({ preventScroll: true });
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      stepZoom(event.key === "ArrowUp" ? 1 : -1);
+      zoomValue.value = `${Math.round(view.scale * 100)}%`;
+    }
+  }
+
+  function onZoomValueFocus(): void {
+    zoomValue.select();
+  }
+
+  function onShortcutHelpClose(): void {
+    toggleShortcutHelp(false);
   }
 
   function onInspectorClose(): void {
@@ -1334,6 +2137,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if ((event.target as HTMLElement).closest(".vc-iframe-exit")) {
       event.stopPropagation();
       deactivateIframe();
+      return;
+    }
+    const retry = (event.target as HTMLElement).closest(".vc-iframe-retry");
+    if (retry) {
+      event.stopPropagation();
+      const owner = retry.closest<HTMLElement>(".vc-node");
+      if (owner) retryIframe(owner);
     }
   }
 
@@ -1381,6 +2191,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   window.addEventListener("blur", onWindowBlur);
   toolbar.addEventListener("click", onToolbarClick);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
+  minimap.addEventListener("pointermove", onMinimapPointerMove);
+  minimap.addEventListener("pointerup", onMinimapPointerUp);
+  minimap.addEventListener("pointercancel", onMinimapPointerUp);
+  zoomValue.addEventListener("keydown", onZoomValueKeyDown);
+  zoomValue.addEventListener("focus", onZoomValueFocus);
+  zoomValue.addEventListener("blur", commitTypedZoom);
+  shortcutHelpClose.addEventListener("click", onShortcutHelpClose);
   inspectorClose.addEventListener("click", onInspectorClose);
   inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
   nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
@@ -1389,6 +2206,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   resizeObserver?.observe(container);
 
   renderMinimap();
+  paintEmptyState();
+  trackImageStates();
+  reportIframeState();
   paintToolState();
   if (opts.initialView) applyView();
   else fitAll();
@@ -1410,6 +2230,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
       if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
       if (fitAnimationTimer !== null) window.clearTimeout(fitAnimationTimer);
+      if (flickFrame !== null) cancelAnimationFrame(flickFrame);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);
@@ -1421,6 +2242,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       window.removeEventListener("blur", onWindowBlur);
       toolbar.removeEventListener("click", onToolbarClick);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);
+      minimap.removeEventListener("pointermove", onMinimapPointerMove);
+      minimap.removeEventListener("pointerup", onMinimapPointerUp);
+      minimap.removeEventListener("pointercancel", onMinimapPointerUp);
+      zoomValue.removeEventListener("keydown", onZoomValueKeyDown);
+      zoomValue.removeEventListener("focus", onZoomValueFocus);
+      zoomValue.removeEventListener("blur", commitTypedZoom);
+      shortcutHelpClose.removeEventListener("click", onShortcutHelpClose);
       inspectorClose.removeEventListener("click", onInspectorClose);
       inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);
       nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);

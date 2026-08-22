@@ -56,7 +56,12 @@ describe("PagesPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "01 · Схема продукта" }));
+    /*
+     * A page row's accessible name is everything visible in it, which now
+     * includes "N nodes · default" beside the title. Anchored to the title
+     * so the query keeps testing selection rather than the metadata line.
+     */
+    fireEvent.click(screen.getByRole("button", { name: /^01 · Схема продукта/ }));
     expect(onSelect).toHaveBeenCalledWith("product-architecture");
 
     fireEvent.click(screen.getByRole("button", { name: "More actions for 01 · Схема продукта" }));
@@ -86,7 +91,7 @@ describe("PagesPanel", () => {
       />,
     );
 
-    fireEvent.doubleClick(screen.getByRole("button", { name: "Overview default" }));
+    fireEvent.doubleClick(screen.getByRole("button", { name: /^Overview/ }));
     const input = screen.getByRole("textbox", { name: "Rename Overview" });
     fireEvent.change(input, { target: { value: "Summary" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -128,7 +133,7 @@ describe("PagesPanel", () => {
     );
 
     const handle = screen.getByRole("button", { name: "Drag to reorder Overview" });
-    const target = screen.getByRole("button", { name: "01 · Схема продукта" }).closest("li");
+    const target = screen.getByRole("button", { name: /^01 · Схема продукта/ }).closest("li");
     if (!target) throw new Error("Expected the target Page row");
     Object.defineProperty(target, "getBoundingClientRect", {
       value: () => ({ top: 0, height: 40 }),

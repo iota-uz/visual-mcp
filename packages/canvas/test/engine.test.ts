@@ -5,15 +5,19 @@ import { layoutCanvas, moveGroupNodes, patchNodeRect } from "../src/layout.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "../src/phone-frame.js";
 import { escapeHtml, renderCanvas } from "../src/render.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
-import { CanvasDocSchema } from "../src/types.js";
+import { CanvasDocSchema, NativeNodeSchema } from "../src/types.js";
 import {
   cameraGridStyle,
   canvasContentBounds,
+  clampCameraToBounds,
   clampCanvasScale,
   fitCameraToBounds,
   fitPageCamera,
+  resizeRect,
+  snapRectToNeighbours,
   iframeActiveCandidates,
   iframePrewarmCandidates,
+  nextLadderScale,
   screenToWorld,
   worldToScreen,
   zoomCameraAt,
@@ -214,6 +218,47 @@ test("camera supports both whole-canvas overviews and close inspection", () => {
   assert.equal(clampCanvasScale(4), 4);
   assert.equal(clampCanvasScale(12), 8);
 });
+test("discrete zoom walks a canonical ladder and saturates at the camera limits", () => {
+  assert.equal(nextLadderScale(0.5, 1), 0.75);
+  assert.equal(nextLadderScale(0.75, -1), 0.5);
+  assert.equal(nextLadderScale(1, 1), 1.5);
+  // A camera parked on a rung must advance, not restep the same value.
+  assert.equal(nextLadderScale(1, -1), 0.75);
+  // Off-ladder scales — the wheel and pinch produce them constantly — snap
+  // to the neighbouring rung rather than multiplying from where they are.
+  assert.equal(nextLadderScale(0.62, 1), 0.75);
+  assert.equal(nextLadderScale(0.62, -1), 0.5);
+  assert.equal(nextLadderScale(8, 1), 8);
+  assert.equal(nextLadderScale(0.005, -1), 0.005);
+});
+test("panning cannot lose the content off-screen", () => {
+  const bounds = { x: 0, y: 0, width: 1000, height: 600 };
+  const viewport = { width: 800, height: 600 };
+  // A camera already showing the content is left exactly alone.
+  const settled = { x: -100, y: -20, scale: 1 };
+  assert.deepEqual(clampCameraToBounds(settled, bounds, viewport), settled);
+
+  // A flick that would throw the world into empty space is caught, and
+  // what it is caught at still shows content inside the viewport.
+  const thrown = clampCameraToBounds({ x: 99_999, y: -99_999, scale: 1 }, bounds, viewport);
+  assert.ok(thrown.x < 99_999 && thrown.y > -99_999);
+  const left = thrown.x + bounds.x;
+  const right = thrown.x + bounds.width;
+  const top = thrown.y + bounds.y;
+  const bottom = thrown.y + bounds.height;
+  assert.ok(right > 0 && left < viewport.width, "content stays horizontally reachable");
+  assert.ok(bottom > 0 && top < viewport.height, "content stays vertically reachable");
+
+  // Scale is never touched: clamping position must not fight a zoom.
+  assert.equal(clampCameraToBounds({ x: 1e9, y: 1e9, scale: 0.33 }, bounds, viewport).scale, 0.33);
+
+  // Content smaller than the viewport still pans freely inside it rather
+  // than being pinned to one spot.
+  const tiny = { x: 0, y: 0, width: 40, height: 30 };
+  const a = clampCameraToBounds({ x: 60, y: 60, scale: 1 }, tiny, viewport);
+  const b = clampCameraToBounds({ x: 300, y: 200, scale: 1 }, tiny, viewport);
+  assert.notDeepEqual(a, b);
+});
 test("camera coordinate conversion and pointer-anchored zoom are exact inverses", () => {
   const view = { x: 120, y: -40, scale: 0.75 };
   const world = { x: 420, y: 280 };
@@ -320,13 +365,133 @@ test("actor renderer preserves the reference card composition", async () => {
   );
   const doc = CanvasDocSchema.parse(JSON.parse(source));
   const html = renderCanvas(layoutCanvas(doc)).html;
-  assert.match(html, /vc-person-icon vc-person-victim/);
+  assert.match(html, /vc-person-icon vc-person-subject/);
   assert.match(html, /vc-person-progress/);
   assert.match(html, />1 \/ 8<\/span>/);
   assert.doesNotMatch(
     html.match(/data-node-id="s5-actor-victim"[\s\S]*?<\/div>/)?.[0] ?? "",
     /vc-badge/,
   );
+});
+test("actor role is a document field, not an inference from the caption", async () => {
+  const source = await readFile(
+    new URL("../../../examples/osago-24/canvas.json", import.meta.url),
+    "utf8",
+  );
+  const doc = CanvasDocSchema.parse(JSON.parse(source));
+  const html = renderCanvas(layoutCanvas(doc)).html;
+  // Both variants render from `actorRole`; the renderer used to derive this
+  // by string-matching one Russian caption, so a counterparty was simply
+  // "any actor that is not literally titled Потерпевший".
+  assert.match(html, /vc-person-icon vc-person-counterparty/);
+  const relabelled = CanvasDocSchema.parse(JSON.parse(source));
+  for (const node of relabelled.nodes) {
+    if (node.kind === "native" && node.shape === "actor") node.caption.title = "Anyone else";
+  }
+  const renamed = renderCanvas(layoutCanvas(relabelled)).html;
+  assert.match(renamed, /vc-person-icon vc-person-subject/);
+  assert.match(renamed, /vc-person-icon vc-person-counterparty/);
+});
+test("an actor with no declared role renders as the subject", () => {
+  const doc = fixture();
+  const node = NativeNodeSchema.parse({
+    id: "someone",
+    kind: "native",
+    shape: "actor",
+    laneId: doc.lanes[0]?.id,
+    rect: { x: 0, y: 0, w: 200, h: 100 },
+    caption: { title: "Someone" },
+  });
+  assert.equal(node.actorRole, undefined, "the field is not invented on parse");
+  const html = renderCanvas(
+    layoutCanvas(CanvasDocSchema.parse({ ...doc, nodes: [node], edges: [], groups: [] })),
+  ).html;
+  assert.match(html, /vc-person-icon vc-person-subject/);
+});
+test("iframe permissions are an allow-list, and unnamed features are denied", () => {
+  const doc = fixture();
+  const iframe = doc.nodes.find((node) => node.kind === "iframe");
+  assert.ok(iframe?.kind === "iframe");
+  iframe.permissions = ["camera"];
+  const html = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" }).html;
+  const allow = html.match(/allow="([^"]*)"/)?.[1] ?? "";
+  assert.match(allow, /camera &#39;src&#39;/);
+  for (const denied of ["microphone", "geolocation", "clipboard-write"]) {
+    assert.match(allow, new RegExp(`${denied} &#39;none&#39;`));
+  }
+});
+test("an empty permissions list denies every feature explicitly", () => {
+  const doc = fixture();
+  const iframe = doc.nodes.find((node) => node.kind === "iframe");
+  assert.ok(iframe?.kind === "iframe");
+  iframe.permissions = [];
+  const html = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" }).html;
+  const allow = html.match(/allow="([^"]*)"/)?.[1] ?? "";
+  assert.equal(
+    allow,
+    "camera &#39;none&#39;; microphone &#39;none&#39;; geolocation &#39;none&#39;; clipboard-write &#39;none&#39;",
+  );
+});
+test("snapping lines a dragged rect up with its neighbours on both axes", () => {
+  const neighbour = { x: 100, y: 100, w: 200, h: 100 };
+  // Four units shy of sharing a left edge and three shy of sharing a top one.
+  const dragged = { x: 104, y: 303, w: 200, h: 100 };
+  const snap = snapRectToNeighbours(dragged, [neighbour], 6);
+  assert.equal(snap.dx, -4);
+  assert.equal(snap.dy, 0, "no y line is within the threshold");
+  const centred = snapRectToNeighbours({ x: 500, y: 148, w: 40, h: 40 }, [neighbour], 6);
+  assert.equal(centred.dy, 2, "centre-to-centre counts as an alignment");
+  assert.ok(centred.guides.some((guide) => guide.axis === "y" && guide.at === 150));
+});
+test("snapping takes the nearest line and none at all beyond the threshold", () => {
+  const near = { x: 100, y: 0, w: 50, h: 50 };
+  const far = { x: 108, y: 0, w: 50, h: 50 };
+  const snap = snapRectToNeighbours({ x: 105, y: 200, w: 50, h: 50 }, [near, far], 6);
+  assert.equal(snap.dx, 3, "108 is three away, 100 is five");
+  assert.deepEqual(snapRectToNeighbours({ x: 200, y: 200, w: 50, h: 50 }, [near], 6), {
+    dx: 0,
+    dy: 0,
+    guides: [],
+  });
+});
+test("a guide spans every rect the line actually touches", () => {
+  const top = { x: 100, y: 0, w: 50, h: 50 };
+  const bottom = { x: 100, y: 400, w: 50, h: 50 };
+  const snap = snapRectToNeighbours({ x: 102, y: 180, w: 50, h: 50 }, [top, bottom], 6);
+  const guide = snap.guides.find((candidate) => candidate.axis === "x");
+  assert.equal(guide?.at, 100);
+  assert.equal(guide?.from, 0);
+  assert.equal(guide?.to, 450);
+});
+test("resizing from a west or north handle moves that edge, not the far one", () => {
+  const origin = { x: 100, y: 100, w: 200, h: 100 };
+  assert.deepEqual(resizeRect(origin, "e", 50, 999), { x: 100, y: 100, w: 250, h: 100 });
+  assert.deepEqual(resizeRect(origin, "w", -50, 999), { x: 50, y: 100, w: 250, h: 100 });
+  assert.deepEqual(resizeRect(origin, "n", 999, -40), { x: 100, y: 60, w: 200, h: 140 });
+  assert.deepEqual(resizeRect(origin, "s", 999, 40), { x: 100, y: 100, w: 200, h: 140 });
+  assert.deepEqual(resizeRect(origin, "nw", -10, -10), { x: 90, y: 90, w: 210, h: 110 });
+});
+test("a node shrunk past the minimum keeps its anchored edge still", () => {
+  const origin = { x: 100, y: 100, w: 200, h: 100 };
+  const shrunk = resizeRect(origin, "w", 9999, 0);
+  assert.equal(shrunk.w, 80, "clamped to the minimum side");
+  assert.equal(shrunk.x + shrunk.w, 300, "the east edge has not moved");
+  const fromNorth = resizeRect(origin, "n", 0, 9999);
+  assert.equal(fromNorth.h, 80);
+  assert.equal(fromNorth.y + fromNorth.h, 200, "the south edge has not moved");
+});
+test("phone nodes keep their aspect from every handle", () => {
+  const origin = { x: 0, y: 0, w: 300, h: phoneNodeHeightForWidth(300) };
+  for (const direction of ["e", "w", "n", "s", "ne", "sw"] as const) {
+    const next = resizeRect(origin, direction, 60, 60, true);
+    assert.equal(
+      Math.round(next.h),
+      Math.round(phoneNodeHeightForWidth(next.w)),
+      `${direction} kept the frame proportional`,
+    );
+  }
+  const west = resizeRect(origin, "w", -60, 0, true);
+  assert.equal(Math.round(west.x + west.w), 300, "the east edge stayed put");
 });
 test("escapeHtml escapes markup", () =>
   assert.equal(escapeHtml(`<b>"it's"</b> &`), "&lt;b&gt;&quot;it&#39;s&quot;&lt;/b&gt; &amp;"));

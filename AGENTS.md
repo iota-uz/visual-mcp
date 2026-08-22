@@ -12,6 +12,11 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Branch policy
+
+Make changes only on the `main` branch unless the user explicitly requests a
+different branch.
+
 ## Project posture: green-field
 
 Treat this repository as a green-field project unless the user explicitly

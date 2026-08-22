@@ -107,6 +107,7 @@ export function addParticipantActors(input) {
         id,
         kind: "native",
         shape: "actor",
+        actorRole: role === "victim" ? "subject" : "counterparty",
         laneId: "people",
         stageId: stage.id,
         rect,

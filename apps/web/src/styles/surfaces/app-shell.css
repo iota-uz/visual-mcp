@@ -24,3 +24,51 @@
 .app-shell-canvas .app-content {
   width: 100%;
 }
+
+/* --- connection banner ---
+   Above the toast ladder because it explains why an action may not have
+   landed, and pinned to the top so it never covers the canvas dock. */
+.connection-banner {
+  position: fixed;
+  z-index: var(--app-z-toast);
+  top: var(--app-space-2);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  max-width: min(560px, calc(100vw - var(--app-space-8)));
+  padding: var(--app-space-2) var(--app-space-3);
+  transform: translateX(-50%);
+  border: 1px solid var(--app-warning);
+  border-radius: var(--app-radius-md);
+  background: var(--app-warning-soft);
+  box-shadow: var(--app-shadow-md);
+  color: var(--app-warning);
+  font-size: var(--app-text-sm);
+}
+
+.connection-banner[data-status="offline"] {
+  border-color: var(--app-danger);
+  background: var(--app-danger-soft);
+  color: var(--app-danger);
+}
+
+.connection-banner svg {
+  flex: none;
+}
+
+.connection-banner-spin {
+  animation: connection-banner-spin 1.1s linear infinite;
+}
+
+@keyframes connection-banner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-banner-spin {
+    animation: none;
+  }
+}

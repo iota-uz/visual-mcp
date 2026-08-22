@@ -109,4 +109,10 @@ body.embed-support .granite-shell { min-width:0; min-height:543px; }
 `;
 const runtimeCss = `${fonts}\n${tailwind}\n${style}\n${embed}`;
 await writeFile(path.join(screensDir, "runtime.css"), runtimeCss);
-console.log(JSON.stringify({ reference:referencePath, cssBytes:Buffer.byteLength(runtimeCss), templateBytes:Buffer.byteLength(templates) }));
+console.log(
+  JSON.stringify({
+    reference: referencePath,
+    cssBytes: Buffer.byteLength(runtimeCss),
+    templateBytes: Buffer.byteLength(templates),
+  }),
+);

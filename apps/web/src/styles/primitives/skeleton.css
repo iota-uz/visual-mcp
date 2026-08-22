@@ -55,3 +55,110 @@
   border-radius: var(--app-radius-md);
   background: var(--app-paper);
 }
+
+/* --- canvas skeleton ---
+   Stands in for the viewport itself: the dot grid it will paint, three
+   node-shaped cards where content lands, and the floating dock. Sized in
+   viewport units rather than fixed pixels so it reads as "a canvas" at
+   every window size. */
+.canvas-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--app-white);
+  pointer-events: none;
+}
+
+.canvas-skeleton-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--app-grid-dot) 1px, transparent 1.2px);
+  background-size: var(--app-grid-size) var(--app-grid-size);
+}
+
+.canvas-skeleton-rail {
+  display: none;
+}
+
+/* Matches the real rail's box exactly — reading the same chrome-offset and
+   width tokens the rail itself does, so nothing moves when the two swap. */
+@media (min-width: 900px) {
+  .canvas-skeleton-rail {
+    position: absolute;
+    display: grid;
+    gap: var(--app-space-3);
+    align-content: start;
+    inset: var(--app-canvas-chrome-top) auto var(--app-space-3) var(--app-space-3);
+    width: var(--app-pages-panel-w);
+    padding: var(--app-space-4);
+    border: 1px solid var(--app-line);
+    border-radius: var(--app-radius-lg);
+    background: var(--app-white);
+    animation: app-pulse 1.6s ease-in-out infinite;
+  }
+
+  .canvas-skeleton-nodes,
+  .canvas-skeleton-dock {
+    left: var(--app-pages-panel-gap);
+    right: 0;
+  }
+
+  .canvas-skeleton-dock {
+    left: calc(50% + var(--app-pages-panel-gap) / 2);
+  }
+}
+
+.canvas-skeleton-nodes {
+  position: absolute;
+  inset: 0;
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+.canvas-skeleton-node {
+  position: absolute;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-paper);
+}
+
+.canvas-skeleton-node-a {
+  left: 12%;
+  top: 22%;
+  width: 22%;
+  height: 20%;
+}
+
+.canvas-skeleton-node-b {
+  left: 44%;
+  top: 34%;
+  width: 24%;
+  height: 26%;
+}
+
+.canvas-skeleton-node-c {
+  left: 74%;
+  top: 24%;
+  width: 18%;
+  height: 18%;
+}
+
+.canvas-skeleton-dock {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  width: 300px;
+  height: 46px;
+  transform: translateX(-50%);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-paper);
+  animation: app-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-skeleton-nodes,
+  .canvas-skeleton-rail,
+  .canvas-skeleton-dock {
+    animation: none;
+  }
+}

@@ -473,21 +473,32 @@ describe("reactive viewport reconciliation", () => {
     });
     flushFrames();
 
+    // The readout is an editable field, not a label — see the typed-zoom
+    // test below.
+    const zoomField = container.querySelector<HTMLInputElement>(".vc-zoom-value");
     expect(controller.getView()).toEqual({ x: 24, y: 36, scale: 0.5 });
-    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("50%");
+    expect(zoomField?.value).toBe("50%");
     const iframe = container.querySelector<HTMLIFrameElement>(
       '[data-node-id="screen"] .vc-iframe-viewport',
     );
     const naturalSize = iframe?.getAttribute("style");
 
+    // Discrete zoom walks the canonical ladder, so 50% steps to the next
+    // round rung. It used to multiply by 1.2 and land on 60%, then 72%,
+    // then 86.4% — numbers no one chose.
     container.querySelector<HTMLButtonElement>('[data-zoom="in"]')?.click();
     flushFrames();
-    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("60%");
+    expect(controller.getView().scale).toBe(0.75);
+    expect(zoomField?.value).toBe("75%");
+
+    container.querySelector<HTMLButtonElement>('[data-zoom="out"]')?.click();
+    flushFrames();
+    expect(controller.getView().scale).toBe(0.5);
 
     container.querySelector<HTMLButtonElement>('[data-zoom-action="200"]')?.click();
     flushFrames();
     expect(controller.getView().scale).toBe(2);
-    expect(container.querySelector(".vc-zoom-value")).toHaveTextContent("200%");
+    expect(zoomField?.value).toBe("200%");
 
     controller.selectNode("screen");
     container.dispatchEvent(
@@ -503,6 +514,70 @@ describe("reactive viewport reconciliation", () => {
     expect(controller.getView().scale).toBe(1);
     expect(iframe?.getAttribute("style")).toBe(naturalSize);
     expect(onViewChange).toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  test("accepts a typed zoom percentage and opens shortcut help on ?", () => {
+    const container = viewportContainer();
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(doc()),
+      initialView: { x: 0, y: 0, scale: 1 },
+    });
+    flushFrames();
+
+    const zoomField = container.querySelector<HTMLInputElement>(".vc-zoom-value");
+    if (!zoomField) throw new Error("Missing zoom field");
+
+    zoomField.value = "150";
+    zoomField.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    flushFrames();
+    expect(controller.getView().scale).toBe(1.5);
+    expect(zoomField.value).toBe("150%");
+
+    // Nonsense reverts to the live camera instead of zooming to NaN.
+    zoomField.value = "banana";
+    zoomField.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    flushFrames();
+    expect(controller.getView().scale).toBe(1.5);
+    expect(zoomField.value).toBe("150%");
+
+    // Out of range is clamped, not rejected.
+    zoomField.value = "5000%";
+    zoomField.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    flushFrames();
+    expect(controller.getView().scale).toBe(8);
+
+    // Typing inside the field must not reach the canvas shortcuts: "0"
+    // would otherwise fire Fit Page mid-entry.
+    const help = container.querySelector<HTMLElement>(".vc-shortcut-help");
+    zoomField.dispatchEvent(new KeyboardEvent("keydown", { key: "0", bubbles: true }));
+    expect(controller.getView().scale).toBe(8);
+
+    expect(help?.hasAttribute("hidden")).toBe(true);
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
+    expect(help?.hasAttribute("hidden")).toBe(false);
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(help?.hasAttribute("hidden")).toBe(true);
+
+    /*
+     * Shortcuts have to survive focus landing on the canvas's own chrome.
+     * The toolbar and the inspector live inside the viewport, so clicking
+     * the help toggle put focus on a <button> — and the guard used to bail
+     * out on any button, which left Escape and every tool key dead until
+     * the user thought to click the empty canvas again.
+     */
+    const helpToggle = container.querySelector<HTMLButtonElement>(".vc-help-toggle");
+    if (!helpToggle) throw new Error("Missing help toggle");
+    helpToggle.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }));
+    expect(help?.hasAttribute("hidden")).toBe(false);
+    helpToggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(help?.hasAttribute("hidden")).toBe(true);
+
+    // ...but the keys the button itself needs still belong to the button.
+    helpToggle.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(help?.hasAttribute("hidden")).toBe(true);
+
     controller.dispose();
   });
 

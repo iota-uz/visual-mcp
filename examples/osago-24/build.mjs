@@ -108,7 +108,8 @@ function screen(owner, id, stage, lane, title, slot = 0) {
     caption: { title, tag: owner === "victim" ? "WEB" : owner.toUpperCase() },
     maturity: maturities[stage - 1],
     anchors:
-      owner === "victim" && ["qr", "identity", "evidence", "decision", "paid", "documents"].includes(id)
+      owner === "victim" &&
+      ["qr", "identity", "evidence", "decision", "paid", "documents"].includes(id)
         ? [...anchors, { id: "actor-in", side: "left", offset: 0.10852713178294573 }]
         : anchors,
     source: {
@@ -268,6 +269,7 @@ for (const [owner, stage, _screenId, text, value, total, current] of actorSteps)
     id: `s${stage}-actor-${owner}`,
     kind: "native",
     shape: "actor",
+    actorRole: victimActor ? "subject" : "counterparty",
     laneId: "people",
     stageId: `s${stage}`,
     rect: { x: 399 + (stage - 1) * STAGE_STEP, y: victimActor ? 82 : 242, w: 300, h: 132 },

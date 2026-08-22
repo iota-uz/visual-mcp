@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
 import { clearSignInAttempt, SignInButton, useSessionUser, useSignOut } from "./auth";
+import { ConnectionBanner } from "./components/ConnectionBanner";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/LoadingState";
@@ -18,6 +19,7 @@ import { KitchenSinkPage } from "./routes/KitchenSink";
 import { PresentPage } from "./routes/Present";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
+import { WorkspacePage } from "./routes/Workspace";
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
@@ -260,6 +262,7 @@ function AuthenticatedApp() {
       <a href="#main" className="skip-link">
         Skip to content
       </a>
+      <ConnectionBanner />
       {isCanvasRoute && !isPresentRoute ? (
         <>
           <IconButton
@@ -299,8 +302,19 @@ function AuthenticatedApp() {
               </Page>
             }
           />
+          {/* PLAN.md's route table has always called this the canvas grid;
+              it rendered the asset library instead, so a workspace link and
+              the viewer's "Back to {workspace}" both landed on images. */}
           <Route
             path="/w/:wsSlug"
+            element={
+              <Page label="Workspace failed to load.">
+                <WorkspacePage />
+              </Page>
+            }
+          />
+          <Route
+            path="/w/:wsSlug/assets"
             element={
               <Page label="Workspace assets failed to load.">
                 <AssetsPage />

@@ -90,6 +90,7 @@ type CanvasNode =
         | { kind: 'phone'; time: string } // canonical canvas chrome; viewport is exactly 284×642
         | { kind: 'browser'|'desktop'|'none'; radius?: number; fit?: 'contain'|'cover'|'stretch' }
       sandbox: Array<'allow-scripts'|'allow-forms'>
+      // allow-list: named features are granted to the frame, the rest denied
       permissions: Array<'camera'|'microphone'|'geolocation'|'clipboard-write'>
       activation: 'double-click'
     })

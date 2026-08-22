@@ -11,7 +11,6 @@ import {
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
-  ArrowLeft,
   Copy,
   ExternalLink,
   GripVertical,
@@ -29,6 +28,7 @@ import {
   Unplug,
 } from "lucide-react";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -46,6 +46,7 @@ import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { RenameForm } from "../components/RenameForm";
+import { CanvasSkeleton } from "../components/Skeleton";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
 import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
@@ -64,6 +65,7 @@ import {
   resizePrototypeHotspot,
 } from "../lib/prototypeGeometry";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
+import { useIframeCapability } from "../lib/useIframeCapability";
 
 // Mounts packages/canvas's framework-free viewport (pan/zoom/inspector/
 // minimap/?node= deep-linking) directly against the fetched CanvasDoc —
@@ -82,6 +84,7 @@ export function CanvasViewport({
   cameraStorageKey,
   immersive = false,
   syncSelectionToUrl = true,
+  onIframeStateChange,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
@@ -94,6 +97,7 @@ export function CanvasViewport({
   cameraStorageKey?: string;
   immersive?: boolean;
   syncSelectionToUrl?: boolean;
+  onIframeStateChange?: (state: { total: number; loaded: number; failed: string[] }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
@@ -119,6 +123,10 @@ export function CanvasViewport({
   onGeometryChangeRef.current = onGeometryChange;
   const onGroupMoveRef = useRef(onGroupMove);
   onGroupMoveRef.current = onGroupMove;
+  // Ref, not a dep: this fires on every screen load, and a changing
+  // identity in the mount effect's deps would tear the viewport down.
+  const onIframeStateChangeRef = useRef(onIframeStateChange);
+  onIframeStateChangeRef.current = onIframeStateChange;
   const iframeRevisionsKey = JSON.stringify(iframeRevisions ?? null);
   const stableIframeRevisions = useMemo(
     () => JSON.parse(iframeRevisionsKey) as Record<string, string> | null,
@@ -191,6 +199,7 @@ export function CanvasViewport({
       canvas: positioned,
       initialView,
       fitOnResize: immersive,
+      onIframeStateChange: (state) => onIframeStateChangeRef.current?.(state),
       onViewChange: cameraStorageKey
         ? (view) => {
             try {
@@ -268,8 +277,25 @@ export function CanvasViewport({
     }
   }, [doc, resolveIframeIdentity, resolveIframeUrl, resolveImageUrl]);
 
+  /*
+   * Two elements, not one. `mountViewport` adds its own `.vc-viewport`
+   * class to whatever container it is handed, and that class comes from
+   * packages/canvas's theme.css, which is deliberately *unlayered* and so
+   * outranks every app rule regardless of specificity — including its
+   * `width: 100%`.
+   *
+   * While the host and the viewport were the same element, the app could
+   * not size it: the media query that clears the Pages panel
+   * (`width: calc(100% - 284px)`) lost to that unlayered `width: 100%`,
+   * only its `margin-left` survived, and the whole canvas hung 284px off
+   * the right edge of the window — taking the minimap, which sits at
+   * `right: 18px`, entirely off-screen. Splitting them lets the engine
+   * keep meaning "fill my parent" and gives the app a box it owns.
+   */
   return (
-    <div ref={containerRef} className={`vc-viewport-host${immersive ? " vc-immersive" : ""}`} />
+    <div className={`vc-viewport-host${immersive ? " vc-immersive" : ""}`}>
+      <div ref={containerRef} className="vc-viewport-surface" />
+    </div>
   );
 }
 
@@ -347,9 +373,13 @@ function PublishControl({
     }
   }
 
-  // Unpublishing and replacing the link both kill every link already in
-  // circulation, instantly and with no way back — so both arm first, same
-  // as a delete.
+  /*
+   * Unpublishing and replacing the link both kill every link already in
+   * circulation, instantly and with no way back — so both arm first, same
+   * as a delete. Neither catches on purpose: ConfirmButton stays armed on
+   * a rejection and renders the failure inline, and the success toast sits
+   * after the await, so it cannot fire for a mutation that never landed.
+   */
   async function unpublish() {
     await publish({ canvasId, visibility: "private" });
     notify({ message: "Made private. The old share link no longer resolves." });
@@ -507,6 +537,26 @@ export function VersionHistory({
   );
 }
 
+const DOC_FETCH_ATTEMPTS = 4;
+
+/*
+ * Deliberately not keyed by user or canvas. Whether you like the rail out
+ * of the way is a property of how you work, not of which canvas you are
+ * looking at — and the per-user key it started with read `undefined` on the
+ * first render, before the session resolved, so it never restored anything.
+ */
+const PAGES_COLLAPSED_KEY = "visual-canvas:pages-collapsed";
+
+/*
+ * Mirrors the `max-width: 899px` branch in surfaces/canvas.css, where the
+ * Pages rail stops being a column beside the canvas and becomes an overlay
+ * on top of it. Read at click time rather than subscribed to: the only
+ * question is what the layout is doing right now.
+ */
+function isOverlayRail(): boolean {
+  return window.matchMedia?.("(max-width: 899px)").matches ?? false;
+}
+
 interface FetchableCanvas {
   kind: string;
   doc_url: string | null;
@@ -524,6 +574,7 @@ export function useCanvasDocAndCss(
 ) {
   const [file, setFile] = useState<CanvasFile | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
+
   // Keyed on the two fields the fetch actually depends on, not the whole
   // `canvas` object: Convex hands back a fresh object on *any* field change,
   // so renaming or publishing used to blank the doc, flash "Loading canvas…"
@@ -531,35 +582,77 @@ export function useCanvasDocAndCss(
   const kind = canvas?.kind;
   const docUrl = canvas?.doc_url ?? null;
 
-  useEffect(() => {
+  /*
+   * `doc_url` is a freshly minted, time-limited Convex storage URL, and the
+   * fetch used to be a single attempt that only re-ran when the URL string
+   * itself changed. A transient blip or an expiry therefore left a dead
+   * error message with no way forward short of a page reload.
+   *
+   * The generation ref is what lets `retryDoc` be a plain function call
+   * rather than a state bump used as an effect dependency: bumping it
+   * makes any in-flight fetch and any pending backoff timer land
+   * harmlessly.
+   */
+  const docGenerationRef = useRef(0);
+  const docTimerRef = useRef<number | null>(null);
+  const loadDoc = useCallback(() => {
+    docGenerationRef.current += 1;
+    const generation = docGenerationRef.current;
+    if (docTimerRef.current !== null) window.clearTimeout(docTimerRef.current);
+    docTimerRef.current = null;
     setDocError(null);
     if (kind !== "canvas" || !docUrl) {
       setFile(null);
       return;
     }
-    let cancelled = false;
-    fetch(docUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Unable to load canvas document (${res.status})`);
-        return res.json();
-      })
-      .then((json) => {
-        if (cancelled) return;
-        try {
-          setFile(CanvasFileSchema.parse(json));
-        } catch (error) {
-          setDocError(
-            `Stored document failed validation: ${error instanceof Error ? error.message : String(error)}`,
+
+    /*
+     * Two failure classes, deliberately handled differently: a transport
+     * failure is worth retrying with backoff, because signed URLs expire
+     * and networks blink. A schema failure is not — the bytes are wrong,
+     * and refetching them produces the same wrong bytes.
+     */
+    const attemptFetch = (failures: number) => {
+      fetch(docUrl)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Unable to load canvas document (${res.status})`);
+          return res.json();
+        })
+        .then((json) => {
+          if (docGenerationRef.current !== generation) return;
+          try {
+            setFile(CanvasFileSchema.parse(json));
+            setDocError(null);
+          } catch (error) {
+            setDocError(
+              `Stored document failed validation: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          if (docGenerationRef.current !== generation) return;
+          if (failures + 1 >= DOC_FETCH_ATTEMPTS) {
+            setDocError(err instanceof Error ? err.message : String(err));
+            return;
+          }
+          docTimerRef.current = window.setTimeout(
+            () => attemptFetch(failures + 1),
+            Math.min(8_000, 700 * 2 ** failures),
           );
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setDocError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
+        });
     };
+
+    attemptFetch(0);
   }, [kind, docUrl]);
+
+  useEffect(() => {
+    loadDoc();
+    return () => {
+      docGenerationRef.current += 1;
+      if (docTimerRef.current !== null) window.clearTimeout(docTimerRef.current);
+      docTimerRef.current = null;
+    };
+  }, [loadDoc]);
 
   // Compiled Tailwind CSS for the doc's HTML nodes (PLAN.md section 2) —
   // injected as a page-level <style> tag before the viewport mounts, so
@@ -567,6 +660,15 @@ export function useCanvasDocAndCss(
   // starts false so mounting waits for either the fetch to land or for
   // there being nothing to fetch, rather than racing it.
   const [cssReady, setCssReady] = useState(false);
+  /*
+   * Separate from `docError` on purpose. A failed stylesheet is degraded,
+   * not fatal: the nodes still render, just unstyled, so blocking the
+   * viewport on it would be worse than showing it. But swallowing the
+   * failure entirely — which is what the old bare `.catch(() =>
+   * setCssReady(true))` did — left an obviously broken canvas with no
+   * explanation anywhere in the UI.
+   */
+  const [cssError, setCssError] = useState<string | null>(null);
   const activeCssRef = useRef<HTMLStyleElement | null>(null);
   useEffect(() => {
     // Keep the previous stylesheet active while a reactive replacement is
@@ -575,10 +677,12 @@ export function useCanvasDocAndCss(
     if (!canvas?.css_url) {
       activeCssRef.current?.remove();
       activeCssRef.current = null;
+      setCssError(null);
       setCssReady(true);
       return;
     }
     let cancelled = false;
+    setCssError(null);
     fetch(canvas.css_url)
       .then((res) => {
         if (!res.ok) throw new Error(`Unable to load canvas styles (${res.status})`);
@@ -594,8 +698,10 @@ export function useCanvasDocAndCss(
         activeCssRef.current = styleEl;
         setCssReady(true);
       })
-      .catch(() => {
-        if (!cancelled) setCssReady(true);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setCssError(err instanceof Error ? err.message : String(err));
+        setCssReady(true);
       });
     return () => {
       cancelled = true;
@@ -615,7 +721,18 @@ export function useCanvasDocAndCss(
     file && pageId && !page
       ? `Page "${pageId}" no longer exists. Select another Page, or recover it from Details → Versions.`
       : null;
-  return { file, page, doc: page?.doc ?? null, docError: docError ?? pageError, cssReady };
+  return {
+    file,
+    page,
+    doc: page?.doc ?? null,
+    docError: docError ?? pageError,
+    // A missing Page is a content problem, not a transport one — retrying
+    // the same bytes would change nothing, so it gets no retry affordance.
+    canRetryDoc: docError !== null,
+    retryDoc: loadDoc,
+    cssError,
+    cssReady,
+  };
 }
 
 function nextPageId(file: CanvasFile, title: string) {
@@ -629,6 +746,171 @@ function nextPageId(file: CanvasFile, title: string) {
   let suffix = 2;
   while (file.pages.some((page) => page.id === id)) id = `${base}-${suffix++}`;
   return id;
+}
+
+/*
+ * The per-page ⋯ menu used to declare `role="menu"` with `role="menuitem"`
+ * children and implement none of the contract that promises: opening it
+ * left focus on the trigger, arrow keys did nothing, and Escape was a
+ * document-level listener that closed the menu without giving focus back.
+ * A screen-reader user was told "menu" and handed something that only
+ * responded to Tab.
+ */
+function PageActionsMenu({
+  pageId,
+  pageTitle,
+  open,
+  canDelete,
+  onOpenChange,
+  onDuplicate,
+  onDelete,
+}: {
+  pageId: string;
+  pageTitle: string;
+  open: boolean;
+  canDelete: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const items = useCallback(
+    () =>
+      [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? [])].filter(
+        (item) => !item.disabled,
+      ),
+    [],
+  );
+
+  // Focus moves into the menu on open, which is the part that makes the
+  // arrow keys below reachable at all.
+  useEffect(() => {
+    if (open) items()[0]?.focus();
+  }, [open, items]);
+
+  function close(returnFocus: boolean) {
+    onOpenChange(false);
+    if (returnFocus) triggerRef.current?.focus();
+  }
+
+  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const list = items();
+    const index = list.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      // Wraps, as a menu should: ArrowUp from the first item is the
+      // fastest way to the destructive one at the bottom.
+      list[(index + delta + list.length) % list.length]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      list[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      list.at(-1)?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+    } else if (event.key === "Tab") {
+      // Tabbing out of a menu dismisses it rather than leaving an orphaned
+      // popup behind the next control.
+      close(false);
+    }
+  }
+
+  return (
+    <div className="canvas-page-actions">
+      <IconButton
+        ref={triggerRef}
+        icon={MoreHorizontal}
+        label={`More actions for ${pageTitle}`}
+        iconSize={15}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => onOpenChange(!open)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            onOpenChange(true);
+          }
+        }}
+      />
+      {open && (
+        <div
+          ref={menuRef}
+          className="canvas-page-menu"
+          role="menu"
+          aria-label={`Actions for ${pageTitle}`}
+          data-page-menu={pageId}
+          onKeyDown={onMenuKeyDown}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              close(true);
+              onDuplicate();
+            }}
+          >
+            <Copy size={14} aria-hidden="true" />
+            Duplicate
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            disabled={!canDelete}
+            onClick={() => {
+              close(false);
+              onDelete();
+            }}
+          >
+            <Trash2 size={14} aria-hidden="true" />
+            Delete Page…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/*
+ * A page's world, small. The rail listed pages as bare text, so telling
+ * "Overview" from "Payment states" meant opening both — and with a canvas
+ * of any size the panel was 260px of white space holding three words.
+ *
+ * Drawn from the doc the panel already has: no fetch, no render pass, just
+ * the node rects normalised into the box. Lanes and stages are left out on
+ * purpose — at this size they are one flat wash that hides the nodes.
+ */
+function PageThumb({ doc }: { doc: CanvasDoc }) {
+  const nodes = doc.nodes;
+  if (nodes.length === 0) {
+    return <span className="canvas-page-thumb is-empty" aria-hidden="true" />;
+  }
+  const left = Math.min(...nodes.map((node) => node.rect.x));
+  const top = Math.min(...nodes.map((node) => node.rect.y));
+  const right = Math.max(...nodes.map((node) => node.rect.x + node.rect.w));
+  const bottom = Math.max(...nodes.map((node) => node.rect.y + node.rect.h));
+  const width = Math.max(1, right - left);
+  const height = Math.max(1, bottom - top);
+  return (
+    <span className="canvas-page-thumb" aria-hidden="true">
+      {nodes.slice(0, 24).map((node) => (
+        <i
+          key={node.id}
+          style={{
+            left: `${((node.rect.x - left) / width) * 100}%`,
+            top: `${((node.rect.y - top) / height) * 100}%`,
+            width: `${Math.max(4, (node.rect.w / width) * 100)}%`,
+            height: `${Math.max(6, (node.rect.h / height) * 100)}%`,
+          }}
+        />
+      ))}
+    </span>
+  );
 }
 
 export function PagesPanel({
@@ -656,6 +938,15 @@ export function PagesPanel({
   } | null>(null);
   const [menuPageId, setMenuPageId] = useState<string | null>(null);
   const [value, setValue] = useState("");
+  /*
+   * Every page mutation rewrites and revalidates the whole CanvasFile and
+   * round-trips it through an OCC-guarded action, which is not instant on a
+   * slow link. All six used to be fire-and-forget: no busy state, no catch,
+   * so a rejected save was an unhandled rejection and a slow one looked
+   * like a dead panel until the list snapped. `commit` is the single place
+   * that reports both.
+   */
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const { notify } = useToast();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const draggingIdRef = useRef<string | null>(null);
@@ -686,6 +977,28 @@ export function PagesPanel({
 
   useEffect(() => () => dragCleanupRef.current?.(), []);
 
+  /*
+   * Serialised rather than queued: two concurrent writes would race the
+   * same expectedDraftRevision and one would lose on OCC anyway, so the
+   * honest thing is to refuse the second and keep the panel legible.
+   */
+  const busyRef = useRef(false);
+  async function commit(label: string, mutate: () => Promise<void>) {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBusyLabel(label);
+    try {
+      await mutate();
+      return true;
+    } catch (err: unknown) {
+      notify(toastError(err, `Couldn't ${label.toLowerCase()}`));
+      return false;
+    } finally {
+      busyRef.current = false;
+      setBusyLabel(null);
+    }
+  }
+
   async function createPage() {
     const title = value.trim();
     if (!title) return;
@@ -703,13 +1016,16 @@ export function PagesPanel({
       edges: [],
       legend: undefined,
     };
-    await onSave(
-      CanvasFileSchema.parse({
-        ...file,
-        pages: [...file.pages, { id, title, order: file.pages.length, doc }],
-      }),
-      `Create Page: ${title}`,
+    const ok = await commit("Create Page", () =>
+      onSave(
+        CanvasFileSchema.parse({
+          ...file,
+          pages: [...file.pages, { id, title, order: file.pages.length, doc }],
+        }),
+        `Create Page: ${title}`,
+      ),
     );
+    if (!ok) return;
     setCreating(false);
     setValue("");
     onSelect(id);
@@ -724,13 +1040,16 @@ export function PagesPanel({
       setValue("");
       return;
     }
-    await onSave(
-      CanvasFileSchema.parse({
-        ...file,
-        pages: file.pages.map((page) => (page.id === pageId ? { ...page, title } : page)),
-      }),
-      `Rename Page: ${title}`,
+    const ok = await commit("Rename Page", () =>
+      onSave(
+        CanvasFileSchema.parse({
+          ...file,
+          pages: file.pages.map((page) => (page.id === pageId ? { ...page, title } : page)),
+        }),
+        `Rename Page: ${title}`,
+      ),
     );
+    if (!ok) return;
     setEditingId(null);
     setValue("");
   }
@@ -743,12 +1062,14 @@ export function PagesPanel({
     const [page] = pages.splice(from, 1);
     if (!page) return;
     pages.splice(to, 0, page);
-    await onSave(
-      CanvasFileSchema.parse({
-        ...file,
-        pages: pages.map((candidate, order) => ({ ...candidate, order })),
-      }),
-      `Move Page: ${pageId}`,
+    await commit("Reorder Pages", () =>
+      onSave(
+        CanvasFileSchema.parse({
+          ...file,
+          pages: pages.map((candidate, order) => ({ ...candidate, order })),
+        }),
+        `Move Page: ${pageId}`,
+      ),
     );
   }
 
@@ -761,12 +1082,14 @@ export function PagesPanel({
     const targetIndex = pages.findIndex((candidate) => candidate.id === targetPageId);
     if (targetIndex < 0) return;
     pages.splice(targetIndex + (position === "after" ? 1 : 0), 0, page);
-    await onSave(
-      CanvasFileSchema.parse({
-        ...file,
-        pages: pages.map((candidate, order) => ({ ...candidate, order })),
-      }),
-      `Move Page: ${pageId}`,
+    await commit("Reorder Pages", () =>
+      onSave(
+        CanvasFileSchema.parse({
+          ...file,
+          pages: pages.map((candidate, order) => ({ ...candidate, order })),
+        }),
+        `Move Page: ${pageId}`,
+      ),
     );
   }
 
@@ -831,14 +1154,19 @@ export function PagesPanel({
     if (!source) return;
     const title = `${source.title} copy`;
     const id = nextPageId(file, title);
-    await onSave(
-      CanvasFileSchema.parse({
-        ...file,
-        pages: [...file.pages, { ...structuredClone(source), id, title, order: file.pages.length }],
-      }),
-      `Duplicate Page: ${source.title}`,
+    const ok = await commit("Duplicate Page", () =>
+      onSave(
+        CanvasFileSchema.parse({
+          ...file,
+          pages: [
+            ...file.pages,
+            { ...structuredClone(source), id, title, order: file.pages.length },
+          ],
+        }),
+        `Duplicate Page: ${source.title}`,
+      ),
     );
-    onSelect(id);
+    if (ok) onSelect(id);
   }
 
   async function deletePage(pageId: string) {
@@ -860,7 +1188,8 @@ export function PagesPanel({
         ),
       },
     });
-    await onSave(next, `Delete Page: ${pageId}`);
+    const ok = await commit("Delete Page", () => onSave(next, `Delete Page: ${pageId}`));
+    if (!ok) return;
     const deleted = file.pages.find((page) => page.id === pageId);
     setPendingDeleteId(null);
     if (activePageId === pageId) onSelect(next.defaultPageId);
@@ -873,7 +1202,22 @@ export function PagesPanel({
   return (
     <aside className={`canvas-pages-panel${collapsed ? " is-collapsed" : ""}`} aria-label="Pages">
       <div className="canvas-pages-head">
-        {!collapsed && <strong>Pages</strong>}
+        {!collapsed && (
+          <>
+            <strong>Pages</strong>
+            <span className="canvas-pages-count">{ordered.length}</span>
+            {/* Create sits in the header beside Collapse rather than as a
+                full-width row of its own: it is a header action, and as a
+                row it read as a fourth page in the list. */}
+            <IconButton
+              icon={Plus}
+              label="Create Page"
+              iconSize={16}
+              disabled={busyLabel !== null}
+              onClick={() => setCreating(true)}
+            />
+          </>
+        )}
         <IconButton
           icon={collapsed ? PanelLeftOpen : PanelLeftClose}
           label={collapsed ? "Expand Pages" : "Collapse Pages"}
@@ -890,23 +1234,47 @@ export function PagesPanel({
         />
       ) : (
         <>
-          <Button size="sm" variant="ghost" icon={Plus} onClick={() => setCreating(true)}>
-            Create Page
-          </Button>
           {creating && (
             <input
               ref={nameInputRef}
               className="canvas-page-name-input"
               aria-label="New Page name"
               value={value}
+              disabled={busyLabel !== null}
               onChange={(event) => setValue(event.target.value)}
-              onBlur={() => void createPage()}
+              /*
+               * Blur on an empty field closes the row instead of leaving an
+               * orphaned input behind; blur on a typed name commits it,
+               * which is what every other inline rename in this app does.
+               */
+              onBlur={() => {
+                if (!value.trim()) {
+                  setCreating(false);
+                  setValue("");
+                  return;
+                }
+                void createPage();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void createPage();
-                if (event.key === "Escape") setCreating(false);
+                if (event.key === "Escape") {
+                  setCreating(false);
+                  setValue("");
+                }
               }}
             />
           )}
+          {/* The panel's one progress channel: page writes revalidate and
+              re-upload the whole file, so "nothing is happening" and "a
+              1.5 s save is in flight" used to look identical. */}
+          <p
+            className="canvas-pages-busy"
+            role="status"
+            aria-live="polite"
+            hidden={busyLabel === null}
+          >
+            {busyLabel ? `${busyLabel}…` : ""}
+          </p>
           <ol className="canvas-pages-list">
             {ordered.map((page) => (
               <li
@@ -957,14 +1325,34 @@ export function PagesPanel({
                   <button
                     type="button"
                     className="canvas-page-select"
-                    onClick={() => onSelect(page.id)}
+                    /* The active page used to be signalled by a tinted
+                       background alone — invisible to a screen reader, and
+                       to anyone who cannot separate those two blues. */
+                    aria-current={page.id === activePageId ? "page" : undefined}
+                    onClick={() => {
+                      onSelect(page.id);
+                      /*
+                       * Below 900px the rail is an overlay covering most of
+                       * the canvas, so staying open after a selection hides
+                       * the very thing that was just selected. Above it, the
+                       * canvas is inset beside the rail and there is nothing
+                       * to get out of the way of.
+                       */
+                      if (isOverlayRail()) onCollapsedChange(true);
+                    }}
                     onDoubleClick={() => {
                       setEditingId(page.id);
                       setValue(page.title);
                     }}
                   >
-                    <span>{page.title}</span>
-                    {page.id === file.defaultPageId && <small>default</small>}
+                    <PageThumb doc={page.doc} />
+                    <span className="canvas-page-label">
+                      <span className="canvas-page-title">{page.title}</span>
+                      <small>
+                        {page.doc.nodes.length === 1 ? "1 node" : `${page.doc.nodes.length} nodes`}
+                        {page.id === file.defaultPageId ? " · default" : ""}
+                      </small>
+                    </span>
                   </button>
                 )}
                 {pendingDeleteId === page.id ? (
@@ -981,44 +1369,15 @@ export function PagesPanel({
                     </Button>
                   </fieldset>
                 ) : editingId !== page.id ? (
-                  <div className="canvas-page-actions">
-                    <IconButton
-                      icon={MoreHorizontal}
-                      label={`More actions for ${page.title}`}
-                      iconSize={15}
-                      aria-expanded={menuPageId === page.id}
-                      aria-haspopup="menu"
-                      onClick={() => setMenuPageId(menuPageId === page.id ? null : page.id)}
-                    />
-                    {menuPageId === page.id && (
-                      <div className="canvas-page-menu" role="menu" data-page-menu={page.id}>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setMenuPageId(null);
-                            void duplicatePage(page.id);
-                          }}
-                        >
-                          <Copy size={14} aria-hidden="true" />
-                          Duplicate
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="is-danger"
-                          disabled={ordered.length === 1}
-                          onClick={() => {
-                            setMenuPageId(null);
-                            setPendingDeleteId(page.id);
-                          }}
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                          Delete Page…
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <PageActionsMenu
+                    pageId={page.id}
+                    pageTitle={page.title}
+                    open={menuPageId === page.id}
+                    canDelete={ordered.length > 1}
+                    onOpenChange={(next) => setMenuPageId(next ? page.id : null)}
+                    onDuplicate={() => void duplicatePage(page.id)}
+                    onDelete={() => setPendingDeleteId(page.id)}
+                  />
                 ) : null}
               </li>
             ))}
@@ -1427,54 +1786,28 @@ export function CanvasPage() {
     api.canvases.getMine,
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
-  const mintIframeCapability = useMutation(api.canvases.mintIframeCapabilityMine);
   const patchGeometry = useAction(api.canvases.patchGeometryMine);
   const saveCanvasFile = useAction(api.canvases.saveCanvasFileMine);
   const checkpoint = useMutation(api.canvases.checkpointMine);
-  const [iframeCapability, setIframeCapability] = useState<{
-    token: string;
-    expiresAt: number;
-    revisions: Record<string, string> | null;
-  } | null>(null);
   const canvasVersion = canvas?.version;
   const iframeRevisions = canvas?.iframe_revisions ?? null;
-  const iframeRevisionsKey = JSON.stringify(iframeRevisions);
-  useEffect(() => {
-    if (!canvasId || canvas?.kind !== "canvas") {
-      setIframeCapability(null);
-      return;
-    }
-    let cancelled = false;
-    let renewalTimer: number | null = null;
-    const revisionsSnapshot = JSON.parse(iframeRevisionsKey) as Record<string, string> | null;
-    async function refreshCapability() {
-      try {
-        const { token, expiresAt } = await mintIframeCapability({
-          canvasId: canvasId as Id<"canvases">,
-        });
-        if (cancelled) return;
-        setIframeCapability({
-          token,
-          expiresAt,
-          revisions: revisionsSnapshot,
-        });
-        renewalTimer = window.setTimeout(
-          () => void refreshCapability(),
-          Math.max(1_000, expiresAt - Date.now() - 60_000),
-        );
-      } catch {
-        if (!cancelled) setIframeCapability(null);
-      }
-    }
-    void refreshCapability();
-    return () => {
-      cancelled = true;
-      if (renewalTimer !== null) window.clearTimeout(renewalTimer);
-    };
-  }, [canvasId, canvas?.kind, iframeRevisionsKey, mintIframeCapability]);
+  const {
+    capability: iframeCapability,
+    error: iframeCapabilityError,
+    retry: retryIframeCapability,
+  } = useIframeCapability({
+    canvasId,
+    enabled: canvas?.kind === "canvas",
+    revisions: iframeRevisions,
+  });
   const iframeCapabilityToken = iframeCapability?.token ?? null;
   const resolvedIframeRevisions = iframeCapability?.revisions ?? iframeRevisions;
-  const { file, page, doc, docError, cssReady } = useCanvasDocAndCss(canvas, requestedPageId);
+  const { file, page, doc, docError, canRetryDoc, retryDoc, cssError, cssReady } =
+    useCanvasDocAndCss(canvas, requestedPageId);
+  // Only iframe and image nodes read through the signed `/i/:token` path,
+  // so a doc made only of native nodes must not be gated on the mint.
+  const needsIframeCapability =
+    doc?.nodes.some((node) => node.kind === "iframe" || node.kind === "image") ?? false;
   const activePageId = page?.id ?? (!requestedPageId ? file?.defaultPageId : "") ?? "";
   useDocumentTitle(canvas?.title);
 
@@ -1489,11 +1822,69 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [pagesCollapsed, setPagesCollapsed] = useState(false);
-  const [editorMode, setEditorMode] = useState<"design" | "prototype">("design");
+  /*
+   * Persisted, like the camera already is. It used to reset on every visit,
+   * so anyone who preferred the rail out of the way had to collapse it
+   * again on every canvas they opened.
+   */
+  const [pagesCollapsed, setPagesCollapsedState] = useState(() => {
+    try {
+      return window.localStorage.getItem(PAGES_COLLAPSED_KEY) === "1";
+    } catch {
+      // Storage is unavailable in privacy modes; the rail just starts open.
+      return false;
+    }
+  });
+  const setPagesCollapsed = useCallback((collapsed: boolean) => {
+    setPagesCollapsedState(collapsed);
+    try {
+      window.localStorage.setItem(PAGES_COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Same: a preference that cannot be stored is not worth failing on.
+    }
+  }, []);
+  /*
+   * In the URL, not in state, for the same reason page and node selection
+   * are: the mode is part of where you are. It survives a reload, it is
+   * linkable — Present's "set a start frame" hint points straight at
+   * ?mode=prototype — and the back button steps through it.
+   */
+  const editorMode = searchParams.get("mode") === "prototype" ? "prototype" : "design";
+  const setEditorMode = useCallback(
+    (mode: "design" | "prototype") => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (mode === "prototype") next.set("mode", "prototype");
+          else next.delete("mode");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const persistedVersionRef = useRef<number | undefined>(canvasVersion);
   const persistedDraftRevisionRef = useRef<number>(canvas?.draft_revision ?? 0);
   const pendingGeometrySavesRef = useRef(0);
+  /*
+   * The pending count lived only in a ref, so a layout save in flight was
+   * invisible: you dragged a node, the DOM moved optimistically, and
+   * whether that had reached the server was unknowable until a failure
+   * toast appeared — or didn't.
+   */
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
+  /*
+   * Per-screen load state used to stop at a DOM data-attribute read only by
+   * CSS, so a canvas with a dozen embedded screens gave no aggregate signal
+   * at all — you could not tell "still loading" from "two of these are
+   * permanently broken".
+   */
+  const [iframeProgress, setIframeProgress] = useState<{
+    total: number;
+    loaded: number;
+    failed: string[];
+  }>({ total: 0, loaded: 0, failed: [] });
   const geometrySaveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
@@ -1539,6 +1930,8 @@ export function CanvasPage() {
   ) {
     if (!canvasId) return;
     pendingGeometrySavesRef.current += 1;
+    setSaveState("saving");
+    let failed = false;
     geometrySaveChainRef.current = geometrySaveChainRef.current
       .catch(() => undefined)
       .then(async () => {
@@ -1553,8 +1946,10 @@ export function CanvasPage() {
         });
         persistedVersionRef.current = result.version;
         persistedDraftRevisionRef.current = result.draftRevision;
+        failed = false;
       })
       .catch((error: unknown) => {
+        failed = true;
         notify({
           tone: "error",
           message: error instanceof Error ? error.message : "Unable to save layout",
@@ -1562,6 +1957,10 @@ export function CanvasPage() {
       })
       .finally(() => {
         pendingGeometrySavesRef.current -= 1;
+        // Only the last save in a burst decides the label: intermediate
+        // drags settling while a later one is still in flight must not
+        // flip the indicator back to idle.
+        if (pendingGeometrySavesRef.current === 0) setSaveState(failed ? "failed" : "idle");
       });
   }
   // Labelled with the workspace's real name once it resolves. It used to
@@ -1582,9 +1981,7 @@ export function CanvasPage() {
   if (canvas === undefined) {
     return (
       <div className="canvas-page-full">
-        <div className="canvas-page-loading">
-          <LoadingState />
-        </div>
+        <CanvasSkeleton label="Loading canvas…" />
       </div>
     );
   }
@@ -1605,21 +2002,44 @@ export function CanvasPage() {
   return (
     <div className="canvas-page-full">
       {canvas.kind === "canvas" ? (
-        <div className="canvas-command-bar">
-          <IconLink
-            to={backTo}
-            icon={ArrowLeft}
-            label={`Back to ${backLabel}`}
-            className="canvas-command-back"
-          />
-          <div className="canvas-command-title">
-            <span>{canvas.title}</span>
-            {canvas.version !== undefined && <small>v{canvas.version}</small>}
-            <small className={canvas.dirty ? "canvas-draft-dirty" : undefined}>
-              {canvas.dirty
-                ? `Autosaved · ${canvas.draft_edit_count} unsaved edit${canvas.draft_edit_count === 1 ? "" : "s"}`
-                : "Checkpointed"}
-            </small>
+        <header className="canvas-command-bar">
+          {/*
+           * A breadcrumb, not a back arrow. The arrow said "somewhere
+           * behind you" and nothing else; the workspace's own name says
+           * where the canvas actually lives, and is the same link.
+           */}
+          <div className="canvas-command-lead">
+            <Link to={backTo} className="canvas-command-crumb">
+              {backLabel}
+            </Link>
+            <span className="canvas-command-crumb-sep" aria-hidden="true">
+              /
+            </span>
+            <h1 className="canvas-command-name">{canvas.title}</h1>
+            <span className="canvas-command-state">
+              {canvas.version !== undefined && <span>v{canvas.version}</span>}
+              {/* Live write state wins over the stored draft summary: while a
+                  drag is being persisted, "Checkpointed" is stale by a second
+                  and actively misleading. */}
+              <span
+                className={
+                  saveState === "failed"
+                    ? "canvas-save-failed"
+                    : canvas.dirty && saveState === "idle"
+                      ? "canvas-draft-dirty"
+                      : undefined
+                }
+                role={saveState === "idle" ? undefined : "status"}
+              >
+                {saveState === "saving"
+                  ? "Saving…"
+                  : saveState === "failed"
+                    ? "Not saved"
+                    : canvas.dirty
+                      ? `Autosaved · ${canvas.draft_edit_count} unsaved edit${canvas.draft_edit_count === 1 ? "" : "s"}`
+                      : "Checkpointed"}
+              </span>
+            </span>
           </div>
           <fieldset className="canvas-mode-switch" aria-label="Editor mode">
             <Button
@@ -1637,25 +2057,27 @@ export function CanvasPage() {
               Prototype
             </Button>
           </fieldset>
-          <IconLink
-            to={`/c/${canvas.canvas_id}/present`}
-            icon={Play}
-            label="Present canvas"
-            text="Present"
-            iconSize={15}
-            className="canvas-command-present"
-          />
-          <IconButton
-            icon={Info}
-            label="Open canvas details"
-            text="Details"
-            iconSize={17}
-            className="canvas-command-details"
-            onClick={() => setDetailsOpen(true)}
-            aria-expanded={detailsOpen}
-            aria-controls="canvas-details"
-          />
-        </div>
+          <div className="canvas-command-actions">
+            <IconButton
+              icon={Info}
+              label="Open canvas details"
+              text="Details"
+              iconSize={17}
+              className="canvas-command-details"
+              onClick={() => setDetailsOpen(true)}
+              aria-expanded={detailsOpen}
+              aria-controls="canvas-details"
+            />
+            <IconLink
+              to={`/c/${canvas.canvas_id}/present`}
+              icon={Play}
+              label="Present canvas"
+              text="Present"
+              iconSize={15}
+              className="canvas-command-present"
+            />
+          </div>
+        </header>
       ) : (
         <IconButton
           icon={Info}
@@ -1850,44 +2272,104 @@ export function CanvasPage() {
           {file && activePageId && editorMode === "prototype" && (
             <PrototypePanel file={file} activePageId={activePageId} onSave={saveFile} />
           )}
-          {docError && <p className="error-text canvas-page-loading">{docError}</p>}
+          {docError && (
+            <div className="canvas-page-loading">
+              <EmptyState
+                icon={Unplug}
+                title={
+                  canRetryDoc ? "Couldn’t load this canvas’s document." : "This Page isn’t here."
+                }
+                hint={docError}
+                action={
+                  canRetryDoc ? (
+                    <Button variant="secondary" onClick={retryDoc}>
+                      Try again
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </div>
+          )}
+          {/* Screen progress. Only while something is still in flight or has
+              failed — a fully loaded canvas says nothing. */}
+          {(iframeProgress.failed.length > 0 ||
+            (iframeProgress.total > 0 && iframeProgress.loaded < iframeProgress.total)) && (
+            <p
+              className="canvas-screens-status"
+              data-tone={iframeProgress.failed.length > 0 ? "warning" : "info"}
+              role="status"
+              aria-live="polite"
+            >
+              {iframeProgress.failed.length > 0
+                ? `${iframeProgress.failed.length} of ${iframeProgress.total} screen${iframeProgress.total === 1 ? "" : "s"} didn’t load. Use Retry on the screen to try again.`
+                : `Loading screens… ${iframeProgress.loaded} of ${iframeProgress.total}`}
+            </p>
+          )}
+          {/* Degraded, not fatal — the canvas is on screen behind this. */}
+          {!docError && cssError && (
+            <p className="canvas-degraded-notice" role="status">
+              Styles for this canvas didn’t load, so nodes may look unstyled. {cssError}
+            </p>
+          )}
+          {/* The capability mint is the one gate that can fail terminally
+              and still leave a well-formed doc on screen, so it gets a way
+              out rather than an indefinite spinner. */}
+          {!docError && needsIframeCapability && iframeCapabilityError && (
+            <div className="canvas-page-loading">
+              <EmptyState
+                icon={Unplug}
+                title="Couldn’t get permission to load this canvas’s screens."
+                hint={iframeCapabilityError}
+                action={
+                  <Button variant="secondary" onClick={retryIframeCapability}>
+                    Try again
+                  </Button>
+                }
+              />
+            </div>
+          )}
           {/* `!doc` alone left a genuinely blank page in the window where
               the doc had landed but its compiled CSS had not: the loading
               text was gone and the viewport had not mounted yet. */}
-          {(!doc ||
-            !cssReady ||
-            (doc.nodes.some((node) => node.kind === "iframe" || node.kind === "image") &&
-              !iframeCapabilityToken)) &&
-            !docError && (
-              <div className="canvas-page-loading">
-                <LoadingState label="Loading canvas…" />
-              </div>
-            )}
-          {doc &&
-            cssReady &&
-            (!doc.nodes.some((node) => node.kind === "iframe" || node.kind === "image") ||
-              iframeCapabilityToken) && (
-              <CanvasViewport
-                key={`${canvas.canvas_id}:${activePageId}`}
-                doc={doc}
-                iframeRevisions={resolvedIframeRevisions}
-                version={canvasVersion}
-                editable
-                canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
-                cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
-                onGeometryChange={(nodeId, rect) =>
-                  queueGeometryChange({ kind: "node", nodeId, rect })
-                }
-                onGroupMove={(groupId, dx, dy) =>
-                  queueGeometryChange({ kind: "group", groupId, dx, dy })
-                }
-                iframeBaseUrl={
-                  iframeCapabilityToken
-                    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`
-                    : null
+          {(!doc || !cssReady || (needsIframeCapability && !iframeCapabilityToken)) &&
+            !docError &&
+            !iframeCapabilityError && (
+              <CanvasSkeleton
+                label={
+                  // Three gates used to collapse into one undifferentiated
+                  // "Loading canvas…", so a slow stylesheet and a slow
+                  // permission mint were indistinguishable.
+                  !doc
+                    ? "Loading canvas…"
+                    : !cssReady
+                      ? "Loading canvas styles…"
+                      : "Preparing screens…"
                 }
               />
             )}
+          {doc && cssReady && (!needsIframeCapability || iframeCapabilityToken) && (
+            <CanvasViewport
+              key={`${canvas.canvas_id}:${activePageId}`}
+              onIframeStateChange={setIframeProgress}
+              doc={doc}
+              iframeRevisions={resolvedIframeRevisions}
+              version={canvasVersion}
+              editable
+              canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
+              cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
+              onGeometryChange={(nodeId, rect) =>
+                queueGeometryChange({ kind: "node", nodeId, rect })
+              }
+              onGroupMove={(groupId, dx, dy) =>
+                queueGeometryChange({ kind: "group", groupId, dx, dy })
+              }
+              iframeBaseUrl={
+                iframeCapabilityToken
+                  ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`
+                  : null
+              }
+            />
+          )}
         </>
       ) : canvas.entry_url ? (
         <div

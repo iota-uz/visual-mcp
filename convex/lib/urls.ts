@@ -69,10 +69,7 @@ export function embedCardUrl(
   if (!publicSlug) return null;
   const publicOrigin = getPublicArtifactOrigin();
   if (!publicOrigin) return null;
-  const url = new URL(
-    `/s/${encodeURIComponent(publicSlug)}/_embed/card.svg`,
-    publicOrigin,
-  );
+  const url = new URL(`/s/${encodeURIComponent(publicSlug)}/_embed/card.svg`, publicOrigin);
   url.searchParams.set("target", target.kind);
   if (target.kind !== "canvas") url.searchParams.set("id", target.id);
   if (version !== undefined) url.searchParams.set("version", String(version));
@@ -100,7 +97,10 @@ export function githubEmbedMarkdown(
   targetUrl: string | null,
 ): string | null {
   if (!imageUrl || !targetUrl) return null;
-  const safeAlt = alt.replace(/[\r\n]+/g, " ").replaceAll("\\", "\\\\").replaceAll("]", "\\]");
+  const safeAlt = alt
+    .replace(/[\r\n]+/g, " ")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("]", "\\]");
   return `[![${safeAlt}](${imageUrl})](${targetUrl})`;
 }
 

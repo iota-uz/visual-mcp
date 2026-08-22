@@ -45,7 +45,10 @@ export function buildEmbedClickUrl({
 }
 
 function markdownAlt(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").replaceAll("\\", "\\\\").replaceAll("]", "\\]");
+  return value
+    .replace(/[\r\n]+/g, " ")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("]", "\\]");
 }
 
 export function buildEmbedMarkdown(args: {

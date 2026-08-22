@@ -76,3 +76,12 @@ export function useMutation(reference: unknown) {
 export function useConvexAuth() {
   return { isLoading: false, isAuthenticated: true };
 }
+
+/*
+ * Fixtures have no socket, so the connection banner must never appear in
+ * them: `useConnectionStatus` treats a missing `connectionState` as
+ * connected, and this returns a client without one.
+ */
+export function useConvex() {
+  return null;
+}

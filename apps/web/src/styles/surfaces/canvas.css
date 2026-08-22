@@ -1,13 +1,12 @@
 /* The canvas viewer: command bar, artifact frame, details drawer. */
 
 .canvas-navigation-trigger,
-.canvas-command-back,
 .canvas-command-details {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--app-line);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--app-surface-floating);
   color: var(--app-ink-soft);
   box-shadow: var(--app-shadow-sm);
   cursor: pointer;
@@ -20,46 +19,48 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 var(--app-space-2);
-  border-radius: 7px;
-  color: var(--app-accent-text);
+  height: 32px;
+  padding: 0 var(--app-space-3);
+  border-radius: var(--app-radius-md);
+  background: var(--app-accent);
+  color: var(--app-white);
   font-size: var(--app-text-xs);
   font-weight: 700;
   text-decoration: none;
 }
 
-.canvas-command-title .canvas-draft-dirty {
-  color: var(--app-accent-text);
+.canvas-command-present:hover {
+  background: var(--app-accent-text);
 }
 
+/* A segmented control, not two buttons with a rule between them. */
 .canvas-mode-switch {
   display: flex;
   gap: 2px;
   margin: 0;
-  padding-left: 4px;
-  border-left: 1px solid var(--app-line);
-  border-top: 0;
-  border-right: 0;
-  border-bottom: 0;
+  padding: 3px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
 }
 
 .canvas-prototype-panel {
   position: absolute;
   z-index: calc(var(--app-z-chrome) - 1);
-  top: 64px;
+  top: var(--app-canvas-chrome-top);
   right: var(--app-space-3);
   bottom: var(--app-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--app-space-2);
-  width: 280px;
+  width: var(--app-prototype-panel-w);
   padding: var(--app-space-3);
   overflow: auto;
   border: 1px solid var(--app-line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-surface-floating);
   box-shadow: var(--app-shadow-sm);
+  backdrop-filter: var(--app-surface-floating-blur);
 }
 
 .canvas-prototype-panel label,
@@ -87,7 +88,7 @@
   grid-template-columns: repeat(2, 1fr);
   padding: var(--app-space-2);
   border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
 }
 
 .canvas-prototype-panel fieldset legend {
@@ -114,7 +115,7 @@
   padding: 8px;
   overflow: hidden;
   border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
   background: var(--app-paper);
 }
 
@@ -190,35 +191,62 @@
   font-size: var(--app-text-xs);
 }
 
+/*
+ * The rail hugs its content. It used to be pinned top and bottom, so a
+ * canvas with one page painted 260 x 1000 px of empty white down the side
+ * of the window — a fifth of the screen carrying three words.
+ */
 .canvas-pages-panel {
   position: absolute;
   z-index: calc(var(--app-z-chrome) - 1);
-  inset: 64px auto var(--app-space-3) var(--app-space-3);
+  top: var(--app-canvas-chrome-top);
+  left: var(--app-space-3);
   display: flex;
+  max-height: calc(100% - var(--app-canvas-chrome-top) - var(--app-space-3));
   flex-direction: column;
-  gap: var(--app-space-2);
-  width: 260px;
+  gap: var(--app-space-1);
+  width: var(--app-pages-panel-w);
   padding: var(--app-space-2);
   overflow: auto;
   border: 1px solid var(--app-line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: var(--app-shadow-sm);
-  backdrop-filter: blur(12px);
-  transition: width var(--app-transition);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-surface-floating);
+  box-shadow: var(--app-shadow-md);
+  backdrop-filter: var(--app-surface-floating-blur);
+  transition: width var(--app-transition) var(--app-ease-out);
 }
 
 .canvas-pages-panel.is-collapsed {
-  width: 44px;
+  width: var(--app-pages-panel-collapsed-w);
   align-items: center;
 }
 
 .canvas-pages-head {
   display: flex;
-  min-height: 32px;
+  min-height: 30px;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--app-space-2);
+  gap: 6px;
+  padding: 0 2px 0 var(--app-space-2);
+}
+
+.canvas-pages-head strong {
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+/* Pushes Create and Collapse to the right edge, and says how many pages
+   there are without a second line to say it on. */
+.canvas-pages-count {
+  margin-right: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--app-paper);
+  color: var(--app-muted);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
 }
 
 .canvas-pages-list {
@@ -233,11 +261,15 @@
 .canvas-pages-list > li {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 26px;
+  grid-template-columns: 18px minmax(0, 1fr) 26px;
   align-items: center;
-  padding: 4px;
+  padding: 4px 4px 4px 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
+}
+
+.canvas-pages-list > li:hover {
+  background: var(--app-paper);
 }
 
 .canvas-pages-list > li.is-dragging {
@@ -272,15 +304,63 @@
 .canvas-page-select {
   display: flex;
   width: 100%;
+  min-width: 0;
   align-items: center;
-  justify-content: space-between;
   gap: var(--app-space-2);
-  padding: 6px;
+  padding: 4px 2px;
   border: 0;
   background: transparent;
   color: var(--app-ink);
   text-align: left;
   cursor: pointer;
+}
+
+/*
+ * A page's world at 44 x 32. Nodes are flat blocks: at this size their
+ * content is noise, but their arrangement is exactly what distinguishes
+ * one page from another at a glance.
+ */
+.canvas-page-thumb {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  flex: none;
+  width: 44px;
+  height: 32px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-white);
+  background-image: radial-gradient(circle, var(--app-grid-dot) 0.5px, transparent 0.6px);
+  background-size: 6px 6px;
+}
+
+.canvas-page-thumb i {
+  position: absolute;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--app-accent) 45%, var(--app-line));
+}
+
+.canvas-page-thumb.is-empty {
+  background-image: none;
+}
+
+.canvas-page-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.canvas-page-title {
+  overflow: hidden;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-pages-list > li.is-active .canvas-page-thumb {
+  border-color: color-mix(in srgb, var(--app-accent) 45%, var(--app-line));
 }
 
 .canvas-page-drag-handle {
@@ -290,8 +370,12 @@
 }
 
 .canvas-page-select small {
+  overflow: hidden;
   color: var(--app-muted);
+  font-family: var(--app-font-mono);
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .canvas-page-actions {
@@ -305,6 +389,16 @@
 .canvas-pages-list > li:hover .canvas-page-actions,
 .canvas-pages-list > li:focus-within .canvas-page-actions {
   opacity: 1;
+}
+
+/* Reveal-on-hover is unreachable on touch: there is no hover, so the drag
+   handle and the ⋯ menu were simply absent. patterns/canvas-card.css
+   already handled this; the rail did not. */
+@media (hover: none) {
+  .canvas-page-drag-handle,
+  .canvas-page-actions {
+    opacity: 1;
+  }
 }
 
 .canvas-page-drag-handle,
@@ -330,10 +424,6 @@
   color: var(--app-ink);
 }
 
-.canvas-page-drag-handle {
-  cursor: grab;
-}
-
 .canvas-page-drag-handle:active {
   cursor: grabbing;
 }
@@ -347,7 +437,7 @@
   width: 156px;
   padding: 4px;
   border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-md);
   background: var(--app-surface, white);
   box-shadow: var(--app-shadow-md);
 }
@@ -406,10 +496,44 @@
   font: inherit;
 }
 
+/* The panel's only progress channel. Reserves no height when idle — a
+   permanently empty row under Create Page reads as a layout bug. */
+.canvas-pages-busy {
+  margin: 0;
+  padding: 0 var(--app-space-1);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-pages-busy[hidden] {
+  display: none;
+}
+
 @media (max-width: 899px) {
-  .canvas-pages-panel {
-    width: min(260px, calc(100vw - 32px));
+  .canvas-pages-panel:not(.is-collapsed) {
+    width: min(var(--app-pages-panel-w), calc(100vw - var(--app-space-8)));
   }
+}
+
+/* Discoverability for keys that exist nowhere else in the UI. Decorative:
+   the controls beside it carry the accessible names. */
+.present-keys {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding-left: var(--app-space-2);
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.present-keys kbd {
+  min-width: 18px;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+  font: 650 9px / 1 var(--app-font-mono);
 }
 
 .present-root,
@@ -507,7 +631,7 @@
   min-height: 34px;
   padding: 0 9px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--app-radius-sm);
   background: transparent;
   color: white;
   font: inherit;
@@ -562,14 +686,24 @@
   }
 }
 
+/* Sits in the bar's left gutter rather than floating beside it as a second
+   island. Still fixed and still above the bar, so the drawer it opens can
+   be reached from anywhere on the route. */
 .canvas-navigation-trigger {
   position: fixed;
   z-index: var(--app-z-drawer-trigger);
-  top: var(--app-space-3);
-  left: var(--app-space-3);
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  top: calc((var(--app-canvas-bar-h) - var(--app-trigger-size)) / 2);
+  left: var(--app-space-2);
+  width: var(--app-trigger-size);
+  height: var(--app-trigger-size);
+  border: 0;
+  border-radius: var(--app-radius-md);
+  background: transparent;
+  box-shadow: none;
+}
+
+.canvas-navigation-trigger:hover {
+  background: var(--app-paper);
 }
 
 /* Artifact canvases own the top edge themselves. Keep Visual Canvas's
@@ -580,7 +714,6 @@
 }
 
 .canvas-navigation-trigger:hover,
-.canvas-command-back:hover,
 .canvas-command-details:hover {
   border-color: var(--app-accent);
   color: var(--app-accent-text);
@@ -611,67 +744,132 @@
   background: var(--app-paper);
 }
 
+/*
+ * The canvas top bar. It used to be a floating pill pinned to the top-left,
+ * capped at 860px, holding the breadcrumb, the title, the save state, the
+ * mode switch, Present and Details all in one 40px row — cramped on the
+ * left with most of the window empty to its right, and a detached
+ * navigation button sitting beside it as a second island.
+ *
+ * It is now real chrome: full width, opaque, with the viewport starting
+ * below it rather than sliding underneath. Three grid tracks with the
+ * outer two equal is what actually centres the mode switch — with flex it
+ * drifted with the length of the canvas title.
+ */
 .canvas-command-bar {
   position: absolute;
   z-index: var(--app-z-chrome);
-  top: var(--app-space-3);
-  left: 64px;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--app-space-3);
+  height: var(--app-canvas-bar-h);
+  /* Symmetric, so the two 1fr tracks are genuinely equal and the mode
+     switch lands on the window's centre line. The navigation button's
+     gutter is the lead group's own padding, not the bar's. */
+  padding: 0 var(--app-space-3);
+  border-bottom: 1px solid var(--app-line);
+  background: var(--app-white);
+}
+
+.canvas-command-lead {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  padding-left: calc(var(--app-trigger-size) + var(--app-space-2));
+}
+
+/* The workspace crumb yields first: the canvas's own name is the one thing
+   that must stay readable. */
+.canvas-command-crumb {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-command-crumb:hover {
+  color: var(--app-ink);
+}
+
+.canvas-command-crumb-sep {
+  flex: none;
+  color: var(--app-line);
+}
+
+.canvas-command-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--app-ink);
+  font-size: var(--app-text-md);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Version and save state read as metadata, not as part of the title. */
+.canvas-command-state {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-muted);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+}
+
+.canvas-command-state .canvas-draft-dirty {
+  color: var(--app-accent-text);
+}
+
+.canvas-command-state .canvas-save-failed {
+  color: var(--app-danger);
+  font-weight: 600;
+}
+
+.canvas-command-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--app-space-2);
-  min-width: 0;
-  max-width: min(860px, calc(100% - 152px));
-  height: 40px;
-  padding: 4px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--app-line);
-  border-radius: 11px;
-  box-shadow: var(--app-shadow-sm);
-  backdrop-filter: blur(12px);
+}
+
+@media (max-width: 899px) {
+  /* No room for three tracks. The mode switch keeps its place in the
+     middle and the metadata goes, rather than the title truncating to
+     nothing beside it. */
+  .canvas-command-bar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .canvas-command-crumb,
+  .canvas-command-crumb-sep,
+  .canvas-command-state {
+    display: none;
+  }
 }
 
 /* On /s/:slug the bar carries the wordmark, the title, when it changed and
    a copy-link button, so it is wider and starts at the left edge — there is
    no navigation trigger beside it to clear. */
+/* Two tracks, not three: the public bar has no mode switch to centre, and
+   nothing on the left to clear — no navigation button lives on this route. */
 .canvas-command-bar-public {
-  left: var(--app-space-3);
-  gap: var(--app-space-3);
-  padding: 4px var(--app-space-3);
-  max-width: calc(100% - var(--app-space-6));
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.canvas-command-back {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 7px;
-  box-shadow: none;
-}
-
-.canvas-command-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--app-space-2);
-  min-width: 0;
-  padding: 0 var(--app-space-1);
-  font-size: var(--app-text-sm);
-  font-weight: 700;
-  color: var(--app-ink);
-}
-
-.canvas-command-title > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.canvas-command-title small {
-  flex: none;
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--app-muted);
+.canvas-command-bar-public .canvas-command-lead {
+  padding-left: 0;
 }
 
 .canvas-command-details {
@@ -681,7 +879,7 @@
   margin-left: auto;
   padding: 0 var(--app-space-2);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--app-radius-sm);
   box-shadow: none;
   font-family: var(--app-font-body);
   font-size: var(--app-text-xs);
@@ -692,7 +890,7 @@
   position: absolute;
   z-index: var(--app-z-chrome);
   bottom: var(--app-space-4);
-  left: 64px;
+  left: calc(var(--app-trigger-size) + var(--app-space-6));
   display: inline-flex;
   align-items: center;
   gap: var(--app-space-2);
@@ -700,10 +898,10 @@
   padding: 0 var(--app-space-3);
   border: 1px solid var(--app-line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--app-surface-floating);
   color: var(--app-ink-soft);
   box-shadow: var(--app-shadow-sm);
-  backdrop-filter: blur(12px);
+  backdrop-filter: var(--app-surface-floating-blur);
   font-family: var(--app-font-body);
   font-size: var(--app-text-sm);
   font-weight: 700;
@@ -731,15 +929,12 @@
 }
 
 .canvas-details-identity {
-  padding: var(--app-space-4);
-  background: linear-gradient(180deg, var(--app-paper), var(--app-white));
-  border-bottom: 1px solid var(--app-line);
-}
-
-.canvas-details-identity {
   display: flex;
   flex-direction: column;
   gap: var(--app-space-2);
+  padding: var(--app-space-4);
+  background: linear-gradient(180deg, var(--app-paper), var(--app-white));
+  border-bottom: 1px solid var(--app-line);
 }
 
 .canvas-details-title-row {
@@ -892,10 +1087,65 @@
   justify-content: center;
 }
 
+/* Degraded-but-usable: sits over the canvas rather than replacing it, and
+   below the command bar so it never covers the way out. */
+/* Sits with the degraded notice: same anchor, same shape, quieter when it
+   is only reporting progress. */
+.canvas-screens-status {
+  position: absolute;
+  top: var(--app-canvas-chrome-top);
+  left: 50%;
+  z-index: var(--app-z-chrome);
+  margin: 0;
+  padding: var(--app-space-2) var(--app-space-3);
+  transform: translateX(-50%);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-sm);
+  color: var(--app-muted);
+  font-size: var(--app-text-sm);
+}
+
+.canvas-screens-status[data-tone="warning"] {
+  border-color: var(--app-warning);
+  background: var(--app-warning-soft);
+  color: var(--app-warning);
+}
+
+.canvas-degraded-notice {
+  position: absolute;
+  top: var(--app-canvas-chrome-top);
+  left: 50%;
+  z-index: var(--app-z-chrome);
+  max-width: min(560px, calc(100% - var(--app-space-8)));
+  margin: 0;
+  padding: var(--app-space-2) var(--app-space-3);
+  transform: translateX(-50%);
+  border: 1px solid var(--app-warning);
+  border-radius: var(--app-radius-md);
+  background: var(--app-warning-soft);
+  color: var(--app-warning);
+  font-size: var(--app-text-sm);
+}
+
+/* When both are up, the degraded notice stacks below. */
+.canvas-screens-status ~ .canvas-degraded-notice {
+  top: calc(var(--app-canvas-chrome-top) + 40px);
+}
+
+/* The app owns this box; packages/canvas owns the `.vc-viewport` element
+   inside it. Keeping them separate is what lets the media query below
+   actually apply — see the comment on CanvasViewport's return. */
 .vc-viewport-host {
   position: absolute;
-  inset: 0;
+  inset: var(--app-canvas-bar-h) 0 0 0;
   background: var(--app-white);
+}
+
+.vc-viewport-surface {
+  width: 100%;
+  height: 100%;
 }
 
 .present-screen .vc-viewport-host {
@@ -904,15 +1154,72 @@
   background: transparent;
 }
 
-@media (min-width: 900px) {
-  .canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host {
-    width: calc(100% - 284px);
-    margin-left: 284px;
+/*
+ * The viewport is inset away from the floating panels rather than drawn
+ * underneath them. Three things were wrong before:
+ *
+ *   - the offset existed only above 900px, so on a narrow window the Pages
+ *     rail sat on top of the canvas, the inspector and the toolbar, and
+ *     could only be shrunk to a 44px stub that still overlaid them;
+ *   - the collapsed stub was never accounted for below 900px either, so
+ *     even collapsing did not give the canvas its space back;
+ *   - nothing inset the right-hand side at all, so the Prototype panel
+ *     covered the minimap whenever Prototype mode was on.
+ *
+ * `left`/`right` rather than `width` + `margin`: the host is
+ * `position: absolute; inset: 0`, and the engine's own unlayered
+ * `.vc-viewport { width: 100% }` outranks any width this layer sets.
+ * Insets are not in that fight.
+ */
+.canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host {
+  left: var(--app-pages-panel-gap);
+}
+
+.canvas-pages-panel.is-collapsed ~ .vc-viewport-host {
+  left: var(--app-pages-panel-collapsed-gap);
+}
+
+.canvas-prototype-panel ~ .vc-viewport-host {
+  right: var(--app-prototype-panel-gap);
+}
+
+/* Matches the panel's own width transition so the canvas and the rail move
+   together. Collapsing used to animate the panel and jump the viewport. */
+.vc-viewport-host {
+  transition:
+    left var(--app-transition) var(--app-ease-out),
+    right var(--app-transition) var(--app-ease-out);
+}
+
+/*
+ * Below 900px there is not enough room to inset for a 260px rail and still
+ * have a canvas, so the expanded rail becomes a temporary overlay above the
+ * chrome — but the canvas keeps the collapsed stub's offset either way, so
+ * nothing is ever permanently hidden behind it.
+ */
+@media (max-width: 899px) {
+  .canvas-pages-panel:not(.is-collapsed) {
+    z-index: var(--app-z-drawer-trigger);
+    box-shadow: var(--app-shadow-lg);
   }
 
-  .canvas-pages-panel.is-collapsed ~ .vc-viewport-host {
-    width: calc(100% - 68px);
-    margin-left: 68px;
+  .canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host,
+  .canvas-prototype-panel ~ .vc-viewport-host {
+    left: var(--app-pages-panel-collapsed-gap);
+    right: 0;
+  }
+
+  .canvas-prototype-panel {
+    z-index: var(--app-z-drawer-trigger);
+    width: min(var(--app-prototype-panel-w), calc(100vw - var(--app-space-8)));
+    box-shadow: var(--app-shadow-lg);
+  }
+
+  /* There is no room to inset for an overlaying panel here, so the minimap
+     — the one piece of chrome it would land on top of — stands down while
+     Prototype mode is open rather than being half-covered. */
+  .canvas-prototype-panel ~ .vc-viewport-host .vc-minimap {
+    display: none;
   }
 }
 

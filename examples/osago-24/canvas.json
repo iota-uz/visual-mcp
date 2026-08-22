@@ -2760,6 +2760,7 @@
       "id": "s1-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s1",
       "rect": {
@@ -2823,6 +2824,7 @@
       "id": "s2-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s2",
       "rect": {
@@ -2886,6 +2888,7 @@
       "id": "s3-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s3",
       "rect": {
@@ -2949,6 +2952,7 @@
       "id": "s4-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s4",
       "rect": {
@@ -3012,6 +3016,7 @@
       "id": "s5-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s5",
       "rect": {
@@ -3075,6 +3080,7 @@
       "id": "s5-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s5",
       "rect": {
@@ -3138,6 +3144,7 @@
       "id": "s6-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s6",
       "rect": {
@@ -3201,6 +3208,7 @@
       "id": "s7-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s7",
       "rect": {
@@ -3264,6 +3272,7 @@
       "id": "s7-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s7",
       "rect": {
@@ -3327,6 +3336,7 @@
       "id": "s9-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s9",
       "rect": {
@@ -3390,6 +3400,7 @@
       "id": "s10-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s10",
       "rect": {
@@ -3453,6 +3464,7 @@
       "id": "s11-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s11",
       "rect": {
@@ -3516,6 +3528,7 @@
       "id": "s12-actor-victim",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "subject",
       "laneId": "people",
       "stageId": "s12",
       "rect": {
@@ -3579,6 +3592,7 @@
       "id": "s12-actor-culprit",
       "kind": "native",
       "shape": "actor",
+      "actorRole": "counterparty",
       "laneId": "people",
       "stageId": "s12",
       "rect": {

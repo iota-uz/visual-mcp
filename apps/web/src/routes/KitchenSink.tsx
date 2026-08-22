@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge } from "../components/Badge";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConnectPanel } from "../components/ConnectPanel";
@@ -126,23 +127,36 @@ export function KitchenSinkPage() {
         <Row label="bare">
           <IconButton icon={X} label="Close" iconSize={18} />
           <IconButton icon={Search} label="Search" />
+          {/* Same control, rendered as a link — the gallery has to show
+              both or the pair drifts. */}
+          <IconLink to="/" icon={ArrowLeft} label="Back to workspaces" />
         </Row>
         {/* In context: these read as borderless *inside* the command bar,
             which is itself the surface they sit on. */}
         <Row label="command bar">
-          <div className="canvas-command-bar ks-static-bar">
-            <IconLink to="/" icon={ArrowLeft} label="Back" className="canvas-command-back" />
-            <div className="canvas-command-title">
-              <span>Fast Settlement</span>
-              <small>v3</small>
+          <div className="canvas-command-bar canvas-command-bar-public ks-static-bar">
+            <div className="canvas-command-lead">
+              <Link to="/" className="canvas-command-crumb">
+                OSAGO
+              </Link>
+              <span className="canvas-command-crumb-sep" aria-hidden="true">
+                /
+              </span>
+              <h1 className="canvas-command-name">Fast Settlement</h1>
+              <span className="canvas-command-state">
+                <span>v3</span>
+                <span>Checkpointed</span>
+              </span>
             </div>
-            <IconButton
-              icon={Info}
-              label="Open canvas details"
-              text="Details"
-              iconSize={17}
-              className="canvas-command-details"
-            />
+            <div className="canvas-command-actions">
+              <IconButton
+                icon={Info}
+                label="Open canvas details"
+                text="Details"
+                iconSize={17}
+                className="canvas-command-details"
+              />
+            </div>
           </div>
         </Row>
         <Row label="floating">
