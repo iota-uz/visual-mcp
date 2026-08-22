@@ -333,6 +333,18 @@ describe("reactive viewport reconciliation", () => {
     });
 
     controller.selectNode("screen");
+    /*
+     * Dimming focuses the selected node's stage, so the node itself must
+     * never be part of what fades: it used to be compared as
+     * `dataset.stage !== node.stageId`, and an absent stage is `""` in the
+     * DOM but `undefined` here — on a stageless canvas that dimmed
+     * everything, selection included.
+     */
+    const dimmed = () =>
+      [...container.querySelectorAll<HTMLElement>(".vc-node.dimmed")].map((el) => el.dataset.nodeId);
+    expect(dimmed()).toEqual(["native"]);
+    expect(container.querySelector(".vc-node.selected")?.classList.contains("dimmed")).toBe(false);
+
     const ref = container.querySelector<HTMLElement>(".vc-inspector-ref");
     expect(ref?.hidden).toBe(false);
     expect(container.querySelector(".vc-inspector-ref-value")).toHaveTextContent(
@@ -340,6 +352,24 @@ describe("reactive viewport reconciliation", () => {
     );
     container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy")?.click();
     expect(onCopy).toHaveBeenCalledWith("canvas://osago/realtime?node=screen");
+    controller.dispose();
+  });
+
+  test("a canvas with no stages dims nothing when a node is selected", () => {
+    const container = viewportContainer();
+    // Stages are optional, and plenty of canvases are just a board of nodes.
+    // There is no stage to focus here, so the dim has nothing to say.
+    const stageless = doc();
+    stageless.stages = [];
+    stageless.nodes = stageless.nodes.map((node) => ({ ...node, stageId: undefined }));
+    const controller = mountViewport({ container, canvas: layoutCanvas(stageless) });
+    flushFrames();
+
+    controller.selectNode("screen");
+    expect(container.querySelectorAll(".vc-node.dimmed")).toHaveLength(0);
+    expect(container.querySelector(".vc-node.selected")?.getAttribute("data-node-id")).toBe(
+      "screen",
+    );
     controller.dispose();
   });
 

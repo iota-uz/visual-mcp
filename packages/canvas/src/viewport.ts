@@ -952,9 +952,27 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     selectedGroupId = null;
     for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
       el.classList.remove("selected");
+    /*
+     * Dimming is a "focus this stage" affordance, and it had two ways to
+     * turn on the wrong nodes.
+     *
+     * It compared a dataset string against `stageId`, which is
+     * `string | undefined` — an absent stage reads as `""` in the DOM and
+     * as `undefined` here, so on a canvas with no stages at all *every*
+     * node, the selected one included, failed the check and faded. The
+     * selection was then indistinguishable from everything around it.
+     *
+     * So: never dim what the user just picked, and only dim at all when
+     * there is a stage to focus.
+     */
+    const focusStage = node.stageId ?? "";
     for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
-      el.classList.toggle("selected", el.dataset.nodeId === id);
-      el.classList.toggle("dimmed", el.dataset.stage !== node.stageId);
+      const isSelected = el.dataset.nodeId === id;
+      el.classList.toggle("selected", isSelected);
+      el.classList.toggle(
+        "dimmed",
+        !isSelected && focusStage !== "" && (el.dataset.stage ?? "") !== focusStage,
+      );
     }
     inspectorEyebrow.textContent = node.inspector?.eyebrow ?? "";
     inspectorTitle.textContent = node.inspector?.title ?? node.caption.title;

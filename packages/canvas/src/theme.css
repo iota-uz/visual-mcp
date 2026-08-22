@@ -1063,13 +1063,20 @@
 }
 
 /* --- legend --- */
+/*
+ * Top-right. The legend used to sit at the top-left, which is where the
+ * embedding app puts its Pages rail — since that rail became a floating
+ * card the two overlapped, and the legend read as content inside it.
+ * Nothing else claims this corner: the toolbar is bottom-centre, the
+ * minimap bottom-right, the inspector bottom-left.
+ */
 .vc-legend {
   position: absolute;
   z-index: 20;
-  left: 18px;
-  /* Keep canvas-owned chrome below the application command bar and its
-     navigation trigger. Both occupy y=12..52 in signed and public views. */
-  top: 64px;
+  right: 18px;
+  /* Keep canvas-owned chrome below the application command bar. It occupies
+     the full width above the viewport in signed and public views. */
+  top: 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
