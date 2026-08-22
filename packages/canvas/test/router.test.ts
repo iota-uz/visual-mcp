@@ -53,7 +53,7 @@ function doc(nodes: CanvasNode[], edges: CanvasEdge[]): CanvasDoc {
   };
 }
 
-test("fan-out gives branches from one anchor separate outward tracks", () => {
+test("fan-out forms one short trunk and turns branches in opposite directions", () => {
   const canvas = layoutCanvas(
     doc(
       [
@@ -71,23 +71,24 @@ test("fan-out gives branches from one anchor separate outward tracks", () => {
   );
   const paths = routeEdges(canvas);
   const sourcePoint = { x: 200, y: 400 };
+  const junctionPoint = { x: 224, y: 400 };
   const turningBranches = paths.filter((path) => path.edge.id !== "straight");
 
   assert.equal(paths.filter((path) => path.junctionPoint).length, 1);
-  assert.deepEqual(paths.find((path) => path.junctionPoint)?.junctionPoint, sourcePoint);
+  assert.deepEqual(paths.find((path) => path.junctionPoint)?.junctionPoint, junctionPoint);
   assert.deepEqual(
     turningBranches.map((path) => path.points[0]),
     [sourcePoint, sourcePoint],
   );
-  const exits = turningBranches.map((path) => path.points[1]?.x);
-  assert.ok(exits.every((x) => x !== undefined && x > sourcePoint.x));
-  assert.equal(new Set(exits).size, turningBranches.length, "branches use distinct trunks");
-  for (const path of turningBranches) {
-    const [start, exit, turn] = path.points;
-    assert.ok(start && exit && turn);
-    assert.ok(exit.x > start.x, "the route first leaves through the declared right side");
-    assert.equal(turn.x, exit.x, "the route turns instead of doubling back over its stem");
-  }
+  const [upper, lower] = turningBranches;
+  assert.ok(upper && lower);
+  assert.deepEqual(upper.points[1], junctionPoint);
+  assert.deepEqual(lower.points[1], junctionPoint);
+  assert.equal(upper.points[2]?.x, junctionPoint.x);
+  assert.equal(lower.points[2]?.x, junctionPoint.x);
+  assert.ok((upper.points[2]?.y ?? sourcePoint.y) < sourcePoint.y);
+  assert.ok((lower.points[2]?.y ?? sourcePoint.y) > sourcePoint.y);
+  assert.equal(paths.find((path) => path.edge.id === "straight")?.points.length, 2);
 });
 
 test("parallel and reciprocal connections use distinct tracks", () => {
@@ -107,7 +108,7 @@ test("parallel and reciprocal connections use distinct tracks", () => {
   assert.ok(forward.d !== reverse.d, "opposite arrows must not paint the same line twice");
 });
 
-test("multiple incoming connections converge through separate approach tracks", () => {
+test("multiple incoming connections converge through one shared approach trunk", () => {
   const canvas = layoutCanvas(
     doc(
       [node("upper", 100, 100), node("lower", 100, 600), node("target", 700, 350)],
@@ -119,9 +120,9 @@ test("multiple incoming connections converge through separate approach tracks", 
   );
   const paths = routeEdges(canvas);
   const entries = paths.map((path) => path.points.at(-2)?.x);
-  assert.equal(new Set(entries).size, paths.length);
+  assert.deepEqual(entries, [676, 676]);
   assert.equal(paths.filter((path) => path.mergePoint).length, 1);
-  assert.deepEqual(paths.find((path) => path.mergePoint)?.mergePoint, { x: 700, y: 400 });
+  assert.deepEqual(paths.find((path) => path.mergePoint)?.mergePoint, { x: 676, y: 400 });
 });
 
 test("a connection back to the same anchor becomes a visible external loop", () => {
@@ -179,4 +180,19 @@ test("edge rendering adds crossing halos and one junction port per fan-out", () 
   assert.equal((html.match(/class="vc-edge-halo"/g) ?? []).length, 2);
   assert.equal((html.match(/class="vc-edge-line"/g) ?? []).length, 2);
   assert.equal((html.match(/class="vc-edge-junction"/g) ?? []).length, 1);
+});
+
+test("a mixed orthogonal and bezier fan-out keeps its junction on the shared anchor", () => {
+  const bezier = {
+    ...edge("curve", "source", "right", "upper", "left"),
+    route: { type: "bezier" as const },
+  };
+  const canvas = layoutCanvas(
+    doc(
+      [node("source", 100, 350), node("upper", 600, 100), node("lower", 600, 650)],
+      [bezier, edge("lower", "source", "right", "lower", "left")],
+    ),
+  );
+  const paths = routeEdges(canvas);
+  assert.deepEqual(paths.find((path) => path.junctionPoint)?.junctionPoint, { x: 200, y: 400 });
 });

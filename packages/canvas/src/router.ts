@@ -15,8 +15,6 @@ export class RouterError extends Error {}
 const ORTHOGONAL_CLEARANCE = 24;
 const ORTHOGONAL_OBSTACLE_PADDING = 12;
 const ORTHOGONAL_BEND_RADIUS = 10;
-const ENDPOINT_TRACK_GAP = 14;
-const MAX_ENDPOINT_SPREAD = 70;
 const PARALLEL_TRACK_GAP = 18;
 const MAX_OCCUPIED_SEGMENTS = 800;
 const ROUTE_EPSILON = 0.001;
@@ -134,44 +132,6 @@ function canonicalPairKey(edge: CanvasEdge): string {
   return source < target ? `${source}\u0001${target}` : `${target}\u0001${source}`;
 }
 
-function perpendicularDistance(side: AnchorSide, source: Point, target: Point): number {
-  return side === "left" || side === "right"
-    ? Math.abs(target.y - source.y)
-    : Math.abs(target.x - source.x);
-}
-
-function endpointClearances(
-  role: "source" | "target",
-  clusters: Iterable<CanvasEdge[]>,
-  resolved: Map<string, { source: ResolvedEndpoint; target: ResolvedEndpoint }>,
-): Map<string, number> {
-  const clearances = new Map<string, number>();
-  const otherRole = role === "source" ? "target" : "source";
-  for (const cluster of clusters) {
-    const own = cluster[0] ? resolved.get(cluster[0].id)?.[role] : undefined;
-    if (!own) continue;
-    const ordered = [...cluster].sort((a, b) => {
-      const aOther = resolved.get(a.id)?.[otherRole].point ?? own.point;
-      const bOther = resolved.get(b.id)?.[otherRole].point ?? own.point;
-      return (
-        perpendicularDistance(own.anchor.side, own.point, aOther) -
-          perpendicularDistance(own.anchor.side, own.point, bOther) ||
-        aOther.y - bOther.y ||
-        aOther.x - bOther.x ||
-        a.id.localeCompare(b.id)
-      );
-    });
-    const gap =
-      ordered.length > 1
-        ? Math.min(ENDPOINT_TRACK_GAP, MAX_ENDPOINT_SPREAD / (ordered.length - 1))
-        : 0;
-    ordered.forEach((edge, rank) => {
-      clearances.set(edge.id, ORTHOGONAL_CLEARANCE + rank * gap);
-    });
-  }
-  return clearances;
-}
-
 function parallelOffsets(clusters: Iterable<CanvasEdge[]>): Map<string, number> {
   const offsets = new Map<string, number>();
   for (const pairCluster of clusters) {
@@ -196,6 +156,10 @@ function clusterOwner(cluster: CanvasEdge[]): string | undefined {
   return [...cluster].sort(
     (a, b) => EDGE_KIND_PRIORITY[a.kind] - EDGE_KIND_PRIORITY[b.kind] || a.id.localeCompare(b.id),
   )[0]?.id;
+}
+
+function isAutoOrthogonal(edge: CanvasEdge): boolean {
+  return edge.route.type === "orthogonal" && !edge.route.waypoints?.length;
 }
 
 function samePoint(a: Point, b: Point): boolean {
@@ -431,6 +395,8 @@ function fansAtTrackedEndpoints(
   targetSide: AnchorSide,
   sourceTracked: boolean,
   targetTracked: boolean,
+  sourceTurn: number,
+  targetTurn: number,
 ): boolean {
   if (points.length < 2) return true;
   const first = points[0];
@@ -442,11 +408,19 @@ function fansAtTrackedEndpoints(
   const targetDirection = sideVector(targetSide);
   const departure = { x: second.x - first.x, y: second.y - first.y };
   const arrival = { x: last.x - beforeLast.x, y: last.y - beforeLast.y };
+  const sourceForward = departure.x * sourceDirection.x + departure.y * sourceDirection.y;
+  const targetForward = arrival.x * targetDirection.x + arrival.y * targetDirection.y;
+  const sourceTangent = sourceSide === "left" || sourceSide === "right" ? departure.y : departure.x;
+  const targetTangent = targetSide === "left" || targetSide === "right" ? arrival.y : arrival.x;
   const sourceTurnsAtTrack =
-    Math.abs(departure.x * sourceDirection.x + departure.y * sourceDirection.y) < ROUTE_EPSILON;
+    Math.abs(sourceForward) < ROUTE_EPSILON && sourceTangent * sourceTurn > ROUTE_EPSILON;
   const targetTurnsAtTrack =
-    Math.abs(arrival.x * targetDirection.x + arrival.y * targetDirection.y) < ROUTE_EPSILON;
+    Math.abs(targetForward) < ROUTE_EPSILON && targetTangent * targetTurn > ROUTE_EPSILON;
   return (!sourceTracked || sourceTurnsAtTrack) && (!targetTracked || targetTurnsAtTrack);
+}
+
+function perpendicularDelta(side: AnchorSide, from: Point, to: Point): number {
+  return side === "left" || side === "right" ? to.y - from.y : to.x - from.x;
 }
 
 function sameEndpointLoop(
@@ -496,6 +470,8 @@ function smartOrthogonalPoints(
   targetClearance: number,
   trackOffset: number,
   occupied: Segment[],
+  sourceFanOut: boolean,
+  targetFanIn: boolean,
 ): Point[] {
   if (
     source.node.id === target.node.id &&
@@ -520,13 +496,17 @@ function smartOrthogonalPoints(
     respectsEndpointDirections(candidate, source.anchor.side, target.anchor.side),
   );
   const candidates = directionalCandidates.length ? directionalCandidates : rawCandidates;
+  const sourceTurn = perpendicularDelta(source.anchor.side, source.point, target.point);
+  const targetTurn = perpendicularDelta(target.anchor.side, source.point, target.point);
   const trackedCandidates = candidates.filter((candidate) =>
     fansAtTrackedEndpoints(
       candidate,
       source.anchor.side,
       target.anchor.side,
-      sourceClearance > ORTHOGONAL_CLEARANCE + ROUTE_EPSILON,
-      targetClearance > ORTHOGONAL_CLEARANCE + ROUTE_EPSILON,
+      sourceFanOut && Math.abs(sourceTurn) > ROUTE_EPSILON,
+      targetFanIn && Math.abs(targetTurn) > ROUTE_EPSILON,
+      sourceTurn,
+      targetTurn,
     ),
   );
   const parallel = parallelTrackCandidate(
@@ -609,8 +589,6 @@ export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
     pairCluster.push(edge);
     pairClusters.set(pairKey, pairCluster);
   }
-  const sourceClearances = endpointClearances("source", sourceClusters.values(), resolved);
-  const targetClearances = endpointClearances("target", targetClusters.values(), resolved);
   const trackOffsets = parallelOffsets(pairClusters.values());
   const occupied: Segment[] = [];
 
@@ -620,8 +598,8 @@ export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
     const { source, target } = endpoints;
     const sourceCluster = sourceClusters.get(endpointKey(edge.source)) ?? [edge];
     const targetCluster = targetClusters.get(endpointKey(edge.target)) ?? [edge];
-    const sourceClearance = sourceClearances.get(edge.id) ?? ORTHOGONAL_CLEARANCE;
-    const targetClearance = targetClearances.get(edge.id) ?? ORTHOGONAL_CLEARANCE;
+    const sourceClearance = ORTHOGONAL_CLEARANCE;
+    const targetClearance = ORTHOGONAL_CLEARANCE;
     const trackOffset = trackOffsets.get(edge.id) ?? 0;
     const position = edge.label?.position ?? 0.5;
     const offset = edge.label?.offset ?? { x: 0, y: 0 };
@@ -680,6 +658,8 @@ export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
           targetClearance,
           trackOffset,
           occupied,
+          sourceCluster.length > 1,
+          targetCluster.length > 1,
         );
       }
       d =
@@ -702,11 +682,15 @@ export function routeEdges(canvas: PositionedCanvas): EdgePath[] {
       labelPoint: { x: labelBase.x + offset.x, y: labelBase.y + offset.y },
       junctionPoint:
         sourceCluster.length > 1 && edge.id === clusterOwner(sourceCluster)
-          ? { ...source.point }
+          ? sourceCluster.every(isAutoOrthogonal)
+            ? moveOutward(source.point, source.anchor.side, sourceClearance)
+            : { ...source.point }
           : undefined,
       mergePoint:
         targetCluster.length > 1 && edge.id === clusterOwner(targetCluster)
-          ? { ...target.point }
+          ? targetCluster.every(isAutoOrthogonal)
+            ? moveOutward(target.point, target.anchor.side, targetClearance)
+            : { ...target.point }
           : undefined,
     };
   });
