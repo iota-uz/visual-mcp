@@ -105,14 +105,16 @@ function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
         <Blocks size={20} aria-hidden="true" />
         <span>Visual Canvas</span>
       </Link>
-      {/* The labels are display:none on the narrow rail, which drops them
-          out of the accessibility tree entirely — hence the aria-labels. */}
+      {/* No aria-labels on these: the narrow rail now stacks each label
+          under its icon instead of hiding it, so the visible text is the
+          accessible name — and an aria-label that read "Asset Library" over
+          a visible "Assets" would be a name the label no longer contains. */}
       <nav className="app-sidebar-nav">
-        <NavLink to="/" end className={sidebarLinkClass} aria-label="Workspaces">
+        <NavLink to="/" end className={sidebarLinkClass}>
           <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
         </NavLink>
-        <NavLink to="/assets" className={sidebarLinkClass} aria-label="Asset Library">
+        <NavLink to="/assets" className={sidebarLinkClass}>
           <Images size={16} aria-hidden="true" />
           <span>Assets</span>
         </NavLink>
@@ -144,7 +146,7 @@ function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           </ul>
         )}
         <div className="app-sidebar-group">
-          <NavLink to="/settings/tokens" className={sidebarLinkClass} aria-label="MCP tokens">
+          <NavLink to="/settings/tokens" className={sidebarLinkClass}>
             <KeyRound size={16} aria-hidden="true" />
             <span>MCP tokens</span>
           </NavLink>

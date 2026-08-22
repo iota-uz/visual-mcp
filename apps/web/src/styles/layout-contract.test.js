@@ -15,4 +15,20 @@ describe("signed-in shell scroll contract", () => {
     expect(shell).toMatch(/\.app-content[\s\S]*min-height:\s*0[\s\S]*overflow-y:\s*auto/);
     expect(sidebar).toMatch(/\.app-sidebar[\s\S]*min-height:\s*0[\s\S]*overflow-y:\s*auto/);
   });
+
+  /*
+   * The narrow-width rules collapse the rail to icons with a caption under
+   * each. The canvas navigation drawer reuses the same markup inside a
+   * ~300px panel, where that collapse produced a column of unlabelled
+   * glyphs in a screen of white with the workspace list switched off — so
+   * every rule in the block has to exclude the drawer.
+   */
+  it("collapses only the docked rail, never the canvas navigation drawer", async () => {
+    const sidebar = await readFile(join(process.cwd(), "src/styles/surfaces/sidebar.css"), "utf8");
+    const narrow = sidebar.slice(sidebar.indexOf("@media (max-width: 640px)"));
+    expect(narrow).not.toBe("");
+    for (const selector of narrow.matchAll(/^\s{2}(\.app-sidebar[^{,]*)[,{]/gm)) {
+      expect(selector[1]).toContain(":not(.app-sidebar-canvas-drawer)");
+    }
+  });
 });

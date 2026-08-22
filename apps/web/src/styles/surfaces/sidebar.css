@@ -134,54 +134,74 @@
   border-right: 0;
 }
 
+/* In the docked rail the settings group is pushed to the foot of a column
+   the page always fills. A drawer holds four links in a phone's height, so
+   the same rule opened a screen-tall hole in the middle of the menu; here
+   the group simply follows the links it belongs with. */
+.app-sidebar-canvas-drawer .app-sidebar-group {
+  margin-top: 0;
+}
+
 @media (max-width: 960px) {
   .app-sidebar {
     flex-basis: 176px;
   }
 }
 
+/* The rail collapses to icons only when it is *docked*. Inside the canvas
+   navigation drawer the same markup has a 300px panel to itself, and
+   collapsing it there produced four centred icons in a column of white with
+   the workspace list — the reason to open navigation at all — switched off.
+   Every rule below is therefore scoped away from the drawer. */
 @media (max-width: 640px) {
-  .app-sidebar {
-    flex-basis: 64px;
-    padding: var(--app-space-3) var(--app-space-2);
+  .app-sidebar:not(.app-sidebar-canvas-drawer) {
+    flex-basis: 84px;
+    padding: var(--app-space-3) var(--app-space-1);
     align-items: center;
   }
-}
 
-@media (max-width: 640px) {
-  .app-sidebar-brand,
-  .app-sidebar-link {
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-brand {
     justify-content: center;
     padding: var(--app-space-2);
   }
-}
 
-@media (max-width: 640px) {
-  .app-sidebar-brand span,
-  .app-sidebar-link span,
-  .app-sidebar-email,
-  .app-sidebar-more,
-  /* Sign out is a Button, so it is not covered by the two rules above and
-     its label spilled out of the 64px rail onto the page beside it. */
-    .app-sidebar-footer
-    .btn
-    span {
+  /* The wordmark is the one label that cannot shrink into the rail, and the
+     link keeps its aria-label. */
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-brand span,
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-email,
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-more {
     display: none;
   }
-}
 
-@media (max-width: 640px) {
-  .app-sidebar-footer .btn {
-    justify-content: center;
-    padding: var(--app-space-2);
+  /* Captions under the icons rather than no captions at all: a bare glyph
+     rail asks the reader to guess what "images" or "key" navigates to, and
+     the words fit once they stack instead of sitting alongside. */
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-link,
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-footer .btn {
+    width: 100%;
+    flex-direction: column;
+    gap: var(--app-space-1);
+    padding: var(--app-space-2) var(--app-space-1);
+    text-align: center;
   }
-}
 
-@media (max-width: 640px) {
-  /* Workspace links are text-only, so hiding their span leaves an empty
-       target. Drop the list entirely on the icon rail. */
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-link span,
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-footer .btn span {
+    font-size: var(--app-text-xs);
+    font-weight: 600;
+    line-height: 1.15;
+  }
 
-  .app-sidebar-workspaces {
+  /* An active rule down the left edge is invisible on a centred, stacked
+     item; the whole tile reads as selected instead. */
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-link.active {
+    box-shadow: none;
+  }
+
+  /* Workspace links are text-only. At rail width their names truncate to
+     nothing legible, and the workspaces they point at are the content of
+     the page the rail's first link already goes to. */
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-workspaces {
     display: none;
   }
 }
