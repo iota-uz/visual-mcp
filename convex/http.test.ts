@@ -290,7 +290,7 @@ describe("/mcp tool contracts", () => {
         outputSchema?: unknown;
       }>;
     };
-    expect(listed.tools).toHaveLength(32);
+    expect(listed.tools).toHaveLength(37);
     for (const tool of listed.tools) {
       const roots = tool.inputSchema.anyOf ?? [tool.inputSchema];
       expect(
@@ -845,6 +845,224 @@ describe("/mcp canvas_save", () => {
     expect(file.pages[0]?.doc.groups[0]?.nodeIds).toEqual(["s-two"]);
     expect(file.prototype.start).toBeUndefined();
     expect(file.prototype.interactions).toEqual([]);
+  });
+
+  test("a component captured from a canvas inserts into another as an independent copy", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const pair = {
+      ...baseDoc,
+      nodes: [
+        ...baseDoc.nodes,
+        {
+          id: "n2",
+          kind: "native",
+          laneId: "l1",
+          stageId: "s1",
+          rect: { x: 400, y: 90, w: 200, h: 100 },
+          shape: "note",
+          caption: { title: "Second" },
+          anchors: [{ id: "left", side: "left", offset: 0.5 }],
+        },
+      ],
+      edges: [
+        {
+          id: "link",
+          source: { nodeId: "n1", anchorId: "right" },
+          target: { nodeId: "n2", anchorId: "left" },
+          kind: "main",
+          route: { type: "orthogonal" },
+        },
+      ],
+    };
+    const source = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "kit/source",
+        kind: "canvas",
+        doc: canvasFile(pair),
+      }),
+    );
+    expect(source.isError).toBeFalsy();
+
+    const saved = parse(
+      await callTool(t, token, "component_save", {
+        ref: "kit/pair",
+        name: "Node pair",
+        description: "Two notes and the arrow between them",
+        tags: ["demo"],
+        from: { ref: "kit/source", node_ids: ["n1", "n2"] },
+      }),
+    );
+    expect(saved.isError).toBeFalsy();
+    expect(saved.data.created).toBe(true);
+    expect(saved.data.node_count).toBe(2);
+    expect(saved.data.edge_count).toBe(1);
+    expect(saved.data.version).toBe(1);
+
+    const read = parse(
+      await callTool(t, token, "component_get", { ref: "kit/pair", include_body: true }),
+    );
+    const body = read.data as { nodes: { id: string; rect: { x: number; y: number } }[] };
+    // Geometry is rebased on the block's own corner, and page context is gone.
+    expect(body.nodes.map((node) => [node.id, node.rect.x, node.rect.y])).toEqual([
+      ["n1", 0, 0],
+      ["n2", 350, 40],
+    ]);
+    expect(body.nodes.every((node) => !("laneId" in node) && !("stageId" in node))).toBe(true);
+
+    const found = parse(await callTool(t, token, "component_find", { query: "pair" }));
+    expect((found.data.components as { ref: string }[]).map((c) => c.ref)).toEqual(["kit/pair"]);
+
+    const target = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "kit/target",
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
+    );
+
+    const first = parse(
+      await callTool(t, token, "component_insert", {
+        ref: "kit/pair",
+        target: { ref: "kit/target" },
+        at: { x: 800, y: 400 },
+        expected_version: target.data.version as number,
+        expected_draft_revision: target.data.draft_revision as number,
+        group_label: "Pair",
+      }),
+    );
+    expect(first.isError).toBeFalsy();
+    // "n1" is taken by the target canvas, so the copy gets its own id.
+    expect(first.data.node_ids).toEqual({ n1: "pair-n1", n2: "pair-n2" });
+    expect(first.data.edge_ids).toEqual({ link: "pair-link" });
+    expect(first.data.group_id).toBe("pair-group");
+
+    const second = parse(
+      await callTool(t, token, "component_insert", {
+        ref: "kit/pair",
+        target: { ref: "kit/target" },
+        at: { x: 1_400, y: 400 },
+        expected_version: first.data.version as number,
+        expected_draft_revision: first.data.draft_revision as number,
+      }),
+    );
+    expect(second.isError).toBeFalsy();
+    expect(second.data.node_ids).toEqual({ n1: "pair-n1-2", n2: "pair-n2-2" });
+
+    const doc = parse(
+      await callTool(t, token, "canvas_get", { ref: "kit/target", include: ["doc"] }),
+    );
+    const nodes = (
+      doc.data.doc as {
+        pages: {
+          doc: {
+            nodes: { id: string; rect: { x: number; y: number } }[];
+            edges: { id: string; source: { nodeId: string }; target: { nodeId: string } }[];
+          };
+        }[];
+      }
+    ).pages[0]?.doc;
+    expect(nodes?.nodes.map((node) => node.id)).toEqual([
+      "n1",
+      "pair-n1",
+      "pair-n2",
+      "pair-n1-2",
+      "pair-n2-2",
+    ]);
+    // Both copies landed where they were asked to, independently.
+    expect(nodes?.nodes.find((node) => node.id === "pair-n1")?.rect).toMatchObject({
+      x: 800,
+      y: 400,
+    });
+    expect(nodes?.nodes.find((node) => node.id === "pair-n1-2")?.rect).toMatchObject({
+      x: 1_400,
+      y: 400,
+    });
+    // Internal edges follow their own copies, never the other insertion.
+    expect(nodes?.edges.map((edge) => [edge.id, edge.source.nodeId, edge.target.nodeId])).toEqual([
+      ["pair-link", "pair-n1", "pair-n2"],
+      ["pair-link-2", "pair-n1-2", "pair-n2-2"],
+    ]);
+
+    const deleted = parse(await callTool(t, token, "component_delete", { ref: "kit/pair" }));
+    expect(deleted.data.deleted).toBe(true);
+    // Deleting the component leaves inserted copies alone — they are copies.
+    const after = parse(
+      await callTool(t, token, "canvas_get", { ref: "kit/target", include: ["doc"] }),
+    );
+    expect(
+      (after.data.doc as { pages: { doc: { nodes: unknown[] } }[] }).pages[0]?.doc.nodes,
+    ).toHaveLength(5);
+  });
+
+  test("component writes are versioned and page context is refused", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "kit/anchor",
+      kind: "canvas",
+      doc: canvasFile(),
+    });
+
+    const inlineNode = {
+      id: "card",
+      kind: "native",
+      shape: "note",
+      rect: { x: 0, y: 0, w: 200, h: 100 },
+      caption: { title: "Card" },
+      anchors: [],
+    };
+    const created = parse(
+      await callTool(t, token, "component_save", {
+        ref: "kit/card",
+        name: "Card",
+        nodes: [inlineNode],
+      }),
+    );
+    expect(created.data.version).toBe(1);
+
+    const stale = parse(
+      await callTool(t, token, "component_save", {
+        ref: "kit/card",
+        name: "Card",
+        nodes: [inlineNode],
+        expected_version: 5,
+      }),
+    );
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toMatch(/version_conflict/);
+
+    const updated = parse(
+      await callTool(t, token, "component_save", {
+        ref: "kit/card",
+        name: "Card v2",
+        nodes: [inlineNode],
+        expected_version: 1,
+      }),
+    );
+    expect(updated.data.created).toBe(false);
+    expect(updated.data.version).toBe(2);
+
+    // A component that depends on a lane cannot insert anywhere else.
+    const contextual = parse(
+      await callTool(t, token, "component_save", {
+        ref: "kit/bound",
+        name: "Bound",
+        nodes: [{ ...inlineNode, laneId: "l1" }],
+      }),
+    );
+    expect(contextual.isError).toBe(true);
+    expect(contextual.text).toMatch(/lane or stage/);
+
+    const unknownWorkspace = parse(
+      await callTool(t, token, "component_save", {
+        ref: "nowhere/card",
+        name: "Card",
+        nodes: [inlineNode],
+      }),
+    );
+    expect(unknownWorkspace.isError).toBe(true);
+    expect(unknownWorkspace.text).toMatch(/Unknown workspace/);
   });
 
   test("files-only save publishes exactly one version and identical retry is a no-op", async () => {

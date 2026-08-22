@@ -38,6 +38,13 @@ import {
   parseElementRef,
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
+import type { CanvasComponentBody } from "@visual-canvas/canvas/component.js";
+import {
+  CanvasComponentBodySchema,
+  componentSize,
+  extractComponent,
+  insertComponent,
+} from "@visual-canvas/canvas/component.js";
 import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
@@ -56,6 +63,7 @@ import {
 } from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
 import { internal } from "../_generated/api";
+import { parseComponentRef } from "../components";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { fetchAssetImport, persistAsset } from "../assets";
@@ -2023,6 +2031,303 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           removed_interaction_ids: deleted.removedInteractionIds,
           cleared_prototype_start: deleted.clearedStart,
         });
+      }),
+  );
+
+  /* --- reusable components --------------------------------------------- */
+  /*
+   * An agent that has drawn a good flow once had no way to carry it to the
+   * next canvas: nothing moved a group of nodes *and the edges between them*
+   * between documents. Components are that bundle, addressed like canvases
+   * ("workspace/component") and inserted as an independent copy — no
+   * master/instance link, so two insertions can never disturb each other.
+   */
+  const ComponentRefArg = z
+    .string()
+    .describe('"workspace-slug/component-slug", e.g. "osago/login-flow".');
+
+  const ComponentSummarySchema = z.object({
+    ref: z.string(),
+    component_id: z.string(),
+    workspace_slug: z.string(),
+    slug: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    tags: z.array(z.string()),
+    node_count: z.number().int().nonnegative(),
+    edge_count: z.number().int().nonnegative(),
+    size: z.object({ width: z.number(), height: z.number() }),
+    version: z.number().int().nonnegative(),
+    updated_at: z.number(),
+  });
+
+  /** Body plus derived counts, from either authoring mode. */
+  async function resolveComponentBody(input: {
+    nodes?: unknown[];
+    edges?: unknown[];
+    from?: { ref: string; page_id?: string; node_ids: string[] };
+  }) {
+    if (input.from) {
+      const loaded = await loadCanvasFileByRef(ctx, input.from.ref);
+      const page = resolveCanvasPage(loaded.file, input.from.page_id);
+      if (input.from.page_id && page.id !== input.from.page_id) {
+        throw new Error(`page_not_found: ${input.from.page_id}`);
+      }
+      return extractComponent(page.doc, input.from.node_ids);
+    }
+    if (!input.nodes) {
+      throw new Error("Provide either nodes (+ edges) or from:{ref,node_ids}.");
+    }
+    return CanvasComponentBodySchema.parse({ nodes: input.nodes, edges: input.edges ?? [] });
+  }
+
+  server.registerTool(
+    "component_save",
+    {
+      title: "Save a reusable component",
+      description:
+        "Creates or updates a reusable block of nodes and the edges between them, addressed as " +
+        '"workspace-slug/component-slug". Author it inline with nodes/edges, or capture it from ' +
+        "an existing canvas with from:{ref,page_id?,node_ids}. Geometry is stored relative to the " +
+        "block's own top-left corner and lane/stage references are dropped, since a component " +
+        "must insert into any page. Pass expected_version when updating.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({
+          ref: ComponentRefArg,
+          name: z.string().min(1).max(160),
+          description: z.string().max(2_000).optional(),
+          tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+          nodes: z.array(z.unknown()).optional().describe("Complete CanvasDoc v2 nodes."),
+          edges: z.array(z.unknown()).optional().describe("Edges between those nodes only."),
+          from: z
+            .object({
+              ref: RefArg,
+              page_id: z.string().optional(),
+              node_ids: z.array(z.string().min(1)).min(1).max(200),
+            })
+            .strict()
+            .optional()
+            .describe("Capture the block from an existing canvas instead of writing it inline."),
+          expected_version: z.number().int().nonnegative().optional(),
+        })
+        .strict(),
+      outputSchema: ComponentSummarySchema.extend({ created: z.boolean() }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const { workspaceSlug, componentSlug } = parseComponentRef(input.ref);
+        const body = await resolveComponentBody(input);
+        const size = componentSize(body);
+        const saved = await ctx.runMutation(internal.components.upsert, {
+          workspaceSlug,
+          slug: componentSlug,
+          name: input.name,
+          description: input.description,
+          tags: input.tags ?? [],
+          bodyJson: JSON.stringify(body),
+          nodeCount: body.nodes.length,
+          edgeCount: body.edges.length,
+          width: size.width,
+          height: size.height,
+          expectedVersion: input.expected_version,
+          createdBy: principal.userId,
+        });
+        return result(saved);
+      }),
+  );
+
+  server.registerTool(
+    "component_get",
+    {
+      title: "Read a component",
+      description:
+        "Returns a component's metadata, and its nodes and edges when include_body is true. " +
+        "Geometry is relative to the component's own origin; component_insert offsets it.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z
+        .object({ ref: ComponentRefArg, include_body: z.boolean().optional() })
+        .strict(),
+      outputSchema: ComponentSummarySchema.extend({
+        nodes: z.array(z.unknown()).optional(),
+        edges: z.array(z.unknown()).optional(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const { workspaceSlug, componentSlug } = parseComponentRef(input.ref);
+        const found = await ctx.runQuery(internal.components.getByRef, {
+          workspaceSlug,
+          slug: componentSlug,
+          includeBody: input.include_body === true,
+        });
+        if (!found) throw new Error(`component_not_found: ${input.ref}`);
+        const { body_json, ...summary } = found;
+        const body = body_json ? (JSON.parse(body_json) as CanvasComponentBody) : null;
+        return result(body ? { ...summary, nodes: body.nodes, edges: body.edges } : summary);
+      }),
+  );
+
+  server.registerTool(
+    "component_find",
+    {
+      title: "Find components",
+      description:
+        "Searches saved components by name, description, tags and slug. Restrict with workspace " +
+        "or tag; omit query to browse the most recently updated.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z
+        .object({
+          query: z.string().optional(),
+          workspace: z.string().optional(),
+          tag: z.string().optional(),
+          limit: z.number().int().positive().max(100).optional(),
+        })
+        .strict(),
+      outputSchema: z.object({ components: z.array(ComponentSummarySchema) }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const components = await ctx.runQuery(internal.components.find, {
+          query: input.query,
+          workspaceSlug: input.workspace,
+          tag: input.tag,
+          limit: input.limit,
+        });
+        return result({ components });
+      }),
+  );
+
+  server.registerTool(
+    "component_insert",
+    {
+      title: "Insert a component into a canvas",
+      description:
+        "Copies a component into one Page at a world point, in a single atomic write. Every " +
+        "node and edge id is remapped and internal edges are re-bound to the copies, so two " +
+        "insertions are independent and later component edits never touch them. Optionally " +
+        "attaches the copies to a lane/stage and groups them. Iframe and image nodes still need " +
+        "their files present in the target canvas. Rejects stale version or draft revision values.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: ComponentRefArg,
+          target: z
+            .object({ ref: RefArg, page_id: z.string().optional() })
+            .strict(),
+          at: z.object({ x: z.number().finite(), y: z.number().finite() }).strict(),
+          expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative(),
+          lane_id: z.string().optional(),
+          stage_id: z.string().optional(),
+          group_label: z.string().min(1).max(160).optional(),
+          id_prefix: z
+            .string()
+            .min(1)
+            .max(60)
+            .optional()
+            .describe("Prefix for generated ids; defaults to the component slug."),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        component_ref: z.string(),
+        page_id: z.string(),
+        version: z.number().int().nonnegative(),
+        draft_revision: z.number().int().nonnegative(),
+        dirty: z.boolean(),
+        node_ids: z.record(z.string(), z.string()),
+        edge_ids: z.record(z.string(), z.string()),
+        group_id: z.string().optional(),
+        warnings: z.array(WarningSchema),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const { workspaceSlug, componentSlug } = parseComponentRef(input.ref);
+        const found = await ctx.runQuery(internal.components.getByRef, {
+          workspaceSlug,
+          slug: componentSlug,
+          includeBody: true,
+        });
+        if (!found?.body_json) throw new Error(`component_not_found: ${input.ref}`);
+        const body = CanvasComponentBodySchema.parse(JSON.parse(found.body_json));
+
+        const loaded = await loadCanvasFileByRef(ctx, input.target.ref);
+        const currentVersion = loaded.detail.canvas.version ?? 0;
+        if (currentVersion !== input.expected_version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${currentVersion}`,
+          );
+        }
+        const page = resolveCanvasPage(loaded.file, input.target.page_id);
+        if (input.target.page_id && page.id !== input.target.page_id) {
+          throw new Error(`page_not_found: ${input.target.page_id}`);
+        }
+        const inserted = insertComponent(page.doc, body, {
+          at: input.at,
+          laneId: input.lane_id,
+          stageId: input.stage_id,
+          groupLabel: input.group_label,
+          idPrefix: input.id_prefix ?? componentSlug,
+        });
+        const nextDoc = CanvasDocSchema.parse(inserted.doc);
+        const nextFile = CanvasFileSchema.parse({
+          ...loaded.file,
+          pages: loaded.file.pages.map((candidate) =>
+            candidate.id === page.id ? { ...candidate, doc: nextDoc } : candidate,
+          ),
+        });
+        const saved = await saveCanvasFileDraft(
+          ctx,
+          principal,
+          loaded.detail.canvas.canvas_id,
+          nextFile,
+          {
+            expectedVersion: input.expected_version,
+            expectedDraftRevision: input.expected_draft_revision,
+            note: input.note ?? `Inserted component ${input.ref}`,
+          },
+        );
+        return result({
+          status: "ok",
+          ref: input.target.ref,
+          component_ref: input.ref,
+          page_id: page.id,
+          version: saved.version,
+          draft_revision: saved.draftRevision,
+          dirty: saved.dirty,
+          node_ids: inserted.nodeIds,
+          edge_ids: inserted.edgeIds,
+          group_id: inserted.groupId,
+          warnings: dedupeWarnings(
+            scanNodeOverlaps([{ id: page.id, title: page.title, doc: nextDoc }]),
+          ),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "component_delete",
+    {
+      title: "Delete a component",
+      description:
+        "Permanently removes a saved component. Canvases that already contain copies are " +
+        "untouched: insertion copies, so nothing references this row.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      inputSchema: z.object({ ref: ComponentRefArg }).strict(),
+      outputSchema: z.object({ deleted: z.boolean(), ref: z.string() }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const { workspaceSlug, componentSlug } = parseComponentRef(input.ref);
+        const removed = await ctx.runMutation(internal.components.remove, {
+          workspaceSlug,
+          slug: componentSlug,
+        });
+        return result({ deleted: removed.deleted, ref: input.ref });
       }),
   );
 
