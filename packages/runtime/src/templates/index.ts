@@ -13,6 +13,7 @@ import { architectureOverviewTemplate } from "./architecture-overview.js";
 import { browserAppScreenTemplate } from "./browser-app-screen.js";
 import { chartReportTemplate } from "./chart-report.js";
 import { dashboardOverviewTemplate } from "./dashboard-overview.js";
+import { deviceFrameScreenTemplate } from "./device-frame-screen.js";
 import { iframeServiceFlowTemplate } from "./iframe-service-flow.js";
 import { imageReferenceBoardTemplate } from "./image-reference-board.js";
 import { mobileAppScreenTemplate } from "./mobile-app-screen.js";
@@ -30,6 +31,7 @@ export const TEMPLATES: readonly Template[] = [
   sequenceFlowTemplate,
   mobileAppScreenTemplate,
   phoneFrameScreenTemplate,
+  deviceFrameScreenTemplate,
   browserAppScreenTemplate,
   dashboardOverviewTemplate,
   onePageInfographicTemplate,
@@ -62,6 +64,7 @@ export {
   browserAppScreenTemplate,
   chartReportTemplate,
   dashboardOverviewTemplate,
+  deviceFrameScreenTemplate,
   iframeServiceFlowTemplate,
   imageReferenceBoardTemplate,
   mobileAppScreenTemplate,

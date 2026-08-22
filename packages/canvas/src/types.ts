@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEVICE_DISPLAYS, DEVICE_PRESET_IDS, DEVICE_PRESETS } from "./device-frame.js";
 
 const LANE_ROLES = [
   "actors",
@@ -160,20 +161,39 @@ export const IframeSourceSchema = z.object({
     })
     .optional(),
 });
+const CLOCK_PATTERN = /^(?:[01]\d|2[0-3]|\d):[0-5]\d$/;
 export const IframeNodeSchema = z
   .object({
     kind: z.literal("iframe"),
     ...BaseNodeFields,
     source: IframeSourceSchema,
-    viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }),
+    /*
+     * Optional only because a `device` preset already declares its own
+     * content area — the whole point of a preset is that an author picks
+     * "iPhone · Safari" and never measures anything. Every other frame kind
+     * still has to say how big its screen is; the refinement below enforces
+     * that, and the transform fills the preset default in so the parsed node
+     * always carries a concrete viewport.
+     */
+    viewport: z
+      .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+      .optional(),
     frame: z.discriminatedUnion("kind", [
       z
         .object({
           kind: z.literal("phone"),
-          time: z
-            .string()
-            .regex(/^(?:[01]\d|2[0-3]|\d):[0-5]\d$/)
-            .default("09:42"),
+          time: z.string().regex(CLOCK_PATTERN).default("09:42"),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("device"),
+          preset: z.enum(DEVICE_PRESET_IDS),
+          /** clip = a real screen; full-height = the whole page inside the shell. */
+          display: z.enum(DEVICE_DISPLAYS).default("clip"),
+          /** Address shown in the Safari bar. Cosmetic; never fetched. */
+          url: z.string().min(1).max(200).optional(),
+          time: z.string().regex(CLOCK_PATTERN).default("09:42"),
         })
         .strict(),
       z
@@ -195,6 +215,40 @@ export const IframeNodeSchema = z
     activation: z.literal("double-click").default("double-click"),
   })
   .superRefine((node, ctx) => {
+    if (node.frame.kind === "device") {
+      const preset = DEVICE_PRESETS[node.frame.preset];
+      if (!node.viewport) return;
+      if (node.viewport.width !== preset.viewport.width) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["viewport", "width"],
+          message: `${preset.label} screens are ${preset.viewport.width}px wide; omit viewport to use the preset default`,
+        });
+      }
+      if (node.frame.display === "clip" && node.viewport.height !== preset.viewport.height) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["viewport", "height"],
+          message: `display:'clip' pins ${preset.label} to ${preset.viewport.height}px of content; use display:'full-height' for a taller page`,
+        });
+      }
+      if (node.frame.display === "full-height" && node.viewport.height < preset.viewport.height) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["viewport", "height"],
+          message: `display:'full-height' may only make ${preset.label} taller than ${preset.viewport.height}px`,
+        });
+      }
+      return;
+    }
+    if (!node.viewport) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["viewport"],
+        message: "viewport is required unless frame.kind is 'device', which brings its own",
+      });
+      return;
+    }
     if (node.frame.kind !== "phone") return;
     if (node.viewport.width !== 284 || node.viewport.height !== 642) {
       ctx.addIssue({
@@ -203,7 +257,18 @@ export const IframeNodeSchema = z
         message: "phone iframe viewport must be the canonical 284x642 content area",
       });
     }
-  });
+  })
+  // Downstream code — renderer, viewport engine, snapshot readiness — reads
+  // `viewport` unconditionally, so a preset default is resolved once here
+  // rather than at every call site.
+  .transform((node) => ({
+    ...node,
+    viewport:
+      node.viewport ??
+      (node.frame.kind === "device"
+        ? { ...DEVICE_PRESETS[node.frame.preset].viewport }
+        : { width: 0, height: 0 }),
+  }));
 export type IframeNode = z.infer<typeof IframeNodeSchema>;
 export const ImageNodeSchema = z
   .object({

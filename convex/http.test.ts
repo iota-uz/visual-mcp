@@ -624,6 +624,48 @@ describe("/mcp canvas_save", () => {
     expect(warnings.filter((warning) => warning.code === "node_overlap")).toHaveLength(0);
   });
 
+  test("a device preset needs no viewport and renders its own Safari shell", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "mockups/website",
+        kind: "canvas",
+        doc: canvasFile({
+          ...baseDoc,
+          nodes: [
+            {
+              id: "landing",
+              kind: "iframe",
+              laneId: "l1",
+              stageId: "s1",
+              rect: { x: 40, y: 40, w: 310, h: 755 },
+              caption: { title: "Landing" },
+              anchors: [],
+              source: { entrypoint: "/src/screens/landing.html" },
+              // No viewport: the preset brings its own.
+              frame: { kind: "device", preset: "iphone-safari", url: "acme.example" },
+            },
+          ],
+        }),
+        files: [{ path: "/src/screens/landing.html", text: "<h1>Acme</h1>" }],
+      }),
+    );
+
+    expect(saved.isError).toBeFalsy();
+    expect(saved.data.status).toBe("ok");
+
+    const read = parse(
+      await callTool(t, token, "canvas_get", { ref: "mockups/website", include: ["doc"] }),
+    );
+    const node = (
+      read.data.doc as { pages: { doc: { nodes: Record<string, unknown>[] } }[] }
+    ).pages[0]?.doc.nodes[0];
+    expect(node?.frame).toMatchObject({ kind: "device", preset: "iphone-safari", display: "clip" });
+    // The preset resolved the screen size the author never wrote down.
+    expect(node?.viewport).toEqual({ width: 284, height: 590 });
+  });
+
   test("files-only save publishes exactly one version and identical retry is a no-op", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);

@@ -1,8 +1,13 @@
 import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
-import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "./phone-frame.js";
+import {
+  DEVICE_CAPTION_HEIGHT,
+  deviceFrameScale,
+  deviceShellSize,
+} from "./device-frame.js";
+import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
-import type { IframeNode, ImageNode, Rect } from "./types.js";
+import type { CanvasNode, IframeNode, ImageNode, Rect } from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -203,32 +208,62 @@ function asResizeDirection(value: string | undefined): ResizeDirection | undefin
  * moves the opposite edge instead, which is what every direct-manipulation
  * editor does and what the eight handles now promise.
  *
- * `lockAspect` is the phone frame: its viewport is a fixed 284×642 content
- * area, so the height always derives from the width and the axis with the
- * larger travel wins.
+ * `aspect` is a device shell — the phone, or one of the built-in
+ * device/browser presets. Its screen is a fixed content area, so the height
+ * always derives from the width and the axis with the larger travel wins.
  */
+export interface FrameAspect {
+  /** Shell width at scale 1. */
+  width: number;
+  /** Shell height at scale 1, caption excluded. */
+  height: number;
+  /** The node caption band, which sits above the shell and does not scale. */
+  captionHeight: number;
+}
+
+/** The shell a node must stay proportional to, or null if it resizes freely. */
+export function frameAspectFor(node: CanvasNode): FrameAspect | null {
+  if (node.kind !== "iframe") return null;
+  if (node.frame.kind === "phone") {
+    return {
+      width: PHONE_FRAME.width,
+      height: PHONE_FRAME.height,
+      captionHeight: PHONE_FRAME.captionHeight,
+    };
+  }
+  if (node.frame.kind === "device") {
+    const shell = deviceShellSize(node.frame.preset, node.viewport.height);
+    return { width: shell.width, height: shell.height, captionHeight: DEVICE_CAPTION_HEIGHT };
+  }
+  return null;
+}
+
+function nodeHeightForWidth(aspect: FrameAspect, width: number): number {
+  return aspect.captionHeight + (width / aspect.width) * aspect.height;
+}
+
 export function resizeRect(
   origin: Rect,
   from: ResizeDirection,
   wx: number,
   wy: number,
-  lockAspect = false,
+  aspect: FrameAspect | null = null,
 ): Rect {
   const west = from.includes("w");
   const north = from.includes("n");
   const horizontal = west || from.includes("e");
   const vertical = north || from.includes("s");
 
-  if (lockAspect) {
+  if (aspect) {
     const fromX = horizontal ? origin.w + (west ? -wx : wx) : Number.NaN;
     const fromY = vertical
-      ? ((Math.max(MIN_NODE_SIDE, origin.h + (north ? -wy : wy)) - PHONE_FRAME.captionHeight) *
-          PHONE_FRAME.width) /
-        PHONE_FRAME.height
+      ? ((Math.max(MIN_NODE_SIDE, origin.h + (north ? -wy : wy)) - aspect.captionHeight) *
+          aspect.width) /
+        aspect.height
       : Number.NaN;
     const preferX = !vertical || (horizontal && Math.abs(wx) >= Math.abs(wy));
     const width = Math.max(MIN_NODE_SIDE, preferX ? fromX : fromY);
-    const height = phoneNodeHeightForWidth(width);
+    const height = nodeHeightForWidth(aspect, width);
     return {
       x: west ? origin.x + origin.w - width : origin.x,
       y: north ? origin.y + origin.h - height : origin.y,
@@ -1296,6 +1331,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         );
         return;
       }
+      if (node.frame.kind === "device") {
+        el.querySelector<HTMLElement>(".vc-device-shell")?.style.setProperty(
+          "--vc-device-scale",
+          String(deviceFrameScale(node.frame.preset, node.w, node.h, node.viewport.height)),
+        );
+        return;
+      }
       const scale = Math.min(
         node.w / node.viewport.width,
         Math.max(1, node.h - 47) / node.viewport.height,
@@ -1832,7 +1874,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
               dragState.resizeFrom ?? "se",
               wx,
               wy,
-              node.kind === "iframe" && node.frame.kind === "phone",
+              frameAspectFor(node),
             );
       /*
        * Snapping applies to a move, not a resize: a resize already has one

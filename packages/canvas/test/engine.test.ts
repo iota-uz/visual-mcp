@@ -480,17 +480,22 @@ test("a node shrunk past the minimum keeps its anchored edge still", () => {
   assert.equal(fromNorth.h, 80);
   assert.equal(fromNorth.y + fromNorth.h, 200, "the south edge has not moved");
 });
+const PHONE_ASPECT = {
+  width: PHONE_FRAME.width,
+  height: PHONE_FRAME.height,
+  captionHeight: PHONE_FRAME.captionHeight,
+};
 test("phone nodes keep their aspect from every handle", () => {
   const origin = { x: 0, y: 0, w: 300, h: phoneNodeHeightForWidth(300) };
   for (const direction of ["e", "w", "n", "s", "ne", "sw"] as const) {
-    const next = resizeRect(origin, direction, 60, 60, true);
+    const next = resizeRect(origin, direction, 60, 60, PHONE_ASPECT);
     assert.equal(
       Math.round(next.h),
       Math.round(phoneNodeHeightForWidth(next.w)),
       `${direction} kept the frame proportional`,
     );
   }
-  const west = resizeRect(origin, "w", -60, 0, true);
+  const west = resizeRect(origin, "w", -60, 0, PHONE_ASPECT);
   assert.equal(Math.round(west.x + west.w), 300, "the east edge stayed put");
 });
 test("escapeHtml escapes markup", () =>

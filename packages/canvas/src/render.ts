@@ -1,4 +1,5 @@
 import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
+import { deviceFrameScale, renderDeviceFrame } from "./device-frame.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
 import { type IframeNode, type ImageNode, type LegendGroup, PERMISSIONS } from "./types.js";
@@ -83,8 +84,21 @@ function iframeBody(
   const body =
     node.frame.kind === "phone"
       ? renderPhoneFrame(frame, node.frame.time, phoneFrameScale(node.w, node.h))
-      : `<div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
-  const radius = node.frame.kind === "phone" ? 0 : (node.frame.radius ?? 16);
+      : node.frame.kind === "device"
+        ? renderDeviceFrame({
+            preset: node.frame.preset,
+            screenContent: frame,
+            viewport: node.viewport,
+            display: node.frame.display,
+            url: node.frame.url,
+            time: node.frame.time,
+            scale: deviceFrameScale(node.frame.preset, node.w, node.h, node.viewport.height),
+          })
+        : `<div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
+  // Both shells draw their own rounded body, so the clip layer must not add
+  // a second corner radius over the bezel.
+  const radius =
+    node.frame.kind === "phone" || node.frame.kind === "device" ? 0 : (node.frame.radius ?? 16);
   return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${radius}px;--vc-iframe-scale:${scale}">${body}<div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
 }
 function imageBody(

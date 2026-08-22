@@ -138,7 +138,13 @@ test("listTemplates(kind) filters correctly for each known kind", () => {
   const expectedByKind: Record<TemplateKind, string[]> = {
     canvas: ["iframe-service-flow", "image-reference-board"],
     diagram: ["architecture-overview", "sequence-flow"],
-    mockup: ["mobile-app-screen", "phone-frame-screen", "browser-app-screen", "dashboard-overview"],
+    mockup: [
+      "mobile-app-screen",
+      "phone-frame-screen",
+      "device-frame-screen",
+      "browser-app-screen",
+      "dashboard-overview",
+    ],
     infographic: ["one-page-infographic"],
     report: ["multipage-report"],
     chart: ["chart-report"],

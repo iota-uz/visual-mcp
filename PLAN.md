@@ -85,9 +85,12 @@ type CanvasNode =
   | (BaseNode & {
       kind: 'iframe'
       source: { entrypoint: `/src/screens/${string}.html`; route?: `#/${string}` }
-      viewport: { width: number; height: number }
+      // omitted only for frame.kind 'device', which resolves its preset's default
+      viewport?: { width: number; height: number }
       frame:
         | { kind: 'phone'; time: string } // canonical canvas chrome; viewport is exactly 284×642
+        // built-in device/browser shells; the preset owns the default viewport
+        | { kind: 'device'; preset: 'iphone-safari'|'desktop-safari'; display: 'clip'|'full-height'; url?: string; time: string }
         | { kind: 'browser'|'desktop'|'none'; radius?: number; fit?: 'contain'|'cover'|'stretch' }
       sandbox: Array<'allow-scripts'|'allow-forms'>
       // allow-list: named features are granted to the frame, the rest denied

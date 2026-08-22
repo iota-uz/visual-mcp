@@ -133,6 +133,7 @@ export const TEMPLATE_IDS = [
   "sequence-flow",
   "mobile-app-screen",
   "phone-frame-screen",
+  "device-frame-screen",
   "browser-app-screen",
   "dashboard-overview",
   "one-page-infographic",

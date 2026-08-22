@@ -49,6 +49,10 @@
   --vc-phone-notch-radius: 16px;
   --vc-phone-status-height: 40px;
   --vc-phone-ink: #07111f;
+  --vc-device-ink: #07111f;
+  --vc-device-chrome: #f2f5f9;
+  --vc-device-chrome-ink: #4a5b71;
+  --vc-device-url-bg: #e4e9f0;
 
   /*
    * The accent. `#2f6df6` and its rgba() forms were retyped at two dozen
@@ -753,6 +757,174 @@
   transform: none;
 }
 .vc-phone-content .vc-iframe-viewport iframe {
+  border-radius: 0;
+}
+
+/* --- built-in device & browser shells (frame.kind="device") --- */
+.vc-node.vc-shape-iframe-device {
+  contain: layout style;
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.vc-node.vc-shape-iframe-device > .vc-caption {
+  border: 1px solid var(--vc-line);
+  border-radius: var(--vc-radius-lg);
+  box-shadow: var(--vc-shadow-sm);
+}
+.vc-node.vc-shape-iframe-device.selected {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--vc-accent) 18%, transparent);
+}
+.vc-frame-device.vc-iframe-clip {
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+.vc-device-shell {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  box-sizing: border-box;
+  width: var(--vc-device-width);
+  height: var(--vc-device-height);
+  border: var(--vc-device-bezel) solid var(--vc-device-ink);
+  border-radius: var(--vc-device-radius);
+  padding: var(--vc-device-padding);
+  background: var(--vc-device-ink);
+  box-shadow:
+    0 34px 70px rgba(6, 27, 54, 0.21),
+    0 4px 12px rgba(6, 27, 54, 0.13);
+  transform: translate(-50%, -50%) scale(var(--vc-device-scale));
+  transform-origin: center;
+}
+/* The handset keeps the canonical notch; a window has a squared top edge. */
+.vc-device-phone::before {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  left: 50%;
+  width: var(--vc-phone-notch-width);
+  height: var(--vc-phone-notch-height);
+  border-radius: 0 0 var(--vc-phone-notch-radius) var(--vc-phone-notch-radius);
+  background: var(--vc-device-ink);
+  content: "";
+  transform: translateX(-50%);
+}
+.vc-device-window {
+  border-color: color-mix(in srgb, var(--vc-ink) 16%, transparent);
+  background: var(--vc-device-chrome);
+}
+.vc-device-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: var(--vc-device-screen-height);
+  overflow: hidden;
+  border-radius: var(--vc-device-screen-radius);
+  background: #f5f8fc;
+}
+.vc-device-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--vc-device-status-height);
+  padding: 0 19px;
+  background: var(--vc-device-chrome);
+  color: #061b36;
+  font: 700 11px / 1 var(--vc-body);
+}
+.vc-device-status-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vc-device-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: var(--vc-device-toolbar-height);
+  padding: 0 12px;
+  background: var(--vc-device-chrome);
+  color: var(--vc-device-chrome-ink);
+}
+.vc-device-toolbar-top {
+  border-bottom: 1px solid color-mix(in srgb, var(--vc-ink) 12%, transparent);
+}
+.vc-device-toolbar-bottom {
+  border-top: 1px solid color-mix(in srgb, var(--vc-ink) 12%, transparent);
+}
+.vc-device-url {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: var(--vc-radius-sm);
+  background: var(--vc-device-url-bg);
+  color: var(--vc-ink-soft);
+  font: 500 12px / 1 var(--vc-body);
+  white-space: nowrap;
+}
+.vc-device-url > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vc-device-lock {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  opacity: 0.55;
+}
+.vc-device-lights {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+.vc-device-lights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.vc-device-lights i:nth-child(2) {
+  background: #febc2e;
+}
+.vc-device-lights i:nth-child(3) {
+  background: #28c840;
+}
+.vc-device-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.7;
+}
+.vc-device-nav svg {
+  width: 15px;
+  height: 15px;
+}
+.vc-device-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+.vc-device-content > .vc-iframe-viewport {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+}
+.vc-device-content .vc-iframe-viewport iframe {
   border-radius: 0;
 }
 
