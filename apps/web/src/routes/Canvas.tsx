@@ -16,6 +16,7 @@ import {
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  Bot,
   Check,
   Copy,
   ExternalLink,
@@ -34,6 +35,7 @@ import {
   RotateCcw,
   Trash2,
   Unplug,
+  User,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -1469,12 +1471,6 @@ export interface CommentThread {
   }>;
 }
 
-const COMMENT_STATUS_LABEL = {
-  open: "Open",
-  completed: "Agent says done",
-  resolved: "Resolved",
-} as const;
-
 /* Workspaces have one person in them, so a human comment is this reader's
    own. When that stops being true this is where a name goes. */
 function commentAuthor(kind: "human" | "agent"): string {
@@ -1645,61 +1641,80 @@ export function CommentsPanel({
     { key: "awaiting", title: "Needs you", items: awaiting },
     { key: "open", title: "Open", items: openThreads },
   ].filter((group) => group.items.length > 0);
-  // One bucket needs no heading to explain itself.
-  const headed = groups.length > 1 || resolved.length > 0;
 
   function renderThread(thread: CommentThread) {
     const anchor = thread.node_id
       ? (nodeTitle(thread.node_id) ?? `${thread.node_id} (deleted)`)
       : "Page";
     const isActive = thread.comment_id === activeId;
+    const Avatar = thread.author_kind === "agent" ? Bot : User;
     return (
       <li
         key={thread.comment_id}
-        className={`canvas-comment${isActive ? " is-active" : ""}`}
+        className="canvas-comment"
         data-status={thread.status}
+        data-active={isActive ? "" : undefined}
       >
+        {/* Collapsed, a row carries only what picks it out of a list: who,
+            when, where, and what it says. Everything else — what the agent
+            claims it did, the conversation, the buttons — is behind the
+            click, so ten threads read as a list rather than a wall. */}
         <button
           type="button"
           className="canvas-comment-head"
           onClick={() => onActiveChange(isActive ? null : thread.comment_id)}
           aria-expanded={isActive}
         >
-          <CommentByline kind={thread.author_kind} at={thread.created_at} />
-          <span className="canvas-comment-anchor" title={anchor}>
-            {anchor}
+          <span className="canvas-comment-avatar" data-author={thread.author_kind}>
+            <Avatar size={13} aria-hidden="true" />
+          </span>
+          <span className="canvas-comment-main">
+            <span className="canvas-comment-topline">
+              <CommentByline kind={thread.author_kind} at={thread.created_at} />
+              <span className="canvas-comment-anchor" title={anchor}>
+                {anchor}
+              </span>
+            </span>
+            <span className="canvas-comment-body">{thread.body}</span>
+            {/* No status on the row: it sits under "Needs you", "Open" or
+                the resolved disclosure, and repeating that on every line
+                was the loudest thing in the list. */}
+            <span className="canvas-comment-meta">
+              {thread.replies.length > 0 && (
+                <span>
+                  {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
+                </span>
+              )}
+            </span>
           </span>
         </button>
-        {/* Open is the resting state and says nothing; the other two are
-            the ones a reader has to act on. */}
-        {thread.status !== "open" && (
-          <span className="canvas-comment-status">{COMMENT_STATUS_LABEL[thread.status]}</span>
-        )}
-        <p className="canvas-comment-body">{thread.body}</p>
-        {thread.completion && (
-          <div className="canvas-comment-completion">
-            <p>{thread.completion.summary}</p>
-            {/* The revision is the whole point of `completed`: it tells the
-                reader exactly what to go and look at. The block is always
-                the agent's, so it says when rather than who again. */}
-            <span title={formatAbsoluteTime(thread.completion.at)}>
-              v{thread.completion.version} · draft {thread.completion.draft_revision} ·{" "}
-              {formatRelativeTime(thread.completion.at)}
-            </span>
-          </div>
-        )}
-        {thread.replies.length > 0 && (
-          <ul className="canvas-comment-replies">
-            {thread.replies.map((reply) => (
-              <li key={reply.reply_id} data-author={reply.author_kind}>
-                <CommentByline kind={reply.author_kind} at={reply.created_at} />
-                <p>{reply.body}</p>
-              </li>
-            ))}
-          </ul>
-        )}
         {isActive && (
-          <>
+          <div className="canvas-comment-detail">
+            {thread.completion && (
+              <div className="canvas-comment-completion">
+                <p>
+                  <Check size={13} aria-hidden="true" />
+                  {thread.completion.summary}
+                </p>
+                {/* The revision is the whole point of `completed`: it tells
+                    the reader exactly what to go and look at. The block is
+                    always the agent's, so it says when rather than who. */}
+                <span title={formatAbsoluteTime(thread.completion.at)}>
+                  v{thread.completion.version} · draft {thread.completion.draft_revision} ·{" "}
+                  {formatRelativeTime(thread.completion.at)}
+                </span>
+              </div>
+            )}
+            {thread.replies.length > 0 && (
+              <ul className="canvas-comment-replies">
+                {thread.replies.map((reply) => (
+                  <li key={reply.reply_id} data-author={reply.author_kind}>
+                    <CommentByline kind={reply.author_kind} at={reply.created_at} />
+                    <p>{reply.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
             <CommentReplyForm
               commentId={thread.comment_id}
               busy={busy}
@@ -1761,7 +1776,7 @@ export function CommentsPanel({
                 />
               </span>
             </div>
-          </>
+          </div>
         )}
       </li>
     );
@@ -1805,12 +1820,13 @@ export function CommentsPanel({
         <div className="canvas-comment-groups">
           {groups.map((group) => (
             <section className="canvas-comment-section" key={group.key}>
-              {headed && (
-                <h3>
-                  {group.title}
-                  <span className="canvas-comment-section-count">{group.items.length}</span>
-                </h3>
-              )}
+              {/* Always headed: with no status label on the row, the
+                  section is what says whether a thread is waiting on the
+                  reader or on the agent. */}
+              <h3>
+                {group.title}
+                <span className="canvas-comment-section-count">{group.items.length}</span>
+              </h3>
               <ul className="canvas-comment-list">{group.items.map(renderThread)}</ul>
             </section>
           ))}

@@ -104,10 +104,11 @@ describe("CommentsPanel", () => {
       activeId: "c1",
     });
 
-    expect(screen.getByText("Agent says done")).toBeInTheDocument();
     // A completed thread is not "open": it is waiting on the reader, and
-    // the header says which of the two it is.
+    // the header says which of the two it is — as does the section it is
+    // filed under, which is why the row itself carries no status label.
     expect(screen.getByText("0 open · 1 awaiting you")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: /Needs you/ })).toBeInTheDocument();
     expect(screen.getByText("Renamed it to Intake")).toBeInTheDocument();
     // The block is always the agent's, so it names the revision and when,
     // not who, for the third time in one card.
@@ -204,5 +205,27 @@ describe("CommentsPanel", () => {
     if (!resolved) throw new Error("Missing resolved disclosure");
     expect(resolved).not.toHaveAttribute("open");
     expect(within(resolved as HTMLElement).getByText("Long settled")).toBeInTheDocument();
+  });
+
+  test("a collapsed thread shows only what identifies it", () => {
+    const handlers = panel({
+      threads: [
+        thread({
+          status: "completed",
+          completion: { summary: "Renamed it to Intake", version: 7, draft_revision: 3, at: 2 },
+          replies: [{ reply_id: "r1", body: "On it.", author_kind: "agent", created_at: 2 }],
+        }),
+      ],
+    });
+    // Who, when, where, what it says — and how much more there is.
+    expect(screen.getByText("Make the CTA primary")).toBeInTheDocument();
+    expect(screen.getByText("1 reply")).toBeInTheDocument();
+    // The agent's claim, the conversation and the buttons wait for a click.
+    expect(screen.queryByText("Renamed it to Intake")).not.toBeInTheDocument();
+    expect(screen.queryByText("On it.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Resolve/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(handlers.onActiveChange).toHaveBeenCalledWith("c1");
   });
 });

@@ -151,10 +151,11 @@
   font-size: var(--app-text-xs);
 }
 
+/* A feed, not a stack of cards: rows separated by a hairline, with the
+   detail behind a click. Ten threads have to read as a list. */
 .canvas-comment-list {
   display: flex;
   flex-direction: column;
-  gap: var(--app-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -164,26 +165,32 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: var(--app-space-2);
-  border: 1px solid var(--app-line);
+  padding: var(--app-space-2) 6px;
   border-radius: var(--app-radius-md);
-  background: var(--app-white);
 }
 
-.canvas-comment.is-active {
-  border-color: var(--app-accent);
+.canvas-comment + .canvas-comment {
+  box-shadow: inset 0 1px 0 var(--app-line);
+}
+
+/* The thread the panel has open, and the pin on the canvas says so too. */
+.canvas-comment[data-active] {
+  background: var(--app-accent-soft);
+  box-shadow: none;
+}
+
+.canvas-comment[data-active] + .canvas-comment {
+  box-shadow: none;
 }
 
 /* Resolved threads stay readable but stop competing with the open ones. */
 .canvas-comment[data-status="resolved"] {
-  background: transparent;
-  opacity: 0.7;
+  opacity: 0.66;
 }
 
 .canvas-comment-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: var(--app-space-2);
   padding: 0;
   border: 0;
@@ -192,8 +199,42 @@
   text-align: left;
 }
 
-/* Who and when, on one line, so a thread is attributable at a glance —
-   the first thing a comment has to say after what it says. */
+.canvas-comment-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--app-paper);
+  color: var(--app-muted);
+}
+
+/* The agent is the other party in this conversation and is worth telling
+   apart at a glance, not by reading the name. */
+.canvas-comment-avatar[data-author="agent"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+
+.canvas-comment-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.canvas-comment-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+/* Who and when, so a thread is attributable at a glance — the first thing
+   a comment has to say after what it says. */
 .canvas-comment-byline {
   display: flex;
   align-items: baseline;
@@ -206,24 +247,6 @@
 .canvas-comment-byline strong {
   color: var(--app-ink-soft);
   font-weight: 600;
-}
-
-.canvas-comment-status {
-  align-self: flex-start;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--app-accent-soft);
-  font-family: var(--app-font-mono);
-  font-size: var(--app-eyebrow-size);
-  font-weight: var(--app-eyebrow-weight);
-  letter-spacing: var(--app-eyebrow-tracking);
-  text-transform: uppercase;
-  color: var(--app-accent-text);
-}
-
-.canvas-comment[data-status="resolved"] .canvas-comment-status {
-  background: var(--app-paper);
-  color: var(--app-muted);
 }
 
 .canvas-comment-anchor {
@@ -240,24 +263,59 @@
   color: var(--app-ink);
 }
 
+/* Two lines is enough to recognise a comment; the rest is one click away
+   and a collapsed row must not be able to push the next one off screen. */
+.canvas-comment:not([data-active]) .canvas-comment-body {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.canvas-comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-comment-meta:empty {
+  display: none;
+}
+
+.canvas-comment-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  padding-left: calc(22px + var(--app-space-2));
+}
+
 /* What the agent says it did, and the revision to go and look at. */
 .canvas-comment-completion {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 8px;
-  border-left: 2px solid var(--app-accent);
-  background: var(--app-accent-soft);
-  border-radius: 0 6px 6px 0;
 }
 
 .canvas-comment-completion p {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
   margin: 0;
   font-size: var(--app-text-xs);
   color: var(--app-ink-soft);
 }
 
+.canvas-comment-completion p > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--app-accent-text);
+}
+
 .canvas-comment-completion span {
+  padding-left: 18px;
   font-family: var(--app-font-mono);
   font-size: var(--app-text-xs);
   color: var(--app-muted);
@@ -266,7 +324,7 @@
 .canvas-comment-replies {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0 0 0 var(--app-space-2);
   border-left: 1px solid var(--app-line);
