@@ -1,11 +1,14 @@
 import "@visual-canvas/canvas/theme.css";
 import {
   type CanvasDoc,
+  type CanvasEdge,
   type CanvasFile,
   CanvasFileSchema,
+  type CanvasNode,
   formatElementRef,
   layoutCanvas,
   mountViewport,
+  type Rect as NodeRect,
   resolveCanvasPage,
   type ViewportController,
 } from "@visual-canvas/canvas";
@@ -42,6 +45,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { useSessionUser } from "../auth";
 import { ConfirmButton } from "../components/ConfirmButton";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
@@ -80,6 +84,8 @@ export function CanvasViewport({
   editable = false,
   onGeometryChange,
   onGroupMove,
+  onNodesMove,
+  onDeleteNodes,
   canvasRef,
   cameraStorageKey,
   immersive = false,
@@ -91,8 +97,14 @@ export function CanvasViewport({
   iframeRevisions?: Record<string, string> | null;
   version?: number;
   editable?: boolean;
-  onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+  onGeometryChange?: (
+    nodeId: string,
+    rect: { x: number; y: number; w: number; h: number },
+    previous: { x: number; y: number; w: number; h: number },
+  ) => void;
   onGroupMove?: (groupId: string, dx: number, dy: number) => void;
+  onNodesMove?: (nodeIds: string[], dx: number, dy: number) => void;
+  onDeleteNodes?: (nodeIds: string[]) => void;
   canvasRef?: string;
   cameraStorageKey?: string;
   immersive?: boolean;
@@ -123,6 +135,10 @@ export function CanvasViewport({
   onGeometryChangeRef.current = onGeometryChange;
   const onGroupMoveRef = useRef(onGroupMove);
   onGroupMoveRef.current = onGroupMove;
+  const onNodesMoveRef = useRef(onNodesMove);
+  onNodesMoveRef.current = onNodesMove;
+  const onDeleteNodesRef = useRef(onDeleteNodes);
+  onDeleteNodesRef.current = onDeleteNodes;
   // Ref, not a dep: this fires on every screen load, and a changing
   // identity in the mount effect's deps would tear the viewport down.
   const onIframeStateChangeRef = useRef(onIframeStateChange);
@@ -229,8 +245,11 @@ export function CanvasViewport({
           replace: true,
         });
       },
-      onGeometryChange: (nodeId, rect) => onGeometryChangeRef.current?.(nodeId, rect),
+      onGeometryChange: (nodeId, rect, previous) =>
+        onGeometryChangeRef.current?.(nodeId, rect, previous),
       onGroupMove: (groupId, dx, dy) => onGroupMoveRef.current?.(groupId, dx, dy),
+      onNodesMove: (nodeIds, dx, dy) => onNodesMoveRef.current?.(nodeIds, dx, dy),
+      onDeleteNodes: (nodeIds) => onDeleteNodesRef.current?.(nodeIds),
       resolveElementRef: (nodeId) => {
         const currentCanvasRef = canvasRefRef.current;
         return currentCanvasRef ? formatElementRef(currentCanvasRef, nodeId) : undefined;
@@ -1926,7 +1945,10 @@ export function CanvasPage() {
   function queueGeometryChange(
     change:
       | { kind: "node"; nodeId: string; rect: { x: number; y: number; w: number; h: number } }
-      | { kind: "group"; groupId: string; dx: number; dy: number },
+      | { kind: "group"; groupId: string; dx: number; dy: number }
+      | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
+      | { kind: "delete"; nodeIds: string[] }
+      | { kind: "restore"; nodes: CanvasNode[]; edges: CanvasEdge[] },
   ) {
     if (!canvasId) return;
     pendingGeometrySavesRef.current += 1;
@@ -1963,6 +1985,137 @@ export function CanvasPage() {
         if (pendingGeometrySavesRef.current === 0) setSaveState(failed ? "failed" : "idle");
       });
   }
+
+  /*
+   * Session-local manual-edit history.
+   *
+   * Deliberately not a global undo over agent edits: the canvas is an OCC
+   * document several authors write to, and re-applying an old state over
+   * someone else's work is worse than not undoing at all. This stack holds
+   * only the gestures this browser tab made, as inverse operations the
+   * server can apply to whatever the current document is.
+   */
+  type ManualEdit =
+    | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
+    | { kind: "node"; nodeId: string; before: NodeRect; after: NodeRect }
+    | { kind: "group"; groupId: string; dx: number; dy: number }
+    | { kind: "delete"; nodes: CanvasNode[]; edges: CanvasEdge[] };
+  const undoStackRef = useRef<ManualEdit[]>([]);
+  const redoStackRef = useRef<ManualEdit[]>([]);
+  const HISTORY_LIMIT = 50;
+
+  function recordEdit(edit: ManualEdit) {
+    undoStackRef.current = [...undoStackRef.current, edit].slice(-HISTORY_LIMIT);
+    // Any new gesture ends the redo branch, as in every editor.
+    redoStackRef.current = [];
+  }
+
+  function applyEdit(edit: ManualEdit, direction: "undo" | "redo") {
+    const sign = direction === "undo" ? -1 : 1;
+    switch (edit.kind) {
+      case "nodes":
+        queueGeometryChange({
+          kind: "nodes",
+          nodeIds: edit.nodeIds,
+          dx: edit.dx * sign,
+          dy: edit.dy * sign,
+        });
+        return;
+      case "group":
+        queueGeometryChange({
+          kind: "group",
+          groupId: edit.groupId,
+          dx: edit.dx * sign,
+          dy: edit.dy * sign,
+        });
+        return;
+      case "node":
+        queueGeometryChange({
+          kind: "node",
+          nodeId: edit.nodeId,
+          rect: direction === "undo" ? edit.before : edit.after,
+        });
+        return;
+      default:
+        if (direction === "undo")
+          queueGeometryChange({ kind: "restore", nodes: edit.nodes, edges: edit.edges });
+        else
+          queueGeometryChange({
+            kind: "delete",
+            nodeIds: edit.nodes.map((node) => node.id),
+          });
+    }
+  }
+
+  function undoManualEdit() {
+    const edit = undoStackRef.current.at(-1);
+    if (!edit) return;
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current, edit].slice(-HISTORY_LIMIT);
+    applyEdit(edit, "undo");
+  }
+
+  function redoManualEdit() {
+    const edit = redoStackRef.current.at(-1);
+    if (!edit) return;
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, edit].slice(-HISTORY_LIMIT);
+    applyEdit(edit, "redo");
+  }
+
+  /*
+   * Deletion is the one manual edit that destroys authored content, so it
+   * is the one that asks first — and it has to ask from a dialog rather
+   * than an inline confirm, because the gesture that starts it is a key
+   * press with no control on screen.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{
+    nodes: CanvasNode[];
+    edges: CanvasEdge[];
+  } | null>(null);
+
+  function requestNodeDeletion(nodeIds: string[]) {
+    if (!doc) return;
+    const removing = new Set(nodeIds);
+    const nodes = doc.nodes.filter((node) => removing.has(node.id));
+    if (nodes.length === 0) return;
+    const edges = doc.edges.filter(
+      (edge) => removing.has(edge.source.nodeId) || removing.has(edge.target.nodeId),
+    );
+    setPendingDelete({ nodes, edges });
+  }
+
+  function confirmNodeDeletion() {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target) return;
+    queueGeometryChange({ kind: "delete", nodeIds: target.nodes.map((node) => node.id) });
+    recordEdit({ kind: "delete", nodes: target.nodes, edges: target.edges });
+  }
+
+  /*
+   * Window-level, because the shortcut has to work whether focus sits in
+   * the viewport or on one of the panels around it — and must not fire
+   * while the user is typing a page name.
+   */
+  useEffect(() => {
+    if (canvas?.kind !== "canvas") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.matches("input, textarea, select, [contenteditable='true']")
+      )
+        return;
+      event.preventDefault();
+      if (event.shiftKey) redoManualEdit();
+      else undoManualEdit();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
   // Labelled with the workspace's real name once it resolves. It used to
   // always read "Workspace" and point at "/" until the query landed — so an
   // early click sent you Home, and a fast delete navigated there too.
@@ -2088,6 +2241,24 @@ export function CanvasPage() {
           onClick={() => setDetailsOpen(true)}
           aria-expanded={detailsOpen}
           aria-controls="canvas-details"
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete selection?"
+          description={`${pendingDelete.nodes.length} ${
+            pendingDelete.nodes.length === 1 ? "node" : "nodes"
+          }${
+            pendingDelete.edges.length > 0
+              ? ` and ${pendingDelete.edges.length} connected ${
+                  pendingDelete.edges.length === 1 ? "arrow" : "arrows"
+                }`
+              : ""
+          } will be removed from this page. You can undo this with ⌘Z.`}
+          confirmLabel="Delete"
+          onConfirm={confirmNodeDeletion}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
 
@@ -2357,12 +2528,19 @@ export function CanvasPage() {
               editable
               canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
               cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
-              onGeometryChange={(nodeId, rect) =>
-                queueGeometryChange({ kind: "node", nodeId, rect })
-              }
-              onGroupMove={(groupId, dx, dy) =>
-                queueGeometryChange({ kind: "group", groupId, dx, dy })
-              }
+              onGeometryChange={(nodeId, rect, previous) => {
+                queueGeometryChange({ kind: "node", nodeId, rect });
+                recordEdit({ kind: "node", nodeId, before: previous, after: rect });
+              }}
+              onGroupMove={(groupId, dx, dy) => {
+                queueGeometryChange({ kind: "group", groupId, dx, dy });
+                recordEdit({ kind: "group", groupId, dx, dy });
+              }}
+              onNodesMove={(nodeIds, dx, dy) => {
+                queueGeometryChange({ kind: "nodes", nodeIds, dx, dy });
+                recordEdit({ kind: "nodes", nodeIds, dx, dy });
+              }}
+              onDeleteNodes={requestNodeDeletion}
               iframeBaseUrl={
                 iframeCapabilityToken
                   ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`

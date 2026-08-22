@@ -1,6 +1,13 @@
-import { layoutCanvas, moveGroupNodes } from "@visual-canvas/canvas/layout.js";
+import {
+  deleteNodesFromFile,
+  layoutCanvas,
+  moveGroupNodes,
+  moveNodes,
+  restoreNodes,
+} from "@visual-canvas/canvas/layout.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
+import type { CanvasDoc, CanvasFile } from "@visual-canvas/canvas/types.js";
 import {
   CanvasDocSchema,
   CanvasFileSchema,
@@ -1950,6 +1957,28 @@ export const getLayoutPatchSource = internalQuery({
   },
 });
 
+/** Version-history label for one manual layout edit. */
+function layoutNote(change: {
+  kind: "node" | "group" | "nodes" | "delete" | "restore";
+  nodeId?: string;
+  groupId?: string;
+  nodeIds?: string[];
+  nodes?: unknown[];
+}): string {
+  switch (change.kind) {
+    case "node":
+      return `Layout: ${change.nodeId}`;
+    case "group":
+      return `Layout group: ${change.groupId}`;
+    case "nodes":
+      return `Layout: ${change.nodeIds?.length ?? 0} nodes moved`;
+    case "delete":
+      return `Deleted ${change.nodeIds?.length ?? 0} nodes`;
+    default:
+      return `Restored ${change.nodes?.length ?? 0} nodes`;
+  }
+}
+
 /** Signed-in node and group layout editing coalesces geometry into the durable draft. */
 export const patchGeometryMine = action({
   args: {
@@ -1967,15 +1996,43 @@ export const patchGeometryMine = action({
         dx: v.number(),
         dy: v.number(),
       }),
+      // A marquee selection moves as one write, or a concurrent agent edit
+      // can land between two nodes of the same gesture.
+      v.object({
+        kind: v.literal("nodes"),
+        nodeIds: v.array(v.string()),
+        dx: v.number(),
+        dy: v.number(),
+      }),
+      v.object({ kind: v.literal("delete"), nodeIds: v.array(v.string()) }),
+      // Session-local undo of a delete. Entities are echoed back from the
+      // client's own copy of the doc; the schema validates them on the way in.
+      v.object({
+        kind: v.literal("restore"),
+        nodes: v.array(v.any()),
+        edges: v.array(v.any()),
+      }),
     ),
     expectedVersion: v.number(),
     expectedDraftRevision: v.optional(v.number()),
   },
-  returns: v.object({ version: v.number(), draftRevision: v.number(), dirty: v.boolean() }),
+  returns: v.object({
+    version: v.number(),
+    draftRevision: v.number(),
+    dirty: v.boolean(),
+    removedNodeIds: v.optional(v.array(v.string())),
+    removedEdgeIds: v.optional(v.array(v.string())),
+  }),
   handler: async (
     ctx,
     args,
-  ): Promise<{ version: number; draftRevision: number; dirty: boolean }> => {
+  ): Promise<{
+    version: number;
+    draftRevision: number;
+    dirty: boolean;
+    removedNodeIds?: string[];
+    removedEdgeIds?: string[];
+  }> => {
     const identity = await requireIotaIdentity(ctx);
     const source = await ctx.runQuery(internal.canvases.getLayoutPatchSource, {
       canvasId: args.canvasId,
@@ -2002,26 +2059,53 @@ export const patchGeometryMine = action({
       throw new Error(`Unknown canvas page: ${args.pageId}`);
     const doc = page.doc;
     const change = args.change;
-    const patched =
-      change.kind === "node"
-        ? (() => {
-            const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
-            if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
-            const rect = RectSchema.parse(change.rect);
-            return CanvasDocSchema.parse({
-              ...doc,
-              nodes: doc.nodes.map((node, index) =>
-                index === nodeIndex ? { ...node, rect: { ...rect } } : node,
-              ),
-            });
-          })()
-        : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
-    const patchedFile = CanvasFileSchema.parse({
-      ...file,
-      pages: file.pages.map((candidate) =>
-        candidate.id === page.id ? { ...candidate, doc: patched } : candidate,
-      ),
-    });
+    /*
+     * Deletion is the one change that reaches past its Page: the prototype
+     * is canvas-level and its targets are resolved against real nodes, so a
+     * deleted screen has to take its hotspots with it or the file fails its
+     * own validator.
+     */
+    let removedNodeIds: string[] | undefined;
+    let removedEdgeIds: string[] | undefined;
+    let patchedFile: CanvasFile;
+    if (change.kind === "delete") {
+      if (change.nodeIds.length === 0) throw new Error("Nothing to delete");
+      const deleted = deleteNodesFromFile(file, page.id, change.nodeIds);
+      removedNodeIds = deleted.removedNodeIds;
+      removedEdgeIds = deleted.removedEdgeIds;
+      patchedFile = CanvasFileSchema.parse(deleted.file);
+    } else {
+      const patched =
+        change.kind === "node"
+          ? (() => {
+              const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
+              if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
+              const rect = RectSchema.parse(change.rect);
+              return CanvasDocSchema.parse({
+                ...doc,
+                nodes: doc.nodes.map((node, index) =>
+                  index === nodeIndex ? { ...node, rect: { ...rect } } : node,
+                ),
+              });
+            })()
+          : change.kind === "nodes"
+            ? CanvasDocSchema.parse(moveNodes(doc, change.nodeIds, change.dx, change.dy))
+            : change.kind === "restore"
+              ? CanvasDocSchema.parse(
+                  restoreNodes(
+                    doc,
+                    change.nodes as CanvasDoc["nodes"],
+                    change.edges as CanvasDoc["edges"],
+                  ),
+                )
+              : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
+      patchedFile = CanvasFileSchema.parse({
+        ...file,
+        pages: file.pages.map((candidate) =>
+          candidate.id === page.id ? { ...candidate, doc: patched } : candidate,
+        ),
+      });
+    }
     const bytes = new TextEncoder().encode(JSON.stringify(patchedFile));
     const docStorageId = await ctx.storage.store(new Blob([bytes], { type: "application/json" }));
     const entryBytes = new TextEncoder().encode(
@@ -2033,10 +2117,7 @@ export const patchGeometryMine = action({
         canvasId: args.canvasId,
         expectedVersion: args.expectedVersion,
         expectedDraftRevision: args.expectedDraftRevision,
-        note:
-          args.change.kind === "node"
-            ? `Layout: ${args.change.nodeId}`
-            : `Layout group: ${args.change.groupId}`,
+        note: layoutNote(args.change),
         createdBy: source.userId,
         changes: [],
         doc: {
@@ -2073,6 +2154,8 @@ export const patchGeometryMine = action({
         version: result.version,
         draftRevision: result.draftRevision,
         dirty: result.dirty,
+        removedNodeIds,
+        removedEdgeIds,
       };
     } catch (error) {
       await ctx.storage.delete(docStorageId);

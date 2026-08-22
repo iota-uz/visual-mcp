@@ -37,6 +37,7 @@
 @import "./patterns/canvas-card.css" layer(patterns);
 @import "./patterns/row-item.css" layer(patterns);
 @import "./patterns/confirm-inline.css" layer(patterns);
+@import "./patterns/confirm-dialog.css" layer(patterns);
 @import "./patterns/rename-form.css" layer(patterns);
 @import "./patterns/inline-form.css" layer(patterns);
 @import "./patterns/connect-panel.css" layer(patterns);

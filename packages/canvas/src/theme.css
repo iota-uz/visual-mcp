@@ -1141,9 +1141,58 @@
 .vc-guide-y {
   height: 1px;
 }
-.vc-viewport.is-tool-move .vc-node.selected .vc-resize-handle {
+/* Resize needs one unambiguous target; a multi-selection drags instead. */
+.vc-viewport.is-tool-move .vc-node.selected.primary .vc-resize-handle {
   display: block;
 }
+/* --- marquee selection --- */
+.vc-viewport.is-tool-move {
+  cursor: crosshair;
+}
+.vc-viewport.is-tool-move .vc-node {
+  cursor: default;
+}
+.vc-marquee {
+  position: absolute;
+  z-index: 24;
+  border: 1px solid var(--vc-accent);
+  border-radius: var(--vc-radius-xs);
+  background: var(--vc-accent-wash);
+  pointer-events: none;
+}
+.vc-multiselect {
+  position: absolute;
+  z-index: 25;
+  left: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--vc-line);
+  border-radius: var(--vc-radius-lg);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--vc-shadow-md);
+  backdrop-filter: blur(18px);
+  font: 600 12px / 1 var(--vc-body);
+  color: var(--vc-ink);
+}
+.vc-multiselect[hidden] {
+  display: none;
+}
+.vc-multiselect-delete {
+  border: 1px solid color-mix(in srgb, #b42318 32%, transparent);
+  border-radius: var(--vc-radius-sm);
+  padding: 7px 12px;
+  background: color-mix(in srgb, #b42318 8%, #fff);
+  color: #b42318;
+  font: 650 12px / 1 var(--vc-body);
+  cursor: pointer;
+}
+.vc-multiselect-delete:hover {
+  background: color-mix(in srgb, #b42318 14%, #fff);
+}
+
 .vc-viewport.is-tool-move .vc-node.selected,
 .vc-viewport.is-tool-move .vc-group.selected,
 .vc-viewport.is-moving-node,

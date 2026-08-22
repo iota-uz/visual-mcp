@@ -90,6 +90,7 @@ describe("reactive viewport reconciliation", () => {
     x: number,
     y: number,
     pointerType: "mouse" | "touch" = "mouse",
+    shiftKey = false,
   ) {
     const event = new MouseEvent(type, {
       bubbles: true,
@@ -97,6 +98,7 @@ describe("reactive viewport reconciliation", () => {
       button: 0,
       clientX: x,
       clientY: y,
+      shiftKey,
     });
     Object.defineProperties(event, {
       pointerId: { value: 1 },
@@ -421,7 +423,9 @@ describe("reactive viewport reconciliation", () => {
     expect(positionedNode.rect.x).toBe(original.x + 60);
     expect(positionedNode.rect.y).toBe(original.y + 30);
     expect(onGeometryChange).toHaveBeenCalledOnce();
-    expect(onGeometryChange).toHaveBeenCalledWith("native", positionedNode.rect);
+    // The third argument is the rect the drag started from: the app keeps it
+    // for a session-local undo, and nothing else still knows it by then.
+    expect(onGeometryChange).toHaveBeenCalledWith("native", positionedNode.rect, original);
 
     const committed = { ...positionedNode.rect };
     dispatchPointer(node, "pointerdown", 160, 130);
@@ -431,6 +435,142 @@ describe("reactive viewport reconciliation", () => {
     expect(positionedNode.rect).toEqual(committed);
     expect(onGeometryChange).toHaveBeenCalledOnce();
     controller.dispose();
+  });
+
+  /* --- multi-selection: marquee, shift-click, batch move, delete --- */
+
+  function multiDoc(): CanvasDoc {
+    const base = doc();
+    return {
+      ...base,
+      nodes: [
+        ...base.nodes,
+        {
+          id: "second",
+          kind: "native",
+          shape: "note",
+          laneId: "lane",
+          stageId: "one",
+          rect: { x: 260, y: 100, w: 140, h: 90 },
+          caption: { title: "Second" },
+          anchors,
+        },
+      ],
+    };
+  }
+
+  function mountEditable(canvasDoc: CanvasDoc, options: Record<string, unknown> = {}) {
+    const container = viewportContainer();
+    const positioned = layoutCanvas(canvasDoc);
+    const controller = mountViewport({ container, canvas: positioned, editable: true, ...options });
+    flushFrames();
+    container.querySelector<HTMLButtonElement>('[data-tool="move"]')?.click();
+    const view = controller.getView();
+    const toScreen = (x: number, y: number): [number, number] => [
+      x * view.scale + view.x,
+      y * view.scale + view.y,
+    ];
+    return { container, controller, positioned, toScreen };
+  }
+
+  test("a marquee in Move takes only the nodes it fully contains", () => {
+    const { container, controller, toScreen } = mountEditable(multiDoc());
+    const world = container.querySelector<HTMLElement>(".vc-world");
+    if (!world) throw new Error("Missing world");
+
+    // "native" is 100..240; "second" starts at 260, so this band only clips it.
+    dispatchPointer(container, "pointerdown", ...toScreen(80, 80));
+    dispatchPointer(container, "pointermove", ...toScreen(300, 220));
+    expect(container.querySelector(".vc-marquee")).not.toHaveAttribute("hidden");
+    dispatchPointer(container, "pointerup", ...toScreen(300, 220));
+
+    expect(controller.getSelection()).toEqual(["native"]);
+    // The band disappears with the gesture.
+    expect(container.querySelector(".vc-marquee")).toHaveAttribute("hidden");
+
+    dispatchPointer(container, "pointerdown", ...toScreen(80, 80));
+    dispatchPointer(container, "pointermove", ...toScreen(420, 220));
+    dispatchPointer(container, "pointerup", ...toScreen(420, 220));
+    expect(controller.getSelection()).toEqual(["native", "second"]);
+    expect(container.querySelector(".vc-multiselect-count")).toHaveTextContent("2 nodes selected");
+  });
+
+  test("shift-click adds a node to the set and takes it back out", () => {
+    const { container, controller } = mountEditable(multiDoc());
+    const native = container.querySelector<HTMLElement>('[data-node-id="native"]');
+    const second = container.querySelector<HTMLElement>('[data-node-id="second"]');
+    if (!native || !second) throw new Error("Missing nodes");
+
+    dispatchPointer(native, "pointerdown", 100, 100);
+    dispatchPointer(native, "pointerup", 100, 100);
+    expect(controller.getSelection()).toEqual(["native"]);
+
+    dispatchPointer(second, "pointerdown", 300, 100, "mouse", true);
+    dispatchPointer(second, "pointerup", 300, 100, "mouse", true);
+    expect(controller.getSelection()).toEqual(["native", "second"]);
+    expect(second).toHaveClass("selected");
+
+    dispatchPointer(second, "pointerdown", 300, 100, "mouse", true);
+    dispatchPointer(second, "pointerup", 300, 100, "mouse", true);
+    expect(controller.getSelection()).toEqual(["native"]);
+    expect(second).not.toHaveClass("selected");
+  });
+
+  test("dragging one of several selected nodes moves the whole set in one write", () => {
+    const onNodesMove = vi.fn();
+    const onGeometryChange = vi.fn();
+    const { container, controller, positioned } = mountEditable(multiDoc(), {
+      onNodesMove,
+      onGeometryChange,
+    });
+    controller.setSelection(["native", "second"]);
+    const native = container.querySelector<HTMLElement>('[data-node-id="native"]');
+    if (!native) throw new Error("Missing node");
+    const before = positioned.nodes.map((node) => ({ ...node.rect }));
+
+    dispatchPointer(native, "pointerdown", 100, 100);
+    dispatchPointer(native, "pointermove", 140, 70);
+    dispatchPointer(native, "pointerup", 140, 70);
+    flushFrames();
+
+    // Relative arrangement preserved: both moved by exactly the same delta.
+    expect(positioned.nodes[0]?.rect.x).toBe((before[0]?.x ?? 0) + 40);
+    expect(positioned.nodes[2]?.rect.x).toBe((before[2]?.x ?? 0) + 40);
+    expect(positioned.nodes[0]?.rect.y).toBe((before[0]?.y ?? 0) - 30);
+    expect(onNodesMove).toHaveBeenCalledOnce();
+    expect(onNodesMove).toHaveBeenCalledWith(["native", "second"], 40, -30);
+    // One batch write, not one per node.
+    expect(onGeometryChange).not.toHaveBeenCalled();
+  });
+
+  test("Delete asks the app instead of removing anything itself", () => {
+    const onDeleteNodes = vi.fn();
+    const { container, controller } = mountEditable(multiDoc(), { onDeleteNodes });
+    controller.setSelection(["native", "second"]);
+
+    container.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }),
+    );
+    expect(onDeleteNodes).toHaveBeenCalledWith(["native", "second"]);
+    // The engine never mutates the document: deletion is a durable write the
+    // app confirms and performs, and it comes back through updateCanvas.
+    expect(container.querySelectorAll(".vc-node")).toHaveLength(3);
+
+    container.querySelector<HTMLButtonElement>(".vc-multiselect-delete")?.click();
+    expect(onDeleteNodes).toHaveBeenCalledTimes(2);
+  });
+
+  test("a selection survives a reactive update that deletes part of it", () => {
+    const { container, controller } = mountEditable(multiDoc());
+    controller.setSelection(["native", "second"]);
+    const remaining = multiDoc();
+    remaining.nodes = remaining.nodes.filter((node) => node.id !== "second");
+    remaining.edges = [];
+    controller.updateCanvas(layoutCanvas(remaining));
+    flushFrames();
+
+    expect(controller.getSelection()).toEqual(["native"]);
+    expect(container.querySelector(".vc-multiselect")).toHaveAttribute("hidden");
   });
 
   test("supports keyboard tools, preserves camera on tool changes, Escape, and touch movement", () => {

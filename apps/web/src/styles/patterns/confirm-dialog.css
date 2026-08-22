@@ -1,0 +1,39 @@
+/* Modal confirmation for a destructive action with no on-screen trigger. */
+.confirm-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-white);
+  box-shadow: 0 28px 90px rgba(6, 27, 54, 0.28);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(6, 27, 54, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-dialog-shell {
+  display: grid;
+  gap: var(--app-space-2);
+  padding: var(--app-space-6) var(--app-space-6) var(--app-space-4);
+}
+
+.confirm-dialog-shell h2 {
+  margin: 0;
+  font-size: var(--app-text-lg);
+}
+
+.confirm-dialog-shell p {
+  margin: 0;
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-sm);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-2);
+}

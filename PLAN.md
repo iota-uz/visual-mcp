@@ -16,7 +16,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 
 | # | Decision |
 |---|---|
-| 1 | **Agent-authored, with a focused layout editor.** MCP authors content and graph structure; signed-in humans may move/resize nodes. No general-purpose tldraw/Excalidraw layer. |
+| 1 | **Agent-authored, with a focused layout editor.** MCP authors content and graph structure; signed-in humans may select (including a marquee), move, resize and delete nodes, with session-local undo. No general-purpose tldraw/Excalidraw layer. |
 | 2 | **Dual format.** Canvas documents (declarative JSON) are first-class, rendered by a first-party engine ported from the osago reference file. Raw HTML/PNG/PDF/SVG artifacts are also hosted, as opaque blobs. |
 | 3 | **Google Sign-In, @iota.uz only**, enforced server-side on the ID token (`hd` + `email_verified`) — never the client-supplied OAuth `hd` hint alone. |
 | 4 | **Two visibility states.** `private` → any signed-in @iota.uz user may view. `public` → unguessable slug, no login. No ACLs, no invites, no roles. |
@@ -124,7 +124,7 @@ shipped:
 | `layout.ts` | explicit rects and anchor coordinates |
 | `router.ts` | straight/bezier/orthogonal paths with optional stable waypoints |
 | `render.ts` | lanes, stages, labels, native cards, iframe shells and SVG edge layer |
-| `viewport.ts` | pan/zoom/grid, selection, move/resize and iframe activation/focus |
+| `viewport.ts` | pan/zoom/grid, marquee multi-selection, move/resize/delete gestures and iframe activation/focus |
 | `theme.css` | the ported design system (tokens, shadow ladder, role palettes, caption bar, arrow markers) |
 
 `render.ts` also emits the export page. The worker waits for parent fonts plus a readiness bridge

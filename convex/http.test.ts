@@ -290,7 +290,7 @@ describe("/mcp tool contracts", () => {
         outputSchema?: unknown;
       }>;
     };
-    expect(listed.tools).toHaveLength(30);
+    expect(listed.tools).toHaveLength(32);
     for (const tool of listed.tools) {
       const roots = tool.inputSchema.anyOf ?? [tool.inputSchema];
       expect(
@@ -664,6 +664,187 @@ describe("/mcp canvas_save", () => {
     expect(node?.frame).toMatchObject({ kind: "device", preset: "iphone-safari", display: "clip" });
     // The preset resolved the screen size the author never wrote down.
     expect(node?.viewport).toEqual({ width: 284, height: 590 });
+  });
+
+  test("a batch move lands as one write and keeps the arrangement", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const created = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "batch/move",
+        kind: "canvas",
+        doc: canvasFile({
+          ...baseDoc,
+          nodes: [
+            ...baseDoc.nodes,
+            {
+              id: "n2",
+              kind: "native",
+              laneId: "l1",
+              stageId: "s1",
+              rect: { x: 400, y: 50, w: 200, h: 100 },
+              shape: "note",
+              caption: { title: "Second" },
+              anchors: [],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const moved = parse(
+      await callTool(t, token, "canvas_nodes_move", {
+        ref: "batch/move",
+        expected_version: created.data.version as number,
+        expected_draft_revision: created.data.draft_revision as number,
+        node_ids: ["n1", "n2"],
+        dx: 25,
+        dy: -10,
+      }),
+    );
+    expect(moved.isError).toBeFalsy();
+    expect(moved.data.moved_node_ids).toEqual(["n1", "n2"]);
+
+    const read = parse(
+      await callTool(t, token, "canvas_get", { ref: "batch/move", include: ["doc"] }),
+    );
+    const nodes = (read.data.doc as { pages: { doc: { nodes: { id: string; rect: { x: number; y: number } }[] } }[] })
+      .pages[0]?.doc.nodes;
+    expect(nodes?.map((node) => [node.id, node.rect.x, node.rect.y])).toEqual([
+      ["n1", 75, 40],
+      ["n2", 425, 40],
+    ]);
+
+    // Same gesture, one version bump — not one per node.
+    expect(moved.data.version).toBe(created.data.version);
+    expect(moved.data.draft_revision).toBe((created.data.draft_revision as number) + 1);
+  });
+
+  test("a stale batch move is refused rather than rebased onto someone else's doc", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const created = parse(
+      await callTool(t, token, "canvas_save", { ref: "batch/stale", kind: "canvas", doc: canvasFile() }),
+    );
+    const stale = parse(
+      await callTool(t, token, "canvas_nodes_move", {
+        ref: "batch/stale",
+        expected_version: (created.data.version as number) + 5,
+        expected_draft_revision: created.data.draft_revision as number,
+        node_ids: ["n1"],
+        dx: 1,
+        dy: 1,
+      }),
+    );
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toMatch(/version_conflict/);
+  });
+
+  test("deleting nodes removes their edges, empty groups and prototype wiring", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const screens = [
+      {
+        id: "s-one",
+        kind: "iframe",
+        laneId: "l1",
+        stageId: "s1",
+        rect: { x: 40, y: 40, w: 310, h: 755 },
+        caption: { title: "One" },
+        anchors: [{ id: "right", side: "right", offset: 0.5 }],
+        source: { entrypoint: "/src/screens/one.html" },
+        viewport: { width: 284, height: 642 },
+        frame: { kind: "phone", time: "09:42" },
+      },
+      {
+        id: "s-two",
+        kind: "iframe",
+        laneId: "l1",
+        stageId: "s1",
+        rect: { x: 420, y: 40, w: 310, h: 755 },
+        caption: { title: "Two" },
+        anchors: [{ id: "left", side: "left", offset: 0.5 }],
+        source: { entrypoint: "/src/screens/two.html" },
+        viewport: { width: 284, height: 642 },
+        frame: { kind: "phone", time: "09:42" },
+      },
+    ];
+    const created = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "batch/delete",
+        kind: "canvas",
+        doc: {
+          version: 3,
+          defaultPageId: "overview",
+          pages: [
+            {
+              id: "overview",
+              title: "Overview",
+              order: 0,
+              doc: {
+                ...baseDoc,
+                nodes: screens,
+                groups: [{ id: "pair", label: "Pair", nodeIds: ["s-one", "s-two"] }],
+                edges: [
+                  {
+                    id: "flow",
+                    source: { nodeId: "s-one", anchorId: "right" },
+                    target: { nodeId: "s-two", anchorId: "left" },
+                    kind: "main",
+                    route: { type: "orthogonal" },
+                  },
+                ],
+              },
+            },
+          ],
+          prototype: {
+            start: { pageId: "overview", nodeId: "s-one" },
+            interactions: [
+              {
+                id: "tap",
+                source: { pageId: "overview", nodeId: "s-one" },
+                hotspot: { x: 0, y: 0, width: 100, height: 40 },
+                destination: { pageId: "overview", nodeId: "s-two" },
+              },
+            ],
+          },
+        },
+        files: [
+          { path: "/src/screens/one.html", text: "<h1>one</h1>" },
+          { path: "/src/screens/two.html", text: "<h1>two</h1>" },
+        ],
+      }),
+    );
+    expect(created.isError).toBeFalsy();
+
+    const deleted = parse(
+      await callTool(t, token, "canvas_nodes_delete", {
+        ref: "batch/delete",
+        expected_version: created.data.version as number,
+        expected_draft_revision: created.data.draft_revision as number,
+        node_ids: ["s-one"],
+      }),
+    );
+    expect(deleted.isError).toBeFalsy();
+    expect(deleted.data.removed_node_ids).toEqual(["s-one"]);
+    expect(deleted.data.removed_edge_ids).toEqual(["flow"]);
+    expect(deleted.data.removed_group_ids).toEqual([]);
+    expect(deleted.data.removed_interaction_ids).toEqual(["tap"]);
+    expect(deleted.data.cleared_prototype_start).toBe(true);
+
+    const read = parse(
+      await callTool(t, token, "canvas_get", { ref: "batch/delete", include: ["doc"] }),
+    );
+    const file = read.data.doc as {
+      pages: { doc: { nodes: { id: string }[]; edges: unknown[]; groups: { nodeIds: string[] }[] } }[];
+      prototype: { start?: unknown; interactions: unknown[] };
+    };
+    expect(file.pages[0]?.doc.nodes.map((node) => node.id)).toEqual(["s-two"]);
+    // No dangling edges is the whole point.
+    expect(file.pages[0]?.doc.edges).toEqual([]);
+    expect(file.pages[0]?.doc.groups[0]?.nodeIds).toEqual(["s-two"]);
+    expect(file.prototype.start).toBeUndefined();
+    expect(file.prototype.interactions).toEqual([]);
   });
 
   test("files-only save publishes exactly one version and identical retry is a no-op", async () => {

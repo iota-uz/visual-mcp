@@ -531,6 +531,8 @@ export interface ViewportOptions {
   onViewChange?: (view: ViewState) => void;
   fitOnResize?: boolean;
   onSelect?: (nodeId: string | null) => void;
+  /** Every change to the multi-selection, including clears. */
+  onSelectionChange?: (nodeIds: string[]) => void;
   /**
    * Per-canvas iframe load progress, so the surrounding app can report
    * "N of M screens loaded" and surface failures. Fires on every load,
@@ -541,8 +543,21 @@ export interface ViewportOptions {
   resolveImageUrl?: (node: ImageNode) => string;
   resolveIframeIdentity?: (node: IframeNode) => string;
   editable?: boolean;
-  onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
+  /**
+   * One node moved or resized. `previous` is the rect the gesture started
+   * from — the app needs it to offer a session-local undo, and it is the
+   * only place that value still exists once the drag has ended.
+   */
+  onGeometryChange?: (nodeId: string, rect: Rect, previous: Rect) => void | Promise<void>;
   onGroupMove?: (groupId: string, dx: number, dy: number) => void | Promise<void>;
+  /** A multi-selection dragged or nudged as one gesture; persist it as one write. */
+  onNodesMove?: (nodeIds: string[], dx: number, dy: number) => void | Promise<void>;
+  /**
+   * Delete/Backspace on a selection. The engine does not remove anything
+   * itself: deletion needs a confirmation and a durable write, both of which
+   * belong to the app, which then feeds the result back through updateCanvas.
+   */
+  onDeleteNodes?: (nodeIds: string[]) => void | Promise<void>;
   resolveElementRef?: (nodeId: string) => string | undefined;
   onCopyElementRef?: (refId: string) => void | Promise<void>;
 }
@@ -558,6 +573,9 @@ export interface ViewportController {
   fitSelection(): void;
   resetView(): void;
   selectNode(id: string | null, focus?: boolean): void;
+  /** Replaces the whole multi-selection; unknown ids are ignored. */
+  setSelection(ids: readonly string[], focus?: boolean): void;
+  getSelection(): string[];
   zoomAt(clientX: number, clientY: number, factor: number): void;
   activateIframe(id: string): void;
   deactivateIframe(): void;
@@ -603,6 +621,9 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
       <div><dt>Zoom in / out</dt><dd><kbd>+</kbd> <kbd>−</kbd></dd></div>
       <div><dt>Zoom to pointer</dt><dd><kbd>⌘</kbd> <span aria-hidden="true">+</span> scroll</dd></div>
       <div><dt>Nudge selection</dt><dd><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <span aria-hidden="true">·</span> <kbd>⇧</kbd> ×10</dd></div>
+      <div><dt>Select several</dt><dd>drag on empty canvas <span aria-hidden="true">·</span> <kbd>⇧</kbd> click</dd></div>
+      <div><dt>Delete selection</dt><dd><kbd>Delete</kbd></dd></div>
+      <div><dt>Undo / redo</dt><dd><kbd>⌘Z</kbd> <kbd>⌘⇧Z</kbd></dd></div>
       <div><dt>Open screen</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
       <div><dt>Deselect / exit</dt><dd><kbd>Esc</kbd></dd></div>
       <div><dt>This panel</dt><dd><kbd>?</kbd></dd></div>
@@ -620,6 +641,17 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
  * wholesale — and would need the camera-inverse dance to stay hairline.
  */
 const GUIDES_SHELL = `<div class="vc-guides" aria-hidden="true"></div>`;
+const MARQUEE_SHELL = `<div class="vc-marquee" hidden aria-hidden="true"></div>`;
+/*
+ * A multi-selection has nothing to put in the inspector — there is no single
+ * node to describe — but it still needs to say how much is selected and
+ * offer the one destructive action, since Delete is a key a touch device
+ * does not have.
+ */
+const MULTISELECT_SHELL = `<div class="vc-multiselect" hidden role="status">
+    <span class="vc-multiselect-count"></span>
+    <button type="button" class="vc-multiselect-delete">Delete</button>
+  </div>`;
 
 const EMPTY_SHELL = `<div class="vc-empty" hidden>
     <p class="vc-empty-title">This page is empty.</p>
@@ -670,7 +702,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -680,6 +712,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   const world = must(".vc-world");
   const guidesLayer = must(".vc-guides");
+  const marqueeLayer = must(".vc-marquee");
+  const multiselectPanel = must(".vc-multiselect");
+  const multiselectCount = must(".vc-multiselect-count");
   const groupsRoot = must(".vc-groups");
   const nodesRoot = must(".vc-nodes");
   const minimap = must(".vc-minimap");
@@ -705,6 +740,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let groupById = new Map(liveCanvas.groups.map((group) => [group.id, group]));
   let activeIframeId: string | null = null;
+  /*
+   * `selection` is the whole set a human has picked; `selectedNodeId` is the
+   * one node the inspector, resize handles and Enter act on — the last one
+   * clicked. Keeping both means every single-selection behaviour is
+   * unchanged while a marquee can still address five nodes at once.
+   */
+  const selection = new Set<string>();
   let selectedNodeId: string | null = null;
   let selectedGroupId: string | null = null;
   let activeTool: ViewportTool = "view";
@@ -938,14 +980,37 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       return true;
     }
 
-    const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
-    if (!node) return false;
-    const next = { ...node.rect, x: node.rect.x + dx, y: node.rect.y + dy };
-    Object.assign(node.rect, next);
-    Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
-    scheduleGeometry(node.id);
-    void opts.onGeometryChange?.(node.id, { ...node.rect });
+    if (selection.size === 0) return false;
+    const moved: string[] = [];
+    for (const id of selection) {
+      const node = nodeById.get(id);
+      if (!node) continue;
+      const next = { ...node.rect, x: node.rect.x + dx, y: node.rect.y + dy };
+      Object.assign(node.rect, next);
+      Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
+      scheduleGeometry(id);
+      moved.push(id);
+    }
+    if (moved.length === 0) return false;
+    // One write for the whole set, the same as a drag: nudging four nodes
+    // must not race four saves against each other.
+    if (moved.length > 1) void opts.onNodesMove?.(moved, dx, dy);
+    else {
+      const node = nodeById.get(moved[0] as string);
+      if (node)
+        void opts.onGeometryChange?.(node.id, { ...node.rect }, {
+          ...node.rect,
+          x: node.rect.x - dx,
+          y: node.rect.y - dy,
+        });
+    }
     return true;
+  }
+
+  /** Delete/Backspace and the multi-selection panel's button both land here. */
+  function requestDelete(): void {
+    if (!opts.editable || selection.size === 0) return;
+    void opts.onDeleteNodes?.([...selection]);
   }
 
   function stepZoom(direction: 1 | -1): void {
@@ -969,62 +1034,88 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     );
   }
 
-  function selectNode(id: string | null, focus = false): void {
-    const node = id ? nodeById.get(id) : undefined;
-    if (!node) {
-      selectedNodeId = null;
-      selectedGroupId = null;
-      for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
-        el.classList.remove("selected");
-      inspector.classList.remove("visible");
-      for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
-        el.classList.remove("selected", "dimmed");
-      }
-      onSelect?.(null);
-      return;
-    }
-    selectedNodeId = id;
-    selectedGroupId = null;
-    for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
-      el.classList.remove("selected");
-    /*
-     * Dimming is a "focus this stage" affordance, and it had two ways to
-     * turn on the wrong nodes.
-     *
-     * It compared a dataset string against `stageId`, which is
-     * `string | undefined` — an absent stage reads as `""` in the DOM and
-     * as `undefined` here, so on a canvas with no stages at all *every*
-     * node, the selected one included, failed the check and faded. The
-     * selection was then indistinguishable from everything around it.
-     *
-     * So: never dim what the user just picked, and only dim at all when
-     * there is a stage to focus.
-     */
-    const focusStage = node.stageId ?? "";
+  /**
+   * Paints whatever `selection` currently holds.
+   *
+   * Dimming is a "focus this stage" affordance and only makes sense for a
+   * single node: with several picked, there is no one stage to focus, and
+   * fading everything else would hide exactly the context the user is
+   * arranging against.
+   */
+  function paintSelection(): void {
+    const primary = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+    const focusStage = selection.size === 1 ? (primary?.stageId ?? "") : "";
     for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
-      const isSelected = el.dataset.nodeId === id;
+      const id = el.dataset.nodeId ?? "";
+      const isSelected = selection.has(id);
       el.classList.toggle("selected", isSelected);
+      el.classList.toggle("primary", isSelected && id === selectedNodeId);
       el.classList.toggle(
         "dimmed",
         !isSelected && focusStage !== "" && (el.dataset.stage ?? "") !== focusStage,
       );
     }
-    inspectorEyebrow.textContent = node.inspector?.eyebrow ?? "";
-    inspectorTitle.textContent = node.inspector?.title ?? node.caption.title;
-    inspectorCopy.textContent = node.inspector?.copy ?? "";
-    inspectorPoints.innerHTML = (node.inspector?.points ?? [])
-      .slice(0, 4)
-      .map(
-        (point, i) =>
-          `<div><b>${String(i + 1).padStart(2, "0")}</b><span>${escapeHtml(point)}</span></div>`,
-      )
-      .join("");
-    const refId = opts.resolveElementRef?.(node.id);
-    inspectorRef.hidden = !refId;
-    inspectorRefValue.textContent = refId ?? "";
-    inspector.classList.add("visible");
-    if (focus) focusNode(node);
-    onSelect?.(id);
+    const multiple = selection.size > 1;
+    multiselectPanel.hidden = !multiple;
+    multiselectCount.textContent = multiple ? `${selection.size} nodes selected` : "";
+    if (multiple || !primary) inspector.classList.remove("visible");
+    if (!multiple && primary) {
+      inspectorEyebrow.textContent = primary.inspector?.eyebrow ?? "";
+      inspectorTitle.textContent = primary.inspector?.title ?? primary.caption.title;
+      inspectorCopy.textContent = primary.inspector?.copy ?? "";
+      inspectorPoints.innerHTML = (primary.inspector?.points ?? [])
+        .slice(0, 4)
+        .map(
+          (point, i) =>
+            `<div><b>${String(i + 1).padStart(2, "0")}</b><span>${escapeHtml(point)}</span></div>`,
+        )
+        .join("");
+      const refId = opts.resolveElementRef?.(primary.id);
+      inspectorRef.hidden = !refId;
+      inspectorRefValue.textContent = refId ?? "";
+      inspector.classList.add("visible");
+    }
+    opts.onSelectionChange?.([...selection]);
+  }
+
+  /** Replaces the whole selection. `primary` defaults to the last id given. */
+  function setSelection(ids: readonly string[], focus = false): void {
+    selection.clear();
+    for (const id of ids) if (nodeById.has(id)) selection.add(id);
+    const primaryId = [...selection].at(-1) ?? null;
+    selectedNodeId = primaryId;
+    if (selection.size > 0) {
+      selectedGroupId = null;
+      for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+        el.classList.remove("selected");
+    }
+    paintSelection();
+    const node = primaryId ? nodeById.get(primaryId) : undefined;
+    if (focus && node) focusNode(node);
+    onSelect?.(selection.size === 1 ? primaryId : null);
+  }
+
+  /** Shift-click: add a node to the set, or take it back out. */
+  function toggleSelection(id: string): void {
+    if (!nodeById.has(id)) return;
+    const next = new Set(selection);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelection([...next]);
+  }
+
+  function selectNode(id: string | null, focus = false): void {
+    if (!id || !nodeById.has(id)) {
+      selection.clear();
+      selectedNodeId = null;
+      selectedGroupId = null;
+      for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+        el.classList.remove("selected");
+      paintSelection();
+      onSelect?.(null);
+      return;
+    }
+    setSelection([id], focus);
   }
 
   function selectGroup(id: string | null): void {
@@ -1471,7 +1562,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
     const previousById = new Map(liveCanvas.nodes.map((node) => [node.id, node]));
     const nextById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
-    const selectedId = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
+    const selectedId = selectedNodeId;
     const nextElements = new Map(
       [...nextNodesRoot.querySelectorAll<HTMLElement>(".vc-node")].map((element) => [
         element.dataset.nodeId ?? "",
@@ -1546,8 +1637,22 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     else if (nextLegend) container.insertBefore(nextLegend, minimap);
 
     nodeById = nextById;
-    if (selectedId && nextById.has(selectedId)) selectNode(selectedId, false);
-    else if (selectedId) selectNode(null);
+    /*
+     * A reactive update can delete what was selected — most obviously the
+     * user's own deletion coming back from the server. Keep whatever
+     * survived and drop the rest, rather than clearing the whole set.
+     */
+    const survivors = [...selection].filter((id) => nextById.has(id));
+    if (survivors.length > 0) {
+      // setSelection treats the last id as primary, so put the old primary
+      // back there when it is still around.
+      const ordered =
+        selectedId && survivors.includes(selectedId)
+          ? [...survivors.filter((id) => id !== selectedId), selectedId]
+          : survivors;
+      setSelection(ordered);
+    }
+    else if (selection.size > 0 || selectedId) selectNode(null);
     if (selectedGroupId && nextCanvas.groups.some((group) => group.id === selectedGroupId)) {
       const selected = world.querySelector<HTMLElement>(
         `.vc-group[data-group-id="${CSS.escape(selectedGroupId)}"]`,
@@ -1619,7 +1724,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     moved: boolean;
     nodeId: string | null;
     groupId: string | null;
-    mode: "camera" | "move" | "resize";
+    mode: "camera" | "move" | "resize" | "marquee";
+    /** Shift was held on pointer-down: the gesture adds to the selection. */
+    additive?: boolean;
     /** Which handle a resize is being driven from; absent for other modes. */
     resizeFrom?: ResizeDirection;
     originRect?: Rect;
@@ -1681,8 +1788,41 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     );
   }
 
+  /** The rubber band, in viewport-local screen space like the guides. */
+  function paintMarquee(box: { x: number; y: number; w: number; h: number } | null): void {
+    if (!box) {
+      marqueeLayer.hidden = true;
+      return;
+    }
+    marqueeLayer.hidden = false;
+    marqueeLayer.style.left = `${box.x}px`;
+    marqueeLayer.style.top = `${box.y}px`;
+    marqueeLayer.style.width = `${box.w}px`;
+    marqueeLayer.style.height = `${box.h}px`;
+  }
+
+  /** Screen rect of the in-flight marquee, or null when there is none. */
+  function marqueeBox(event: { clientX: number; clientY: number }): {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null {
+    if (dragState?.mode !== "marquee") return null;
+    const x0 = dragState.startX - viewportRect.left;
+    const y0 = dragState.startY - viewportRect.top;
+    const x1 = event.clientX - viewportRect.left;
+    const y1 = event.clientY - viewportRect.top;
+    return {
+      x: Math.min(x0, x1),
+      y: Math.min(y0, y1),
+      w: Math.abs(x1 - x0),
+      h: Math.abs(y1 - y0),
+    };
+  }
+
   function clearDragClasses(): void {
-    container.classList.remove("is-panning", "is-pinching", "is-moving-node");
+    container.classList.remove("is-panning", "is-pinching", "is-moving-node", "is-marquee");
   }
 
   function cancelDrag(): void {
@@ -1713,6 +1853,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     dragState = null;
     activePointers.clear();
     pinchState = null;
+    paintMarquee(null);
     clearDragClasses();
   }
 
@@ -1765,18 +1906,32 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       activateIframe(nodeId);
     }
     const tool = activeTool;
-    const selected = nodeId !== null && nodeId === selectedNodeId;
+    const editing = tool === "move" && Boolean(opts.editable);
+    const selected = nodeId !== null && selection.has(nodeId);
     const groupSelected = groupId !== null && groupId === selectedGroupId;
     const handle = target.closest<HTMLElement>(".vc-resize-handle");
     const resizeFrom = asResizeDirection(handle?.dataset.resize);
+    /*
+     * In the Move tool an empty-canvas drag is a marquee, not a pan — the
+     * View tool, the wheel and the minimap all still pan, and a selection
+     * rectangle is the one gesture that had no other way to be expressed.
+     * Resizing needs exactly one node: with several picked, dragging a
+     * handle is still a move of the whole set.
+     */
     const mode =
-      tool === "move" && opts.editable && selected && node && resizeFrom
+      editing && selected && node && resizeFrom && selection.size === 1
         ? "resize"
-        : tool === "move" && opts.editable && selected && node
+        : editing && selected && node
           ? "move"
-          : tool === "move" && opts.editable && groupSelected && group
+          : editing && groupSelected && group
             ? "move"
-            : "camera";
+            : editing && !nodeId && !groupId
+              ? "marquee"
+              : "camera";
+    // A multi-selection drags as one body; a single node keeps its own
+    // snapping path, which needs no member map.
+    const movingSet =
+      mode === "move" && node && selection.size > 1 && selected ? [...selection] : null;
     dragState = {
       startX: event.clientX,
       startY: event.clientY,
@@ -1786,6 +1941,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       nodeId,
       groupId,
       mode,
+      additive: event.shiftKey,
       resizeFrom: mode === "resize" ? resizeFrom : undefined,
       originRect: node?.rect ? { ...node.rect } : undefined,
       originMemberRects: group
@@ -1795,9 +1951,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
               return member ? [[id, { ...member.rect }] as const] : [];
             }),
           )
-        : undefined,
+        : movingSet
+          ? new Map(
+              movingSet.flatMap((id) => {
+                const member = nodeById.get(id);
+                return member ? [[id, { ...member.rect }] as const] : [];
+              }),
+            )
+          : undefined,
     };
-    container.classList.add(mode === "camera" ? "is-panning" : "is-moving-node");
+    if (mode === "marquee") paintMarquee({ x: 0, y: 0, w: 0, h: 0 });
+    container.classList.add(
+      mode === "camera" ? "is-panning" : mode === "marquee" ? "is-marquee" : "is-moving-node",
+    );
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -1845,7 +2011,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         flickVelocity = null;
       }
       applyView();
-    } else if (dragState.groupId && dragState.originMemberRects) {
+    } else if (dragState.mode === "marquee") {
+      paintMarquee(marqueeBox(event));
+    } else if (dragState.originMemberRects) {
       const wx = dx / view.scale;
       const wy = dy / view.scale;
       for (const [id, origin] of dragState.originMemberRects) {
@@ -1900,8 +2068,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     paintGuides([]);
     if (activePointers.size < 2) pinchState = null;
     const finishedDrag = dragState;
+    const marqueeRect = marqueeBox(event);
     const releaseVelocity = flickVelocity;
     const releasedAt = flickSample?.at;
+    paintMarquee(null);
     dragState = null;
     flickSample = null;
     flickVelocity = null;
@@ -1921,9 +2091,67 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     ) {
       startFlick(releaseVelocity.x, releaseVelocity.y);
     }
-    if (finishedDrag.moved && finishedDrag.mode !== "camera" && finishedDrag.nodeId) {
+    /*
+     * A marquee takes only nodes that fit *entirely* inside the band. Partial
+     * containment reads as "I grazed it" far more often than "I meant it",
+     * and a half-selected node that then moves with the set is a surprise the
+     * user has to undo.
+     */
+    if (finishedDrag.mode === "marquee") {
+      if (!finishedDrag.moved) {
+        if (!finishedDrag.additive) selectNode(null);
+        return;
+      }
+      const area = marqueeRect ?? { x: 0, y: 0, w: 0, h: 0 };
+      const world = {
+        x: (area.x - view.x) / view.scale,
+        y: (area.y - view.y) / view.scale,
+        w: area.w / view.scale,
+        h: area.h / view.scale,
+      };
+      const inside = liveCanvas.nodes
+        .filter(
+          (node) =>
+            node.rect.x >= world.x &&
+            node.rect.y >= world.y &&
+            node.rect.x + node.rect.w <= world.x + world.w &&
+            node.rect.y + node.rect.h <= world.y + world.h,
+        )
+        .map((node) => node.id);
+      setSelection(finishedDrag.additive ? [...selection, ...inside] : inside);
+      return;
+    }
+    if (
+      finishedDrag.moved &&
+      finishedDrag.mode !== "camera" &&
+      finishedDrag.nodeId &&
+      !finishedDrag.groupId &&
+      (finishedDrag.originMemberRects?.size ?? 0) <= 1
+    ) {
       const node = nodeById.get(finishedDrag.nodeId);
-      if (node) void opts.onGeometryChange?.(node.id, { ...node.rect });
+      if (node && finishedDrag.originRect)
+        void opts.onGeometryChange?.(node.id, { ...node.rect }, { ...finishedDrag.originRect });
+    }
+    // A dragged multi-selection persists as one batch write, so the set can
+    // never be half-saved.
+    if (
+      finishedDrag.moved &&
+      finishedDrag.mode === "move" &&
+      !finishedDrag.groupId &&
+      finishedDrag.originMemberRects &&
+      finishedDrag.originMemberRects.size > 1
+    ) {
+      const first = finishedDrag.originMemberRects.entries().next().value as
+        | [string, Rect]
+        | undefined;
+      const anchor = first ? nodeById.get(first[0]) : undefined;
+      if (first && anchor) {
+        void opts.onNodesMove?.(
+          [...finishedDrag.originMemberRects.keys()],
+          anchor.rect.x - first[1].x,
+          anchor.rect.y - first[1].y,
+        );
+      }
     }
     if (
       finishedDrag.moved &&
@@ -1946,6 +2174,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       // Selection must not recenter between the two clicks of a double-click;
       // doing so moves the target before the second click and prevents iframe activation.
       if (finishedDrag.groupId) selectGroup(finishedDrag.groupId);
+      else if (finishedDrag.nodeId && finishedDrag.additive)
+        toggleSelection(finishedDrag.nodeId);
       else selectNode(finishedDrag.nodeId, false);
       if (finishedDrag.nodeId) {
         const now = Date.now();
@@ -2035,6 +2265,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const dx = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
       const dy = event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
       if (nudgeSelection(dx, dy)) event.preventDefault();
+    } else if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      opts.editable &&
+      selection.size > 0
+    ) {
+      // Backspace would otherwise navigate back in some browsers.
+      event.preventDefault();
+      requestDelete();
     } else if (event.key === "0") fitAll();
     else if (event.key === "r" || event.key === "R") resetView();
     else if (event.key === "Escape") {
@@ -2055,6 +2293,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onWindowBlur(): void {
     cancelDrag();
+  }
+
+  function onMultiselectClick(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest(".vc-multiselect-delete")) requestDelete();
   }
 
   function onToolbarClick(event: MouseEvent): void {
@@ -2250,6 +2492,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("keydown", onKeyDown);
   window.addEventListener("blur", onWindowBlur);
   toolbar.addEventListener("click", onToolbarClick);
+  multiselectPanel.addEventListener("click", onMultiselectClick);
   minimap.addEventListener("pointerdown", onMinimapPointerDown);
   minimap.addEventListener("pointermove", onMinimapPointerMove);
   minimap.addEventListener("pointerup", onMinimapPointerUp);
@@ -2278,6 +2521,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     fitSelection,
     resetView,
     selectNode,
+    setSelection: (ids, focus = false) => setSelection(ids, focus),
+    getSelection: () => [...selection],
     zoomAt,
     activateIframe,
     deactivateIframe,
@@ -2293,6 +2538,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (flickFrame !== null) cancelAnimationFrame(flickFrame);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
+      multiselectPanel.removeEventListener("click", onMultiselectClick);
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerUp);

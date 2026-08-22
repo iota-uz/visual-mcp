@@ -38,7 +38,7 @@ import {
   parseElementRef,
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
-import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
@@ -1852,6 +1852,176 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               { id: currentPage.id, title: currentPage.title, doc: patchedDoc },
             ]),
           ),
+        });
+      }),
+  );
+
+  /* --- batch node operations (UI gesture parity) ------------------------ */
+  /*
+   * A human's marquee selection produces one gesture over many nodes, and an
+   * agent asked to "move these five left" should produce the same single
+   * atomic write rather than five racing patches. The marquee itself is a UI
+   * interaction and is deliberately not modelled here — only its result.
+   */
+  const NodesMoveOutputSchema = z.object({
+    status: z.literal("ok"),
+    ref: z.string(),
+    page_id: z.string(),
+    version: z.number().int().nonnegative(),
+    draft_revision: z.number().int().nonnegative(),
+    dirty: z.boolean(),
+    moved_node_ids: z.array(z.string()),
+    dx: z.number(),
+    dy: z.number(),
+    warnings: z.array(WarningSchema),
+  });
+
+  server.registerTool(
+    "canvas_nodes_move",
+    {
+      title: "Move nodes together",
+      description:
+        "Translates a set of nodes on one Page by the same dx/dy in a single atomic write, " +
+        "preserving their relative arrangement. This is the equivalent of a human dragging a " +
+        "multi-selection. Rejects stale version or draft revision values and unknown node ids.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative(),
+          page_id: z.string().optional().describe("Page id; defaults to the file's default Page."),
+          node_ids: z.array(z.string().min(1)).min(1).max(1_000),
+          dx: z.number().finite(),
+          dy: z.number().finite(),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: NodesMoveOutputSchema,
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        const currentVersion = loaded.detail.canvas.version ?? 0;
+        if (currentVersion !== input.expected_version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${currentVersion}`,
+          );
+        }
+        const page = resolveCanvasPage(loaded.file, input.page_id);
+        if (input.page_id && page.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
+        }
+        const nodeIds = [...new Set(input.node_ids)];
+        const movedDoc = CanvasDocSchema.parse(moveNodes(page.doc, nodeIds, input.dx, input.dy));
+        const nextFile = CanvasFileSchema.parse({
+          ...loaded.file,
+          pages: loaded.file.pages.map((candidate) =>
+            candidate.id === page.id ? { ...candidate, doc: movedDoc } : candidate,
+          ),
+        });
+        const saved = await saveCanvasFileDraft(
+          ctx,
+          principal,
+          loaded.detail.canvas.canvas_id,
+          nextFile,
+          {
+            expectedVersion: input.expected_version,
+            expectedDraftRevision: input.expected_draft_revision,
+            note: input.note ?? `Moved ${nodeIds.length} nodes`,
+          },
+        );
+        return result({
+          status: "ok",
+          ref: input.ref,
+          page_id: page.id,
+          version: saved.version,
+          draft_revision: saved.draftRevision,
+          dirty: saved.dirty,
+          moved_node_ids: nodeIds,
+          dx: input.dx,
+          dy: input.dy,
+          warnings: dedupeWarnings(
+            scanNodeOverlaps([{ id: page.id, title: page.title, doc: movedDoc }]),
+          ),
+        });
+      }),
+  );
+
+  const NodesDeleteOutputSchema = z.object({
+    status: z.literal("ok"),
+    ref: z.string(),
+    page_id: z.string(),
+    version: z.number().int().nonnegative(),
+    draft_revision: z.number().int().nonnegative(),
+    dirty: z.boolean(),
+    removed_node_ids: z.array(z.string()),
+    removed_edge_ids: z.array(z.string()),
+    removed_group_ids: z.array(z.string()),
+    removed_interaction_ids: z.array(z.string()),
+    cleared_prototype_start: z.boolean(),
+  });
+
+  server.registerTool(
+    "canvas_nodes_delete",
+    {
+      title: "Delete nodes",
+      description:
+        "Deletes a set of nodes from one Page together with everything that only existed " +
+        "because of them: edges touching either end, empty groups, and prototype interactions " +
+        "or a start screen pointing at them. One atomic write; the detailed result names every " +
+        "removed id. Rejects stale version or draft revision values and unknown node ids.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          expected_version: z.number().int().nonnegative(),
+          expected_draft_revision: z.number().int().nonnegative(),
+          page_id: z.string().optional().describe("Page id; defaults to the file's default Page."),
+          node_ids: z.array(z.string().min(1)).min(1).max(1_000),
+          note: z.string().optional(),
+        })
+        .strict(),
+      outputSchema: NodesDeleteOutputSchema,
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        const currentVersion = loaded.detail.canvas.version ?? 0;
+        if (currentVersion !== input.expected_version) {
+          throw new Error(
+            `version_conflict: expected ${input.expected_version}, current ${currentVersion}`,
+          );
+        }
+        const page = resolveCanvasPage(loaded.file, input.page_id);
+        if (input.page_id && page.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
+        }
+        const deleted = deleteNodesFromFile(loaded.file, page.id, [...new Set(input.node_ids)]);
+        const nextFile = CanvasFileSchema.parse(deleted.file);
+        const saved = await saveCanvasFileDraft(
+          ctx,
+          principal,
+          loaded.detail.canvas.canvas_id,
+          nextFile,
+          {
+            expectedVersion: input.expected_version,
+            expectedDraftRevision: input.expected_draft_revision,
+            note: input.note ?? `Deleted ${deleted.removedNodeIds.length} nodes`,
+          },
+        );
+        return result({
+          status: "ok",
+          ref: input.ref,
+          page_id: page.id,
+          version: saved.version,
+          draft_revision: saved.draftRevision,
+          dirty: saved.dirty,
+          removed_node_ids: deleted.removedNodeIds,
+          removed_edge_ids: deleted.removedEdgeIds,
+          removed_group_ids: deleted.removedGroupIds,
+          removed_interaction_ids: deleted.removedInteractionIds,
+          cleared_prototype_start: deleted.clearedStart,
         });
       }),
   );
