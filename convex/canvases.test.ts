@@ -1558,6 +1558,54 @@ describe("canvases.removeByRef", () => {
     expect(listed).toHaveLength(0);
   });
 
+  test("archiving a published canvas takes its share link offline", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+      kind: "canvas",
+    });
+    const docStorageId = await seedStorage(t, "{}");
+    await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
+      canvasId: created.canvasId,
+      docStorageId,
+      createdBy,
+      nodes: [],
+    });
+    await t.mutation(internal.canvases.publish, {
+      canvasId: created.canvasId,
+      visibility: "public",
+      newPublicSlug: "archived-share-slug",
+    });
+    expect(
+      await t.query(api.canvases.getPublic, { publicSlug: "archived-share-slug" }),
+    ).not.toBeNull();
+
+    await t.mutation(internal.canvases.removeByRef, { ref: "osago/report", target: "canvas" });
+
+    // Archive is the product's delete. Every anonymous entry point keyed on
+    // the slug has to go dark with it, not just the workspace listing.
+    expect(await t.query(api.canvases.getPublic, { publicSlug: "archived-share-slug" })).toBeNull();
+    expect(
+      await t.query(internal.canvases.resolvePublicSocialMetadata, {
+        publicSlug: "archived-share-slug",
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(internal.canvases.resolvePublicEmbedCard, {
+        publicSlug: "archived-share-slug",
+        target: "canvas",
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(internal.canvases.resolvePublicArtifact, {
+        publicSlug: "archived-share-slug",
+      }),
+    ).toBeNull();
+  });
+
   test("purge deletes the canvas's version blobs, not just its artifacts", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await seedUser(t);

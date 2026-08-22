@@ -2611,7 +2611,7 @@ export const resolvePublicArtifact = internalQuery({
       .query("canvases")
       .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
       .unique();
-    if (canvas?.visibility !== "public") return null;
+    if (canvas?.visibility !== "public" || canvas.archivedAt !== undefined) return null;
     const publicVersionId = canvas.publishedVersionId;
     const currentVersion = publicVersionId ? await ctx.db.get(publicVersionId) : null;
     const requestedVersion =
@@ -2791,7 +2791,7 @@ export const resolvePublicEmbedCard = internalQuery({
       .query("canvases")
       .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
       .unique();
-    if (canvas?.visibility !== "public") return null;
+    if (canvas?.visibility !== "public" || canvas.archivedAt !== undefined) return null;
 
     const publicVersionId = canvas.publishedVersionId;
     const version = args.version
@@ -2927,7 +2927,7 @@ export const getPublic = query({
       .query("canvases")
       .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
       .unique();
-    if (canvas?.visibility !== "public") return null;
+    if (canvas?.visibility !== "public" || canvas.archivedAt !== undefined) return null;
     return getCanvas(ctx, canvas._id, "published");
   },
 });
