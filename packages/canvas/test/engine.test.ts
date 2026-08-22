@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { layoutCanvas, patchNodeRect } from "../src/layout.js";
+import { layoutCanvas, moveGroupNodes, patchNodeRect } from "../src/layout.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "../src/phone-frame.js";
 import { escapeHtml, renderCanvas } from "../src/render.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
@@ -34,6 +34,26 @@ test("move/resize changes anchor coordinates and edge path", () => {
   assert.notEqual(routeEdges(canvas)[0]!.d, before);
   const node = canvas.nodes[1]!;
   assert.deepEqual(anchorPoint(node, node.anchors[0]!), { x: 650, y: 375 });
+});
+test("moving a group translates every member by the exact same delta", () => {
+  const doc = fixture();
+  const before = doc.nodes.map((node) => ({ id: node.id, rect: { ...node.rect } }));
+  const moved = moveGroupNodes(doc, "flow", 37, -19);
+  for (const node of moved.nodes) {
+    const original = before.find((candidate) => candidate.id === node.id);
+    assert.ok(original);
+    assert.equal(node.rect.x - original.rect.x, 37);
+    assert.equal(node.rect.y - original.rect.y, -19);
+    assert.equal(node.rect.w, original.rect.w);
+    assert.equal(node.rect.h, original.rect.h);
+  }
+  const group = layoutCanvas(moved).groups[0];
+  assert.deepEqual(group && { x: group.x, y: group.y, w: group.w, h: group.h }, {
+    x: 137,
+    y: 81,
+    w: 800,
+    h: 300,
+  });
 });
 test("waypoint routing is preserved", () => {
   const doc = fixture();
@@ -94,6 +114,7 @@ test("renderer escapes native text and emits sandboxed iframe", () => {
   assert.match(html, />Loading screen<\/span>/);
   assert.doesNotMatch(html, /<iframe/);
   assert.equal((html.match(/class="vc-node /g) ?? []).length, 2);
+  assert.match(html, /class="vc-group"[^>]*data-group-id="flow"/);
 });
 test("renderer emits native image nodes without iframe readiness overhead", () => {
   const doc = fixture();
@@ -110,6 +131,7 @@ test("renderer emits native image nodes without iframe readiness overhead", () =
       alt: "Reference <screen>",
     },
   ];
+  doc.groups = [];
   doc.edges = [];
   const html = renderCanvas(layoutCanvas(doc), {
     iframeLoading: "eager",

@@ -41,6 +41,7 @@ export function fixture(): CanvasDoc {
         activation: "double-click",
       },
     ],
+    groups: [{ id: "flow", label: "Flow", nodeIds: ["a", "b"] }],
     edges: [
       {
         id: "ab",

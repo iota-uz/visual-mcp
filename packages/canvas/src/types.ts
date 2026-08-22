@@ -70,6 +70,14 @@ export const CanvasLabelSchema = z.object({
 });
 export type CanvasLabel = z.infer<typeof CanvasLabelSchema>;
 
+/** A Figma-like logical container. Its frame is derived from its member nodes. */
+export const CanvasGroupSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).max(160).optional(),
+  nodeIds: z.array(z.string().min(1)).min(1).max(1_000),
+});
+export type CanvasGroup = z.infer<typeof CanvasGroupSchema>;
+
 export const ConnectorAnchorSchema = z.object({
   id: z.string().min(1),
   side: z.enum(ANCHOR_SIDES),
@@ -257,6 +265,7 @@ export const CanvasDocSchema = z
     stages: z.array(StageSchema).max(200).default([]),
     labels: z.array(CanvasLabelSchema).max(500).default([]),
     nodes: z.array(CanvasNodeSchema).max(1_000).default([]),
+    groups: z.array(CanvasGroupSchema).max(500).default([]),
     edges: z.array(CanvasEdgeSchema).max(3_000).default([]),
     legend: z.array(LegendGroupSchema).max(50).optional(),
   })
@@ -279,6 +288,7 @@ export const CanvasDocSchema = z
     const stageIds = unique(doc.stages, "stages");
     unique(doc.labels, "labels");
     const nodeIds = unique(doc.nodes, "nodes");
+    unique(doc.groups, "groups");
     unique(doc.edges, "edges");
     const nodeById = new Map(doc.nodes.map((node) => [node.id, node]));
     doc.nodes.forEach((node, index) => {
@@ -303,6 +313,24 @@ export const CanvasDocSchema = z
             message: `duplicate anchor id "${anchor.id}"`,
           });
         anchors.add(anchor.id);
+      });
+    });
+    doc.groups.forEach((group, index) => {
+      const members = new Set<string>();
+      group.nodeIds.forEach((nodeId, memberIndex) => {
+        if (members.has(nodeId))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["groups", index, "nodeIds", memberIndex],
+            message: `duplicate node "${nodeId}" in group "${group.id}"`,
+          });
+        members.add(nodeId);
+        if (!nodeIds.has(nodeId))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["groups", index, "nodeIds", memberIndex],
+            message: `unknown node "${nodeId}" in group "${group.id}"`,
+          });
       });
     });
     doc.edges.forEach((edge, index) => {

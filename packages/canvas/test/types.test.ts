@@ -17,9 +17,10 @@ test("defaults diagram-only collections for gallery-oriented documents", () => {
       stages: parsed.stages,
       labels: parsed.labels,
       nodes: parsed.nodes,
+      groups: parsed.groups,
       edges: parsed.edges,
     },
-    { lanes: [], stages: [], labels: [], nodes: [], edges: [] },
+    { lanes: [], stages: [], labels: [], nodes: [], groups: [], edges: [] },
   );
 });
 
@@ -95,6 +96,14 @@ test("rejects duplicate IDs and non-positive rects", () => {
   doc.nodes[1]!.id = "a";
   doc.lanes[0]!.rect.w = 0;
   assert.equal(CanvasDocSchema.safeParse(doc).success, false);
+});
+test("validates group membership and duplicate members", () => {
+  const doc = fixture();
+  doc.groups[0]!.nodeIds.push("missing", "a");
+  const result = CanvasDocSchema.safeParse(doc);
+  assert.equal(result.success, false);
+  assert.match(JSON.stringify(result), /unknown node.*missing/);
+  assert.match(JSON.stringify(result), /duplicate node.*a/);
 });
 test("sandbox and permissions are strict enums", () => {
   const doc = fixture();

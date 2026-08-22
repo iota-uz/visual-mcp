@@ -17,6 +17,7 @@ function doc(): CanvasDoc {
       { id: "two", index: 1, label: "Two", rect: { x: 500, y: 0, w: 500, h: 600 } },
     ],
     labels: [],
+    groups: [],
     nodes: [
       {
         id: "native",
@@ -500,6 +501,42 @@ describe("reactive viewport reconciliation", () => {
     expect(controller.getView().scale).toBe(1);
     expect(iframe?.getAttribute("style")).toBe(naturalSize);
     expect(onViewChange).toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  test("moves every group member together and emits one atomic group change", () => {
+    const container = viewportContainer();
+    const source = doc();
+    source.groups = [{ id: "pair", label: "Pair", nodeIds: ["native", "screen"] }];
+    const onGroupMove = vi.fn();
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(source),
+      editable: true,
+      onGroupMove,
+    });
+    flushFrames();
+    const group = container.querySelector<HTMLElement>('[data-group-id="pair"]');
+    if (!group) throw new Error("Missing group");
+
+    dispatchPointer(group, "pointerdown", 60, 60, "touch");
+    dispatchPointer(group, "pointerup", 60, 60, "touch");
+    controller.setTool("move");
+    dispatchPointer(group, "pointerdown", 60, 60, "touch");
+    dispatchPointer(group, "pointermove", 100, 84, "touch");
+    dispatchPointer(group, "pointerup", 100, 84, "touch");
+    flushFrames();
+
+    expect(onGroupMove).toHaveBeenCalledOnce();
+    const [, dx, dy] = onGroupMove.mock.calls[0] as [string, number, number];
+    expect(dx).not.toBe(0);
+    expect(dy).not.toBe(0);
+    const positioned = layoutCanvas(source);
+    for (const node of positioned.nodes) {
+      const element = container.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`);
+      expect(Number.parseFloat(element?.style.left ?? "NaN") - node.x).toBeCloseTo(dx);
+      expect(Number.parseFloat(element?.style.top ?? "NaN") - node.y).toBeCloseTo(dy);
+    }
     controller.dispose();
   });
 

@@ -77,6 +77,7 @@ export function CanvasViewport({
   version,
   editable = false,
   onGeometryChange,
+  onGroupMove,
   canvasRef,
   cameraStorageKey,
   immersive = false,
@@ -88,6 +89,7 @@ export function CanvasViewport({
   version?: number;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: { x: number; y: number; w: number; h: number }) => void;
+  onGroupMove?: (groupId: string, dx: number, dy: number) => void;
   canvasRef?: string;
   cameraStorageKey?: string;
   immersive?: boolean;
@@ -115,6 +117,8 @@ export function CanvasViewport({
   notifyRef.current = notify;
   const onGeometryChangeRef = useRef(onGeometryChange);
   onGeometryChangeRef.current = onGeometryChange;
+  const onGroupMoveRef = useRef(onGroupMove);
+  onGroupMoveRef.current = onGroupMove;
   const iframeRevisionsKey = JSON.stringify(iframeRevisions ?? null);
   const stableIframeRevisions = useMemo(
     () => JSON.parse(iframeRevisionsKey) as Record<string, string> | null,
@@ -217,6 +221,7 @@ export function CanvasViewport({
         });
       },
       onGeometryChange: (nodeId, rect) => onGeometryChangeRef.current?.(nodeId, rect),
+      onGroupMove: (groupId, dx, dy) => onGroupMoveRef.current?.(groupId, dx, dy),
       resolveElementRef: (nodeId) => {
         const currentCanvasRef = canvasRefRef.current;
         return currentCanvasRef ? formatElementRef(currentCanvasRef, nodeId) : undefined;
@@ -694,6 +699,7 @@ export function PagesPanel({
       stages: [],
       labels: [],
       nodes: [],
+      groups: [],
       edges: [],
       legend: undefined,
     };
@@ -1422,7 +1428,7 @@ export function CanvasPage() {
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
   const mintIframeCapability = useMutation(api.canvases.mintIframeCapabilityMine);
-  const patchNodeRect = useAction(api.canvases.patchNodeRectMine);
+  const patchGeometry = useAction(api.canvases.patchGeometryMine);
   const saveCanvasFile = useAction(api.canvases.saveCanvasFileMine);
   const checkpoint = useMutation(api.canvases.checkpointMine);
   const [iframeCapability, setIframeCapability] = useState<{
@@ -1526,6 +1532,38 @@ export function CanvasPage() {
     detailsOpen && canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
   const lastAuthor = versions?.find((v) => v.isCurrent)?.createdByEmail ?? null;
+  function queueGeometryChange(
+    change:
+      | { kind: "node"; nodeId: string; rect: { x: number; y: number; w: number; h: number } }
+      | { kind: "group"; groupId: string; dx: number; dy: number },
+  ) {
+    if (!canvasId) return;
+    pendingGeometrySavesRef.current += 1;
+    geometrySaveChainRef.current = geometrySaveChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedVersion = persistedVersionRef.current;
+        if (expectedVersion === undefined) return;
+        const result = await patchGeometry({
+          canvasId: canvasId as Id<"canvases">,
+          pageId: activePageId,
+          change,
+          expectedVersion,
+          expectedDraftRevision: persistedDraftRevisionRef.current,
+        });
+        persistedVersionRef.current = result.version;
+        persistedDraftRevisionRef.current = result.draftRevision;
+      })
+      .catch((error: unknown) => {
+        notify({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Unable to save layout",
+        });
+      })
+      .finally(() => {
+        pendingGeometrySavesRef.current -= 1;
+      });
+  }
   // Labelled with the workspace's real name once it resolves. It used to
   // always read "Workspace" and point at "/" until the query landed — so an
   // early click sent you Home, and a fast delete navigated there too.
@@ -1837,35 +1875,12 @@ export function CanvasPage() {
                 editable
                 canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
                 cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
-                onGeometryChange={(nodeId, rect) => {
-                  if (!canvasId) return;
-                  pendingGeometrySavesRef.current += 1;
-                  geometrySaveChainRef.current = geometrySaveChainRef.current
-                    .catch(() => undefined)
-                    .then(async () => {
-                      const expectedVersion = persistedVersionRef.current;
-                      if (expectedVersion === undefined) return;
-                      const result = await patchNodeRect({
-                        canvasId: canvasId as Id<"canvases">,
-                        pageId: activePageId,
-                        nodeId,
-                        rect,
-                        expectedVersion,
-                        expectedDraftRevision: persistedDraftRevisionRef.current,
-                      });
-                      persistedVersionRef.current = result.version;
-                      persistedDraftRevisionRef.current = result.draftRevision;
-                    })
-                    .catch((error: unknown) => {
-                      notify({
-                        tone: "error",
-                        message: error instanceof Error ? error.message : "Unable to save layout",
-                      });
-                    })
-                    .finally(() => {
-                      pendingGeometrySavesRef.current -= 1;
-                    });
-                }}
+                onGeometryChange={(nodeId, rect) =>
+                  queueGeometryChange({ kind: "node", nodeId, rect })
+                }
+                onGroupMove={(groupId, dx, dy) =>
+                  queueGeometryChange({ kind: "group", groupId, dx, dy })
+                }
                 iframeBaseUrl={
                   iframeCapabilityToken
                     ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`

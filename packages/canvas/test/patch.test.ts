@@ -15,6 +15,17 @@ test("CanvasDoc semantic patch updates geometry without replacing the document",
   assert.equal(patched.nodes.length, fixtureDoc.nodes.length);
 });
 
+test("CanvasDoc semantic patch creates and updates groups", () => {
+  const source = { ...fixtureDoc, groups: [] };
+  const added = applyCanvasDocPatch(source, [
+    { op: "groups.add", value: { id: "pair", label: "Pair", nodeIds: ["a", "b"] } },
+  ]);
+  const updated = applyCanvasDocPatch(added, [
+    { op: "groups.update", id: "pair", changes: { label: "Updated pair" } },
+  ]);
+  assert.deepEqual(updated.groups, [{ id: "pair", label: "Updated pair", nodeIds: ["a", "b"] }]);
+});
+
 test("CanvasDoc semantic patch is validated as one atomic result", () => {
   const node = fixtureDoc.nodes[0];
   assert.ok(node);

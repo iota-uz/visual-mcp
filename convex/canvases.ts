@@ -1,4 +1,4 @@
-import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { layoutCanvas, moveGroupNodes } from "@visual-canvas/canvas/layout.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import {
@@ -1950,13 +1950,24 @@ export const getLayoutPatchSource = internalQuery({
   },
 });
 
-/** Signed-in layout editing coalesces geometry into the durable draft. */
-export const patchNodeRectMine = action({
+/** Signed-in node and group layout editing coalesces geometry into the durable draft. */
+export const patchGeometryMine = action({
   args: {
     canvasId: v.id("canvases"),
-    nodeId: v.string(),
     pageId: v.optional(v.string()),
-    rect: v.object({ x: v.number(), y: v.number(), w: v.number(), h: v.number() }),
+    change: v.union(
+      v.object({
+        kind: v.literal("node"),
+        nodeId: v.string(),
+        rect: v.object({ x: v.number(), y: v.number(), w: v.number(), h: v.number() }),
+      }),
+      v.object({
+        kind: v.literal("group"),
+        groupId: v.string(),
+        dx: v.number(),
+        dy: v.number(),
+      }),
+    ),
     expectedVersion: v.number(),
     expectedDraftRevision: v.optional(v.number()),
   },
@@ -1983,7 +1994,6 @@ export const patchNodeRectMine = action({
         `Canvas draft conflict: expected draft_revision ${args.expectedDraftRevision}, current ${source.draftRevision}`,
       );
     }
-    const rect = RectSchema.parse(args.rect);
     const response = await fetch(source.docUrl);
     if (!response.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${response.status}`);
     const file = CanvasFileSchema.parse(await response.json());
@@ -1991,12 +2001,21 @@ export const patchNodeRectMine = action({
     if (args.pageId && page.id !== args.pageId)
       throw new Error(`Unknown canvas page: ${args.pageId}`);
     const doc = page.doc;
-    const nodeIndex = doc.nodes.findIndex((node) => node.id === args.nodeId);
-    if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${args.nodeId}`);
-    const nodes = doc.nodes.map((node, index) =>
-      index === nodeIndex ? { ...node, rect: { ...rect } } : node,
-    );
-    const patched = CanvasDocSchema.parse({ ...doc, nodes });
+    const change = args.change;
+    const patched =
+      change.kind === "node"
+        ? (() => {
+            const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
+            if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
+            const rect = RectSchema.parse(change.rect);
+            return CanvasDocSchema.parse({
+              ...doc,
+              nodes: doc.nodes.map((node, index) =>
+                index === nodeIndex ? { ...node, rect: { ...rect } } : node,
+              ),
+            });
+          })()
+        : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
     const patchedFile = CanvasFileSchema.parse({
       ...file,
       pages: file.pages.map((candidate) =>
@@ -2014,7 +2033,10 @@ export const patchNodeRectMine = action({
         canvasId: args.canvasId,
         expectedVersion: args.expectedVersion,
         expectedDraftRevision: args.expectedDraftRevision,
-        note: `Layout: ${args.nodeId}`,
+        note:
+          args.change.kind === "node"
+            ? `Layout: ${args.change.nodeId}`
+            : `Layout group: ${args.change.groupId}`,
         createdBy: source.userId,
         changes: [],
         doc: {

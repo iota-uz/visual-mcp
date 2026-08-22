@@ -171,6 +171,7 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
             lanes: [],
             stages: [],
             labels: [],
+            groups: [],
             edges: [],
             legend: undefined,
             nodes: [

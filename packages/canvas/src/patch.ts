@@ -1,6 +1,6 @@
 import { type CanvasDoc, CanvasDocSchema } from "./types.js";
 
-type CollectionName = "lanes" | "stages" | "labels" | "nodes" | "edges";
+type CollectionName = "lanes" | "stages" | "labels" | "nodes" | "groups" | "edges";
 
 export type CanvasDocPatchOperation =
   | { op: "world.update"; changes: Partial<CanvasDoc["world"]> }
@@ -11,7 +11,10 @@ export type CanvasDocPatchOperation =
 
 function collectionFor(op: string): CollectionName {
   const collection = op.split(".")[0];
-  if (!collection || !["lanes", "stages", "labels", "nodes", "edges"].includes(collection)) {
+  if (
+    !collection ||
+    !["lanes", "stages", "labels", "nodes", "groups", "edges"].includes(collection)
+  ) {
     throw new Error(`Unsupported CanvasDoc patch operation: ${op}`);
   }
   return collection as CollectionName;

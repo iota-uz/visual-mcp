@@ -172,6 +172,10 @@ const CANVAS_FILE = {
             anchors: [{ id: "left", side: "left", offset: 0.5 }],
           },
         ],
+        groups: [
+          { id: "claim-intake", label: "Claim intake", nodeIds: ["claimant", "intake"] },
+          { id: "assessment", label: "Assessment", nodeIds: ["pricing", "review"] },
+        ],
         edges: [
           {
             id: "claimant-intake",

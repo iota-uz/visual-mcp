@@ -20,6 +20,7 @@ canvas_save({
       { id: "phone", kind: "iframe", laneId: "app", stageId: "handoff", rect: { x: 160, y: 50, w: 260, h: 641 }, caption: { title: "Invite" }, anchors: [{ id: "out", side: "right", offset: 0.5 }], source: { entrypoint: "/src/screens/runtime.html", route: "#/phone/invite" }, viewport: { width: 284, height: 642 }, frame: { kind: "phone", time: "09:42" }, sandbox: ["allow-scripts", "allow-forms"], permissions: [], activation: "double-click" },
       { id: "browser", kind: "iframe", laneId: "web", stageId: "handoff", rect: { x: 650, y: 390, w: 520, h: 280 }, caption: { title: "Web session" }, anchors: [{ id: "in", side: "left", offset: 0.5 }], source: { entrypoint: "/src/screens/runtime.html", route: "#/web/start" }, viewport: { width: 1280, height: 800 }, frame: { kind: "browser" }, sandbox: ["allow-scripts", "allow-forms"], permissions: [], activation: "double-click" }
     ],
+    groups: [{ id: "handoff-flow", label: "Handoff flow", nodeIds: ["phone", "browser"] }],
     edges: [{ id: "handoff", source: { nodeId: "phone", anchorId: "out" }, target: { nodeId: "browser", anchorId: "in" }, kind: "main", route: { type: "orthogonal" }, label: { text: "QR" } }]
   },
   files: [

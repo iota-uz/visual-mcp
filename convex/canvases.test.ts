@@ -731,7 +731,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
   });
 });
 
-describe("canvases.patchNodeRectMine", () => {
+describe("canvases.patchGeometryMine", () => {
   test("coalesces optimistic geometry into the durable draft", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await t.run((ctx) =>
@@ -772,6 +772,7 @@ describe("canvases.patchNodeRectMine", () => {
           anchors: [{ id: "right", side: "right", offset: 0.5 }],
         },
       ],
+      groups: [{ id: "group", label: "Group", nodeIds: ["node"] }],
       edges: [],
     };
     const doc = {
@@ -793,10 +794,13 @@ describe("canvases.patchNodeRectMine", () => {
 
     const asMember = t.withIdentity({ subject: `${createdBy}|session-abc`, issuer: "convex" });
     await expect(
-      asMember.action(api.canvases.patchNodeRectMine, {
+      asMember.action(api.canvases.patchGeometryMine, {
         canvasId: created.canvasId,
-        nodeId: "node",
-        rect: { x: 30, y: 40, w: 120, h: 90 },
+        change: {
+          kind: "node",
+          nodeId: "node",
+          rect: { x: 30, y: 40, w: 120, h: 90 },
+        },
         expectedVersion: 1,
       }),
     ).resolves.toEqual({ version: 1, draftRevision: 1, dirty: true });
@@ -813,20 +817,40 @@ describe("canvases.patchNodeRectMine", () => {
     );
     expect(versions).toHaveLength(1);
     await expect(
-      asMember.action(api.canvases.patchNodeRectMine, {
+      asMember.action(api.canvases.patchGeometryMine, {
         canvasId: created.canvasId,
-        nodeId: "node",
-        rect: { x: 50, y: 60, w: 120, h: 90 },
+        change: { kind: "group", groupId: "group", dx: 5, dy: 7 },
+        expectedVersion: 1,
+        expectedDraftRevision: 1,
+      }),
+    ).resolves.toEqual({ version: 1, draftRevision: 2, dirty: true });
+    const movedDraft = await t.run(async (ctx) => {
+      const row = await ctx.db.get(created.canvasId);
+      const blob = row?.draftDocStorageId ? await ctx.storage.get(row.draftDocStorageId) : null;
+      return blob ? JSON.parse(await blob.text()) : null;
+    });
+    expect(movedDraft.pages[0].doc.nodes[0].rect).toEqual({ x: 15, y: 27, w: 100, h: 80 });
+    await expect(
+      asMember.action(api.canvases.patchGeometryMine, {
+        canvasId: created.canvasId,
+        change: {
+          kind: "node",
+          nodeId: "node",
+          rect: { x: 50, y: 60, w: 120, h: 90 },
+        },
         expectedVersion: 1,
         expectedDraftRevision: 0,
       }),
-    ).rejects.toThrow(/expected draft_revision 0, current 1/);
+    ).rejects.toThrow(/expected draft_revision 0, current 2/);
 
-    for (let draftRevision = 1; draftRevision <= 25; draftRevision += 1) {
-      await asMember.action(api.canvases.patchNodeRectMine, {
+    for (let draftRevision = 2; draftRevision <= 26; draftRevision += 1) {
+      await asMember.action(api.canvases.patchGeometryMine, {
         canvasId: created.canvasId,
-        nodeId: "node",
-        rect: { x: 50 + draftRevision, y: 60, w: 120, h: 90 },
+        change: {
+          kind: "node",
+          nodeId: "node",
+          rect: { x: 50 + draftRevision, y: 60, w: 120, h: 90 },
+        },
         expectedVersion: 1,
         expectedDraftRevision: draftRevision,
       });
@@ -834,8 +858,8 @@ describe("canvases.patchNodeRectMine", () => {
     const coalesced = await t.query(internal.canvases.get, { canvasId: created.canvasId });
     expect(coalesced).toMatchObject({
       version: 1,
-      draft_revision: 26,
-      draft_edit_count: 26,
+      draft_revision: 27,
+      draft_edit_count: 27,
       dirty: true,
     });
     const retainedVersions = await t.run((ctx) =>

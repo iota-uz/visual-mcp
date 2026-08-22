@@ -1,4 +1,4 @@
-import type { PositionedCanvas, PositionedNode } from "./layout.js";
+import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
@@ -231,6 +231,7 @@ export interface ViewportOptions {
   resolveIframeIdentity?: (node: IframeNode) => string;
   editable?: boolean;
   onGeometryChange?: (nodeId: string, rect: Rect) => void | Promise<void>;
+  onGroupMove?: (groupId: string, dx: number, dy: number) => void | Promise<void>;
   resolveElementRef?: (nodeId: string) => string | undefined;
   onCopyElementRef?: (refId: string) => void | Promise<void>;
 }
@@ -323,6 +324,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   const world = must(".vc-world");
+  const groupsRoot = must(".vc-groups");
   const nodesRoot = must(".vc-nodes");
   const minimap = must(".vc-minimap");
   const minimapNodes = must(".vc-minimap-nodes");
@@ -341,8 +343,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const zoomValue = must(".vc-zoom-value");
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
+  let groupById = new Map(liveCanvas.groups.map((group) => [group.id, group]));
   let activeIframeId: string | null = null;
   let selectedNodeId: string | null = null;
+  let selectedGroupId: string | null = null;
   let activeTool: ViewportTool = "view";
   const view: ViewState = opts.initialView
     ? { ...opts.initialView, scale: clampCanvasScale(opts.initialView.scale) }
@@ -423,6 +427,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function fitSelection(): void {
+    const group = selectedGroupId ? groupById.get(selectedGroupId) : undefined;
+    if (group) {
+      setView(
+        fitCameraToBounds(
+          { x: group.x, y: group.y, width: group.w, height: group.h },
+          viewportRect,
+        ),
+        true,
+      );
+      return;
+    }
     const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
     if (!node) {
       fitAll();
@@ -449,6 +464,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const node = id ? nodeById.get(id) : undefined;
     if (!node) {
       selectedNodeId = null;
+      selectedGroupId = null;
+      for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+        el.classList.remove("selected");
       inspector.classList.remove("visible");
       for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
         el.classList.remove("selected", "dimmed");
@@ -457,6 +475,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       return;
     }
     selectedNodeId = id;
+    selectedGroupId = null;
+    for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+      el.classList.remove("selected");
     for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
       el.classList.toggle("selected", el.dataset.nodeId === id);
       el.classList.toggle("dimmed", el.dataset.stage !== node.stageId);
@@ -477,6 +498,22 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     inspector.classList.add("visible");
     if (focus) focusNode(node);
     onSelect?.(id);
+  }
+
+  function selectGroup(id: string | null): void {
+    const group = id ? groupById.get(id) : undefined;
+    if (!group) {
+      selectNode(null);
+      return;
+    }
+    selectedNodeId = null;
+    selectedGroupId = id;
+    inspector.classList.remove("visible");
+    for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node"))
+      el.classList.remove("selected", "dimmed");
+    for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+      el.classList.toggle("selected", el.dataset.groupId === id);
+    onSelect?.(null);
   }
 
   function paintToolState(announce = false): void {
@@ -675,6 +712,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  function updateGroupElement(groupId: string): void {
+    const group = groupById.get(groupId);
+    if (!group) return;
+    const bounds = groupBounds(group, [...nodeById.values()]);
+    Object.assign(group, bounds);
+    const el = groupsRoot.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(groupId)}"]`);
+    if (!el) return;
+    el.style.left = `${bounds.x}px`;
+    el.style.top = `${bounds.y}px`;
+    el.style.width = `${bounds.w}px`;
+    el.style.height = `${bounds.h}px`;
+  }
+
   function updateEdgeGeometry(): void {
     for (const routed of routeEdges(liveCanvas)) {
       const edge = world.querySelector<SVGGElement>(
@@ -691,11 +741,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function paintGeometry(): void {
     geometryFrame = null;
+    const changedIds = new Set(pendingGeometryIds);
     for (const id of pendingGeometryIds) {
       const node = nodeById.get(id);
       if (node) updateNodeElement(node);
     }
     pendingGeometryIds.clear();
+    for (const group of liveCanvas.groups) {
+      if (group.nodeIds.some((id) => changedIds.has(id))) updateGroupElement(group.id);
+    }
     updateEdgeGeometry();
   }
 
@@ -748,10 +802,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const nextNodesRoot = nextWorld?.querySelector<HTMLElement>(".vc-nodes");
     if (!nextWorld || !nextNodesRoot) throw new Error("Unable to render reactive canvas update");
 
-    for (const selector of [".vc-lanes", ".vc-stages", ".vc-labels", ".vc-edges"] as const) {
+    for (const selector of [
+      ".vc-lanes",
+      ".vc-stages",
+      ".vc-labels",
+      ".vc-groups",
+      ".vc-edges",
+    ] as const) {
       const current = world.querySelector<HTMLElement>(selector);
       const next = nextWorld.querySelector<HTMLElement>(selector);
-      if (current && next) current.replaceWith(next);
+      if (current && next) {
+        if (selector === ".vc-groups") current.replaceChildren(...next.childNodes);
+        else current.replaceWith(next);
+      }
     }
 
     const previousById = new Map(liveCanvas.nodes.map((node) => [node.id, node]));
@@ -833,6 +896,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     nodeById = nextById;
     if (selectedId && nextById.has(selectedId)) selectNode(selectedId, false);
     else if (selectedId) selectNode(null);
+    if (selectedGroupId && nextCanvas.groups.some((group) => group.id === selectedGroupId)) {
+      const selected = world.querySelector<HTMLElement>(
+        `.vc-group[data-group-id="${CSS.escape(selectedGroupId)}"]`,
+      );
+      selected?.classList.add("selected");
+    } else if (selectedGroupId) selectedGroupId = null;
   }
 
   function updateCanvas(nextCanvas: PositionedCanvas, options?: ViewportUpdateOptions): void {
@@ -850,6 +919,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         Object.assign(incoming, { x: local.x, y: local.y, w: local.w, h: local.h });
       }
     }
+    if (dragState?.groupId && dragState.mode === "move") {
+      const group = groupById.get(dragState.groupId);
+      for (const id of group?.nodeIds ?? []) {
+        const local = nodeById.get(id);
+        const incoming = nextCanvas.nodes.find((node) => node.id === id);
+        if (local && incoming) {
+          Object.assign(incoming.rect, local.rect);
+          Object.assign(incoming, { x: local.x, y: local.y, w: local.w, h: local.h });
+        }
+      }
+    }
     reconcileCanvasDom(
       nextCanvas,
       nextResolveIframeUrl,
@@ -861,6 +941,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     liveResolveIframeIdentity = nextResolveIframeIdentity;
     liveCanvas = nextCanvas;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
+    groupById = new Map(nextCanvas.groups.map((group) => [group.id, group]));
     for (const node of nextCanvas.nodes) updateNodeElement(node);
     world.style.width = `${nextCanvas.width}px`;
     world.style.height = `${nextCanvas.height}px`;
@@ -881,8 +962,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     originY: number;
     moved: boolean;
     nodeId: string | null;
+    groupId: string | null;
     mode: "camera" | "move" | "resize";
     originRect?: Rect;
+    originMemberRects?: Map<string, Rect>;
   } | null = null;
   let pinchState: {
     startDistance: number;
@@ -897,6 +980,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function cancelDrag(): void {
+    if (dragState?.groupId && dragState.originMemberRects) {
+      for (const [id, rect] of dragState.originMemberRects) {
+        const node = nodeById.get(id);
+        if (!node) continue;
+        Object.assign(node.rect, rect);
+        Object.assign(node, { x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+        scheduleGeometry(id);
+      }
+    }
     if (dragState?.nodeId && dragState.originRect && dragState.mode !== "camera") {
       const node = nodeById.get(dragState.nodeId);
       if (node) {
@@ -924,6 +1016,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     event.preventDefault();
     container.focus({ preventScroll: true });
     const nodeElement = target.closest<HTMLElement>(".vc-node");
+    const groupElement = target.closest<HTMLElement>(".vc-group");
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     container.setPointerCapture(event.pointerId);
 
@@ -947,6 +1040,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
     const nodeId = nodeElement?.dataset.nodeId ?? null;
     const node = nodeId ? nodeById.get(nodeId) : undefined;
+    const groupId = nodeId ? null : (groupElement?.dataset.groupId ?? null);
+    const group = groupId ? groupById.get(groupId) : undefined;
     // `pointerdown.preventDefault()` intentionally suppresses the browser's
     // compatibility mouse events so inactive iframes cannot steal a drag.
     // Activate on the second pointer-down as well as pointer-up; this keeps
@@ -958,12 +1053,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
     const tool = activeTool;
     const selected = nodeId !== null && nodeId === selectedNodeId;
+    const groupSelected = groupId !== null && groupId === selectedGroupId;
     const mode =
       tool === "move" && opts.editable && selected && node && target.closest(".vc-resize-handle")
         ? "resize"
         : tool === "move" && opts.editable && selected && node
           ? "move"
-          : "camera";
+          : tool === "move" && opts.editable && groupSelected && group
+            ? "move"
+            : "camera";
     dragState = {
       startX: event.clientX,
       startY: event.clientY,
@@ -971,8 +1069,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       originY: view.y,
       moved: false,
       nodeId,
+      groupId,
       mode,
       originRect: node?.rect ? { ...node.rect } : undefined,
+      originMemberRects: group
+        ? new Map(
+            group.nodeIds.flatMap((id) => {
+              const member = nodeById.get(id);
+              return member ? [[id, { ...member.rect }] as const] : [];
+            }),
+          )
+        : undefined,
     };
     container.classList.add(mode === "camera" ? "is-panning" : "is-moving-node");
   }
@@ -1002,11 +1109,23 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const dy = event.clientY - dragState.startY;
     if (Math.abs(dx) + Math.abs(dy) > 5) dragState.moved = true;
     if (!dragState.moved) return;
-    if (dragState.mode === "camera" || !dragState.nodeId || !dragState.originRect) {
+    if (dragState.mode === "camera") {
       view.x = dragState.originX + dx;
       view.y = dragState.originY + dy;
       applyView();
+    } else if (dragState.groupId && dragState.originMemberRects) {
+      const wx = dx / view.scale;
+      const wy = dy / view.scale;
+      for (const [id, origin] of dragState.originMemberRects) {
+        const node = nodeById.get(id);
+        if (!node) continue;
+        const next = { ...origin, x: origin.x + wx, y: origin.y + wy };
+        Object.assign(node.rect, next);
+        Object.assign(node, { x: next.x, y: next.y, w: next.w, h: next.h });
+        scheduleGeometry(id);
+      }
     } else {
+      if (!dragState.nodeId || !dragState.originRect) return;
       const node = nodeById.get(dragState.nodeId);
       if (!node) return;
       const wx = dx / view.scale;
@@ -1057,10 +1176,28 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const node = nodeById.get(finishedDrag.nodeId);
       if (node) void opts.onGeometryChange?.(node.id, { ...node.rect });
     }
+    if (
+      finishedDrag.moved &&
+      finishedDrag.mode === "move" &&
+      finishedDrag.groupId &&
+      finishedDrag.originMemberRects
+    ) {
+      const first = finishedDrag.originMemberRects.entries().next().value as
+        | [string, Rect]
+        | undefined;
+      const node = first ? nodeById.get(first[0]) : undefined;
+      if (first && node)
+        void opts.onGroupMove?.(
+          finishedDrag.groupId,
+          node.rect.x - first[1].x,
+          node.rect.y - first[1].y,
+        );
+    }
     if (!finishedDrag.moved) {
       // Selection must not recenter between the two clicks of a double-click;
       // doing so moves the target before the second click and prevents iframe activation.
-      selectNode(finishedDrag.nodeId, false);
+      if (finishedDrag.groupId) selectGroup(finishedDrag.groupId);
+      else selectNode(finishedDrag.nodeId, false);
       if (finishedDrag.nodeId) {
         const now = Date.now();
         if (lastClick?.nodeId === finishedDrag.nodeId && now - lastClick.at < 500)

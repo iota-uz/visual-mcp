@@ -234,11 +234,43 @@
   color: var(--vc-edge-external);
 }
 
-/* --- node cards --- */
+/* --- groups and node cards --- */
+.vc-groups {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.vc-group {
+  position: absolute;
+  box-sizing: border-box;
+  border: calc(1px * var(--vc-camera-inverse)) dashed rgba(47, 109, 246, 0.42);
+  border-radius: 12px;
+  background: rgba(47, 109, 246, 0.025);
+  cursor: pointer;
+}
+.vc-group > span {
+  position: absolute;
+  left: 8px;
+  top: calc(-20px * var(--vc-camera-inverse));
+  color: #2f6df6;
+  font: 650 calc(11px * var(--vc-camera-inverse)) / 1.2 var(--vc-body);
+  white-space: nowrap;
+}
+.vc-group.selected {
+  z-index: 4;
+  border-style: solid;
+  border-width: calc(2px * var(--vc-camera-inverse));
+  background: rgba(47, 109, 246, 0.055);
+}
+.vc-group:focus-visible {
+  outline: calc(3px * var(--vc-camera-inverse)) solid rgba(47, 109, 246, 0.3);
+  outline-offset: calc(3px * var(--vc-camera-inverse));
+}
 .vc-nodes {
   position: absolute;
   inset: 0;
   z-index: 3;
+  pointer-events: none;
 }
 .vc-node {
   position: absolute;
@@ -249,6 +281,7 @@
   cursor: pointer;
   overflow: hidden;
   contain: layout paint style;
+  pointer-events: auto;
   transition:
     filter 0.18s ease,
     box-shadow 0.18s ease,
@@ -707,6 +740,7 @@
   display: block;
 }
 .vc-viewport.is-tool-move .vc-node.selected,
+.vc-viewport.is-tool-move .vc-group.selected,
 .vc-viewport.is-moving-node,
 .vc-viewport.is-moving-node .vc-node.selected {
   cursor: move;

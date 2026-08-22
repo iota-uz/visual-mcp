@@ -14,6 +14,7 @@ const exampleCode = `canvas_save({
       { id: "reference-a", kind: "image", laneId: "gallery", rect: { x: 60, y: 80, w: 440, h: 420 }, caption: { title: "Checkout" }, anchors: [{ id: "right", side: "right", offset: 0.5 }], source: { path: "/assets/checkout.webp" }, fit: "cover", focalPosition: { x: 0.5, y: 0.25 }, alt: "Checkout reference screen" },
       { id: "reference-b", kind: "image", laneId: "gallery", rect: { x: 600, y: 80, w: 440, h: 420 }, caption: { title: "Confirmation" }, anchors: [{ id: "left", side: "left", offset: 0.5 }], source: { path: "/assets/confirmation.webp" }, fit: "contain", focalPosition: { x: 0.5, y: 0.5 }, alt: "Confirmation reference screen" }
     ],
+    groups: [{ id: "references", label: "References", nodeIds: ["reference-a", "reference-b"] }],
     edges: []
   },
   files: [

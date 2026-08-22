@@ -1639,7 +1639,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   const entityValueSchema = z
     .unknown()
     .describe("Complete CanvasDoc entity, validated as part of the final document.");
-  const docPatchCollections = ["lanes", "stages", "labels", "nodes", "edges"] as const;
+  const docPatchCollections = ["lanes", "stages", "labels", "nodes", "groups", "edges"] as const;
   const docPatchOperationSchema = z.discriminatedUnion("op", [
     z
       .object({
@@ -1686,7 +1686,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Patch CanvasDoc entities",
       description:
-        "Atomically patches CanvasDoc v2 entities. Operation names are plural: nodes.update, " +
+        "Atomically patches CanvasDoc v2 entities, including Figma-like groups. Operation names are plural: nodes.update, " +
         "not node.update/update_node. add requires a complete value; update requires id plus " +
         "shallow root-level changes; replace requires id plus a complete value and can clear " +
         "optional fields; remove requires id; world.update requires changes. Nested objects are " +

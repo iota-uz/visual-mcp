@@ -22,6 +22,7 @@ function canvasFile(): CanvasFile {
     stages: [],
     labels: [],
     nodes: [],
+    groups: [],
     edges: [],
   });
   return {
