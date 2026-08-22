@@ -44,11 +44,13 @@ import {
   extractComponent,
   insertComponent,
 } from "@visual-canvas/canvas/component.js";
+import { frameGuide } from "@visual-canvas/canvas/device-frame.js";
 import {
   formatElementRef,
   parseElementRef,
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
+import { describeIssues } from "@visual-canvas/canvas/issues.js";
 import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
@@ -511,16 +513,14 @@ function base64Bytes(bytes: Uint8Array): string {
  * naming the offending node. The path is the only part that makes it fixable.
  */
 function describeError(err: unknown): string {
-  if (err && typeof err === "object" && Array.isArray((err as { issues?: unknown }).issues)) {
-    const issues = (err as { issues: { message: string; path?: (string | number)[] }[] }).issues;
-    return issues
-      .map((issue) => {
-        const path = issue.path?.length ? issue.path.join(".") : null;
-        return path ? `${path}: ${issue.message}` : issue.message;
-      })
-      .join("; ");
-  }
-  return err instanceof Error ? err.message : String(err);
+  /*
+   * v2 joined the top-level issues and stopped there, which is one level too
+   * shallow for a union: a CanvasNode that fails inside its iframe branch
+   * reports a single `invalid_union` whose own message is the literal
+   * "Invalid input", and the branch that actually names the field is nested
+   * underneath. `describeIssues` walks in.
+   */
+  return describeIssues(err) ?? (err instanceof Error ? err.message : String(err));
 }
 
 async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
@@ -1198,7 +1198,12 @@ async function prepareSaveDoc(
   };
   stored: Id<"_storage">[];
 }> {
-  const doc = CanvasFileSchema.parse(rawDoc);
+  const parsedDoc = CanvasFileSchema.safeParse(rawDoc);
+  if (!parsedDoc.success) {
+    // With the raw value in hand the path can say which node, not which index.
+    throw new Error(describeIssues(parsedDoc.error, { value: rawDoc }) ?? "Invalid CanvasFile");
+  }
+  const doc = parsedDoc.data;
   const docJson = JSON.stringify(doc);
   const entry = canvasEntryHtml(resolveCanvasPage(doc).doc, "", undefined, theme);
   const docBytes = new TextEncoder().encode(docJson);
@@ -1680,7 +1685,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .unknown()
             .optional()
             .describe(
-              "CanvasFile v3: {version:3, defaultPageId, pages:[{id,title,order,doc:CanvasDocV2}], prototype:{start?,interactions}}. The complete multi-page file is saved atomically as a durable draft.",
+              "CanvasFile v3: {version:3, defaultPageId, pages:[{id,title,order,doc:CanvasDocV2}], " +
+                "prototype:{start?,interactions}}. The complete multi-page file is saved " +
+                `atomically as a durable draft. ${frameGuide()}`,
             ),
           files: z.array(FileInputSchema).max(500).optional(),
           renders: z.array(RenderInputSchema).max(4).optional(),
@@ -2211,7 +2218,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   const rootChangesSchema = z
     .record(z.string(), z.unknown())
     .describe(
-      "Shallow entity-root merge. Nested objects are replaced, not deep-merged; changing rect.x requires the complete {x,y,w,h} rect.",
+      "Shallow entity-root merge. Nested objects are replaced, not deep-merged; changing rect.x " +
+        "requires the complete {x,y,w,h} rect. A null value clears an optional field — the only " +
+        "way to unset one without replace, e.g. {frame:{kind:'device',preset:'iphone-safari'}," +
+        "viewport:null}.",
     );
   const entityValueSchema = z
     .unknown()
@@ -2270,7 +2280,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "optional fields; remove requires id; world.update requires changes. Nested objects are " +
         "replaced, so changing rect.x requires a complete {x,y,w,h} rect. Read the doc first and " +
         "pass its version as expected_version. Example: {op:'nodes.update',id:'phone',changes:{" +
-        "rect:{x:10,y:20,w:310,h:708}}}. The final graph is validated atomically.",
+        "rect:{x:10,y:20,w:310,h:708}}}. A null value in changes clears an optional field. " +
+        `The final graph is validated atomically. ${frameGuide()}`,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: z
         .object({

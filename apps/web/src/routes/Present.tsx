@@ -13,6 +13,7 @@ import { Button } from "../components/ui/Button";
 import { IconButton } from "../components/ui/IconButton";
 import { mcpBaseUrl } from "../lib/mcpUrl";
 import { presentHotspotBox } from "../lib/presentGeometry";
+import { useAutoHideControls } from "../lib/useAutoHideControls";
 import { useIframeCapability } from "../lib/useIframeCapability";
 import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 
@@ -61,10 +62,9 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     : null;
   const [history, setHistory] = useState<PrototypeTarget[]>([]);
   const [visited, setVisited] = useState<PrototypeTarget[]>([]);
-  const [controlsVisible, setControlsVisible] = useState(true);
+  const { visible: controlsVisible, show: showControls } = useAutoHideControls();
   const focusRef = useRef<HTMLHeadingElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const hideTimerRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -132,18 +132,6 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     else void document.documentElement.requestFullscreen().catch(() => undefined);
   }, []);
 
-  const showControls = useCallback(() => {
-    setControlsVisible(true);
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), 2600);
-  }, []);
-  useEffect(() => {
-    showControls();
-    return () => {
-      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-    };
-  }, [showControls]);
-
   const go = useCallback(
     (target: PrototypeTarget, transition?: string) => {
       if (active) setHistory((current) => [...current, active]);
@@ -180,6 +168,25 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
       ) ?? null
     );
   }, [file, active]);
+
+  /*
+   * `mousemove` made the chrome a mouse-only affordance: on a touch device
+   * the controls hid 2.6s in and nothing left on the route could bring them
+   * back for the rest of the session. A tap is the finger's equivalent of
+   * moving the mouse, so any pointer landing anywhere re-summons them.
+   *
+   * On `window`, in the capture phase, for the same reason the keyboard
+   * handler below is: the canvas engine owns the element under the finger
+   * and mounts its own listeners imperatively, and a `pointerdown` that
+   * starts a pan there never reaches React's delegated handler.
+   */
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      showControls(event.pointerType);
+    }
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [showControls]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -301,7 +308,11 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     : signedIframeBase;
 
   return (
-    <main className="present-root" onMouseMove={showControls} onFocus={showControls}>
+    <main
+      className="present-root"
+      onMouseMove={() => showControls()}
+      onFocus={() => showControls()}
+    >
       <h1 ref={focusRef} tabIndex={-1} className="present-screen-title">
         {activeNode.caption.title}
       </h1>

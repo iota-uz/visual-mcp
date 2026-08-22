@@ -28,6 +28,30 @@ export type DevicePresetId = (typeof DEVICE_PRESET_IDS)[number];
  * requested viewport height so a whole page is visible inside the shell at
  * once, chrome still attached.
  */
+/**
+ * One sentence a caller can read without leaving the tool they are calling.
+ *
+ * The preset ids used to live only in the MCP server's `instructions` string
+ * and in a template resource — a blob clients truncate and a resource a
+ * client has to think to fetch. An agent converting a canvas guessed
+ * `iphone`, `iphone-app`, `ios`, `macbook-safari` and `desktop-chrome` in
+ * turn, because nothing it could see listed the two that exist. Generated
+ * from the registry so it cannot drift from it.
+ */
+export function frameGuide(): string {
+  const presets = DEVICE_PRESET_IDS.map((id) => {
+    const preset = DEVICE_PRESETS[id];
+    return `'${id}' (${preset.label}, ${preset.viewport.width}x${preset.viewport.height})`;
+  }).join(" | ");
+  return (
+    `Iframe frame kinds: {kind:'device',preset:${presets},display?:'clip'|'full-height',url?,time?} ` +
+    "draws the real shell — bezel, iOS status bar, Safari controls — and owns its screen size, " +
+    "so omit viewport (pass viewport:null in nodes.update to drop a stale one); " +
+    "{kind:'phone',time?} is the app handset and needs viewport {width:284,height:642}; " +
+    "{kind:'browser'|'desktop'|'none',radius?,fit?} draw no chrome at all and need an explicit viewport."
+  );
+}
+
 export const DEVICE_DISPLAYS = ["clip", "full-height"] as const;
 export type DeviceDisplay = (typeof DEVICE_DISPLAYS)[number];
 

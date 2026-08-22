@@ -119,3 +119,11 @@ and needs neither.
 - Sign-in without Google exists only where `DEV_AUTH_SECRET` is set on the
   deployment (`convex/lib/devAuth.ts`), and `/dev/sign-in` only where
   `import.meta.env.DEV` is true. Both gates are pinned by tests and by CI.
+- **Ship Convex with `npm run convex:push`, never bare `convex dev --once`.**
+  `convex/` imports `@visual-canvas/canvas` and `@visual-canvas/runtime` from
+  their `dist/`, which is gitignored, so a bare push bundles whatever happened
+  to be built locally. That is how production ended up serving eleven MCP
+  template resources while the registry had twelve: the `device-frame-screen`
+  template — the only place the device presets were written down — was missing
+  from the live server for a week, and an agent converting a canvas had
+  nothing to read. The script builds both packages first.
