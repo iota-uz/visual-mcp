@@ -2,11 +2,26 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 
 const ROOT = join(process.cwd(), "dist");
 const META_START = "<!-- visual-canvas:meta:start -->";
 const META_END = "<!-- visual-canvas:meta:end -->";
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "content-encoding",
+  "content-length",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 function escapeHtml(value) {
   return String(value)
@@ -120,6 +135,49 @@ function contentType(path) {
   );
 }
 
+async function proxyMcp(request, response, siteOrigin, fetchImpl) {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (HOP_BY_HOP_HEADERS.has(name) || value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+  }
+  // Avoid fetch transparently decompressing a response while leaving the
+  // upstream encoding headers on it. MCP responses are already compact JSON
+  // or event streams, and identity keeps this proxy byte-correct.
+  headers.set("accept-encoding", "identity");
+
+  const abort = new AbortController();
+  const abortUpstream = () => {
+    if (!response.writableEnded) abort.abort();
+  };
+  response.once("close", abortUpstream);
+
+  try {
+    const upstream = await fetchImpl(new URL("/mcp", siteOrigin), {
+      method: "POST",
+      headers,
+      body: request,
+      duplex: "half",
+      signal: abort.signal,
+    });
+    const responseHeaders = {};
+    for (const [name, value] of upstream.headers) {
+      if (!HOP_BY_HOP_HEADERS.has(name)) responseHeaders[name] = value;
+    }
+    response.writeHead(upstream.status, responseHeaders);
+    if (!upstream.body) {
+      response.end();
+      return;
+    }
+    await pipeline(Readable.fromWeb(upstream.body), response);
+  } catch (error) {
+    if (abort.signal.aborted && response.destroyed) return;
+    throw error;
+  } finally {
+    response.off("close", abortUpstream);
+  }
+}
+
 export function createAppServer({
   distRoot = ROOT,
   siteOrigin = convexSiteOrigin(process.env.CONVEX_SITE_URL ?? process.env.VITE_CONVEX_URL),
@@ -154,11 +212,19 @@ export function createAppServer({
 
   return createServer(async (request, response) => {
     try {
+      const url = new URL(request.url ?? "/", requestOrigin(request));
+      if (url.pathname === "/mcp") {
+        if (request.method !== "POST") {
+          response.writeHead(405, { allow: "POST" }).end();
+          return;
+        }
+        await proxyMcp(request, response, siteOrigin, fetchImpl);
+        return;
+      }
       if (request.method !== "GET" && request.method !== "HEAD") {
         response.writeHead(405, { allow: "GET, HEAD" }).end();
         return;
       }
-      const url = new URL(request.url ?? "/", requestOrigin(request));
       const socialImage = /^\/s\/([^/]+)\/_social\/preview\.png$/.exec(url.pathname);
       if (socialImage) {
         const slug = decodeURIComponent(socialImage[1]);
@@ -236,6 +302,10 @@ export function createAppServer({
       else createReadStream(path).pipe(response);
     } catch (error) {
       console.error(error);
+      if (response.headersSent || response.destroyed) {
+        response.destroy();
+        return;
+      }
       response
         .writeHead(500, { "content-type": "text/plain; charset=utf-8" })
         .end("Internal error");

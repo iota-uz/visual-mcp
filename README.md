@@ -8,7 +8,7 @@ diagrams, and ApexCharts. Humans browse, view, and share the results by URL.
 ## Connect Claude to it
 
 ```
-claude mcp add --transport http visual-canvas https://<your-deployment>.convex.site/mcp \
+claude mcp add --transport http visual-canvas https://canvas.iota.uz/mcp \
   --header "Authorization: Bearer vct_..."
 ```
 

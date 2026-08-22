@@ -301,7 +301,7 @@ export function KitchenSinkPage() {
           <CopyableValue
             as="block"
             label="Claude Code"
-            value="claude mcp add --transport http visual-canvas https://example.convex.site/mcp --header 'Authorization: Bearer vct_…'"
+            value="claude mcp add --transport http visual-canvas https://canvas.iota.uz/mcp --header 'Authorization: Bearer vct_…'"
             copyLabel="Copy command"
           />
         </Row>

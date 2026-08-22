@@ -1,7 +1,9 @@
 /*
- * The MCP endpoint lives on Convex's HTTP-action domain (`.convex.site`),
- * not on the client API domain (`.convex.cloud`) that `VITE_CONVEX_URL`
- * points at. Deriving one from the other used to be inlined in Tokens.tsx
+ * Convex serves the upstream MCP HTTP action on `.convex.site`, not on the
+ * client API domain (`.convex.cloud`) that `VITE_CONVEX_URL` points at.
+ * Production exposes that action through the app origin's `/mcp` proxy;
+ * local development still derives the direct upstream URL here. That logic
+ * used to be inlined in Tokens.tsx
  * with the two rewrites in the wrong order: the `.convex.cloud$` replace
  * is `$`-anchored, so a `VITE_CONVEX_URL` carrying a trailing slash
  * ("https://x.convex.cloud/") never matched, and the snippet silently
@@ -37,13 +39,20 @@ export function mcpBaseUrl(convexUrl: string | undefined | null): string {
   return url.origin;
 }
 
-/** Full endpoint agents connect to, e.g. `https://x.convex.site/mcp`. */
+/** Direct Convex endpoint used by local development. */
 export function mcpEndpointUrl(convexUrl: string | undefined | null): string {
   return `${mcpBaseUrl(convexUrl)}/mcp`;
 }
 
-/** Same, resolved from this build's env. Kept thin so the rest stays pure. */
+/**
+ * Production publishes MCP on the app's own origin. Local Vite development
+ * still points straight at the local Convex HTTP-action port because the Vite
+ * server does not run the production reverse proxy.
+ */
 export function currentMcpEndpointUrl(): string {
+  if (import.meta.env.PROD && typeof window !== "undefined") {
+    return `${window.location.origin}/mcp`;
+  }
   return mcpEndpointUrl(import.meta.env.VITE_CONVEX_URL as string | undefined);
 }
 

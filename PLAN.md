@@ -28,7 +28,7 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 | 10 | **MCP tokens expire after 90 days**, non-configurable in v1 — the mechanism that makes a departed employee's access actually die, independent of their Google account's state. |
 | 11 | **UI is English-only.** No i18n in v1. |
 | 12 | **Static public preview cards are supported; embedded viewers remain deferred.** GitHub/Markdown receives a script-free image linked to the existing share view or artifact. No website iframe snippet and no separate `/embed/:slug` viewer. |
-| 13 | **No custom domain *requirement* for v1** — a platform-generated subdomain would have been acceptable; `*.convex.site` is used as-is for `/mcp` and artifacts. In practice the SPA got one anyway: `canvas.iota.uz`, CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
+| 13 | **One public product origin.** Agents connect to `https://canvas.iota.uz/mcp`, which Railway streams to the Convex HTTP action; Convex artifact and capability URLs remain on `*.convex.site`. The SPA domain is CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
 
 ---
 
@@ -529,8 +529,9 @@ Recorded because they were consciously chosen.
 
 1. **Write scoping** — resolved as decision #9: org-wide writes, `createdBy` attribution, no
    per-workspace ACL.
-2. **Domains** — resolved as decision #13: `*.convex.site` is used as-is for `/mcp` and
-   artifacts. **Host changed from the original Netlify plan to Railway**
+2. **Domains** — resolved as decision #13: agents use `canvas.iota.uz/mcp`, streamed by the
+   Railway web service to Convex; artifacts and capability URLs remain on `*.convex.site`.
+   **Host changed from the original Netlify plan to Railway**
    (`apps/web/Dockerfile`, static build served via `serve -s` with SPA fallback, deployed to the
    same Railway project as the render worker) — this session had authenticated Railway access
    but none on Netlify, and Railway was already in use for the worker, so it was the pragmatic
