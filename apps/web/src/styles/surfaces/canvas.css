@@ -993,7 +993,7 @@
   position: fixed;
   z-index: 2;
   left: 50%;
-  bottom: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1016,7 +1016,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
+  min-width: max(34px, var(--app-hit-min));
+  min-height: max(34px, var(--app-hit-min));
   padding: 0 9px;
   border: 0;
   border-radius: var(--app-radius-sm);
