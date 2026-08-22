@@ -20,7 +20,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  min-height: max(32px, var(--app-hit-min));
   padding: 0 var(--app-space-3);
   border-radius: var(--app-radius-md);
   background: var(--app-accent);
@@ -63,6 +63,9 @@
   max-height: calc(100% - var(--app-canvas-chrome-top) - var(--app-space-3));
   padding: var(--app-space-3);
   overflow: auto;
+  /* A floating card over a live canvas: its scroll must not hand the
+     leftover to the document and bounce the whole page on iOS. */
+  overscroll-behavior: contain;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-lg);
   background: var(--app-surface-floating);
@@ -72,9 +75,29 @@
 
 .canvas-comments-panel > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--app-space-2);
+}
+
+.canvas-comments-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: max(26px, var(--app-hit-min));
+  height: max(26px, var(--app-hit-min));
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.canvas-comments-close:hover {
+  color: var(--app-ink);
 }
 
 .canvas-comments-count,
@@ -116,7 +139,7 @@
   border: 1px solid var(--app-line);
   border-radius: 6px;
   font: inherit;
-  font-size: var(--app-text-sm);
+  font-size: max(var(--app-text-sm), var(--app-input-font-size));
   resize: vertical;
 }
 
@@ -144,6 +167,13 @@
   background: var(--app-paper);
   font-family: var(--app-font-mono);
   letter-spacing: 0;
+}
+
+/* The gate to half the threads, and on touch a 31px strip of text. Grown
+   through the primitive's own padding variable rather than by making the
+   summary a flex box, which would take its disclosure marker with it. */
+.canvas-comments-resolved {
+  --disclosure-summary-padding: max(var(--app-space-2), calc(var(--app-hit-min) / 3)) 2px;
 }
 
 .canvas-comments-resolved > summary {
@@ -190,6 +220,7 @@
 
 .canvas-comment-head {
   display: flex;
+  min-height: var(--app-hit-min);
   align-items: flex-start;
   gap: var(--app-space-2);
   padding: 0;
@@ -377,6 +408,9 @@
   width: var(--app-prototype-panel-w);
   padding: var(--app-space-3);
   overflow: auto;
+  /* A floating card over a live canvas: its scroll must not hand the
+     leftover to the document and bounce the whole page on iOS. */
+  overscroll-behavior: contain;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-lg);
   background: var(--app-surface-floating);
@@ -396,12 +430,13 @@
 
 .canvas-prototype-panel select,
 .canvas-prototype-panel input {
-  min-height: 32px;
+  min-height: max(32px, var(--app-hit-min));
   padding: 4px 7px;
   border: 1px solid var(--app-line);
   border-radius: 6px;
   background: white;
   font: inherit;
+  font-size: var(--app-input-font-size);
 }
 
 .canvas-prototype-panel fieldset {
@@ -474,6 +509,8 @@
 
 .canvas-prototype-hotspot-resize {
   position: absolute;
+  display: grid;
+  place-items: center;
   width: 12px;
   height: 12px;
   padding: 0;
@@ -484,6 +521,22 @@
   transform: translate(-50%, -50%);
   cursor: nwse-resize;
   touch-action: none;
+}
+
+/*
+ * The smallest control in the app, and it is dragged. The dot stays 12px —
+ * a 28px disc would swallow the hotspot it belongs to — and grows a
+ * transparent pad instead, so the geometry the drag maths reads is
+ * unchanged.
+ */
+@media (pointer: coarse) {
+  .canvas-prototype-hotspot-resize::before {
+    content: "";
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+  }
 }
 
 .canvas-prototype-list {
@@ -529,6 +582,9 @@
   width: var(--app-pages-panel-w);
   padding: var(--app-space-2);
   overflow: auto;
+  /* A floating card over a live canvas: its scroll must not hand the
+     leftover to the document and bounce the whole page on iOS. */
+  overscroll-behavior: contain;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-lg);
   background: var(--app-surface-floating);
@@ -544,7 +600,7 @@
 
 .canvas-pages-head {
   display: flex;
-  min-height: 30px;
+  min-height: max(30px, var(--app-hit-min));
   align-items: center;
   gap: 6px;
   padding: 0 2px 0 var(--app-space-2);
@@ -729,14 +785,25 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: max(26px, var(--app-hit-min));
+  height: max(26px, var(--app-hit-min));
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--app-muted);
   cursor: pointer;
+}
+
+/*
+ * On touch these are permanently visible (there is no hover to reveal
+ * them), so the row has to give both of them a real column rather than
+ * letting a 44px control sit in an 18px gutter.
+ */
+@media (pointer: coarse) {
+  .canvas-pages-list > li {
+    grid-template-columns: var(--app-hit-min) minmax(0, 1fr) var(--app-hit-min);
+  }
 }
 
 .canvas-page-actions button:hover,
@@ -755,11 +822,11 @@
   top: 30px;
   right: 0;
   display: grid;
-  width: 156px;
+  width: max(156px, calc(var(--app-hit-min) * 4));
   padding: 4px;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-surface, white);
+  background: var(--app-white);
   box-shadow: var(--app-shadow-md);
 }
 
@@ -770,7 +837,7 @@
 
 .canvas-page-actions .canvas-page-menu > button {
   width: 100%;
-  height: 32px;
+  height: max(32px, var(--app-hit-min));
   justify-content: flex-start;
   gap: 8px;
   padding: 0 8px;
@@ -1031,7 +1098,8 @@
    navigation in the quiet lower-left corner, adjacent to Details. */
 .is-artifact-canvas-view .canvas-navigation-trigger {
   top: auto;
-  bottom: var(--app-space-4);
+  /* Home-indicator territory on an iPad. */
+  bottom: max(var(--app-space-4), env(safe-area-inset-bottom));
 }
 
 .canvas-navigation-trigger:hover,
@@ -1092,7 +1160,10 @@
   /* Symmetric, so the two 1fr tracks are genuinely equal and the mode
      switch lands on the window's centre line. The navigation button's
      gutter is the lead group's own padding, not the bar's. */
-  padding: 0 var(--app-space-3);
+  /* `viewport-fit=cover` means the bar reaches under the rounded corners in
+     landscape; the insets are zero everywhere else. */
+  padding: 0 max(var(--app-space-3), env(safe-area-inset-right)) 0
+    max(var(--app-space-3), env(safe-area-inset-left));
   border-bottom: 1px solid var(--app-line);
   background: var(--app-white);
 }
@@ -1133,7 +1204,7 @@
   overflow: hidden;
   margin: 0;
   color: var(--app-ink);
-  font-size: var(--app-text-md);
+  font-size: var(--app-text-base);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1198,7 +1269,7 @@
 .canvas-command-details {
   flex: none;
   gap: 6px;
-  height: 30px;
+  min-height: max(30px, var(--app-hit-min));
   /* The group is already flex-end; an auto margin here only stranded
      whatever button came before it at the far left of the track. */
   padding: 0 var(--app-space-2);
@@ -1224,12 +1295,12 @@
 .canvas-artifact-details-trigger {
   position: absolute;
   z-index: var(--app-z-chrome);
-  bottom: var(--app-space-4);
+  bottom: max(var(--app-space-4), env(safe-area-inset-bottom));
   left: calc(var(--app-trigger-size) + var(--app-space-6));
   display: inline-flex;
   align-items: center;
   gap: var(--app-space-2);
-  height: 40px;
+  min-height: var(--app-trigger-size);
   padding: 0 var(--app-space-3);
   border: 1px solid var(--app-line);
   border-radius: 10px;
@@ -1292,8 +1363,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: max(28px, var(--app-hit-min));
+  height: max(28px, var(--app-hit-min));
   border: 1px solid transparent;
   border-radius: var(--app-radius-sm);
   background: none;
@@ -1536,7 +1607,7 @@
 }
 
 .canvas-prototype-panel ~ .canvas-comments-panel {
-  right: calc(var(--app-prototype-panel-w) + var(--app-space-5));
+  right: calc(var(--app-prototype-panel-w) + var(--app-space-3));
 }
 
 .canvas-prototype-panel ~ .canvas-comments-panel ~ .vc-viewport-host {
@@ -1549,7 +1620,16 @@
   transition: right var(--app-transition) var(--app-ease-out);
 }
 
-@media (max-width: 899px) {
+/*
+ * Overlay rather than inset — driven by input as well as by width. An iPad
+ * is 768px in portrait and 1194px in landscape: the same finger, and the
+ * same need. Insetting for two 300px panels in landscape leaves the canvas
+ * a container under 640px, which is the engine's phone branch.
+ *
+ * Width still decides *density* — the metadata that the 899px block above
+ * drops stays on screen at 1194px, where there is room for it.
+ */
+@media (max-width: 899px), (pointer: coarse) {
   .canvas-pages-panel:not(.is-collapsed) {
     z-index: var(--app-z-drawer-trigger);
     box-shadow: var(--app-shadow-lg);
@@ -1576,7 +1656,9 @@
     right: var(--app-space-3);
     z-index: var(--app-z-drawer-trigger);
     width: min(var(--app-comments-panel-w), calc(100vw - var(--app-space-8)));
-    max-height: calc(100% - var(--app-canvas-chrome-top) - 84px);
+    max-height: calc(
+      100% - var(--app-canvas-chrome-top) - 84px - env(safe-area-inset-bottom)
+    );
     box-shadow: var(--app-shadow-lg);
   }
 
@@ -1658,9 +1740,25 @@
   }
 }
 
+/*
+ * Below this the bar cannot hold three labelled controls and a title, and
+ * the title is the one that loses — it collapses to nothing rather than
+ * truncating. On coarse the controls are 44px, so this is also where an
+ * iPad in 50% Split View lands.
+ */
 @media (max-width: 640px) {
-  .canvas-command-details span {
+  .canvas-command-details span,
+  .canvas-command-present span,
+  .canvas-command-comments span {
     display: none;
+  }
+
+  /* A 300px card beside a 288px rail does not fit in 507px: the panel takes
+     the width instead of covering half the rail. */
+  .canvas-comments-panel,
+  .canvas-prototype-panel {
+    left: var(--app-space-3);
+    width: auto;
   }
 }
 
@@ -1671,8 +1769,11 @@
 }
 
 @media (max-width: 640px) {
-  .canvas-command-details {
-    width: 30px;
+  .canvas-command-comments,
+  .canvas-command-details,
+  .canvas-command-present {
+    width: max(30px, var(--app-hit-min));
+    justify-content: center;
     padding: 0;
   }
 }

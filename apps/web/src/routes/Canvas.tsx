@@ -36,6 +36,7 @@ import {
   Trash2,
   Unplug,
   User,
+  X,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -613,13 +614,16 @@ const DOC_FETCH_ATTEMPTS = 4;
 const PAGES_COLLAPSED_KEY = "visual-canvas:pages-collapsed";
 
 /*
- * Mirrors the `max-width: 899px` branch in surfaces/canvas.css, where the
- * Pages rail stops being a column beside the canvas and becomes an overlay
- * on top of it. Read at click time rather than subscribed to: the only
- * question is what the layout is doing right now.
+ * Mirrors the branch in surfaces/canvas.css where the floating panels stop
+ * insetting the canvas and start overlaying it. Read at click time rather
+ * than subscribed to: the only question is what the layout is doing right
+ * now. The string is verbatim, and layout-contract.test.js checks that it
+ * still matches the stylesheet.
  */
+export const OVERLAY_PANELS_QUERY = "(max-width: 899px), (pointer: coarse)";
+
 function isOverlayRail(): boolean {
-  return window.matchMedia?.("(max-width: 899px)").matches ?? false;
+  return window.matchMedia?.(OVERLAY_PANELS_QUERY).matches ?? false;
 }
 
 interface FetchableCanvas {
@@ -1588,6 +1592,7 @@ export function CommentsPanel({
   onReply,
   onStatus,
   onDelete,
+  onClose,
 }: {
   threads: CommentThread[];
   doc: CanvasDoc | null;
@@ -1603,6 +1608,7 @@ export function CommentsPanel({
   onReply: (commentId: string, body: string) => Promise<void>;
   onStatus: (commentId: string, status: "resolved" | "open") => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
+  onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const { notify } = useToast();
@@ -1787,6 +1793,16 @@ export function CommentsPanel({
       <header>
         <strong>Comments</strong>
         <span className="canvas-comments-count">{summary}</span>
+        {/* The only other way out is the Comments chip in the top bar,
+            which on a tablet is a small target on the far side of the
+            screen from the panel it closes. */}
+        <IconButton
+          icon={X}
+          label="Close comments"
+          iconSize={15}
+          className="canvas-comments-close"
+          onClick={onClose}
+        />
       </header>
       {draft ? (
         <CommentComposer
@@ -2328,6 +2344,25 @@ export function CanvasPage() {
    * until you go there.
    */
   const [commentsOpen, setCommentsOpen] = useState(false);
+  /*
+   * Overlaid, the two right-hand panels land on the same 300px of a 768px
+   * screen — and before this they simply covered each other. Opening one
+   * puts the other away; inset side by side there is room for both.
+   */
+  const showComments = useCallback(
+    (open: boolean) => {
+      if (open && isOverlayRail()) setEditorMode("design");
+      setCommentsOpen(open);
+    },
+    [setEditorMode],
+  );
+  const changeEditorMode = useCallback(
+    (mode: "design" | "prototype") => {
+      if (mode === "prototype" && isOverlayRail()) setCommentsOpen(false);
+      setEditorMode(mode);
+    },
+    [setEditorMode],
+  );
   const [commentDraft, setCommentDraft] = useState<{
     nodeId?: string;
     point: { x: number; y: number };
@@ -2700,14 +2735,14 @@ export function CanvasPage() {
             <Button
               size="sm"
               variant={editorMode === "design" ? "secondary" : "ghost"}
-              onClick={() => setEditorMode("design")}
+              onClick={() => changeEditorMode("design")}
             >
               Design
             </Button>
             <Button
               size="sm"
               variant={editorMode === "prototype" ? "secondary" : "ghost"}
-              onClick={() => setEditorMode("prototype")}
+              onClick={() => changeEditorMode("prototype")}
             >
               Prototype
             </Button>
@@ -2720,7 +2755,7 @@ export function CanvasPage() {
               iconSize={16}
               className="canvas-command-comments"
               data-open={pendingCommentCount > 0 ? "" : undefined}
-              onClick={() => setCommentsOpen((open) => !open)}
+              onClick={() => showComments(!commentsOpen)}
               aria-pressed={commentsOpen}
             />
             <IconButton
@@ -2963,6 +2998,7 @@ export function CanvasPage() {
               activeId={activeCommentId}
               onDraftChange={setCommentDraft}
               onActiveChange={setActiveCommentId}
+              onClose={() => showComments(false)}
               onCreate={async (input) => {
                 await createComment({
                   canvasId: canvasId as Id<"canvases">,
@@ -3087,12 +3123,12 @@ export function CanvasPage() {
               activeCommentId={activeCommentId}
               onCommentActivate={(commentId) => {
                 setActiveCommentId(commentId);
-                setCommentsOpen(true);
+                showComments(true);
               }}
               onCommentDraft={(anchor) => {
                 setCommentDraft(anchor);
                 setActiveCommentId(null);
-                setCommentsOpen(true);
+                showComments(true);
               }}
               iframeBaseUrl={
                 iframeCapabilityToken

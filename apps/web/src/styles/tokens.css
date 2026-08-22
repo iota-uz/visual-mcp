@@ -68,6 +68,7 @@
   --app-space-6: 24px;
   --app-space-8: 32px;
 
+  --app-radius-xs: 4px;
   --app-radius-sm: 7px;
   --app-radius-md: 8px;
   --app-radius-lg: 13px;
@@ -130,5 +131,42 @@
      left padding used to hardcode 14px to match. */
   --app-icon-sm: 14px;
 
+  /*
+   * One touch token, written as a *floor*: `min-height: var(--app-hit-min)`
+   * or `max(28px, var(--app-hit-min))` at each control. At its default of
+   * zero every one of those is a no-op, so desktop pixels cannot move; the
+   * coarse block below is then the whole of the touch adaptation, and each
+   * control keeps its own resting size written where it lives.
+   */
+  --app-hit-min: 0px;
+  --app-input-font-size: var(--app-text-sm);
+
   font-family: var(--app-font-body);
+}
+
+/*
+ * Touch. Not a width breakpoint: an iPad is 768px in portrait and 1194px in
+ * landscape, and both are the same finger. Width still decides how much
+ * information fits — this decides how big it has to be to hit.
+ *
+ * 16px on inputs is not cosmetic: iOS zooms the whole page whenever a
+ * focused field is smaller than that, and on the canvas route that zoom
+ * leaves the document at a scale the viewport did not choose.
+ */
+@media (pointer: coarse) {
+  :root {
+    /*
+     * One height for every control, the way the platform itself does it: a
+     * separate "small" step would only be a second class of control that is
+     * harder to hit, and the most tapped things on the canvas route — the
+     * mode switch, the top-bar chips — are the small ones.
+     */
+    --app-hit-min: 44px;
+    --app-input-font-size: 16px;
+    --app-trigger-size: 44px;
+    /* The bar has to hold a 36px mode switch with room around it. */
+    --app-canvas-bar-h: 60px;
+    /* Two 44px controls per row leave the title nowhere to go at 260. */
+    --app-pages-panel-w: 288px;
+  }
 }

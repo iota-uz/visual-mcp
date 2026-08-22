@@ -34,3 +34,23 @@ if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.sho
     this.dispatchEvent(new Event("close"));
   };
 }
+
+/*
+ * jsdom has no `matchMedia` at all, so anything that asks the platform a
+ * question — reduced motion, `(pointer: coarse)` — has to guard the call.
+ * A well-formed default here means a test only stubs it when the answer is
+ * the point of the test, and gets the desktop answer otherwise.
+ */
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}

@@ -103,6 +103,28 @@
   /* Consumed by .vc-image-viewport, which had always silently fallen
      through to the literal in its own var() fallback. */
   --vc-color-surface: #ffffff;
+
+  /*
+   * Control sizes. Named so the coarse-pointer block below can raise the
+   * whole dock in one place: fifteen per-selector overrides would each have
+   * to be written after an existing `:hover` or state rule, which is the
+   * shape `noDescendingSpecificity` exists to complain about. The defaults
+   * are the sizes these controls already had.
+   */
+  --vc-control-h: 30px;
+  --vc-tool-w: 72px;
+  --vc-tool-h: 38px;
+  --vc-toolbar-h: 48px;
+  /* A floor, not a size: zero by default so the inline actions keep the
+     heights their own padding gives them. */
+  --vc-action-h: 0px;
+  --vc-menu-item-h: 34px;
+  --vc-zoom-value-w: 52px;
+  --vc-zoom-menu-w: 65px;
+  --vc-zoom-options-w: 184px;
+  --vc-marker: 24px;
+  --vc-handle-hit: 8px;
+  --vc-input-font-size: 10px;
 }
 
 /*
@@ -134,7 +156,43 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  /*
+   * iOS answers a long press with its own copy/share sheet — the same
+   * gesture the selection toggle uses — and flashes a grey box on every tap.
+   * `user-select: none` suppresses the magnifier but neither of those.
+   */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Panning past the edge of the world must not bounce the page behind it. */
+  overscroll-behavior: contain;
   outline: none;
+}
+
+/*
+ * A finger needs a bigger target than a cursor does, and this is the whole
+ * of the difference: one block re-valuing the sizes the controls already
+ * read. `[data-pointer]` is written by mountViewport rather than being a
+ * media query, because the responsive rules further down are *container*
+ * queries and the two cannot be combined — but this element is a descendant
+ * of that container, so an attribute on it can be read from inside them.
+ * It also outranks them on specificity, so it wins wherever they overlap,
+ * which is an iPad in Split View.
+ */
+.vc-viewport[data-pointer="coarse"] {
+  --vc-control-h: 44px;
+  --vc-tool-w: 64px;
+  --vc-tool-h: 48px;
+  --vc-toolbar-h: 60px;
+  --vc-action-h: 44px;
+  --vc-menu-item-h: 48px;
+  --vc-zoom-value-w: 64px;
+  --vc-zoom-menu-w: 44px;
+  --vc-zoom-options-w: 220px;
+  --vc-marker: 36px;
+  --vc-handle-hit: 14px;
+  /* iOS zooms the page whenever a focused field is under 16px, and the zoom
+     it lands on is not one the camera chose. */
+  --vc-input-font-size: 16px;
 }
 /* The container is tabIndex=0 and owns every shortcut in the viewport, so
    it needs to show when it holds focus. Inset rather than an outline: the
@@ -393,6 +451,23 @@
     0 0 0 calc(3px * var(--vc-camera-inverse)) color-mix(in srgb, var(--vc-accent) 24%, transparent),
     0 24px 60px rgba(19, 43, 71, 0.2);
 }
+/*
+ * A long press is held blind otherwise: the ring grows for as long as the
+ * press has to last, so the gesture says how far along it is and a press
+ * that is released early reads as abandoned rather than broken.
+ */
+.vc-node.is-press-pending {
+  animation: vc-press-pending var(--vc-longpress-duration, 450ms) var(--vc-ease-out) forwards;
+}
+@keyframes vc-press-pending {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--vc-accent) 30%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 calc(5px * var(--vc-camera-inverse))
+      color-mix(in srgb, var(--vc-accent) 30%, transparent);
+  }
+}
 .vc-node.dimmed {
   opacity: 0.25;
   filter: saturate(0.55);
@@ -431,8 +506,18 @@
   padding: 14px;
   overflow: auto;
   user-select: text;
+  /* The one region whose text is meant to be selected keeps the callout the
+     viewport switches off, and keeps its own long press out of the
+     selection toggle's way. */
+  -webkit-touch-callout: default;
   font: 500 11px / 1.5 var(--vc-body);
   color: var(--vc-ink-soft);
+}
+/* Arranging nodes, not reading them: the body stops being selectable so a
+   press on it is unambiguously the selection toggle. */
+.vc-viewport.is-tool-move .vc-native-body {
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .vc-native-body p {
   margin: 0 0 8px;
@@ -526,6 +611,7 @@
   appearance: none;
   border: 1px solid var(--vc-accent-ring);
   border-radius: var(--vc-radius-sm);
+  min-height: var(--vc-action-h);
   padding: 5px 12px;
   background: #ffffff;
   color: var(--vc-accent-text);
@@ -624,7 +710,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .vc-iframe-loading::after,
-  .vc-image-viewport[data-image-state="loading"] {
+  .vc-image-viewport[data-image-state="loading"],
+  .vc-node.is-press-pending {
     animation: none;
   }
 }
@@ -652,8 +739,29 @@
   font: 600 8px var(--vc-mono);
   transition: opacity var(--vc-duration-fast);
 }
+/*
+ * Selection reveals it as well as hover: on a tablet the hint used to be
+ * unreachable, and "show it on every screen at once" is worse than showing
+ * it on the one that was just tapped.
+ */
+.vc-node.selected .vc-iframe-guard span,
 .vc-kind-iframe:hover .vc-iframe-guard span {
   opacity: 1;
+}
+/* Both wordings ship and CSS picks: `.vc-world` is replaced wholesale on
+   every re-render, so a JS rewrite would have to be redone from every
+   render site — and this also works where no JS runs at all. */
+.vc-iframe-guard i {
+  font-style: normal;
+}
+.vc-iframe-guard [data-hint="coarse"] {
+  display: none;
+}
+.vc-viewport[data-pointer="coarse"] .vc-iframe-guard [data-hint="fine"] {
+  display: none;
+}
+.vc-viewport[data-pointer="coarse"] .vc-iframe-guard [data-hint="coarse"] {
+  display: inline;
 }
 .vc-node.iframe-active {
   z-index: 10;
@@ -1050,6 +1158,7 @@
   top: 55px;
   border: 0;
   border-radius: var(--vc-radius-sm);
+  min-height: var(--vc-action-h);
   padding: 6px 9px;
   background: #061b36;
   color: white;
@@ -1075,7 +1184,8 @@
 }
 .vc-resize-handle::before {
   position: absolute;
-  inset: calc(-8px * var(--vc-camera-inverse));
+  /* The dot stays 8px; only what a finger has to hit grows. */
+  inset: calc(-1 * var(--vc-handle-hit) * var(--vc-camera-inverse));
   content: "";
 }
 .vc-resize-n,
@@ -1162,9 +1272,10 @@
   left: 0;
   display: grid;
   place-items: center;
-  min-width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  min-width: var(--vc-marker);
+  height: var(--vc-marker);
+  /* Centred on its anchor, so the offset has to follow the size. */
+  margin: calc(var(--vc-marker) / -2) 0 0 calc(var(--vc-marker) / -2);
   padding: 0 6px;
   /* A white ring, so a pin landing on a node's own border still reads as a
      separate object sitting above the drawing. */
@@ -1181,8 +1292,12 @@
   transform-origin: bottom left;
   transition: transform var(--vc-duration-fast) var(--vc-ease-out);
 }
-.vc-comment-marker:hover {
-  transform: scale(1.12);
+/* iOS keeps `:hover` on a tapped element until the next tap elsewhere, so
+   unguarded this would leave a pin sitting enlarged. */
+@media (hover: hover) {
+  .vc-comment-marker:hover {
+    transform: scale(1.12);
+  }
 }
 .vc-comment-marker:focus-visible {
   outline: 2px solid var(--vc-accent);
@@ -1253,6 +1368,7 @@
 .vc-multiselect-delete {
   border: 1px solid color-mix(in srgb, #b42318 32%, transparent);
   border-radius: var(--vc-radius-sm);
+  min-height: var(--vc-action-h);
   padding: 7px 12px;
   background: color-mix(in srgb, #b42318 8%, #fff);
   color: #b42318;
@@ -1458,9 +1574,16 @@
 }
 .vc-inspector-close {
   position: absolute;
-  right: 14px;
-  top: 14px;
+  /* It had no box at all — a 16px glyph was the entire target. The inset
+     compensates for the new one so the × stays where it was. */
+  right: 8px;
+  top: 8px;
   appearance: none;
+  display: grid;
+  width: var(--vc-control-h);
+  height: var(--vc-control-h);
+  place-items: center;
+  padding: 0;
   border: none;
   background: none;
   font-size: 16px;
@@ -1531,6 +1654,7 @@
   border: 1px solid var(--vc-line);
   border-radius: var(--vc-radius-sm);
   background: var(--vc-white);
+  min-height: var(--vc-action-h);
   padding: 6px 9px;
   color: var(--vc-ink);
   cursor: pointer;
@@ -1540,6 +1664,35 @@
   border-color: var(--vc-role-primary);
 }
 .vc-inspector-ref-copy:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * Deleting a node is Delete on a keyboard and nothing at all on a tablet,
+ * where the multi-selection bar was the only door and it never opens for
+ * one node. Hidden with a cursor: a second way to do a thing the keyboard
+ * already does is clutter, and a destructive one at that.
+ */
+.vc-inspector-actions {
+  display: none;
+  margin-top: 10px;
+}
+.vc-viewport[data-pointer="coarse"] .vc-inspector-actions:not([hidden]) {
+  display: flex;
+}
+.vc-inspector-delete {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, #b42318 32%, transparent);
+  border-radius: var(--vc-radius-sm);
+  min-height: var(--vc-action-h);
+  padding: 0 14px;
+  background: color-mix(in srgb, #b42318 8%, #fff);
+  color: #b42318;
+  cursor: pointer;
+  font: 650 12px / 1 var(--vc-body);
+}
+.vc-inspector-delete:focus-visible {
   outline: 3px solid var(--vc-accent-ring);
   outline-offset: 2px;
 }
@@ -1614,11 +1767,13 @@
   position: absolute;
   z-index: 24;
   left: 50%;
-  bottom: 18px;
+  /* Clears the home indicator when the page is served `viewport-fit=cover`;
+     the inset is zero on every other surface. */
+  bottom: max(18px, env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
   gap: 3px;
-  min-height: 48px;
+  min-height: var(--vc-toolbar-h);
   padding: 5px;
   border: 1px solid rgba(143, 160, 180, 0.42);
   border-radius: var(--vc-radius-lg);
@@ -1645,8 +1800,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 72px;
-  min-height: 38px;
+  min-width: var(--vc-tool-w);
+  min-height: var(--vc-tool-h);
   border: 1px solid transparent;
   border-radius: var(--vc-radius-md);
   padding: 0 9px;
@@ -1687,10 +1842,10 @@
   opacity: 0.42;
 }
 .vc-help-toggle {
-  min-width: 30px;
-  width: 30px;
-  height: 30px;
-  min-height: 30px;
+  min-width: var(--vc-control-h);
+  width: var(--vc-control-h);
+  height: var(--vc-control-h);
+  min-height: var(--vc-control-h);
   margin-left: 3px;
   padding: 0;
   border-left: 1px solid rgba(107, 126, 148, 0.2);
@@ -1700,15 +1855,15 @@
 /* Typed zoom. Sized to fit "1000%" so committing an extreme value does not
    reflow the whole dock. */
 .vc-zoom-value {
-  width: 52px;
-  height: 30px;
+  width: var(--vc-zoom-value-w);
+  height: var(--vc-control-h);
   border: 1px solid transparent;
   border-radius: var(--vc-radius-sm);
   padding: 0;
   background: transparent;
   color: var(--vc-ink-soft);
   text-align: center;
-  font: 650 10px / 1 var(--vc-mono);
+  font: 650 var(--vc-input-font-size) / 1 var(--vc-mono);
 }
 .vc-zoom-value:hover {
   background: #f1f5f9;
@@ -1735,8 +1890,8 @@
 }
 .vc-zoom-step {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: var(--vc-control-h);
+  height: var(--vc-control-h);
   padding: 0;
   place-items: center;
   border-radius: var(--vc-radius-sm);
@@ -1751,8 +1906,8 @@
 }
 .vc-zoom-menu summary {
   display: flex;
-  min-width: 65px;
-  height: 30px;
+  min-width: var(--vc-zoom-menu-w);
+  height: var(--vc-control-h);
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -1776,7 +1931,7 @@
   right: 0;
   bottom: calc(100% + 10px);
   display: grid;
-  width: 184px;
+  width: var(--vc-zoom-options-w);
   padding: 5px;
   border: 1px solid rgba(143, 160, 180, 0.42);
   border-radius: var(--vc-radius-md);
@@ -1785,7 +1940,7 @@
 }
 .vc-zoom-options button {
   display: flex;
-  min-height: 34px;
+  min-height: var(--vc-menu-item-h);
   align-items: center;
   justify-content: space-between;
   padding: 0 9px;
@@ -1846,8 +2001,8 @@
 .vc-shortcut-help-close {
   appearance: none;
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: var(--vc-control-h);
+  height: var(--vc-control-h);
   padding: 0;
   place-items: center;
   border: 0;
@@ -1946,15 +2101,27 @@
   }
 }
 
+/*
+ * Sizes here are token re-values, not literals: an iPad in Split View is
+ * ~500px wide, so this block and the coarse block fire together, and a
+ * literal would shrink the controls back below a fingertip. As a token
+ * re-value on `.vc-viewport` it loses to `[data-pointer="coarse"]` on
+ * specificity, whichever comes first in the file.
+ */
 @container vc-viewport (max-width: 640px) {
+  .vc-viewport {
+    --vc-tool-w: 52px;
+    --vc-tool-h: 44px;
+    --vc-control-h: 28px;
+    --vc-zoom-value-w: 46px;
+    --vc-zoom-menu-w: 30px;
+  }
   .vc-toolbar {
-    bottom: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
     width: max-content;
     max-width: calc(100% - 24px);
   }
   .vc-tool {
-    min-width: 52px;
-    min-height: 44px;
     padding-inline: 8px;
   }
   .vc-tool kbd {
@@ -1963,18 +2130,15 @@
   .vc-zoom-control {
     padding-left: 3px;
   }
-  .vc-zoom-step {
-    width: 28px;
-  }
-  .vc-zoom-value {
-    width: 46px;
-  }
-  .vc-zoom-menu summary {
-    min-width: 30px;
-  }
   .vc-minimap {
     width: 160px;
   }
+}
+
+/* A device with no keyboard does not need the keys named, and the toolbar
+   has to fit three 64px tools plus the zoom control. */
+.vc-viewport[data-pointer="coarse"] .vc-tool kbd {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

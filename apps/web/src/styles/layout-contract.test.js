@@ -31,4 +31,27 @@ describe("signed-in shell scroll contract", () => {
       expect(selector[1]).toContain(":not(.app-sidebar-canvas-drawer)");
     }
   });
+
+  /*
+   * `isOverlayRail()` decides at click time whether the Pages rail is a
+   * column beside the canvas or a card on top of it, and it does that by
+   * asking matchMedia the same question the stylesheet asks. Nothing kept
+   * the two strings in step — the comment above the function conceded as
+   * much — and they now carry a media feature each, not just a width.
+   */
+  it("asks matchMedia exactly what the stylesheet asks", async () => {
+    const [css, route] = await Promise.all([
+      readFile(join(process.cwd(), "src/styles/surfaces/canvas.css"), "utf8"),
+      readFile(join(process.cwd(), "src/routes/Canvas.tsx"), "utf8"),
+    ]);
+    // The rule that stops the panels insetting the canvas and lets them
+    // overlay it instead — the whole of what "overlay mode" means.
+    const overlay = css.indexOf(".canvas-comments-panel ~ .vc-viewport-host,");
+    expect(overlay).toBeGreaterThan(-1);
+    const opener = css.lastIndexOf("@media ", overlay);
+    expect(opener).toBeGreaterThan(-1);
+    const condition = css.slice(opener + "@media ".length, css.indexOf("{", opener)).trim();
+    expect(condition).toMatch(/pointer: coarse/);
+    expect(route).toContain(`const OVERLAY_PANELS_QUERY = "${condition}"`);
+  });
 });

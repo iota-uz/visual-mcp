@@ -54,6 +54,7 @@ function panel(props: Partial<Parameters<typeof CommentsPanel>[0]> = {}) {
     onReply: vi.fn().mockResolvedValue(undefined),
     onStatus: vi.fn().mockResolvedValue(undefined),
     onDelete: vi.fn().mockResolvedValue(undefined),
+    onClose: vi.fn(),
   };
   render(
     <CommentsPanel

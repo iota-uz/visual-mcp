@@ -207,6 +207,101 @@ export function nextLadderScale(scale: number, direction: 1 | -1): number {
   return clampCanvasScale(down ?? MIN_SCALE);
 }
 
+/*
+ * Touch. A finger cannot hold a five-pixel line — the same press that a
+ * mouse reports as still reads as a small drag — so the gate that decides
+ * "this is a drag, not a tap" widens for a coarse pointer, and the
+ * long-press that stands in for shift-click gives up at the same distance.
+ * One number for both means there is never a window where a gesture is
+ * simultaneously a drag and a pending press.
+ */
+export const DRAG_THRESHOLD_FINE_PX = 5;
+export const DRAG_THRESHOLD_COARSE_PX = 10;
+export const LONG_PRESS_MS = 450;
+export const LONG_PRESS_SLOP_PX = 10;
+/*
+ * Pinch. Two fingers resting on glass wobble a couple of pixels a frame; at
+ * a 200px span that is a camera that will not sit still, so the gesture has
+ * to travel before it scales anything. Spans below the minimum are two
+ * fingers touching, where the distance ratio is numerically meaningless.
+ */
+export const PINCH_ACTIVATE_PX = 10;
+export const MIN_PINCH_SPAN_PX = 24;
+/** How far a finger must travel on the minimap before it scrubs the camera. */
+export const MINIMAP_SCRUB_SLOP_PX = 6;
+
+/**
+ * Which affordances the viewport should offer. `"auto"` follows the device
+ * and the last pointer that touched the canvas; the explicit modes let an
+ * app pin it — an iPad with a trackpad still reports `(pointer: coarse)`.
+ */
+export type ViewportPointerMode = "auto" | "coarse" | "fine";
+export type ResolvedPointerMode = "coarse" | "fine";
+
+export function resolvePointerMode(input: {
+  mode: ViewportPointerMode;
+  mediaCoarse: boolean;
+  lastPointerType: string | null;
+}): ResolvedPointerMode {
+  if (input.mode !== "auto") return input.mode;
+  // A pen is aimed as precisely as a cursor; only a finger is coarse.
+  return input.mediaCoarse || input.lastPointerType === "touch" ? "coarse" : "fine";
+}
+
+/**
+ * The scale a two-finger gesture should be at, given how far apart the
+ * fingers are now. Below the activation distance it returns the scale the
+ * gesture started at, so two resting fingers still pan without zooming; on
+ * the frame it crosses, the span is rebased so zooming begins from where
+ * the fingers actually are rather than snapping by the dead-zone's width.
+ */
+export function pinchZoom(
+  state: { startDistance: number; startScale: number; engaged: boolean },
+  distance: number,
+  activatePx = PINCH_ACTIVATE_PX,
+): { scale: number; engaged: boolean; startDistance: number } {
+  if (state.startDistance < MIN_PINCH_SPAN_PX) {
+    return { scale: state.startScale, engaged: false, startDistance: state.startDistance };
+  }
+  if (!state.engaged) {
+    if (Math.abs(distance - state.startDistance) < activatePx) {
+      return { scale: state.startScale, engaged: false, startDistance: state.startDistance };
+    }
+    return { scale: state.startScale, engaged: true, startDistance: distance };
+  }
+  return {
+    scale: clampCanvasScale((state.startScale * distance) / state.startDistance),
+    engaged: true,
+    startDistance: state.startDistance,
+  };
+}
+
+/**
+ * Whether a press should start the long-press that toggles a node in the
+ * selection — the finger's answer to shift-click, which has no touch
+ * equivalent. Deliberately not Move-only: shift-click adds to the selection
+ * in every tool, and the two have to agree.
+ */
+export function shouldArmLongPress(input: {
+  coarse: boolean;
+  pointerCount: number;
+  nodeId: string | null;
+  tool: ViewportTool;
+  /** The press already matched the double-tap window: it opens a screen. */
+  doubleTapPending: boolean;
+  /** Node body text, which keeps its own selection and iOS callout. */
+  selectableTarget: boolean;
+}): boolean {
+  return (
+    input.coarse &&
+    input.pointerCount === 1 &&
+    input.nodeId !== null &&
+    input.tool !== "comment" &&
+    !input.doubleTapPending &&
+    !input.selectableTarget
+  );
+}
+
 const RESIZE_DIRECTIONS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
 export type ResizeDirection = (typeof RESIZE_DIRECTIONS)[number];
 
@@ -583,6 +678,19 @@ export interface ViewportOptions {
    * the whole feature on: the Comment tool, its button and the markers all
    * stay out of the DOM otherwise.
    */
+  /**
+   * Which affordances to offer. Defaults to `"auto"`, which follows
+   * `(pointer: coarse)` and the last pointer to touch the canvas.
+   */
+  pointerMode?: ViewportPointerMode;
+  onPointerModeChange?: (mode: ResolvedPointerMode) => void;
+  /** Gesture timings and distances, for apps that need to tune them. */
+  gestures?: {
+    longPressMs?: number;
+    longPressSlopPx?: number;
+    pinchActivatePx?: number;
+    dragThresholdPx?: number;
+  };
   comments?: readonly CommentMarker[];
   /** Thread the app has open in its panel, so its pin can say so. */
   activeCommentId?: string | null;
@@ -611,6 +719,9 @@ export interface ViewportController {
   deactivateIframe(): void;
   setTool(tool: ViewportTool): void;
   getTool(): ViewportTool;
+  /** Pins the pointer affordances, or hands them back to `"auto"`. */
+  setPointerMode(mode: ViewportPointerMode): void;
+  getPointerMode(): ResolvedPointerMode;
   /** Replaces the comment pins; positions follow the live document. */
   setComments(markers: readonly CommentMarker[]): void;
   /** Highlights the pin carrying this thread; null clears the highlight. */
@@ -633,6 +744,9 @@ const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
         <code class="vc-inspector-ref-value"></code>
         <button type="button" class="vc-inspector-ref-copy">Copy</button>
       </div>
+    </div>
+    <div class="vc-inspector-actions" hidden>
+      <button type="button" class="vc-inspector-delete">Delete</button>
     </div>
   </aside>`;
 
@@ -773,6 +887,16 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const inspectorRef = must(".vc-inspector-ref");
   const inspectorRefValue = must(".vc-inspector-ref-value");
   const inspectorRefCopy = must(".vc-inspector-ref-copy");
+  /*
+   * Delete lives here rather than in the multi-selection panel: the two
+   * share the bottom-left corner, and a bar reading "1 nodes selected"
+   * beside the inspector that already describes that node is two panels
+   * saying one thing. CSS shows it only to a coarse pointer — with a
+   * keyboard, Delete is the answer.
+   */
+  const inspectorActions = must(".vc-inspector-actions");
+  const inspectorDelete = must(".vc-inspector-delete");
+  inspectorActions.hidden = !opts.editable;
   const toolbar = must(".vc-toolbar");
   const toolStatus = must(".vc-tool-status");
   const zoomValue = must(".vc-zoom-value") as HTMLInputElement;
@@ -1867,6 +1991,41 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     scheduleIframeSync(0);
   }
 
+  /*
+   * Coarse-pointer state. The attribute lives on `.vc-viewport` rather than
+   * a media query because the responsive rules in this theme are *container*
+   * queries on the host, and the two cannot be combined in one at-rule —
+   * but `.vc-viewport` is a descendant of that container, so an attribute on
+   * it can be read from inside them.
+   */
+  const coarseQuery = window.matchMedia?.("(pointer: coarse)") ?? null;
+  let lastPointerType: string | null = null;
+  let pointerMode: ViewportPointerMode = opts.pointerMode ?? "auto";
+  let resolvedPointer: ResolvedPointerMode = "fine";
+
+  function applyPointerMode(): void {
+    const next = resolvePointerMode({
+      mode: pointerMode,
+      mediaCoarse: coarseQuery?.matches ?? false,
+      lastPointerType,
+    });
+    if (next === resolvedPointer && container.dataset.pointer) return;
+    resolvedPointer = next;
+    container.dataset.pointer = next;
+    opts.onPointerModeChange?.(next);
+  }
+
+  function onCoarseQueryChange(): void {
+    applyPointerMode();
+  }
+
+  function dragThresholdPx(): number {
+    return (
+      opts.gestures?.dragThresholdPx ??
+      (resolvedPointer === "coarse" ? DRAG_THRESHOLD_COARSE_PX : DRAG_THRESHOLD_FINE_PX)
+    );
+  }
+
   // --- camera movement / pinch-zoom (pointer events cover mouse + touch + pen) ---
   const activePointers = new Map<number, { x: number; y: number }>();
   let dragState: {
@@ -1888,10 +2047,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let pinchState: {
     startDistance: number;
     startScale: number;
+    /** The gesture has travelled past the dead-zone and is scaling. */
+    engaged: boolean;
     worldX: number;
     worldY: number;
   } | null = null;
   let lastClick: { nodeId: string; at: number } | null = null;
+  let longPressTimer: number | null = null;
+  let longPressElement: HTMLElement | null = null;
 
   /*
    * Everything a dragged node could line up with. Off-screen nodes are
@@ -1978,7 +2141,41 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.classList.remove("is-panning", "is-pinching", "is-moving-node", "is-marquee");
   }
 
+  function cancelLongPress(): void {
+    if (longPressTimer !== null) {
+      window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    longPressElement?.classList.remove("is-press-pending");
+    longPressElement = null;
+  }
+
+  /*
+   * Lifting one of two fingers used to leave nothing driving the camera:
+   * `pinchState` was dropped and no drag took its place, so the survivor did
+   * nothing until it was lifted and put back down. Same for a `pointercancel`
+   * that claims one pointer — iOS does that for an edge swipe.
+   */
+  function reseedCameraDrag(): void {
+    const survivor = [...activePointers.values()][0];
+    if (!survivor) return;
+    dragState = {
+      startX: survivor.x,
+      startY: survivor.y,
+      originX: view.x,
+      originY: view.y,
+      // The gesture is already under way; it must not re-cross the threshold.
+      moved: true,
+      nodeId: null,
+      groupId: null,
+      mode: "camera",
+    };
+    clearDragClasses();
+    container.classList.add("is-panning");
+  }
+
   function cancelDrag(): void {
+    cancelLongPress();
     flickSample = null;
     flickVelocity = null;
     if (dragState?.groupId && dragState.originMemberRects) {
@@ -2011,6 +2208,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onPointerDown(event: PointerEvent): void {
+    // Before every early return: a tap on the toolbar is still evidence of
+    // what is driving this session.
+    lastPointerType = event.pointerType || null;
+    applyPointerMode();
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest(".vc-node.iframe-active iframe")) return;
@@ -2052,11 +2253,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const localX = centerX - viewportRect.left;
       const localY = centerY - viewportRect.top;
       pinchState = {
-        startDistance: Math.max(1, Math.hypot(p1.x - p0.x, p1.y - p0.y)),
+        startDistance: Math.hypot(p1.x - p0.x, p1.y - p0.y),
         startScale: view.scale,
+        engaged: false,
         worldX: (localX - view.x) / view.scale,
         worldY: (localY - view.y) / view.scale,
       };
+      cancelLongPress();
       dragState = null;
       container.classList.add("is-panning", "is-pinching");
       return;
@@ -2071,7 +2274,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // Activate on the second pointer-down as well as pointer-up; this keeps
     // double-click reliable even when the native `dblclick` event is not
     // emitted after pointer capture.
-    if (nodeId && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500) {
+    const doubleTapPending =
+      nodeId !== null && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500;
+    if (doubleTapPending && nodeId) {
       if (node) focusNode(node);
       activateIframe(nodeId);
     }
@@ -2134,6 +2339,48 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.classList.add(
       mode === "camera" ? "is-panning" : mode === "marquee" ? "is-marquee" : "is-moving-node",
     );
+    if (
+      nodeId &&
+      shouldArmLongPress({
+        coarse: resolvedPointer === "coarse",
+        pointerCount: activePointers.size,
+        nodeId,
+        tool,
+        doubleTapPending,
+        /*
+         * Node body text keeps its own long press — the iOS callout and the
+         * selection magnifier — but only where selecting it is a thing you
+         * could be doing. In the Move tool the body is `user-select: none`
+         * and the node is an object being arranged, so the press is ours.
+         */
+        selectableTarget: tool !== "move" && Boolean(target.closest(".vc-native-body")),
+      })
+    ) {
+      const pressedId = nodeId;
+      longPressElement = nodeElement;
+      nodeElement?.classList.add("is-press-pending");
+      longPressTimer = window.setTimeout(
+        () => fireLongPress(pressedId),
+        opts.gestures?.longPressMs ?? LONG_PRESS_MS,
+      );
+    }
+  }
+
+  /*
+   * The press decided its mode before the node was selected, so it is almost
+   * always `"camera"` — letting it stand would pan the world out from under
+   * the node the press just picked. Consume the gesture instead, but leave
+   * `activePointers` alone: a second finger arriving afterwards must still
+   * be able to start a pinch.
+   */
+  function fireLongPress(nodeId: string): void {
+    longPressTimer = null;
+    cancelLongPress();
+    toggleSelection(nodeId);
+    dragState = null;
+    lastClick = null;
+    paintMarquee(null);
+    clearDragClasses();
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -2146,10 +2393,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       const [p0, p1] = points as [{ x: number; y: number }, { x: number; y: number }];
       const centerX = (p0.x + p1.x) / 2;
       const centerY = (p0.y + p1.y) / 2;
-      const distance = Math.max(1, Math.hypot(p1.x - p0.x, p1.y - p0.y));
-      const nextScale = clampCanvasScale(
-        (pinchState.startScale * distance) / pinchState.startDistance,
-      );
+      const distance = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const pinch = pinchZoom(pinchState, distance, opts.gestures?.pinchActivatePx);
+      pinchState.engaged = pinch.engaged;
+      pinchState.startDistance = pinch.startDistance;
+      const nextScale = pinch.scale;
+      /*
+       * Re-anchoring on the live midpoint below is what makes two-finger pan
+       * work, so the dead-zone must not short-circuit out of here: in the
+       * Move tool a one-finger drag on empty canvas is a marquee, which
+       * leaves two fingers as the only way to move the camera.
+       */
       view.scale = nextScale;
       view.x = centerX - viewportRect.left - pinchState.worldX * nextScale;
       view.y = centerY - viewportRect.top - pinchState.worldY * nextScale;
@@ -2160,7 +2414,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (!dragState) return;
     const dx = event.clientX - dragState.startX;
     const dy = event.clientY - dragState.startY;
-    if (Math.abs(dx) + Math.abs(dy) > 5) dragState.moved = true;
+    const travelled = Math.abs(dx) + Math.abs(dy);
+    if (
+      longPressTimer !== null &&
+      travelled > (opts.gestures?.longPressSlopPx ?? LONG_PRESS_SLOP_PX)
+    )
+      cancelLongPress();
+    if (travelled > dragThresholdPx()) dragState.moved = true;
     if (!dragState.moved) return;
     if (dragState.mode === "camera") {
       view.x = dragState.originX + dx;
@@ -2234,6 +2494,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onPointerUp(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
+    cancelLongPress();
     clearDragClasses();
     paintGuides([]);
     if (activePointers.size < 2) pinchState = null;
@@ -2246,6 +2507,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     flickSample = null;
     flickVelocity = null;
     scheduleIframeSync(0);
+    if (activePointers.size === 1) reseedCameraDrag();
     if (!finishedDrag) return;
     /*
      * Only a camera drag coasts, and only one still in motion at release:
@@ -2358,9 +2620,29 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onPointerCancel(event: PointerEvent): void {
     activePointers.delete(event.pointerId);
-    cancelDrag();
+    cancelLongPress();
+    if (activePointers.size === 0) {
+      cancelDrag();
+    } else {
+      // Only one pointer was claimed — iOS does this for an edge swipe.
+      // Clearing the rest would strand the finger still on the glass.
+      pinchState = null;
+      reseedCameraDrag();
+    }
     paintGuides([]);
     scheduleIframeSync(0);
+  }
+
+  /*
+   * iOS raises its own copy/share sheet on a long press, which is the same
+   * gesture the selection toggle uses. `-webkit-touch-callout: none` covers
+   * Safari; this covers Android and an iPad driving a trackpad. A mouse
+   * keeps its context menu, and node body text keeps its own.
+   */
+  function onContextMenu(event: MouseEvent): void {
+    if (lastPointerType === "mouse") return;
+    if ((event.target as HTMLElement).closest(".vc-native-body")) return;
+    event.preventDefault();
   }
 
   function onWheel(event: WheelEvent): void {
@@ -2513,6 +2795,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   /*
+   * Tracked here rather than asked of the platform: `hasPointerCapture` is
+   * one of the several pointer APIs jsdom does not implement, which left
+   * this whole path untestable.
+   */
+  let minimapPointerId: number | null = null;
+  let minimapScrub: { x: number; y: number; active: boolean } | null = null;
+
+  /*
    * Press *and drag*. The minimap used to be click-to-centre only — it had
    * no pointermove at all — so the viewport rectangle drawn on it looked
    * like a handle and behaved like a picture.
@@ -2521,19 +2811,38 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     stopFlick();
-    minimap.setPointerCapture(event.pointerId);
+    minimapPointerId = event.pointerId;
+    minimap.setPointerCapture?.(event.pointerId);
     minimap.classList.add("is-scrubbing");
-    centreOnMinimapPoint(event.clientX, event.clientY);
+    /*
+     * With a cursor the press is aimed, so click-to-centre stays. A finger
+     * lands on a 160px picture in the corner of the screen, where a mis-grab
+     * would teleport the camera with nothing to undo it — so a touch has to
+     * travel before it moves anything, and a tap does nothing at all.
+     */
+    const immediate = resolvedPointer !== "coarse";
+    minimapScrub = { x: event.clientX, y: event.clientY, active: immediate };
+    if (immediate) centreOnMinimapPoint(event.clientX, event.clientY);
   }
 
   function onMinimapPointerMove(event: PointerEvent): void {
-    if (!minimap.hasPointerCapture(event.pointerId)) return;
+    if (minimapPointerId !== event.pointerId || !minimapScrub) return;
     event.preventDefault();
+    if (!minimapScrub.active) {
+      const travelled =
+        Math.abs(event.clientX - minimapScrub.x) + Math.abs(event.clientY - minimapScrub.y);
+      if (travelled <= MINIMAP_SCRUB_SLOP_PX) return;
+      minimapScrub.active = true;
+    }
     centreOnMinimapPoint(event.clientX, event.clientY);
   }
 
   function onMinimapPointerUp(event: PointerEvent): void {
-    if (minimap.hasPointerCapture(event.pointerId)) minimap.releasePointerCapture(event.pointerId);
+    if (minimapPointerId === event.pointerId) {
+      minimap.releasePointerCapture?.(event.pointerId);
+      minimapPointerId = null;
+      minimapScrub = null;
+    }
     minimap.classList.remove("is-scrubbing");
     scheduleIframeSync(0);
   }
@@ -2659,6 +2968,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("pointermove", onPointerMove);
   container.addEventListener("pointerup", onPointerUp);
   container.addEventListener("pointercancel", onPointerCancel);
+  container.addEventListener("contextmenu", onContextMenu);
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("keydown", onKeyDown);
   window.addEventListener("blur", onWindowBlur);
@@ -2674,9 +2984,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   shortcutHelpClose.addEventListener("click", onShortcutHelpClose);
   inspectorClose.addEventListener("click", onInspectorClose);
   inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
+  inspectorDelete.addEventListener("click", requestDelete);
   nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
   nodesRoot.addEventListener("click", onNodesClick);
   window.addEventListener("message", onWindowMessage);
+  // `addEventListener` is optional-called because a test double for
+  // `matchMedia` is usually just `{ matches }`.
+  coarseQuery?.addEventListener?.("change", onCoarseQueryChange);
   resizeObserver?.observe(container);
 
   renderMinimap();
@@ -2684,6 +2998,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   trackImageStates();
   reportIframeState();
   paintToolState();
+  applyPointerMode();
   if (opts.initialView) applyView();
   else fitAll();
 
@@ -2710,6 +3025,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     deactivateIframe,
     setTool,
     getTool: () => activeTool,
+    setPointerMode(mode) {
+      pointerMode = mode;
+      applyPointerMode();
+    },
+    getPointerMode: () => resolvedPointer,
     setComments,
     setActiveComment,
     getView: () => ({ ...view }),
@@ -2720,6 +3040,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);
       if (fitAnimationTimer !== null) window.clearTimeout(fitAnimationTimer);
       if (flickFrame !== null) cancelAnimationFrame(flickFrame);
+      if (longPressTimer !== null) window.clearTimeout(longPressTimer);
+      coarseQuery?.removeEventListener?.("change", onCoarseQueryChange);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
       commentsLayer.removeEventListener("click", onCommentLayerClick);
@@ -2728,6 +3050,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerUp);
       container.removeEventListener("pointercancel", onPointerCancel);
+      container.removeEventListener("contextmenu", onContextMenu);
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("blur", onWindowBlur);
@@ -2742,6 +3065,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       shortcutHelpClose.removeEventListener("click", onShortcutHelpClose);
       inspectorClose.removeEventListener("click", onInspectorClose);
       inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);
+      inspectorDelete.removeEventListener("click", requestDelete);
       nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);
       nodesRoot.removeEventListener("click", onNodesClick);
       window.removeEventListener("message", onWindowMessage);

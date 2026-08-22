@@ -148,6 +148,28 @@
   }
 }
 
+/*
+ * Must stay above the narrow-width block below. layout-contract.test.js
+ * slices this file from that block's opening line to the end and requires
+ * every `.app-sidebar…` selector after it to exclude the drawer — and these
+ * rules deliberately apply *inside* the drawer too. A link a thumb can hit
+ * is wanted there most of all, and growing one is nothing like collapsing
+ * it to an unlabelled glyph.
+ */
+@media (pointer: coarse) {
+  .app-sidebar-link {
+    min-height: var(--app-hit-min);
+  }
+
+  .app-sidebar-workspaces .app-sidebar-link {
+    min-height: var(--app-hit-min);
+  }
+
+  .app-sidebar-more {
+    min-height: var(--app-hit-min);
+  }
+}
+
 /* The rail collapses to icons only when it is *docked*. Inside the canvas
    navigation drawer the same markup has a 300px panel to itself, and
    collapsing it there produced four centred icons in a column of white with

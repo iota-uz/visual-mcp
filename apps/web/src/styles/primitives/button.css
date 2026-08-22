@@ -12,6 +12,7 @@
   font-family: var(--app-font-body);
   font-size: var(--app-text-sm);
   font-weight: 600;
+  min-height: var(--app-hit-min);
   padding: var(--app-space-2) var(--app-space-4);
   border-radius: var(--app-radius-md);
   border: 1px solid transparent;
@@ -33,6 +34,7 @@
 }
 
 .btn-sm {
+  min-height: var(--app-hit-min);
   padding: var(--app-space-1) var(--app-space-2);
   font-size: var(--app-text-xs);
 }

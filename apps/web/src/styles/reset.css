@@ -16,6 +16,25 @@ body,
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* iOS bounces the document even when nothing in it scrolls, which on a
+     tablet reads as the whole app coming loose from the top bar. */
+  overscroll-behavior: none;
+}
+
+/*
+ * Touch defaults. `manipulation` drops the ~300ms wait Safari keeps in case
+ * a tap turns into a double-tap-to-zoom — on a control that is the
+ * difference between a tap that responds and one that looks ignored. It is
+ * scoped to controls rather than set on `*`, because the canvas surface,
+ * the prototype hotspots and the page drag handle each declare
+ * `touch-action: none` deliberately and a blanket rule would fight them.
+ */
+a,
+button,
+summary,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /*

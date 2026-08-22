@@ -91,8 +91,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: max(32px, var(--app-hit-min));
+  height: max(32px, var(--app-hit-min));
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   background: var(--app-white);
@@ -112,5 +112,6 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--drawer-body-padding, var(--app-space-4));
 }

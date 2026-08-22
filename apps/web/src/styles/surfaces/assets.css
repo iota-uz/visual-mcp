@@ -327,8 +327,8 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: max(38px, var(--app-hit-min));
+  height: max(38px, var(--app-hit-min));
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   background: var(--app-white);

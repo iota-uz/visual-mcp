@@ -116,6 +116,11 @@ test("renderer escapes native text and emits sandboxed iframe", () => {
   assert.match(html, /data-src="\/safe\/screen"/);
   assert.match(html, /class="vc-iframe-placeholder"/);
   assert.match(html, />Loading screen<\/span>/);
+  // Both wordings ship and CSS picks by pointer type: the world element is
+  // replaced on every re-render, so a JS rewrite would have to be redone
+  // from every render site — and this path runs where no JS does.
+  assert.match(html, /data-hint="fine">Double-click to interact</);
+  assert.match(html, /data-hint="coarse">Double-tap to interact</);
   assert.doesNotMatch(html, /<iframe/);
   assert.equal((html.match(/class="vc-node /g) ?? []).length, 2);
   assert.match(html, /class="vc-group"[^>]*data-group-id="flow"/);

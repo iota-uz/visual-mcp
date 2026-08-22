@@ -22,7 +22,11 @@
 .field-select {
   width: 100%;
   font-family: var(--app-font-body);
-  font-size: var(--field-font-size, var(--app-text-base));
+  /* Floored at --app-input-font-size, which is 16px for a coarse pointer:
+     iOS zooms the whole page when a focused field is smaller than that, and
+     on the canvas route that leaves the document at a scale the viewport
+     never chose. */
+  font-size: max(var(--field-font-size, var(--app-text-base)), var(--app-input-font-size));
   border: 1px solid var(--field-border-color, var(--app-line));
   border-radius: var(--app-radius-md);
   padding: var(--field-padding, var(--app-space-2) var(--app-space-3));

@@ -99,7 +99,7 @@ function iframeBody(
   // a second corner radius over the bezel.
   const radius =
     node.frame.kind === "phone" || node.frame.kind === "device" ? 0 : (node.frame.radius ?? 16);
-  return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${radius}px;--vc-iframe-scale:${scale}">${body}<div class="vc-iframe-guard"><span>Double-click to interact</span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
+  return `<div class="vc-iframe-clip vc-frame-${node.frame.kind}" style="--vc-frame-radius:${radius}px;--vc-iframe-scale:${scale}">${body}<div class="vc-iframe-guard"><span><i data-hint="fine">Double-click to interact</i><i data-hint="coarse">Double-tap to interact</i></span></div><button class="vc-iframe-exit" type="button" aria-label="Exit screen interaction">Exit</button></div>`;
 }
 function imageBody(
   node: Extract<PositionedNode, { kind: "image" }>,
