@@ -14,6 +14,7 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
 
 // The app owns user creation through auth.ts's createOrUpdateUser callback.
 // Auth support tables still use this row id for sessions and accounts.
@@ -58,6 +59,7 @@ export default defineSchema({
     name: v.string(),
     description: v.optional(v.string()),
     createdBy: v.id("users"),
+    brand: v.optional(ThemeOverrideValidator),
     archivedAt: v.optional(v.number()),
   }).index("by_slug", ["slug"]),
 
@@ -152,7 +154,8 @@ export default defineSchema({
     // 128-bit base62, minted on publish and rotatable (PLAN.md section 4) —
     // unpublishing clears it, which is what makes revocation real.
     publicSlug: v.optional(v.string()),
-    theme: v.optional(v.string()),
+    themeId: v.optional(ThemeIdValidator),
+    brand: v.optional(ThemeOverrideValidator),
     // Durable mutable head. `currentVersionId` remains the latest immutable
     // checkpoint; draftRevision is the optimistic concurrency token for
     // autosaves and MCP edits between checkpoints.

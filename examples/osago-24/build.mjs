@@ -378,7 +378,6 @@ const doc = {
   version: 2,
   title: "OSAGO Fast Settlement",
   subtitle: "OSAGO 24 · native service blueprint with interactive product screens",
-  theme: "osago-24",
   world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
   lanes,
   stages,

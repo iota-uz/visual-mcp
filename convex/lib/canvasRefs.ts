@@ -6,6 +6,7 @@
  * Convex function definitions.
  */
 
+import type { ThemeId, ThemeOverride } from "@visual-canvas/canvas/themes.js";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { parseRef, RefError } from "./ref";
@@ -128,7 +129,8 @@ export interface ResolveOrCreateArgs {
   title?: string;
   kind?: CanvasKind;
   description?: string;
-  theme?: string;
+  themeId?: ThemeId;
+  brand?: ThemeOverride;
   /**
    * `upsert` (default) creates when absent and updates when present.
    * `create` refuses to touch an existing canvas — the safe choice when the
@@ -206,7 +208,8 @@ export async function resolveOrCreateCanvas(
     if (!args.deferExistingMetadata) {
       if (args.title !== undefined && args.title !== existing.title) patch.title = args.title;
       if (args.description !== undefined) patch.description = args.description;
-      if (args.theme !== undefined) patch.theme = args.theme;
+      if (args.themeId !== undefined) patch.themeId = args.themeId;
+      if (args.brand !== undefined) patch.brand = args.brand;
     }
     // `kind` is deliberately NOT patched: it decides how the canvas is
     // rendered and served, and flipping it under an existing canvas would
@@ -269,7 +272,8 @@ export async function resolveOrCreateCanvas(
     description: args.description,
     kind: args.kind ?? "html",
     visibility: "private",
-    theme: args.theme,
+    themeId: args.themeId ?? "clean-saas",
+    brand: args.brand,
     draftRevision: 0,
     draftEditCount: 0,
     draftUpdatedAt: now,

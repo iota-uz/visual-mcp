@@ -7,6 +7,7 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html>
@@ -14,42 +15,36 @@ const exampleCode = `<!doctype html>
     <meta charset="utf-8" />
     <style>
       @import "tailwindcss";
-
-      @theme {
-        --font-sans: Inter, sans-serif;
-        --color-brand: #2563eb;
-        --color-surface: #f8fafc;
-      }
     </style>
     <script src="/assets/js/apexcharts.min.js"></script>
   </head>
   <body class="m-0 bg-surface font-sans">
     <main class="w-[1280px] p-10">
       <header class="mb-8">
-        <h1 class="text-3xl font-bold text-slate-950">Sales &amp; Retention Charts</h1>
-        <p class="mt-1 text-slate-500">Q2 2026</p>
+        <h1 class="text-3xl font-bold text-foreground">Sales &amp; Retention Charts</h1>
+        <p class="mt-1 text-muted-foreground">Q2 2026</p>
       </header>
 
       <section class="grid grid-cols-2 gap-6 mb-6">
-        <div class="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">Monthly policies sold</h2>
+        <div class="rounded-2xl bg-background p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-foreground mb-4">Monthly policies sold</h2>
           <div id="bar-chart"></div>
         </div>
-        <div class="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">Retention rate trend</h2>
+        <div class="rounded-2xl bg-background p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-foreground mb-4">Retention rate trend</h2>
           <div id="line-chart"></div>
         </div>
       </section>
 
       <section class="grid grid-cols-3 gap-6">
-        <div class="col-span-1 rounded-2xl bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">Revenue by plan</h2>
+        <div class="col-span-1 rounded-2xl bg-background p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-foreground mb-4">Revenue by plan</h2>
           <div id="donut-chart"></div>
         </div>
-        <div class="col-span-2 rounded-2xl bg-white p-6 shadow-sm flex flex-col justify-center">
-          <p class="text-sm text-slate-500">Total revenue</p>
-          <p class="mt-1 text-4xl font-bold text-slate-950">$482,300</p>
-          <p class="mt-2 text-sm font-medium text-emerald-600">+8.9% quarter over quarter</p>
+        <div class="col-span-2 rounded-2xl bg-background p-6 shadow-sm flex flex-col justify-center">
+          <p class="text-sm text-muted-foreground">Total revenue</p>
+          <p class="mt-1 text-4xl font-bold text-foreground">$482,300</p>
+          <p class="mt-2 text-sm font-medium text-success">+8.9% quarter over quarter</p>
         </div>
       </section>
     </main>
@@ -61,7 +56,7 @@ const exampleCode = `<!doctype html>
         series: [
           { name: "Policies", data: [1200, 1800, 2400, 3100, 2900, 3412] },
         ],
-        colors: ["#2563eb"],
+        colors: ["var(--color-chart-1)"],
       }).render();
 
       new ApexCharts(document.querySelector("#line-chart"), {
@@ -70,7 +65,7 @@ const exampleCode = `<!doctype html>
         series: [
           { name: "Retention %", data: [91, 90, 92, 93, 94, 94.5] },
         ],
-        colors: ["#16a34a"],
+        colors: ["var(--color-success)"],
         stroke: { curve: "smooth", width: 3 },
       }).render();
 
@@ -78,7 +73,7 @@ const exampleCode = `<!doctype html>
         chart: { type: "donut", height: 280 },
         labels: ["Comprehensive Auto", "Home Standard", "Life Basic", "Travel"],
         series: [38, 27, 19, 16],
-        colors: ["#2563eb", "#38bdf8", "#a78bfa", "#f472b6"],
+        colors: ["var(--color-chart-1)", "var(--color-chart-2)", "var(--color-chart-3)", "var(--color-chart-4)"],
       }).render();
     </script>
   </body>
@@ -86,6 +81,7 @@ const exampleCode = `<!doctype html>
 `;
 
 export const chartReportTemplate: Template = {
+  ...templateMetadata("chart-report"),
   id: "chart-report",
   name: "Chart Report",
   kind: "chart",

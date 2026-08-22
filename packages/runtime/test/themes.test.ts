@@ -8,10 +8,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  compileThemeToCssVariables,
   compileThemeToTailwindV4,
   getTheme,
   isThemeName,
   listThemes,
+  resolveTheme,
 } from "../src/render/themes/index.js";
 import type { Theme } from "../src/types.js";
 import { THEME_NAMES } from "../src/types.js";
@@ -113,6 +115,24 @@ test("themes are visually distinct (no two share primary+background)", () => {
   assert.equal(new Set(signatures).size, signatures.length);
 });
 
+test("resolved themes merge base, workspace brand, then canvas override", () => {
+  const resolved = resolveTheme(
+    "clean-saas",
+    { colors: { primary: "#112233", background: "#fefefe" }, radius: { md: "18px" } },
+    { colors: { primary: "#abcdef" }, radius: { lg: "24px" } },
+  );
+  assert.equal(resolved.colors.primary, "#abcdef");
+  assert.equal(resolved.colors.background, "#fefefe");
+  assert.equal(resolved.colors.foreground, getTheme("clean-saas")!.colors.foreground);
+  assert.equal(resolved.radius.md, "18px");
+  assert.equal(resolved.radius.lg, "24px");
+});
+
+test("unknown theme IDs and malformed overrides are rejected", () => {
+  assert.throws(() => resolveTheme("unknown"), /unknown_theme_id/);
+  assert.throws(() => resolveTheme("clean-saas", { colors: { primary: "" } }));
+});
+
 test("dark-terminal is actually dark (dark background, light foreground)", () => {
   const theme = getTheme("dark-terminal")!;
   // crude luminance check via hex -> sum of channels
@@ -140,6 +160,13 @@ test("compileThemeToTailwindV4 produces a non-empty @theme block", () => {
   assert.ok(css.length > 0);
   assert.match(css, /@theme\s*\{/);
   assert.match(css, /\}\s*$/);
+});
+
+test("compileThemeToCssVariables exposes runtime tokens before first paint", () => {
+  const css = compileThemeToCssVariables(getTheme("dark-terminal")!);
+  assert.match(css, /:root\s*\{/);
+  assert.match(css, /--color-background:\s*#0b0e14;/);
+  assert.doesNotMatch(css, /@theme/);
 });
 
 test("compileThemeToTailwindV4 emits expected custom properties for clean-saas", () => {

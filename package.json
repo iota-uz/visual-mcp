@@ -19,6 +19,11 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check .",
+    "eval:production-ui": "node evals/production-ui/run.mjs",
+    "eval:routing": "node evals/production-ui/routing-run.mjs",
+    "eval:pairwise": "node evals/production-ui/pairwise.mjs",
+    "eval:certify": "node evals/production-ui/certify.mjs",
+    "eval:test": "node --test evals/production-ui/*.test.mjs",
     "convex:dev": "convex dev",
     "dev:agent": "node scripts/dev-agent.mjs"
   },

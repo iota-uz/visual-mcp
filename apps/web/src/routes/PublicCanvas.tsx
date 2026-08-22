@@ -122,6 +122,7 @@ export function PublicCanvasPage() {
               doc={doc}
               iframeRevisions={canvas.iframe_revisions}
               version={canvas.version}
+              theme={canvas.resolved_theme}
               iframeBaseUrl={`${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`}
             />
           )}

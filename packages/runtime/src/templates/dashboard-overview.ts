@@ -7,6 +7,7 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html>
@@ -14,70 +15,64 @@ const exampleCode = `<!doctype html>
     <meta charset="utf-8" />
     <style>
       @import "tailwindcss";
-
-      @theme {
-        --font-sans: Inter, sans-serif;
-        --color-brand: #2563eb;
-        --color-surface: #f8fafc;
-      }
     </style>
     <script src="/assets/js/apexcharts.min.js"></script>
   </head>
   <body class="m-0 bg-surface font-sans">
     <main class="w-[1280px] p-10">
       <header class="mb-8">
-        <h1 class="text-3xl font-bold text-slate-950">Business Overview</h1>
-        <p class="mt-1 text-slate-500">Last 30 days &middot; updated Jul 02, 2026</p>
+        <h1 class="text-3xl font-bold text-foreground">Business Overview</h1>
+        <p class="mt-1 text-muted-foreground">Last 30 days &middot; updated Jul 02, 2026</p>
       </header>
 
       <!-- Stat cards -->
       <section class="grid grid-cols-4 gap-5 mb-8">
-        <div class="rounded-2xl bg-white p-5 shadow-sm">
-          <p class="text-sm text-slate-500">Policies sold</p>
-          <p class="mt-2 text-3xl font-bold text-slate-950">3,412</p>
-          <p class="mt-1 text-sm font-medium text-emerald-600">+12.4% vs last month</p>
+        <div class="rounded-2xl bg-background p-5 shadow-sm">
+          <p class="text-sm text-muted-foreground">Policies sold</p>
+          <p class="mt-2 text-3xl font-bold text-foreground">3,412</p>
+          <p class="mt-1 text-sm font-medium text-success">+12.4% vs last month</p>
         </div>
-        <div class="rounded-2xl bg-white p-5 shadow-sm">
-          <p class="text-sm text-slate-500">Active customers</p>
-          <p class="mt-2 text-3xl font-bold text-slate-950">18,905</p>
-          <p class="mt-1 text-sm font-medium text-emerald-600">+3.1% vs last month</p>
+        <div class="rounded-2xl bg-background p-5 shadow-sm">
+          <p class="text-sm text-muted-foreground">Active customers</p>
+          <p class="mt-2 text-3xl font-bold text-foreground">18,905</p>
+          <p class="mt-1 text-sm font-medium text-success">+3.1% vs last month</p>
         </div>
-        <div class="rounded-2xl bg-white p-5 shadow-sm">
-          <p class="text-sm text-slate-500">Open claims</p>
-          <p class="mt-2 text-3xl font-bold text-slate-950">214</p>
-          <p class="mt-1 text-sm font-medium text-rose-600">+5.8% vs last month</p>
+        <div class="rounded-2xl bg-background p-5 shadow-sm">
+          <p class="text-sm text-muted-foreground">Open claims</p>
+          <p class="mt-2 text-3xl font-bold text-foreground">214</p>
+          <p class="mt-1 text-sm font-medium text-danger">+5.8% vs last month</p>
         </div>
-        <div class="rounded-2xl bg-white p-5 shadow-sm">
-          <p class="text-sm text-slate-500">Monthly revenue</p>
-          <p class="mt-2 text-3xl font-bold text-slate-950">$482,300</p>
-          <p class="mt-1 text-sm font-medium text-emerald-600">+8.9% vs last month</p>
+        <div class="rounded-2xl bg-background p-5 shadow-sm">
+          <p class="text-sm text-muted-foreground">Monthly revenue</p>
+          <p class="mt-2 text-3xl font-bold text-foreground">$482,300</p>
+          <p class="mt-1 text-sm font-medium text-success">+8.9% vs last month</p>
         </div>
       </section>
 
       <!-- Chart + side panel -->
       <section class="grid grid-cols-3 gap-5">
-        <div class="col-span-2 rounded-2xl bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">Monthly policies sold</h2>
+        <div class="col-span-2 rounded-2xl bg-background p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-foreground mb-4">Monthly policies sold</h2>
           <div id="policies-chart"></div>
         </div>
-        <div class="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">Top plans</h2>
+        <div class="rounded-2xl bg-background p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-foreground mb-4">Top plans</h2>
           <ul class="space-y-3 text-sm">
             <li class="flex items-center justify-between">
-              <span class="text-slate-600">Comprehensive Auto</span>
-              <span class="font-semibold text-slate-900">38%</span>
+              <span class="text-muted-foreground">Comprehensive Auto</span>
+              <span class="font-semibold text-foreground">38%</span>
             </li>
             <li class="flex items-center justify-between">
-              <span class="text-slate-600">Home Standard</span>
-              <span class="font-semibold text-slate-900">27%</span>
+              <span class="text-muted-foreground">Home Standard</span>
+              <span class="font-semibold text-foreground">27%</span>
             </li>
             <li class="flex items-center justify-between">
-              <span class="text-slate-600">Life Basic</span>
-              <span class="font-semibold text-slate-900">19%</span>
+              <span class="text-muted-foreground">Life Basic</span>
+              <span class="font-semibold text-foreground">19%</span>
             </li>
             <li class="flex items-center justify-between">
-              <span class="text-slate-600">Travel</span>
-              <span class="font-semibold text-slate-900">16%</span>
+              <span class="text-muted-foreground">Travel</span>
+              <span class="font-semibold text-foreground">16%</span>
             </li>
           </ul>
         </div>
@@ -91,7 +86,7 @@ const exampleCode = `<!doctype html>
         series: [
           { name: "Policies", data: [2100, 2450, 2800, 2600, 3100, 3412] },
         ],
-        colors: ["#2563eb"],
+        colors: ["var(--color-chart-1)"],
       }).render();
     </script>
   </body>
@@ -99,6 +94,7 @@ const exampleCode = `<!doctype html>
 `;
 
 export const dashboardOverviewTemplate: Template = {
+  ...templateMetadata("dashboard-overview"),
   id: "dashboard-overview",
   name: "Dashboard Overview",
   kind: "mockup",

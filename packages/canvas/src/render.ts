@@ -1,7 +1,8 @@
-import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
 import { deviceFrameScale, renderDeviceFrame } from "./device-frame.js";
+import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
+import type { Theme } from "./themes.js";
 import { type IframeNode, type ImageNode, type LegendGroup, PERMISSIONS } from "./types.js";
 
 export function escapeHtml(input: string): string {
@@ -20,6 +21,38 @@ export interface RenderOptions {
   iframeLoading?: "lazy" | "eager";
   /** Export/snapshot selector: non-target iframe nodes remain inert placeholders. */
   shouldLoadIframe?: (node: Extract<PositionedNode, { kind: "iframe" }>) => boolean;
+  /** Resolved base + workspace + canvas semantic tokens. */
+  theme?: Theme;
+}
+
+function themeStyle(theme?: Theme): string {
+  if (!theme) return "";
+  const vars: Record<string, string> = {
+    "--vc-ink": theme.colors.foreground,
+    "--vc-ink-soft": theme.colors.mutedForeground,
+    "--vc-paper": theme.colors.background,
+    "--vc-white": theme.colors.background,
+    "--vc-line": theme.colors.border,
+    "--vc-muted": theme.colors.mutedForeground,
+    "--vc-body": theme.typography.fontSans,
+    "--vc-mono": theme.typography.fontMono,
+    "--vc-role-primary": theme.colors.primary,
+    "--vc-role-secondary": theme.colors.secondary,
+    "--vc-accent": theme.colors.primary,
+    "--vc-accent-text": theme.colors.primary,
+    "--vc-color-surface": theme.colors.surface,
+    "--vc-radius-sm": theme.radius.sm,
+    "--vc-radius-md": theme.radius.md,
+    "--vc-radius-lg": theme.radius.lg,
+    "--vc-radius-xl": theme.radius.xl,
+    "--vc-shadow-sm": theme.shadows.sm ?? "none",
+    "--vc-shadow-md": theme.shadows.md ?? "none",
+    "--vc-shadow-lg": theme.shadows.lg ?? "none",
+    "--vc-shadow-xl": theme.shadows.xl ?? "none",
+  };
+  return Object.entries(vars)
+    .map(([name, value]) => `${name}:${escapeHtml(value)}`)
+    .join(";");
 }
 
 function caption(node: PositionedNode): string {
@@ -129,7 +162,10 @@ function imageBody(
  * where its other corner had been.
  */
 const RESIZE_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"]
-  .map((direction) => `<i class="vc-resize-handle vc-resize-${direction}" data-resize="${direction}"></i>`)
+  .map(
+    (direction) =>
+      `<i class="vc-resize-handle vc-resize-${direction}" data-resize="${direction}"></i>`,
+  )
   .join("");
 
 function renderNode(node: PositionedNode, options: RenderOptions): string {
@@ -193,5 +229,13 @@ export function renderCanvas(
 ): RenderedCanvas {
   const edges = routeEdges(canvas);
   const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
-  return { html, width: canvas.width, height: canvas.height };
+  const themedHtml = options.theme
+    ? html
+        .replace(
+          'data-canvas-version="2"',
+          `data-canvas-version="2" data-theme-id="${escapeHtml(options.theme.name)}" data-chart-palette="${escapeHtml(options.theme.chartPalette.join(","))}"`,
+        )
+        .replace('style="width:', `style="${themeStyle(options.theme)};width:`)
+    : html;
+  return { html: themedHtml, width: canvas.width, height: canvas.height };
 }

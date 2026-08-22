@@ -1,13 +1,10 @@
-import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
-import {
-  DEVICE_CAPTION_HEIGHT,
-  deviceFrameScale,
-  deviceShellSize,
-} from "./device-frame.js";
-import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
 import { renderAnnotation } from "./annotation.js";
+import { DEVICE_CAPTION_HEIGHT, deviceFrameScale, deviceShellSize } from "./device-frame.js";
+import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
+import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
+import type { Theme } from "./themes.js";
 import type { CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
@@ -640,6 +637,7 @@ export function cameraGridStyle(view: ViewState): CameraGridStyle {
 export interface ViewportOptions {
   container: HTMLElement;
   canvas: PositionedCanvas;
+  theme?: Theme;
   initialScale?: number;
   initialView?: ViewState;
   onViewChange?: (view: ViewState) => void;
@@ -702,6 +700,7 @@ export interface ViewportOptions {
 }
 
 export interface ViewportUpdateOptions {
+  theme?: Theme;
   resolveIframeUrl?: (node: IframeNode) => string;
   resolveImageUrl?: (node: ImageNode) => string;
   resolveIframeIdentity?: (node: IframeNode) => string;
@@ -849,10 +848,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let liveResolveIframeUrl = opts.resolveIframeUrl;
   let liveResolveImageUrl = opts.resolveImageUrl;
   let liveResolveIframeIdentity = opts.resolveIframeIdentity;
+  let liveTheme = opts.theme;
   const rendered = renderCanvas(liveCanvas, {
     resolveIframeUrl: liveResolveIframeUrl,
     resolveImageUrl: liveResolveImageUrl,
     editable: opts.editable,
+    theme: liveTheme,
   });
 
   container.classList.add("vc-viewport");
@@ -950,10 +951,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let commentMarkers: readonly CommentMarker[] = opts.comments ?? [];
   let activeCommentId: string | null = opts.activeCommentId ?? null;
   /** Anchor key → the pin drawn for it, and the threads it stands for. */
-  const commentClusters = new Map<
-    string,
-    { pin: HTMLButtonElement; markers: CommentMarker[] }
-  >();
+  const commentClusters = new Map<string, { pin: HTMLButtonElement; markers: CommentMarker[] }>();
 
   /**
    * One pin per *anchor*, not per thread. Two comments on the same node
@@ -1258,11 +1256,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     else {
       const node = nodeById.get(moved[0] as string);
       if (node)
-        void opts.onGeometryChange?.(node.id, { ...node.rect }, {
-          ...node.rect,
-          x: node.rect.x - dx,
-          y: node.rect.y - dy,
-        });
+        void opts.onGeometryChange?.(
+          node.id,
+          { ...node.rect },
+          {
+            ...node.rect,
+            x: node.rect.x - dx,
+            y: node.rect.y - dy,
+          },
+        );
     }
     return true;
   }
@@ -1800,12 +1802,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     nextResolveIframeUrl: ((node: IframeNode) => string) | undefined,
     nextResolveImageUrl: ((node: ImageNode) => string) | undefined,
     nextResolveIframeIdentity: ((node: IframeNode) => string) | undefined,
+    nextTheme: Theme | undefined,
   ): void {
     const scratch = document.createElement("div");
     scratch.innerHTML = renderCanvas(nextCanvas, {
       resolveIframeUrl: nextResolveIframeUrl,
       resolveImageUrl: nextResolveImageUrl,
       editable: opts.editable,
+      theme: nextTheme,
     }).html;
     const nextWorld = scratch.querySelector<HTMLElement>(".vc-world");
     const nextNodesRoot = nextWorld?.querySelector<HTMLElement>(".vc-nodes");
@@ -1917,8 +1921,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
           ? [...survivors.filter((id) => id !== selectedId), selectedId]
           : survivors;
       setSelection(ordered);
-    }
-    else if (selection.size > 0 || selectedId) selectNode(null);
+    } else if (selection.size > 0 || selectedId) selectNode(null);
     if (selectedGroupId && nextCanvas.groups.some((group) => group.id === selectedGroupId)) {
       const selected = world.querySelector<HTMLElement>(
         `.vc-group[data-group-id="${CSS.escape(selectedGroupId)}"]`,
@@ -1931,6 +1934,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const nextResolveIframeUrl = options?.resolveIframeUrl ?? liveResolveIframeUrl;
     const nextResolveImageUrl = options?.resolveImageUrl ?? liveResolveImageUrl;
     const nextResolveIframeIdentity = options?.resolveIframeIdentity ?? liveResolveIframeIdentity;
+    const nextTheme = options?.theme ?? liveTheme;
     // Keep the node being manipulated under the pointer even if a remote
     // version lands mid-drag. The subsequent optimistic save is based on the
     // newest Convex version and becomes the next reactive update.
@@ -1958,10 +1962,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       nextResolveIframeUrl,
       nextResolveImageUrl,
       nextResolveIframeIdentity,
+      nextTheme,
     );
     liveResolveIframeUrl = nextResolveIframeUrl;
     liveResolveImageUrl = nextResolveImageUrl;
     liveResolveIframeIdentity = nextResolveIframeIdentity;
+    liveTheme = nextTheme;
     liveCanvas = nextCanvas;
     contentBoundsCache = null;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
@@ -2077,8 +2083,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       ...guides.map((guide) => {
         const line = document.createElement("i");
         line.className = `vc-guide vc-guide-${guide.axis}`;
-        const at = guide.axis === "x" ? guide.at * view.scale + view.x : guide.at * view.scale + view.y;
-        const from = guide.axis === "x" ? guide.from * view.scale + view.y : guide.from * view.scale + view.x;
+        const at =
+          guide.axis === "x" ? guide.at * view.scale + view.x : guide.at * view.scale + view.y;
+        const from =
+          guide.axis === "x" ? guide.from * view.scale + view.y : guide.from * view.scale + view.x;
         const span = (guide.to - guide.from) * view.scale;
         if (guide.axis === "x") {
           line.style.left = `${at}px`;
@@ -2596,8 +2604,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       // Selection must not recenter between the two clicks of a double-click;
       // doing so moves the target before the second click and prevents iframe activation.
       if (finishedDrag.groupId) selectGroup(finishedDrag.groupId);
-      else if (finishedDrag.nodeId && finishedDrag.additive)
-        toggleSelection(finishedDrag.nodeId);
+      else if (finishedDrag.nodeId && finishedDrag.additive) toggleSelection(finishedDrag.nodeId);
       else selectNode(finishedDrag.nodeId, false);
       if (finishedDrag.nodeId) {
         const now = Date.now();

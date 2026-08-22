@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "certification_id": "preflight-2026-08-23",
+  "generated_at": "2026-08-22T21:34:09.011Z",
+  "status": "failed",
+  "inputs": {
+    "golden": "evals/production-ui/runs/preflight-both/report.json",
+    "routing": "evals/production-ui/routing-runs/preflight-routing/report.json",
+    "review": null
+  },
+  "gates": {
+    "both_providers": true,
+    "complete_golden_set": false,
+    "routing_both_providers": true,
+    "routing_recall": true,
+    "routing_negative_precision": true,
+    "snapshot_adherence": true,
+    "no_critical_unresolved": true,
+    "no_clipping": true,
+    "no_internal_leakage": true,
+    "blinded_human_preference": false
+  },
+  "failures": [
+    {
+      "gate": "complete_golden_set"
+    },
+    {
+      "gate": "blinded_human_preference"
+    }
+  ],
+  "golden_failures": [],
+  "routing_failures": []
+}

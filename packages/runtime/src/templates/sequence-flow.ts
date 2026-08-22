@@ -7,6 +7,7 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `# Sequence flow: user login with 2FA challenge
 # shape: sequence_diagram switches D2 into sequence-diagram layout mode,
@@ -42,6 +43,7 @@ Gateway -> Client: 200 {token, expires_at}
 `;
 
 export const sequenceFlowTemplate: Template = {
+  ...templateMetadata("sequence-flow"),
   id: "sequence-flow",
   name: "Sequence Flow",
   kind: "diagram",

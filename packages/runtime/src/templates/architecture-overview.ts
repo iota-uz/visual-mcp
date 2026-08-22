@@ -8,10 +8,11 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `# Architecture overview: Insurance CRM platform
 # Render with the D2 wrapper -> SVG, embed inline into HTML reports or
-# export standalone (PLAN.md section 3.2 / 8.3).
+# export as a standalone SVG.
 
 direction: down
 
@@ -64,6 +65,7 @@ Notification Worker -> Postgres: write delivery log
 `;
 
 export const architectureOverviewTemplate: Template = {
+  ...templateMetadata("architecture-overview"),
   id: "architecture-overview",
   name: "Architecture Overview",
   kind: "diagram",

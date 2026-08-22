@@ -127,25 +127,27 @@ const BaseNodeFields = {
   anchors: z.array(ConnectorAnchorSchema).default([]),
   annotation: NodeAnnotationSchema.optional(),
 };
-export const NativeNodeSchema = z.object({
-  kind: z.literal("native"),
-  ...BaseNodeFields,
-  shape: z.enum(NODE_SHAPES),
-  /*
-   * Which side of the interaction an `actor` node stands on: the person the
-   * flow is about, or the party they deal with. Purely a rendering variant
-   * (round avatar vs. squared one) and meaningless on every other shape,
-   * which is why it is optional rather than defaulted — a `note` should not
-   * carry an actor field just because it went through the parser.
-   *
-   * It exists because the renderer used to infer this by comparing the
-   * caption to a hardcoded Russian string — so the engine only drew the
-   * distinction for one document in one language, and any other canvas got
-   * every actor styled as a counterparty.
-   */
-  actorRole: z.enum(ACTOR_ROLES).optional(),
-  body: NativeBodySchema.optional(),
-}).strict();
+export const NativeNodeSchema = z
+  .object({
+    kind: z.literal("native"),
+    ...BaseNodeFields,
+    shape: z.enum(NODE_SHAPES),
+    /*
+     * Which side of the interaction an `actor` node stands on: the person the
+     * flow is about, or the party they deal with. Purely a rendering variant
+     * (round avatar vs. squared one) and meaningless on every other shape,
+     * which is why it is optional rather than defaulted — a `note` should not
+     * carry an actor field just because it went through the parser.
+     *
+     * It exists because the renderer used to infer this by comparing the
+     * caption to a hardcoded Russian string — so the engine only drew the
+     * distinction for one document in one language, and any other canvas got
+     * every actor styled as a counterparty.
+     */
+    actorRole: z.enum(ACTOR_ROLES).optional(),
+    body: NativeBodySchema.optional(),
+  })
+  .strict();
 export type NativeNode = z.infer<typeof NativeNodeSchema>;
 
 export const IframeSourceSchema = z.object({
@@ -330,14 +332,11 @@ export const LegendGroupSchema = z.object({
   items: z.array(LegendItemSchema).min(1),
 });
 export type LegendGroup = z.infer<typeof LegendGroupSchema>;
-export type ThemeId = string;
-
 export const CanvasDocSchema = z
   .object({
     version: z.literal(2),
     title: z.string().min(1),
     subtitle: z.string().optional(),
-    theme: z.string().optional(),
     world: z
       .object({
         width: z.number().finite().positive().max(1_000_000),

@@ -19,7 +19,11 @@
  * (sandbox, artifact-store, themes, templates respectively).
  */
 
+import type { ThemeId as ThemeName } from "@visual-canvas/canvas/themes.js";
 import { z } from "zod";
+
+export type { Theme, ThemeId as ThemeName, ThemeOverride } from "@visual-canvas/canvas/themes.js";
+export { THEME_IDS as THEME_NAMES } from "@visual-canvas/canvas/themes.js";
 
 /* ------------------------------------------------------------------------
  * Session (PLAN.md section 2.2, 7)
@@ -66,52 +70,6 @@ export interface ArtifactManifest {
  * Theme contract (PLAN.md section 11)
  * ---------------------------------------------------------------------- */
 
-export interface ThemeColors {
-  background: string;
-  foreground: string;
-  muted: string;
-  primary: string;
-  secondary: string;
-  border: string;
-}
-
-export interface ThemeTypography {
-  fontSans: string;
-  fontMono: string;
-}
-
-export interface ThemeRadius {
-  sm: string;
-  md: string;
-  lg: string;
-  xl: string;
-}
-
-export interface ThemeDiagramStyle {
-  nodeRadius: string;
-  edgeStyle: string;
-}
-
-export interface Theme {
-  name: string;
-  colors: ThemeColors;
-  typography: ThemeTypography;
-  radius: ThemeRadius;
-  spacing: Record<string, string>;
-  shadows: Record<string, string>;
-  chartPalette: string[];
-  diagramStyle: ThemeDiagramStyle;
-}
-
-/** Initial theme names (PLAN.md section 11) — for reference/typing only. */
-export const THEME_NAMES = [
-  "clean-saas",
-  "minimal-docs",
-  "dark-terminal",
-  "startup-pitch",
-] as const;
-export type ThemeName = (typeof THEME_NAMES)[number];
-
 /* ------------------------------------------------------------------------
  * Template contract (PLAN.md section 10)
  * ---------------------------------------------------------------------- */
@@ -123,8 +81,15 @@ export interface Template {
   name: string;
   kind: TemplateKind;
   description: string;
+  useWhen: string[];
+  avoidWhen: string[];
+  supportedViewports: Array<{ label: string; width: number; height: number }>;
+  requiredStates: string[];
+  designCharacteristics: string[];
   expectedInputs: Record<string, unknown>;
   exampleCode: string;
+  preview: { viewport: { width: number; height: number }; format: "html" | "d2" | "tool-call" };
+  compatibleThemes: ThemeName[];
 }
 
 /** Template ids called out in PLAN.md section 10 — for reference only. */

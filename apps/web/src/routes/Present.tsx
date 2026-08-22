@@ -344,6 +344,7 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
                 doc={isolatedDoc}
                 iframeBaseUrl={iframeBaseUrl}
                 version={canvas.version}
+                theme={canvas.resolved_theme}
                 immersive
                 syncSelectionToUrl={false}
               />

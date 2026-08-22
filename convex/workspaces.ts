@@ -105,6 +105,18 @@ export const list = internalQuery({
   handler: async (ctx) => listWorkspaces(ctx),
 });
 
+export const getThemeBySlug = internalQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique();
+    if (!workspace || workspace.archivedAt !== undefined) return null;
+    return { themeId: "clean-saas" as const, brand: workspace.brand };
+  },
+});
+
 // --- Public, SPA-facing (PLAN.md Part 1 section 1's `/` and `/w/:wsSlug`) ---
 // Reads and writes are org-wide (decision #9) — any signed-in @iota.uz user
 // may list or create a workspace; only `createdBy` attribution is scoped.

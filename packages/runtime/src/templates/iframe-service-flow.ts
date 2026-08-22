@@ -1,4 +1,5 @@
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `// Optional: reuse an existing library asset without uploading it again.
 // const { assets } = asset_list({ scope: "workspace", workspace: "demo", query: "brand" })
@@ -31,6 +32,7 @@ canvas_save({
 })`;
 
 export const iframeServiceFlowTemplate: Template = {
+  ...templateMetadata("iframe-service-flow"),
   id: "iframe-service-flow",
   name: "Iframe service flow",
   kind: "canvas",

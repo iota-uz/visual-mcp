@@ -68,6 +68,9 @@ export async function handleRender(req: RenderRequest): Promise<RenderResult> {
         viewport: req.viewport,
         pdf: req.pdf,
         workspaceRoot: ws.root,
+        themeTailwindCss: req.themeTailwindCss,
+        themeRuntimeCss: req.themeRuntimeCss,
+        themeJson: req.themeJson,
       });
       unresolvedRefs = rendered.unresolvedRefs;
       unresolvedDetails = rendered.unresolvedDetails;

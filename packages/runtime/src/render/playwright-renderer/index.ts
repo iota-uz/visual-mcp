@@ -69,6 +69,12 @@ export interface RenderFileOptions {
    * none is found.
    */
   workspaceRoot?: string;
+  /** Resolved `@theme` declarations compiled together with Tailwind utilities. */
+  themeTailwindCss?: string;
+  /** Resolved runtime variables injected before first paint, including for plain CSS pages. */
+  themeRuntimeCss?: string;
+  /** JSON-safe resolved theme exposed to chart code as `window.visualCanvasTheme`. */
+  themeJson?: string;
 }
 
 export interface RenderFileResult {
@@ -103,6 +109,9 @@ export interface SnapshotCanvasOptions {
   scale?: 1 | 2;
   readinessTimeoutMs?: number;
   workspaceRoot?: string;
+  themeTailwindCss?: string;
+  themeRuntimeCss?: string;
+  themeJson?: string;
 }
 
 export interface SnapshotCanvasResult extends RenderFileResult {
@@ -128,7 +137,14 @@ export async function snapshotCanvas(
     ? path.resolve(options.workspaceRoot)
     : await inferWorkspaceRoot(absEntrypoint);
   const rawHtml = await fs.readFile(absEntrypoint, "utf8");
-  const builtHtml = await buildHtmlWithTailwind(rawHtml, entrypointDir);
+  let builtHtml = await buildHtmlWithTailwind(rawHtml, entrypointDir, options.themeTailwindCss);
+  if (options.themeRuntimeCss || options.themeJson) {
+    const json = (options.themeJson ?? "null").replaceAll("<", "\\u003c");
+    const bootstrap = `${options.themeRuntimeCss ? `<style data-visual-canvas-theme>${options.themeRuntimeCss}</style>` : ""}<script>window.visualCanvasTheme=${json}</script>`;
+    builtHtml = builtHtml.includes("</head>")
+      ? builtHtml.replace("</head>", `${bootstrap}</head>`)
+      : bootstrap + builtHtml;
+  }
   const tempHtmlPath = path.join(entrypointDir, `.snapshot-${randomUUID()}.html`);
   await fs.mkdir(path.dirname(absOutputPath), { recursive: true });
   await fs.writeFile(tempHtmlPath, builtHtml, "utf8");
@@ -160,8 +176,20 @@ export async function snapshotCanvas(
       await warmIframeSurfaces(page);
 
       const world = page.locator(".vc-world").first();
-      if ((await world.count()) === 0) throw new Error("snapshot_failed: .vc-world was not found");
-      const worldBox = await world.boundingBox();
+      const hasWorld = (await world.count()) > 0;
+      if (!hasWorld && options.target.type !== "canvas") {
+        throw new Error(
+          "unsupported_snapshot_target: node and region targets require a native canvas",
+        );
+      }
+      const worldBox = hasWorld
+        ? await world.boundingBox()
+        : await page.evaluate(() => ({
+            x: 0,
+            y: 0,
+            width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+            height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+          }));
       if (!worldBox) throw new Error("snapshot_failed: canvas world has no visible bounds");
 
       let clip: { x: number; y: number; width: number; height: number };
@@ -337,7 +365,14 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
     : await inferWorkspaceRoot(absEntrypoint);
 
   const rawHtml = await fs.readFile(absEntrypoint, "utf8");
-  const builtHtml = await buildHtmlWithTailwind(rawHtml, entrypointDir);
+  let builtHtml = await buildHtmlWithTailwind(rawHtml, entrypointDir, options.themeTailwindCss);
+  if (options.themeRuntimeCss || options.themeJson) {
+    const json = (options.themeJson ?? "null").replaceAll("<", "\\u003c");
+    const bootstrap = `${options.themeRuntimeCss ? `<style data-visual-canvas-theme>${options.themeRuntimeCss}</style>` : ""}<script>window.visualCanvasTheme=${json}</script>`;
+    builtHtml = builtHtml.includes("</head>")
+      ? builtHtml.replace("</head>", `${bootstrap}</head>`)
+      : bootstrap + builtHtml;
+  }
 
   if (format === "html") {
     await fs.writeFile(absOutputPath, builtHtml, "utf8");
@@ -367,10 +402,14 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
   };
 }
 
-async function buildHtmlWithTailwind(rawHtml: string, scanDir: string): Promise<string> {
+async function buildHtmlWithTailwind(
+  rawHtml: string,
+  scanDir: string,
+  themeTailwindCss?: string,
+): Promise<string> {
   const block = findTailwindStyleBlock(rawHtml);
   if (!block) return rawHtml; // plain HTML/CSS, no Tailwind entry block — pass through
-  const builtCss = await buildTailwindCss(block.rawCss, scanDir);
+  const builtCss = await buildTailwindCss(`${block.rawCss}\n${themeTailwindCss ?? ""}`, scanDir);
   return injectBuiltCss(rawHtml, block, builtCss);
 }
 

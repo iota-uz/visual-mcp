@@ -343,7 +343,9 @@ describe("reactive viewport reconciliation", () => {
      * everything, selection included.
      */
     const dimmed = () =>
-      [...container.querySelectorAll<HTMLElement>(".vc-node.dimmed")].map((el) => el.dataset.nodeId);
+      [...container.querySelectorAll<HTMLElement>(".vc-node.dimmed")].map(
+        (el) => el.dataset.nodeId,
+      );
     expect(dimmed()).toEqual(["native"]);
     expect(container.querySelector(".vc-node.selected")?.classList.contains("dimmed")).toBe(false);
 
@@ -360,7 +362,9 @@ describe("reactive viewport reconciliation", () => {
   test("renders safe free-form annotation HTML outside iframe screen content", () => {
     const container = viewportContainer();
     const annotated = doc();
-    annotated.nodes[1]!.annotation = {
+    const screen = annotated.nodes[1];
+    if (!screen) throw new Error("Expected screen fixture");
+    screen.annotation = {
       format: "html",
       content:
         '<p><strong>Review</strong> <a href="javascript:alert(1)" onclick="alert(2)">details</a></p><script>alert(3)</script>',
@@ -373,9 +377,9 @@ describe("reactive viewport reconciliation", () => {
     expect(annotation?.querySelector("strong")).toHaveTextContent("Review");
     expect(annotation?.querySelector("a")).not.toHaveAttribute("href");
     expect(annotation?.querySelector("script")).toBeNull();
-    expect(container.querySelector("iframe")?.contentDocument?.body.textContent).not.toContain(
-      "Review",
-    );
+    expect(
+      container.querySelector("iframe")?.contentDocument?.body.textContent ?? "",
+    ).not.toContain("Review");
     controller.dispose();
   });
 

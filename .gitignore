@@ -20,6 +20,10 @@ output/
 .playwright-cli/
 .playwright-mcp/
 examples/osago-24/preview.html
+evals/production-ui/runs/
+evals/production-ui/routing-runs/
+evals/production-ui/latest-report.json
+evals/production-ui/latest-routing-report.json
 
 # logs
 npm-debug.log*

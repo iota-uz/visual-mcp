@@ -15,11 +15,12 @@
  *   // css === '/* theme: clean-saas *\/\n@theme {\n  --color-background: #ffffff;\n  ...\n}\n'
  */
 
-import type { Theme, ThemeName } from "../../types.js";
+import { ThemeOverrideSchema, ThemeSchema } from "@visual-canvas/canvas/themes.js";
+import type { Theme, ThemeName, ThemeOverride } from "../../types.js";
 import { THEME_NAMES } from "../../types.js";
 import { THEMES } from "./data.js";
 
-export { compileThemeToTailwindV4 } from "./compile.js";
+export { compileThemeToCssVariables, compileThemeToTailwindV4 } from "./compile.js";
 export { THEMES } from "./data.js";
 
 /** Type guard: is `name` one of the four initial theme names? */
@@ -44,4 +45,32 @@ export function getTheme(name: string): Theme | undefined {
 /** Returns all available themes, in `THEME_NAMES` order. */
 export function listThemes(): Theme[] {
   return THEME_NAMES.map((name) => THEMES[name]);
+}
+
+function applyOverride(theme: Theme, override?: ThemeOverride): Theme {
+  if (!override) return theme;
+  return ThemeSchema.parse({
+    ...theme,
+    colors: { ...theme.colors, ...override.colors },
+    typography: { ...theme.typography, ...override.typography },
+    radius: { ...theme.radius, ...override.radius },
+    spacing: { ...theme.spacing, ...override.spacing },
+    shadows: { ...theme.shadows, ...override.shadows },
+    chartPalette: override.chartPalette ?? theme.chartPalette,
+    diagramStyle: { ...theme.diagramStyle, ...override.diagramStyle },
+  });
+}
+
+/** Deterministic base → workspace brand → canvas override resolution. */
+export function resolveTheme(
+  themeId: string,
+  workspaceBrand?: ThemeOverride,
+  canvasOverride?: ThemeOverride,
+): Theme {
+  const base = getTheme(themeId);
+  if (!base) throw new Error(`unknown_theme_id: ${themeId}`);
+  return applyOverride(
+    applyOverride(base, workspaceBrand ? ThemeOverrideSchema.parse(workspaceBrand) : undefined),
+    canvasOverride ? ThemeOverrideSchema.parse(canvasOverride) : undefined,
+  );
 }

@@ -1,6 +1,19 @@
 import type { NodeAnnotation } from "./types.js";
 
-const SAFE_TAGS = new Set(["a", "b", "br", "code", "em", "i", "li", "ol", "p", "pre", "strong", "ul"]);
+const SAFE_TAGS = new Set([
+  "a",
+  "b",
+  "br",
+  "code",
+  "em",
+  "i",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "strong",
+  "ul",
+]);
 const VOID_TAGS = new Set(["br"]);
 
 function escapeHtml(input: string): string {
@@ -36,7 +49,9 @@ export function sanitizeAnnotationHtml(input: string): string {
     const parsed = /^<(\/)?\s*([A-Za-z0-9]+)([^>]*)>$/.exec(match[0]);
     if (!parsed) continue;
     const closing = Boolean(parsed[1]);
-    const tag = parsed[2]!.toLowerCase();
+    const parsedTag = parsed[2];
+    if (!parsedTag) continue;
+    const tag = parsedTag.toLowerCase();
     if (!SAFE_TAGS.has(tag)) continue;
     if (closing) {
       if (!VOID_TAGS.has(tag)) output += `</${tag}>`;

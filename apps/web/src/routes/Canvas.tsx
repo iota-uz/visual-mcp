@@ -12,6 +12,7 @@ import {
   type Rect as NodeRect,
   type NodeRestorePayload,
   resolveCanvasPage,
+  type Theme,
   type ViewportController,
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -91,6 +92,7 @@ export function CanvasViewport({
   iframeBaseUrl,
   iframeRevisions,
   version,
+  theme,
   editable = false,
   onGeometryChange,
   onGroupMove,
@@ -110,6 +112,7 @@ export function CanvasViewport({
   iframeBaseUrl?: string | null;
   iframeRevisions?: Record<string, string> | null;
   version?: number;
+  theme?: Theme;
   editable?: boolean;
   onGeometryChange?: (
     nodeId: string,
@@ -244,6 +247,7 @@ export function CanvasViewport({
     const controller = mountViewport({
       container,
       canvas: positioned,
+      theme,
       initialView,
       fitOnResize: immersive,
       onIframeStateChange: (state) => onIframeStateChangeRef.current?.(state),
@@ -334,6 +338,7 @@ export function CanvasViewport({
   useEffect(() => {
     try {
       controllerRef.current?.updateCanvas(layoutCanvas(doc), {
+        theme,
         resolveIframeUrl,
         resolveImageUrl,
         resolveIframeIdentity,
@@ -341,7 +346,7 @@ export function CanvasViewport({
     } catch {
       // Keep the last valid reactive document visible if a new one cannot lay out.
     }
-  }, [doc, resolveIframeIdentity, resolveIframeUrl, resolveImageUrl]);
+  }, [doc, resolveIframeIdentity, resolveIframeUrl, resolveImageUrl, theme]);
 
   /*
    * Two elements, not one. `mountViewport` adds its own `.vc-viewport`
@@ -3103,6 +3108,7 @@ export function CanvasPage() {
               doc={doc}
               iframeRevisions={resolvedIframeRevisions}
               version={canvasVersion}
+              theme={canvas.resolved_theme}
               editable
               canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
               cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
