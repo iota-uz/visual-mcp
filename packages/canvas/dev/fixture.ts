@@ -53,11 +53,10 @@ const doc = {
       stage: "report",
       shape: "actor",
       caption: { title: "Culprit", subtitle: "Files claim from phone" },
-      inspector: {
-        eyebrow: "Actor",
-        title: "Culprit",
-        copy: "The at-fault driver opens the EAI app right after the accident.",
-        points: ["Authenticates via eID", "Photographs the scene", "Submits initial statement"],
+      annotation: {
+        format: "html",
+        content:
+          "<p>The at-fault driver opens the EAI app right after the accident.</p><ul><li>Authenticates via eID</li><li>Photographs the scene</li><li>Submits initial statement</li></ul>",
       },
     },
     {
@@ -91,10 +90,9 @@ const doc = {
       stage: "verify",
       shape: "automation",
       caption: { title: "Risk scoring model", tag: "AI" },
-      inspector: {
-        eyebrow: "Automation",
-        title: "Risk scoring model",
-        copy: "Scores the claim against known fraud patterns before it reaches an adjuster.",
+      annotation: {
+        format: "text",
+        content: "Scores the claim against known fraud patterns before it reaches an adjuster.",
       },
     },
     {
@@ -128,10 +126,10 @@ const doc = {
       shape: "service",
       badge: { text: "LIVE", tone: "live" },
       caption: { title: "Granite case record" },
-      inspector: {
-        eyebrow: "System of record",
-        title: "Granite case record",
-        copy: "The case's final state lives here — everything upstream is provisional until this write lands.",
+      annotation: {
+        format: "text",
+        content:
+          "The case's final state lives here — everything upstream is provisional until this write lands.",
       },
     },
     {

@@ -93,12 +93,13 @@ export const NodeCaptionSchema = z.object({
   subtitle: z.string().optional(),
   tag: z.string().optional(),
 });
-export const NodeInspectorSchema = z.object({
-  eyebrow: z.string(),
-  title: z.string(),
-  copy: z.string(),
-  points: z.array(z.string()).optional(),
-});
+export const NodeAnnotationSchema = z
+  .object({
+    format: z.enum(["text", "html"]),
+    content: z.string().min(1).max(20_000),
+  })
+  .strict();
+export type NodeAnnotation = z.infer<typeof NodeAnnotationSchema>;
 export const NativeBodySchema = z.object({
   text: z.string().optional(),
   points: z.array(z.string()).optional(),
@@ -124,7 +125,7 @@ const BaseNodeFields = {
   // Standalone gallery/reference nodes do not need connector geometry.
   // Edge validation below still requires referenced anchors to exist.
   anchors: z.array(ConnectorAnchorSchema).default([]),
-  inspector: NodeInspectorSchema.optional(),
+  annotation: NodeAnnotationSchema.optional(),
 };
 export const NativeNodeSchema = z.object({
   kind: z.literal("native"),
@@ -144,7 +145,7 @@ export const NativeNodeSchema = z.object({
    */
   actorRole: z.enum(ACTOR_ROLES).optional(),
   body: NativeBodySchema.optional(),
-});
+}).strict();
 export type NativeNode = z.infer<typeof NativeNodeSchema>;
 
 export const IframeSourceSchema = z.object({
@@ -214,6 +215,7 @@ export const IframeNodeSchema = z
       .refine((tokens) => new Set(tokens).size === tokens.length, "permissions must be unique"),
     activation: z.literal("double-click").default("double-click"),
   })
+  .strict()
   .superRefine((node, ctx) => {
     if (node.frame.kind === "device") {
       const preset = DEVICE_PRESETS[node.frame.preset];

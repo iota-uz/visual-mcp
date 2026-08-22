@@ -280,16 +280,13 @@ for (const [owner, stage, _screenId, text, value, total, current] of actorSteps)
       { id: "screen", side: "bottom", offset: victimActor ? 0.08666666666666667 : 0.5 },
     ],
     body: { text, progress: { value, total, current } },
-    inspector: {
-      eyebrow: `ЭТАП ${stage} · ${title.toUpperCase()}`,
-      title,
-      copy: `Действие участника на этом этапе: ${text}.`,
-      points: [
-        text,
+    annotation: {
+      format: "text",
+      content: `Действие участника на этом этапе: ${text}. ${
         victimActor
-          ? "Работает в браузере на eai.uz, приложение не устанавливает"
-          : "Работает в авторизованном приложении EAI",
-      ],
+          ? "Работает в браузере на eai.uz, приложение не устанавливает."
+          : "Работает в авторизованном приложении EAI."
+      }`,
     },
   });
 }

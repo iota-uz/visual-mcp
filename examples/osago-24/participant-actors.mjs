@@ -115,16 +115,13 @@ export function addParticipantActors(input) {
         maturity: "live",
         anchors: actorAnchors,
         body: { text: action, progress },
-        inspector: {
-          eyebrow: `ЭТАП ${displayIndex} · ${label.toUpperCase()}`,
-          title: label,
-          copy: `Действие участника на этом этапе: ${action}.`,
-          points: [
-            action,
+        annotation: {
+          format: "text",
+          content: `Действие участника на этом этапе: ${action}. ${
             role === "victim"
-              ? "Работает в браузере на eai.uz, приложение не устанавливает"
-              : "Работает в авторизованном приложении EAI",
-          ],
+              ? "Работает в браузере на eai.uz, приложение не устанавливает."
+              : "Работает в авторизованном приложении EAI."
+          }`,
         },
       };
       const existingActorIndex = doc.nodes.findIndex((node) => node.id === id);

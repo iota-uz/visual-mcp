@@ -8,4 +8,5 @@ export * from "./phone-frame.js";
 export * from "./render.js";
 export * from "./router.js";
 export * from "./types.js";
+export * from "./annotation.js";
 export * from "./viewport.js";

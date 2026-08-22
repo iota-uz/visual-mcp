@@ -809,15 +809,13 @@ export const saveCanvasFileMine = action({
               pageId: page.id,
               nodeId: node.id,
               title: node.caption.title,
-              eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+              eyebrow: node.caption.tag,
               searchText: [
                 page.title,
                 node.caption.title,
                 node.caption.subtitle,
                 node.caption.tag,
-                node.inspector?.eyebrow,
-                node.inspector?.title,
-                node.inspector?.copy,
+                node.annotation?.content,
               ]
                 .filter((value): value is string => Boolean(value))
                 .join(" "),
@@ -923,7 +921,7 @@ export const listVersionsMine = query({
   },
 });
 
-// Cross-workspace search over canvas-kind node titles/eyebrows/inspector
+// Cross-workspace search over canvas-kind node titles/tags/annotations
 // copy (PLAN.md section 4/9), backed by canvasNodes.search_text. Org-wide
 // like the rest of the signed-in read surface (decision #4) — no canvasId
 // filter, so a query can find the right canvas as well as the right node
@@ -2156,7 +2154,7 @@ export const patchGeometryMine = action({
               pageId: candidate.id,
               nodeId: node.id,
               title: node.caption.title,
-              eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+              eyebrow: node.caption.tag,
               searchText: [candidate.title, node.caption.title, node.caption.subtitle]
                 .filter((value): value is string => typeof value === "string")
                 .join(" "),

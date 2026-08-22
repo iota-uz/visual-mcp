@@ -426,7 +426,7 @@ describe("/mcp bearer-auth gate", () => {
   });
 });
 
-describe("/mcp resources: templates", () => {
+describe("/mcp resources: just-in-time guidance and templates", () => {
   async function rpc(
     t: ReturnType<typeof convexTest>,
     token: string,
@@ -452,11 +452,38 @@ describe("/mcp resources: templates", () => {
     const resources = (listed.result as { resources: Array<{ uri: string; name: string }> })
       .resources;
     expect(resources.length).toBeGreaterThan(0);
+    expect(resources.map((r) => r.uri)).toEqual(
+      expect.arrayContaining([
+        "canvas://guides/authoring",
+        "canvas://guides/production-ui",
+        "canvas://guides/device-frames",
+        "canvas://guides/assets",
+        "canvas://templates",
+      ]),
+    );
     expect(resources.map((r) => r.uri)).toContain("canvas://templates/browser-app-screen");
     // The listing carries names and descriptions only — v1's list_templates
     // returned every template's full exampleCode (~46KB) on every call.
     const serialized = JSON.stringify(resources);
     expect(serialized).not.toContain("<!doctype html>");
+  });
+
+  test("the compact catalog omits source while a selected template and guide load on demand", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const catalog = await rpc(t, token, "resources/read", { uri: "canvas://templates" });
+    const catalogText = (catalog.result as { contents: Array<{ text: string }> }).contents[0]!.text;
+    expect(catalogText).toContain('"id": "browser-app-screen"');
+    expect(catalogText).not.toContain("<!doctype html>");
+    expect(catalogText).not.toContain("exampleCode");
+
+    const guide = await rpc(t, token, "resources/read", {
+      uri: "canvas://guides/production-ui",
+    });
+    const guideText = (guide.result as { contents: Array<{ text: string }> }).contents[0]!.text;
+    expect(guideText).toMatch(/Visual QA after a meaningful edit/);
+    expect(guideText).toMatch(/warnings.*recommendations/s);
   });
 
   test("reading one template returns its example source", async () => {

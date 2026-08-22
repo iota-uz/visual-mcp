@@ -81,6 +81,7 @@ import {
 } from "../lib/urls";
 import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
 import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine";
+import { MCP_GUIDES } from "./guides";
 
 export interface McpPrincipal {
   userId: Id<"users">;
@@ -900,15 +901,13 @@ async function prepareSaveDoc(
           pageId: page.id,
           nodeId: node.id,
           title: node.caption.title,
-          eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+          eyebrow: node.caption.tag,
           searchText: [
             page.title,
             node.caption.title,
             node.caption.subtitle,
             node.caption.tag,
-            node.inspector?.eyebrow,
-            node.inspector?.title,
-            node.inspector?.copy,
+            node.annotation?.content,
           ]
             .filter((value): value is string => typeof value === "string" && value.length > 0)
             .join(" "),
@@ -4969,6 +4968,44 @@ function randomShareSlug(): string {
  * and descriptions, and a caller reads the one it actually wants.
  * ---------------------------------------------------------------------- */
 export function registerResources(server: McpServer): void {
+  for (const guide of MCP_GUIDES) {
+    server.registerResource(
+      `guide-${guide.id}`,
+      `canvas://guides/${guide.id}`,
+      {
+        title: guide.title,
+        description: guide.description,
+        mimeType: "text/markdown",
+      },
+      async (uri) => ({
+        contents: [{ uri: uri.href, mimeType: "text/markdown", text: guide.text }],
+      }),
+    );
+  }
+
+  server.registerResource(
+    "template-catalog",
+    "canvas://templates",
+    {
+      title: "Canonical template catalog",
+      description: "Compact metadata for choosing one production UI example before loading its source.",
+      mimeType: "application/json",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            templateRegistryList().map(({ exampleCode: _source, ...metadata }) => metadata),
+            null,
+            2,
+          ),
+        },
+      ],
+    }),
+  );
+
   for (const template of templateRegistryList()) {
     server.registerResource(
       `template-${template.id}`,

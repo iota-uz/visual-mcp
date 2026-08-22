@@ -1591,36 +1591,28 @@
   color: var(--vc-muted);
   cursor: pointer;
 }
-.vc-inspector-eyebrow {
-  display: block;
-  color: var(--vc-role-primary);
-  font: 650 8px / 1 var(--vc-mono);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
 .vc-inspector-title {
-  margin: 6px 0 8px;
+  margin: 0 30px 8px 0;
   font: 700 16px / 1.25 var(--vc-body);
   color: var(--vc-ink);
 }
-.vc-inspector-copy {
+.vc-inspector-annotation {
   margin: 0;
   font: 400 11px / 1.5 var(--vc-body);
   color: var(--vc-ink-soft);
 }
-.vc-inspector-points div {
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid #edf0f3;
-  color: #42566d;
-  font-size: 10px;
-  line-height: 1.4;
+.vc-inspector-annotation > :first-child {
+  margin-top: 0;
 }
-.vc-inspector-points b {
-  color: #7f8ea0;
-  font: 600 8px / 1.4 var(--vc-mono);
+.vc-inspector-annotation > :last-child {
+  margin-bottom: 0;
+}
+.vc-inspector-annotation a {
+  color: var(--vc-role-primary);
+}
+.vc-inspector-annotation pre,
+.vc-inspector-annotation code {
+  font-family: var(--vc-mono);
 }
 .vc-inspector-ref {
   margin-top: 14px;

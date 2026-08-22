@@ -357,6 +357,28 @@ describe("reactive viewport reconciliation", () => {
     controller.dispose();
   });
 
+  test("renders safe free-form annotation HTML outside iframe screen content", () => {
+    const container = viewportContainer();
+    const annotated = doc();
+    annotated.nodes[1]!.annotation = {
+      format: "html",
+      content:
+        '<p><strong>Review</strong> <a href="javascript:alert(1)" onclick="alert(2)">details</a></p><script>alert(3)</script>',
+    };
+    const controller = mountViewport({ container, canvas: layoutCanvas(annotated) });
+    controller.selectNode("screen");
+
+    const annotation = container.querySelector<HTMLElement>(".vc-inspector-annotation");
+    expect(annotation).toHaveTextContent("Review detailsalert(3)");
+    expect(annotation?.querySelector("strong")).toHaveTextContent("Review");
+    expect(annotation?.querySelector("a")).not.toHaveAttribute("href");
+    expect(annotation?.querySelector("script")).toBeNull();
+    expect(container.querySelector("iframe")?.contentDocument?.body.textContent).not.toContain(
+      "Review",
+    );
+    controller.dispose();
+  });
+
   test("a canvas with no stages dims nothing when a node is selected", () => {
     const container = viewportContainer();
     // Stages are optional, and plenty of canvases are just a board of nodes.

@@ -5,6 +5,7 @@ import {
   deviceShellSize,
 } from "./device-frame.js";
 import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
+import { renderAnnotation } from "./annotation.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
 import type { CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
@@ -734,10 +735,8 @@ export interface ViewportController {
 
 const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
     <button type="button" class="vc-inspector-close" aria-label="Close">×</button>
-    <span class="vc-inspector-eyebrow"></span>
     <h2 class="vc-inspector-title"></h2>
-    <p class="vc-inspector-copy"></p>
-    <div class="vc-inspector-points"></div>
+    <div class="vc-inspector-annotation"></div>
     <div class="vc-inspector-ref" hidden>
       <span class="vc-inspector-ref-label">Element ref</span>
       <div class="vc-inspector-ref-row">
@@ -879,10 +878,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const minimapNodes = must(".vc-minimap-nodes");
   const minimapViewport = must(".vc-minimap-viewport");
   const inspector = must(".vc-inspector");
-  const inspectorEyebrow = must(".vc-inspector-eyebrow");
   const inspectorTitle = must(".vc-inspector-title");
-  const inspectorCopy = must(".vc-inspector-copy");
-  const inspectorPoints = must(".vc-inspector-points");
+  const inspectorAnnotation = must(".vc-inspector-annotation");
   const inspectorClose = must(".vc-inspector-close");
   const inspectorRef = must(".vc-inspector-ref");
   const inspectorRefValue = must(".vc-inspector-ref-value");
@@ -1323,16 +1320,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     multiselectCount.textContent = multiple ? `${selection.size} nodes selected` : "";
     if (multiple || !primary) inspector.classList.remove("visible");
     if (!multiple && primary) {
-      inspectorEyebrow.textContent = primary.inspector?.eyebrow ?? "";
-      inspectorTitle.textContent = primary.inspector?.title ?? primary.caption.title;
-      inspectorCopy.textContent = primary.inspector?.copy ?? "";
-      inspectorPoints.innerHTML = (primary.inspector?.points ?? [])
-        .slice(0, 4)
-        .map(
-          (point, i) =>
-            `<div><b>${String(i + 1).padStart(2, "0")}</b><span>${escapeHtml(point)}</span></div>`,
-        )
-        .join("");
+      inspectorTitle.textContent = primary.caption.title;
+      inspectorAnnotation.innerHTML = renderAnnotation(primary.annotation);
+      inspectorAnnotation.hidden = inspectorAnnotation.innerHTML.length === 0;
       const refId = opts.resolveElementRef?.(primary.id);
       inspectorRef.hidden = !refId;
       inspectorRefValue.textContent = refId ?? "";
