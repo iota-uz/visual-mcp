@@ -109,7 +109,9 @@ describe("CommentsPanel", () => {
     // the header says which of the two it is.
     expect(screen.getByText("0 open · 1 awaiting you")).toBeInTheDocument();
     expect(screen.getByText("Renamed it to Intake")).toBeInTheDocument();
-    expect(screen.getByText("v7 · draft 3")).toBeInTheDocument();
+    // The block is always the agent's, so it names the revision and when,
+    // not who, for the third time in one card.
+    expect(screen.getByText(/v7 · draft 3 ·/)).toBeInTheDocument();
     // Both directions are available: accept it, or send it back.
     expect(screen.getByRole("button", { name: /Resolve/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Not done/ })).toBeInTheDocument();
@@ -160,5 +162,47 @@ describe("CommentsPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Reply" }));
     await waitFor(() => expect(handlers.onReply).toHaveBeenCalledWith("c1", "Thanks"));
+  });
+
+  test("a thread says who left it and when", () => {
+    const minutesAgo = Date.now() - 12 * 60_000;
+    panel({
+      threads: [
+        thread({
+          created_at: minutesAgo,
+          replies: [
+            { reply_id: "r1", body: "On it.", author_kind: "agent", created_at: minutesAgo },
+          ],
+        }),
+      ],
+      activeId: "c1",
+    });
+    // A single-person workspace, so a human comment is the reader's own.
+    expect(screen.getByText("You")).toBeInTheDocument();
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getAllByText("12m ago")).toHaveLength(2);
+  });
+
+  test("the list separates what needs an answer from what is done", () => {
+    panel({
+      threads: [
+        thread({ comment_id: "c1", body: "Still open" }),
+        thread({
+          comment_id: "c2",
+          body: "Claimed done",
+          status: "completed",
+          completion: { summary: "Renamed it", version: 7, draft_revision: 3, at: 2 },
+        }),
+        thread({ comment_id: "c3", body: "Long settled", status: "resolved" }),
+      ],
+    });
+    // Needs-you comes first: it is the only bucket waiting on this reader.
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Needs you1", "Open1"]);
+    // History folds away rather than padding the to-do list.
+    const resolved = document.querySelector(".canvas-comments-resolved");
+    if (!resolved) throw new Error("Missing resolved disclosure");
+    expect(resolved).not.toHaveAttribute("open");
+    expect(within(resolved as HTMLElement).getByText("Long settled")).toBeInTheDocument();
   });
 });

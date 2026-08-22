@@ -487,7 +487,7 @@ describe("reactive viewport reconciliation", () => {
       onCommentDraft: vi.fn(),
       onCommentActivate,
       comments: [
-        { id: "c1", nodeId: "native", status: "open", replies: 2 },
+        { id: "c1", nodeId: "native", status: "open" },
         { id: "c2", point: { x: 500, y: 300 }, status: "resolved" },
       ],
     });
@@ -498,11 +498,11 @@ describe("reactive viewport reconciliation", () => {
     const pin = container.querySelector<HTMLElement>('[data-comment-id="c1"]');
     expect(pin).not.toBeNull();
     // Anchored to the node's top-right corner, projected through the camera,
-    // and labelled with the size of the conversation rather than "1".
+    // and carrying how many threads are on that anchor — never blank.
     expect(pin?.style.transform).toBe(
       `translate(${(node.x + node.w) * view.scale + view.x}px, ${node.y * view.scale + view.y}px)`,
     );
-    expect(pin).toHaveTextContent("3");
+    expect(pin).toHaveTextContent("1");
     expect(container.querySelector('[data-comment-id="c2"]')).toHaveAttribute(
       "data-status",
       "resolved",
@@ -519,6 +519,32 @@ describe("reactive viewport reconciliation", () => {
     flushFrames();
     expect(container.querySelector<HTMLElement>('[data-comment-id="c1"]')?.hidden).toBe(true);
     expect(container.querySelector<HTMLElement>('[data-comment-id="c2"]')?.hidden).toBe(false);
+  });
+
+  test("threads sharing an anchor are one pin, counted and coloured by the worst", () => {
+    const { container, controller } = mountEditable(multiDoc(), {
+      onCommentDraft: vi.fn(),
+      comments: [
+        { id: "c1", nodeId: "native", status: "completed" },
+        { id: "c2", nodeId: "native", status: "open" },
+      ],
+    });
+    // Two pins on one corner read as a smudge however far they are nudged
+    // apart, so the anchor gets one pin.
+    const pins = container.querySelectorAll(".vc-comment-marker");
+    expect(pins).toHaveLength(1);
+    const pin = pins[0] as HTMLElement;
+    expect(pin).toHaveTextContent("2");
+    // Open outranks completed: the pin shows the work still to do, and
+    // clicking it opens that thread rather than the finished one.
+    expect(pin.dataset.status).toBe("open");
+    expect(pin.dataset.commentId).toBe("c2");
+
+    // The panel says which thread it has open; the pin says so too.
+    controller.setActiveComment("c1");
+    expect(pin.hasAttribute("data-active")).toBe(true);
+    controller.setActiveComment(null);
+    expect(pin.hasAttribute("data-active")).toBe(false);
   });
 
   test("the Comment tool hands the app an anchor instead of drawing anything", () => {

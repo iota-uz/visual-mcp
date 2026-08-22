@@ -99,6 +99,7 @@ export function CanvasViewport({
   syncSelectionToUrl = true,
   onIframeStateChange,
   comments,
+  activeCommentId,
   onCommentActivate,
   onCommentDraft,
 }: {
@@ -122,6 +123,7 @@ export function CanvasViewport({
   onIframeStateChange?: (state: { total: number; loaded: number; failed: string[] }) => void;
   /** Passing a handler is what turns the Comment tool and its pins on. */
   comments?: readonly CommentMarker[];
+  activeCommentId?: string | null;
   onCommentActivate?: (commentId: string) => void;
   onCommentDraft?: (anchor: { nodeId?: string; point: { x: number; y: number } }) => void;
 }) {
@@ -321,6 +323,10 @@ export function CanvasViewport({
   useEffect(() => {
     controllerRef.current?.setComments(comments ?? []);
   }, [comments]);
+
+  useEffect(() => {
+    controllerRef.current?.setActiveComment(activeCommentId ?? null);
+  }, [activeCommentId]);
 
   useEffect(() => {
     try {
@@ -1469,6 +1475,23 @@ const COMMENT_STATUS_LABEL = {
   resolved: "Resolved",
 } as const;
 
+/* Workspaces have one person in them, so a human comment is this reader's
+   own. When that stops being true this is where a name goes. */
+function commentAuthor(kind: "human" | "agent"): string {
+  return kind === "agent" ? "Agent" : "You";
+}
+
+function CommentByline({ kind, at }: { kind: "human" | "agent"; at: number }) {
+  return (
+    <span className="canvas-comment-byline">
+      <strong>{commentAuthor(kind)}</strong>
+      <time dateTime={new Date(at).toISOString()} title={formatAbsoluteTime(at)}>
+        {formatRelativeTime(at)}
+      </time>
+    </span>
+  );
+}
+
 /*
  * The human half of the loop. The agent's half is the MCP `comment_*` tools;
  * this panel exists so a person can leave the request in the first place and
@@ -1548,7 +1571,7 @@ function CommentReplyForm({
         id={`reply-${commentId}`}
         label="Reply to this comment"
         value={body}
-        placeholder="Reply"
+        placeholder="Write a reply…"
         onChange={(event: ChangeEvent<HTMLInputElement>) => setBody(event.target.value)}
       />
       <Button size="sm" type="submit" disabled={busy || body.trim().length === 0}>
@@ -1604,20 +1627,145 @@ export function CommentsPanel({
     }
   }
 
-  const open = threads.filter((thread) => thread.status !== "resolved");
+  /* Three buckets, and they are not the same job: `completed` is the
+     agent's claim waiting on this reader, `open` is what nobody has
+     answered, `resolved` is history. The header counted them already;
+     the list now separates them. */
+  const awaiting = threads.filter((thread) => thread.status === "completed");
+  const openThreads = threads.filter((thread) => thread.status === "open");
   const resolved = threads.filter((thread) => thread.status === "resolved");
-  /* "Open" here means open — a completed thread is waiting on the reader,
-     which is a different thing to say and the reason it gets its own
-     count rather than being folded in with the ones nobody has answered. */
   const summary = [
-    `${threads.filter((thread) => thread.status === "open").length} open`,
-    threads.filter((thread) => thread.status === "completed").length > 0
-      ? `${threads.filter((thread) => thread.status === "completed").length} awaiting you`
-      : null,
+    `${openThreads.length} open`,
+    awaiting.length > 0 ? `${awaiting.length} awaiting you` : null,
     resolved.length > 0 ? `${resolved.length} resolved` : null,
   ]
     .filter(Boolean)
     .join(" · ");
+  const groups = [
+    { key: "awaiting", title: "Needs you", items: awaiting },
+    { key: "open", title: "Open", items: openThreads },
+  ].filter((group) => group.items.length > 0);
+  // One bucket needs no heading to explain itself.
+  const headed = groups.length > 1 || resolved.length > 0;
+
+  function renderThread(thread: CommentThread) {
+    const anchor = thread.node_id
+      ? (nodeTitle(thread.node_id) ?? `${thread.node_id} (deleted)`)
+      : "Page";
+    const isActive = thread.comment_id === activeId;
+    return (
+      <li
+        key={thread.comment_id}
+        className={`canvas-comment${isActive ? " is-active" : ""}`}
+        data-status={thread.status}
+      >
+        <button
+          type="button"
+          className="canvas-comment-head"
+          onClick={() => onActiveChange(isActive ? null : thread.comment_id)}
+          aria-expanded={isActive}
+        >
+          <CommentByline kind={thread.author_kind} at={thread.created_at} />
+          <span className="canvas-comment-anchor" title={anchor}>
+            {anchor}
+          </span>
+        </button>
+        {/* Open is the resting state and says nothing; the other two are
+            the ones a reader has to act on. */}
+        {thread.status !== "open" && (
+          <span className="canvas-comment-status">{COMMENT_STATUS_LABEL[thread.status]}</span>
+        )}
+        <p className="canvas-comment-body">{thread.body}</p>
+        {thread.completion && (
+          <div className="canvas-comment-completion">
+            <p>{thread.completion.summary}</p>
+            {/* The revision is the whole point of `completed`: it tells the
+                reader exactly what to go and look at. The block is always
+                the agent's, so it says when rather than who again. */}
+            <span title={formatAbsoluteTime(thread.completion.at)}>
+              v{thread.completion.version} · draft {thread.completion.draft_revision} ·{" "}
+              {formatRelativeTime(thread.completion.at)}
+            </span>
+          </div>
+        )}
+        {thread.replies.length > 0 && (
+          <ul className="canvas-comment-replies">
+            {thread.replies.map((reply) => (
+              <li key={reply.reply_id} data-author={reply.author_kind}>
+                <CommentByline kind={reply.author_kind} at={reply.created_at} />
+                <p>{reply.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {isActive && (
+          <>
+            <CommentReplyForm
+              commentId={thread.comment_id}
+              busy={busy}
+              onSubmit={(body) =>
+                void run(() => onReply(thread.comment_id, body), "Couldn't post reply")
+              }
+            />
+            <div className="canvas-comment-actions">
+              {thread.status !== "resolved" ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Check}
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() => onStatus(thread.comment_id, "resolved"), "Couldn't resolve")
+                    }
+                  >
+                    Resolve
+                  </Button>
+                  {/* Rejecting the agent's claim without resolving it: the
+                      thread goes back on its queue. */}
+                  {thread.status === "completed" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={RotateCcw}
+                      disabled={busy}
+                      onClick={() =>
+                        void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
+                      }
+                    >
+                      Not done
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={RotateCcw}
+                  disabled={busy}
+                  onClick={() =>
+                    void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
+                  }
+                >
+                  Reopen
+                </Button>
+              )}
+              {/* Destructive, and last: pushed to its own end of the row so
+                  it is never the button next to the cursor. */}
+              <span className="canvas-comment-destructive">
+                <ConfirmButton
+                  icon={Trash2}
+                  label="Delete"
+                  description="this comment and its replies"
+                  onConfirm={() => onDelete(thread.comment_id)}
+                />
+              </span>
+            </div>
+          </>
+        )}
+      </li>
+    );
+  }
 
   return (
     <aside className="canvas-comments-panel" aria-label="Comments">
@@ -1654,121 +1802,29 @@ export function CommentsPanel({
           No comments on this page yet. Your agent reads open ones over MCP and answers here.
         </p>
       ) : (
-        <ul className="canvas-comment-list">
-          {[...open, ...resolved].map((thread) => {
-            const anchor = thread.node_id
-              ? (nodeTitle(thread.node_id) ?? `${thread.node_id} (deleted)`)
-              : "Page";
-            const isActive = thread.comment_id === activeId;
-            return (
-              <li
-                key={thread.comment_id}
-                className={`canvas-comment${isActive ? " is-active" : ""}`}
-                data-status={thread.status}
-              >
-                <button
-                  type="button"
-                  className="canvas-comment-head"
-                  onClick={() => onActiveChange(isActive ? null : thread.comment_id)}
-                  aria-expanded={isActive}
-                >
-                  <span className="canvas-comment-status">
-                    {COMMENT_STATUS_LABEL[thread.status]}
-                  </span>
-                  <span className="canvas-comment-anchor">{anchor}</span>
-                </button>
-                <p className="canvas-comment-body">{thread.body}</p>
-                {thread.completion && (
-                  <div className="canvas-comment-completion">
-                    <p>{thread.completion.summary}</p>
-                    {/* The revision is the whole point of `completed`: it
-                        tells the reader exactly what to go and look at. */}
-                    <span>
-                      v{thread.completion.version} · draft {thread.completion.draft_revision}
-                    </span>
-                  </div>
-                )}
-                {thread.replies.length > 0 && (
-                  <ul className="canvas-comment-replies">
-                    {thread.replies.map((reply) => (
-                      <li key={reply.reply_id} data-author={reply.author_kind}>
-                        <span>{reply.author_kind === "agent" ? "Agent" : "You"}</span>
-                        {reply.body}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {isActive && (
-                  <>
-                    <CommentReplyForm
-                      commentId={thread.comment_id}
-                      busy={busy}
-                      onSubmit={(body) =>
-                        void run(() => onReply(thread.comment_id, body), "Couldn't post reply")
-                      }
-                    />
-                    <div className="canvas-comment-actions">
-                      {thread.status !== "resolved" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            icon={Check}
-                            disabled={busy}
-                            onClick={() =>
-                              void run(
-                                () => onStatus(thread.comment_id, "resolved"),
-                                "Couldn't resolve",
-                              )
-                            }
-                          >
-                            Resolve
-                          </Button>
-                          {/* Rejecting the agent's claim without resolving
-                              it: the thread goes back on its queue. */}
-                          {thread.status === "completed" && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              icon={RotateCcw}
-                              disabled={busy}
-                              onClick={() =>
-                                void run(
-                                  () => onStatus(thread.comment_id, "open"),
-                                  "Couldn't reopen",
-                                )
-                              }
-                            >
-                              Not done
-                            </Button>
-                          )}
-                        </>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          icon={RotateCcw}
-                          disabled={busy}
-                          onClick={() =>
-                            void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
-                          }
-                        >
-                          Reopen
-                        </Button>
-                      )}
-                      <ConfirmButton
-                        icon={Trash2}
-                        label="Delete"
-                        description="this comment and its replies"
-                        onConfirm={() => onDelete(thread.comment_id)}
-                      />
-                    </div>
-                  </>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="canvas-comment-groups">
+          {groups.map((group) => (
+            <section className="canvas-comment-section" key={group.key}>
+              {headed && (
+                <h3>
+                  {group.title}
+                  <span className="canvas-comment-section-count">{group.items.length}</span>
+                </h3>
+              )}
+              <ul className="canvas-comment-list">{group.items.map(renderThread)}</ul>
+            </section>
+          ))}
+          {resolved.length > 0 && (
+            /* Done, and folded away: the panel is a to-do list, not an
+               archive, but the archive is one click below it. */
+            <Disclosure
+              className="canvas-comments-resolved"
+              summary={`Resolved · ${resolved.length}`}
+            >
+              <ul className="canvas-comment-list">{resolved.map(renderThread)}</ul>
+            </Disclosure>
+          )}
+        </div>
       )}
     </aside>
   );
@@ -2282,7 +2338,6 @@ export function CanvasPage() {
           nodeId: thread.node_id,
           point: thread.point,
           status: thread.status,
-          replies: thread.replies.length,
         })),
     [commentThreads],
   );
@@ -3013,6 +3068,7 @@ export function CanvasPage() {
               }}
               onDeleteNodes={requestNodeDeletion}
               comments={commentMarkers}
+              activeCommentId={activeCommentId}
               onCommentActivate={(commentId) => {
                 setActiveCommentId(commentId);
                 setCommentsOpen(true);

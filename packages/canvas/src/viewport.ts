@@ -99,8 +99,6 @@ export interface CommentMarker {
   nodeId?: string;
   point?: Point;
   status: "open" | "completed" | "resolved";
-  /** Shown on the pin, so a thread with a conversation reads as one. */
-  replies?: number;
 }
 
 export interface ViewportSize {
@@ -586,6 +584,8 @@ export interface ViewportOptions {
    * stay out of the DOM otherwise.
    */
   comments?: readonly CommentMarker[];
+  /** Thread the app has open in its panel, so its pin can say so. */
+  activeCommentId?: string | null;
   /** A pin was clicked — open that thread. */
   onCommentActivate?: (commentId: string) => void;
   /** The Comment tool was used on a node, or on empty page space. */
@@ -613,6 +613,8 @@ export interface ViewportController {
   getTool(): ViewportTool;
   /** Replaces the comment pins; positions follow the live document. */
   setComments(markers: readonly CommentMarker[]): void;
+  /** Highlights the pin carrying this thread; null clears the highlight. */
+  setActiveComment(commentId: string | null): void;
   getView(): ViewState;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
@@ -680,8 +682,6 @@ const GUIDES_SHELL = `<div class="vc-guides" aria-hidden="true"></div>`;
  * same size at every zoom rather than shrink with the document.
  */
 const COMMENTS_SHELL = `<div class="vc-comments" hidden></div>`;
-/** Screen-space offset between pins that resolve to the same anchor. */
-const COMMENT_PIN_STACK = 16;
 const MARQUEE_SHELL = `<div class="vc-marquee" hidden aria-hidden="true"></div>`;
 /*
  * A multi-selection has nothing to put in the inspector — there is no single
@@ -827,45 +827,84 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const iframeLoadTimeouts = new Map<string, number>();
 
   let commentMarkers: readonly CommentMarker[] = opts.comments ?? [];
-  const commentElements = new Map<string, HTMLElement>();
+  let activeCommentId: string | null = opts.activeCommentId ?? null;
+  /** Anchor key → the pin drawn for it, and the threads it stands for. */
+  const commentClusters = new Map<
+    string,
+    { pin: HTMLButtonElement; markers: CommentMarker[] }
+  >();
 
   /**
-   * One element per marker, rebuilt only when the set changes; positions are
-   * a per-frame style write in `positionComments`. A marker whose node is
-   * gone resolves to nothing and is simply not drawn.
+   * One pin per *anchor*, not per thread. Two comments on the same node
+   * share a corner, and two pins on one corner read as a smudge however
+   * they are nudged apart — so the anchor gets a single pin carrying the
+   * count, and clicking it opens the most urgent thread of the group. The
+   * pin therefore always has a number in it; there is no blank state.
    */
+  function commentAnchorKey(marker: CommentMarker): string | null {
+    if (marker.nodeId) return `node:${marker.nodeId}`;
+    if (marker.point) return `pt:${Math.round(marker.point.x)}:${Math.round(marker.point.y)}`;
+    return null;
+  }
+
+  /** Open outranks completed: the pin shows the work still to do. */
+  function clusterStatus(markers: CommentMarker[]): CommentMarker["status"] {
+    if (markers.some((marker) => marker.status === "open")) return "open";
+    if (markers.some((marker) => marker.status === "completed")) return "completed";
+    return "resolved";
+  }
+
+  function clusterLead(markers: CommentMarker[]): CommentMarker {
+    return (
+      markers.find((marker) => marker.status === "open") ??
+      markers.find((marker) => marker.status === "completed") ??
+      (markers[0] as CommentMarker)
+    );
+  }
+
   function rebuildComments(): void {
     if (!commentsEnabled) return;
-    commentElements.clear();
-    commentsLayer.replaceChildren(
-      ...commentMarkers.map((marker) => {
-        const pin = document.createElement("button");
-        pin.type = "button";
-        pin.className = "vc-comment-marker";
-        pin.dataset.commentId = marker.id;
-        pin.dataset.status = marker.status;
-        const replies = marker.replies ?? 0;
-        pin.textContent = replies > 0 ? String(replies + 1) : "";
-        pin.setAttribute(
-          "aria-label",
-          `${marker.status} comment${replies > 0 ? `, ${replies} replies` : ""}`,
-        );
-        commentElements.set(marker.id, pin);
-        return pin;
-      }),
-    );
-    commentsLayer.toggleAttribute("hidden", commentMarkers.length === 0);
+    commentClusters.clear();
+    for (const marker of commentMarkers) {
+      const key = commentAnchorKey(marker);
+      if (!key) continue;
+      const cluster = commentClusters.get(key);
+      if (cluster) cluster.markers.push(marker);
+      else commentClusters.set(key, { pin: document.createElement("button"), markers: [marker] });
+    }
+    for (const [, cluster] of commentClusters) {
+      const { pin, markers } = cluster;
+      const status = clusterStatus(markers);
+      pin.type = "button";
+      pin.className = "vc-comment-marker";
+      pin.dataset.commentId = clusterLead(markers).id;
+      pin.dataset.status = status;
+      pin.textContent = String(markers.length);
+      pin.setAttribute(
+        "aria-label",
+        markers.length === 1
+          ? `${status} comment`
+          : `${markers.length} comments, ${status === "open" ? "some open" : "none open"}`,
+      );
+    }
+    commentsLayer.replaceChildren(...[...commentClusters.values()].map((cluster) => cluster.pin));
+    commentsLayer.toggleAttribute("hidden", commentClusters.size === 0);
+    paintActiveComment();
     positionComments();
   }
 
+  function paintActiveComment(): void {
+    for (const { pin, markers } of commentClusters.values()) {
+      const holds =
+        activeCommentId !== null && markers.some((marker) => marker.id === activeCommentId);
+      pin.toggleAttribute("data-active", holds);
+    }
+  }
+
   function positionComments(): void {
-    if (!commentsEnabled || commentMarkers.length === 0) return;
-    // Two comments on the same node share an anchor, and one pin sitting
-    // exactly on another reads as a single thread. They fan out instead.
-    const stacked = new Map<string, number>();
-    for (const marker of commentMarkers) {
-      const pin = commentElements.get(marker.id);
-      if (!pin) continue;
+    if (!commentsEnabled || commentClusters.size === 0) return;
+    for (const { pin, markers } of commentClusters.values()) {
+      const marker = markers[0] as CommentMarker;
       const node = marker.nodeId ? nodeById.get(marker.nodeId) : undefined;
       const anchor = node
         ? { x: node.x + node.w, y: node.y }
@@ -876,11 +915,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         pin.hidden = true;
         continue;
       }
-      const key = `${Math.round(anchor.x)}:${Math.round(anchor.y)}`;
-      const index = stacked.get(key) ?? 0;
-      stacked.set(key, index + 1);
       pin.hidden = false;
-      pin.style.transform = `translate(${anchor.x * view.scale + view.x + index * COMMENT_PIN_STACK}px, ${anchor.y * view.scale + view.y}px)`;
+      pin.style.transform = `translate(${anchor.x * view.scale + view.x}px, ${anchor.y * view.scale + view.y}px)`;
     }
   }
 
@@ -1261,6 +1297,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function setComments(markers: readonly CommentMarker[]): void {
     commentMarkers = markers;
     rebuildComments();
+  }
+
+  function setActiveComment(commentId: string | null): void {
+    activeCommentId = commentId;
+    paintActiveComment();
   }
 
   function deactivateIframe(): void {
@@ -2670,6 +2711,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     setTool,
     getTool: () => activeTool,
     setComments,
+    setActiveComment,
     getView: () => ({ ...view }),
     updateCanvas,
     dispose() {

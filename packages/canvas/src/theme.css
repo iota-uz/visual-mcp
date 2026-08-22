@@ -1166,7 +1166,9 @@
   height: 24px;
   margin: -12px 0 0 -12px;
   padding: 0 6px;
-  border: 1px solid var(--vc-accent);
+  /* A white ring, so a pin landing on a node's own border still reads as a
+     separate object sitting above the drawing. */
+  border: 2px solid var(--vc-white);
   /* The one square corner points at what the comment is about, the way a
      speech bubble's tail does. */
   border-radius: var(--vc-radius-md) var(--vc-radius-md) var(--vc-radius-md) 2px;
@@ -1176,13 +1178,27 @@
   cursor: pointer;
   pointer-events: auto;
   box-shadow: var(--vc-shadow-sm);
+  transform-origin: bottom left;
+  transition: transform var(--vc-duration-fast) var(--vc-ease-out);
 }
 .vc-comment-marker:hover {
-  filter: brightness(1.08);
+  transform: scale(1.12);
+}
+.vc-comment-marker:focus-visible {
+  outline: 2px solid var(--vc-accent);
+  outline-offset: 2px;
+}
+/* The thread the panel has open. The pin says which one you are reading,
+   which is the whole reason the panel and the canvas are side by side. */
+.vc-comment-marker[data-active] {
+  box-shadow:
+    var(--vc-shadow-md),
+    0 0 0 3px color-mix(in srgb, var(--vc-accent) 28%, transparent);
 }
 /* Completed is the agent's claim awaiting a person; resolved is done and
    should recede rather than keep asking to be read. */
 .vc-comment-marker[data-status="completed"] {
+  border-color: var(--vc-accent);
   background: var(--vc-white);
   color: var(--vc-accent-text);
 }

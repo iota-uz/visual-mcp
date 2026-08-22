@@ -54,11 +54,13 @@
   z-index: calc(var(--app-z-chrome) - 1);
   top: var(--app-canvas-chrome-top);
   right: var(--app-space-3);
-  bottom: var(--app-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--app-space-2);
   width: var(--app-comments-panel-w);
+  /* Hugs its threads instead of standing full height: three comments in a
+     screen-tall white column is the same dead space the Pages rail had. */
+  max-height: calc(100% - var(--app-canvas-chrome-top) - var(--app-space-3));
   padding: var(--app-space-3);
   overflow: auto;
   border: 1px solid var(--app-line);
@@ -118,6 +120,37 @@
   resize: vertical;
 }
 
+.canvas-comment-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.canvas-comment-section > h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--app-muted);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+}
+
+.canvas-comment-section-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--app-paper);
+  font-family: var(--app-font-mono);
+  letter-spacing: 0;
+}
+
+.canvas-comments-resolved > summary {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
 .canvas-comment-list {
   display: flex;
   flex-direction: column;
@@ -159,7 +192,27 @@
   text-align: left;
 }
 
+/* Who and when, on one line, so a thread is attributable at a glance —
+   the first thing a comment has to say after what it says. */
+.canvas-comment-byline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-comment-byline strong {
+  color: var(--app-ink-soft);
+  font-weight: 600;
+}
+
 .canvas-comment-status {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--app-accent-soft);
   font-family: var(--app-font-mono);
   font-size: var(--app-eyebrow-size);
   font-weight: var(--app-eyebrow-weight);
@@ -168,8 +221,8 @@
   color: var(--app-accent-text);
 }
 
-.canvas-comment[data-status="resolved"] .canvas-comment-status,
-.canvas-comment[data-status="completed"] .canvas-comment-status {
+.canvas-comment[data-status="resolved"] .canvas-comment-status {
+  background: var(--app-paper);
   color: var(--app-muted);
 }
 
@@ -222,10 +275,14 @@
   color: var(--app-ink-soft);
 }
 
-.canvas-comment-replies span {
-  margin-right: 6px;
-  color: var(--app-muted);
-  font-weight: 600;
+.canvas-comment-replies li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.canvas-comment-replies p {
+  margin: 0;
 }
 
 .canvas-comment-reply-form {
@@ -244,6 +301,10 @@
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.canvas-comment-destructive {
+  margin-left: auto;
 }
 
 .canvas-prototype-panel {
@@ -1451,10 +1512,13 @@
     box-shadow: var(--app-shadow-lg);
   }
 
+  /* The panel overlays the canvas here, so it stops above the toolbar
+     band rather than burying the zoom controls under itself. */
   .canvas-comments-panel {
     right: var(--app-space-3);
     z-index: var(--app-z-drawer-trigger);
     width: min(var(--app-comments-panel-w), calc(100vw - var(--app-space-8)));
+    max-height: calc(100% - var(--app-canvas-chrome-top) - 84px);
     box-shadow: var(--app-shadow-lg);
   }
 
