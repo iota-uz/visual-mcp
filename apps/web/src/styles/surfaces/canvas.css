@@ -1,6 +1,7 @@
 /* The canvas viewer: command bar, artifact frame, details drawer. */
 
 .canvas-navigation-trigger,
+.canvas-command-comments,
 .canvas-command-details {
   display: inline-flex;
   align-items: center;
@@ -42,6 +43,207 @@
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   background: var(--app-paper);
+}
+
+/* --- comments panel ---
+   The human half of the feedback loop; the agent's half is the MCP tools.
+   Same floating language as the Prototype panel, and the same right-hand
+   slot. */
+.canvas-comments-panel {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) - 1);
+  top: var(--app-canvas-chrome-top);
+  right: var(--app-space-3);
+  bottom: var(--app-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  width: var(--app-comments-panel-w);
+  padding: var(--app-space-3);
+  overflow: auto;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-surface-floating);
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: var(--app-surface-floating-blur);
+}
+
+.canvas-comments-panel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.canvas-comments-count,
+.canvas-comments-hint,
+.canvas-comments-empty {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-comments-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--app-line);
+  border-radius: 4px;
+  background: var(--app-white);
+  font-family: var(--app-font-mono);
+}
+
+.canvas-comment-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  padding: var(--app-space-2);
+  border: 1px solid var(--app-accent);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+}
+
+.canvas-comment-composer label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-xs);
+}
+
+.canvas-comment-composer textarea {
+  padding: 6px 7px;
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--app-text-sm);
+  resize: vertical;
+}
+
+.canvas-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--app-space-2);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+}
+
+.canvas-comment.is-active {
+  border-color: var(--app-accent);
+}
+
+/* Resolved threads stay readable but stop competing with the open ones. */
+.canvas-comment[data-status="resolved"] {
+  background: transparent;
+  opacity: 0.7;
+}
+
+.canvas-comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.canvas-comment-status {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--app-accent-text);
+}
+
+.canvas-comment[data-status="resolved"] .canvas-comment-status,
+.canvas-comment[data-status="completed"] .canvas-comment-status {
+  color: var(--app-muted);
+}
+
+.canvas-comment-anchor {
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-comment-body {
+  margin: 0;
+  font-size: var(--app-text-sm);
+  color: var(--app-ink);
+}
+
+/* What the agent says it did, and the revision to go and look at. */
+.canvas-comment-completion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--app-accent);
+  background: var(--app-accent-soft);
+  border-radius: 0 6px 6px 0;
+}
+
+.canvas-comment-completion p {
+  margin: 0;
+  font-size: var(--app-text-xs);
+  color: var(--app-ink-soft);
+}
+
+.canvas-comment-completion span {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+}
+
+.canvas-comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 var(--app-space-2);
+  border-left: 1px solid var(--app-line);
+  list-style: none;
+  font-size: var(--app-text-xs);
+  color: var(--app-ink-soft);
+}
+
+.canvas-comment-replies span {
+  margin-right: 6px;
+  color: var(--app-muted);
+  font-weight: 600;
+}
+
+.canvas-comment-reply-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.canvas-comment-reply-form > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.canvas-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .canvas-prototype-panel {
@@ -714,6 +916,7 @@
 }
 
 .canvas-navigation-trigger:hover,
+.canvas-command-comments:hover,
 .canvas-command-details:hover {
   border-color: var(--app-accent);
   color: var(--app-accent-text);
@@ -872,11 +1075,13 @@
   padding-left: 0;
 }
 
+.canvas-command-comments,
 .canvas-command-details {
   flex: none;
   gap: 6px;
   height: 30px;
-  margin-left: auto;
+  /* The group is already flex-end; an auto margin here only stranded
+     whatever button came before it at the far left of the track. */
   padding: 0 var(--app-space-2);
   border: 0;
   border-radius: var(--app-radius-sm);
@@ -884,6 +1089,17 @@
   font-family: var(--app-font-body);
   font-size: var(--app-text-xs);
   font-weight: 700;
+}
+
+.canvas-command-comments[aria-pressed="true"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+
+/* There is feedback waiting: the count is the message, so it should not
+   read as the same resting control as Details. */
+.canvas-command-comments[data-open] {
+  color: var(--app-accent-text);
 }
 
 .canvas-artifact-details-trigger {
@@ -1194,6 +1410,20 @@
   right: var(--app-prototype-panel-gap);
 }
 
+/* Comments take the same right-hand slot, and step aside for the Prototype
+   panel when both are open rather than stacking on top of it. */
+.canvas-comments-panel ~ .vc-viewport-host {
+  right: var(--app-comments-panel-gap);
+}
+
+.canvas-prototype-panel ~ .canvas-comments-panel {
+  right: calc(var(--app-prototype-panel-w) + var(--app-space-5));
+}
+
+.canvas-prototype-panel ~ .canvas-comments-panel ~ .vc-viewport-host {
+  right: calc(var(--app-prototype-panel-gap) + var(--app-comments-panel-w) + var(--app-space-3));
+}
+
 /* Matches the panel's own transition so the canvas and the panel move
    together; opening Prototype mode used to jump the viewport. */
 .vc-viewport-host {
@@ -1209,7 +1439,9 @@
   /* No room to inset for a 280px panel and still have a canvas, so it
      overlays here — and the minimap, the one piece of chrome it would land
      on, stands down rather than being half-covered. */
-  .canvas-prototype-panel ~ .vc-viewport-host {
+  .canvas-prototype-panel ~ .vc-viewport-host,
+  .canvas-comments-panel ~ .vc-viewport-host,
+  .canvas-prototype-panel ~ .canvas-comments-panel ~ .vc-viewport-host {
     right: 0;
   }
 
@@ -1219,7 +1451,15 @@
     box-shadow: var(--app-shadow-lg);
   }
 
-  .canvas-prototype-panel ~ .vc-viewport-host .vc-minimap {
+  .canvas-comments-panel {
+    right: var(--app-space-3);
+    z-index: var(--app-z-drawer-trigger);
+    width: min(var(--app-comments-panel-w), calc(100vw - var(--app-space-8)));
+    box-shadow: var(--app-shadow-lg);
+  }
+
+  .canvas-prototype-panel ~ .vc-viewport-host .vc-minimap,
+  .canvas-comments-panel ~ .vc-viewport-host .vc-minimap {
     display: none;
   }
 }

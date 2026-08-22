@@ -2331,6 +2331,233 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       }),
   );
 
+  /* --- comments: the human → agent → human feedback loop --- */
+
+  const CommentThreadSchema = z.object({
+    comment_id: z.string(),
+    canvas_id: z.string(),
+    page_id: z.string(),
+    node_id: z.string().optional(),
+    point: z.object({ x: z.number(), y: z.number() }).optional(),
+    body: z.string(),
+    status: z.enum(["open", "completed", "resolved"]),
+    author_kind: z.enum(["human", "agent"]),
+    created_at: z.number(),
+    updated_at: z.number(),
+    completion: z
+      .object({
+        summary: z.string(),
+        version: z.number().int().nonnegative(),
+        draft_revision: z.number().int().nonnegative(),
+        at: z.number(),
+      })
+      .optional(),
+    resolved_at: z.number().optional(),
+    replies: z.array(
+      z.object({
+        reply_id: z.string(),
+        body: z.string(),
+        author_kind: z.enum(["human", "agent"]),
+        created_at: z.number(),
+      }),
+    ),
+  });
+
+  const CommentIdArg = z.string().describe("comment_id from comment_list or comment_create.");
+
+  /** A malformed id would otherwise surface as a raw Convex validator error. */
+  const resolveCommentId = async (commentId: string) => {
+    const resolved = await ctx.runQuery(internal.comments.resolveId, { id: commentId });
+    if (!resolved) throw new Error(`comment_not_found: ${commentId}`);
+    return resolved;
+  };
+
+  const canvasIdByRef = async (ref: string) => {
+    const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref, includeDoc: false });
+    if (!detail) throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
+    return detail.canvas.canvas_id as Id<"canvases">;
+  };
+
+  server.registerTool(
+    "comment_create",
+    {
+      title: "Comment on a canvas",
+      description:
+        "Pins a comment to one node (node_id) or to a point on a Page (at), so a person and an " +
+        "agent can talk about a specific thing rather than the whole document. Comments an agent " +
+        "writes are labelled as such. New comments start `open`; work through them with " +
+        "comment_list, then comment_complete.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          page_id: z.string().optional().describe("Defaults to the file's default Page."),
+          node_id: z.string().optional().describe("Anchor the comment to this node."),
+          at: z
+            .object({ x: z.number(), y: z.number() })
+            .strict()
+            .optional()
+            .describe("World point for a comment on empty page space. Ignored with node_id."),
+          body: z.string().min(1).max(4_000),
+        })
+        .strict(),
+      outputSchema: CommentThreadSchema,
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        const page = resolveCanvasPage(loaded.file, input.page_id);
+        if (input.page_id && page.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
+        }
+        // Checked against the document itself, which this tool has already
+        // read: a comment anchored to a node that is not there would be a
+        // note nobody can find.
+        if (input.node_id && !page.doc.nodes.some((node) => node.id === input.node_id)) {
+          throw new Error(
+            `node_not_found: "${input.node_id}" is not a node on page "${page.id}". ` +
+              "Read the page with canvas_get to see its node ids.",
+          );
+        }
+        const thread = await ctx.runMutation(internal.comments.create, {
+          canvasId: loaded.detail.canvas.canvas_id as Id<"canvases">,
+          pageId: page.id,
+          nodeId: input.node_id,
+          point: input.at,
+          body: input.body,
+          authorId: principal.userId,
+          authorKind: "agent",
+        });
+        return result(thread);
+      }),
+  );
+
+  server.registerTool(
+    "comment_list",
+    {
+      title: "Read canvas comments",
+      description:
+        "Lists comment threads on a canvas, oldest first. Defaults to the open ones — the work " +
+        "queue a person left for the agent. Narrow to one Page or one node, or pass status to " +
+        "review what has already been completed or resolved.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          page_id: z.string().optional(),
+          node_id: z.string().optional(),
+          status: z.enum(["open", "completed", "resolved", "all"]).optional(),
+          limit: z.number().int().positive().max(200).optional(),
+        })
+        .strict(),
+      outputSchema: z.object({
+        comments: z.array(CommentThreadSchema),
+        open_count: z.number().int().nonnegative(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const canvasId = await canvasIdByRef(input.ref);
+        const [comments, openCount] = await Promise.all([
+          ctx.runQuery(internal.comments.list, {
+            canvasId,
+            pageId: input.page_id,
+            nodeId: input.node_id,
+            status: input.status ?? "open",
+            limit: input.limit,
+          }),
+          ctx.runQuery(internal.comments.openCount, { canvasId }),
+        ]);
+        return result({ comments, open_count: openCount });
+      }),
+  );
+
+  server.registerTool(
+    "comment_reply",
+    {
+      title: "Reply in a comment thread",
+      description:
+        "Adds a message to one thread without changing its status. Use it to ask a question or " +
+        "report progress; use comment_complete to say the work is done.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z.object({ comment_id: CommentIdArg, body: z.string().min(1).max(4_000) }).strict(),
+      outputSchema: CommentThreadSchema,
+    },
+    async (input) =>
+      runTool(async () =>
+        result(
+          await ctx.runMutation(internal.comments.reply, {
+            commentId: await resolveCommentId(input.comment_id),
+            body: input.body,
+            authorId: principal.userId,
+            authorKind: "agent",
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "comment_complete",
+    {
+      title: "Mark a comment completed",
+      description:
+        "Records that the requested change has been made, with a short summary of what changed. " +
+        "The canvas version and draft revision are stamped from the canvas itself, so the person " +
+        "who left the comment can go and look at exactly that revision. This is not the end of " +
+        "the loop: only the person who asked can mark a comment resolved.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: z
+        .object({
+          comment_id: CommentIdArg,
+          summary: z
+            .string()
+            .min(1)
+            .max(4_000)
+            .describe("What you changed, in the reader's terms — not a diff."),
+        })
+        .strict(),
+      outputSchema: CommentThreadSchema,
+    },
+    async (input) =>
+      runTool(async () =>
+        result(
+          await ctx.runMutation(internal.comments.complete, {
+            commentId: await resolveCommentId(input.comment_id),
+            summary: input.summary,
+            actorId: principal.userId,
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "comment_status",
+    {
+      title: "Resolve or reopen a comment",
+      description:
+        "Reopens a comment (status:\"open\") when the work needs another pass, or resolves one " +
+        "(status:\"resolved\"). Resolving is refused for comments a person wrote: confirming " +
+        "someone else's feedback is theirs to do, and comment_complete is how an agent reports " +
+        "its own work. An agent may resolve notes it left itself.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({ comment_id: CommentIdArg, status: z.enum(["resolved", "open"]) })
+        .strict(),
+      outputSchema: CommentThreadSchema,
+    },
+    async (input) =>
+      runTool(async () =>
+        result(
+          await ctx.runMutation(internal.comments.setStatus, {
+            commentId: await resolveCommentId(input.comment_id),
+            status: input.status,
+            actorId: principal.userId,
+            actorKind: "agent",
+          }),
+        ),
+      ),
+  );
+
   const PageSummarySchema = z.object({
     id: z.string(),
     title: z.string(),
@@ -3721,7 +3948,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .describe("A copied canvas://workspace/canvas?node=<id> element ref."),
           page_id: z.string().optional().describe("Select a Page; defaults to defaultPageId."),
           include: z
-            .array(z.enum(["doc", "files", "artifacts", "versions", "renders", "storage"]))
+            .array(
+              z.enum([
+                "doc",
+                "files",
+                "artifacts",
+                "versions",
+                "renders",
+                "storage",
+                "comments",
+              ]),
+            )
             .optional(),
           doc_projection: z
             .object({
@@ -3800,6 +4037,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               draft_edit_count: z.number().int().nonnegative(),
               updated_at: z.number(),
               created_by_email: z.string().nullable(),
+              // Always present, so an agent reading a canvas notices the
+              // feedback waiting on it without having to ask a second tool.
+              open_comments: z.number().int().nonnegative(),
               canvas_url: z.string(),
               present_url: z.string().nullable(),
               share_url: z.string().nullable(),
@@ -3815,6 +4055,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .strict(),
           selection: z.unknown().optional(),
           doc: z.unknown().optional(),
+          comments: z.array(CommentThreadSchema).optional(),
           files: z
             .array(
               z.object({
@@ -4002,6 +4243,20 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           };
         })();
 
+        const canvasId = detail.canvas.canvas_id as Id<"canvases">;
+        const [openComments, commentThreads] = await Promise.all([
+          ctx.runQuery(internal.comments.openCount, { canvasId }),
+          include.has("comments")
+            ? ctx.runQuery(internal.comments.list, {
+                canvasId,
+                // Scoped to the Page being read when there is one: the
+                // comments that matter are the ones on what you are looking at.
+                pageId: selectedPage?.id ?? input.page_id,
+                status: "open",
+              })
+            : Promise.resolve(undefined),
+        ]);
+
         const allPagedFacets = ["files", "artifacts", "versions", "renders"] as const;
         const pagedFacets = allPagedFacets.filter((facet) => include.has(facet));
         const facetPages = Object.fromEntries(
@@ -4042,6 +4297,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             draft_edit_count: detail.canvas.draft_edit_count,
             updated_at: detail.canvas.updated_at,
             created_by_email: detail.created_by_email,
+            open_comments: openComments,
             canvas_url: focusedCanvasUrl.toString(),
             present_url:
               detail.canvas.kind === "canvas"
@@ -4064,6 +4320,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           },
           selection,
           doc: projectedDoc,
+          comments: commentThreads,
           files: facetPages.files?.page,
           artifacts: facetPages.artifacts?.page.map((rawArtifact) => {
             const artifact = rawArtifact as {

@@ -5,22 +5,25 @@ import {
   type CanvasFile,
   CanvasFileSchema,
   type CanvasNode,
+  type CommentMarker,
   formatElementRef,
   layoutCanvas,
   mountViewport,
-  type NodeRestorePayload,
   type Rect as NodeRect,
+  type NodeRestorePayload,
   resolveCanvasPage,
   type ViewportController,
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  Check,
   Copy,
   ExternalLink,
   GripVertical,
   History,
   Info,
   Lock,
+  MessageSquare,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -28,10 +31,12 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Trash2,
   Unplug,
 } from "lucide-react";
 import {
+  type ChangeEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -58,6 +63,7 @@ import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { TextInput } from "../components/ui/TextInput";
 import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
@@ -92,6 +98,9 @@ export function CanvasViewport({
   immersive = false,
   syncSelectionToUrl = true,
   onIframeStateChange,
+  comments,
+  onCommentActivate,
+  onCommentDraft,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
@@ -111,6 +120,10 @@ export function CanvasViewport({
   immersive?: boolean;
   syncSelectionToUrl?: boolean;
   onIframeStateChange?: (state: { total: number; loaded: number; failed: string[] }) => void;
+  /** Passing a handler is what turns the Comment tool and its pins on. */
+  comments?: readonly CommentMarker[];
+  onCommentActivate?: (commentId: string) => void;
+  onCommentDraft?: (anchor: { nodeId?: string; point: { x: number; y: number } }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
@@ -144,6 +157,14 @@ export function CanvasViewport({
   // identity in the mount effect's deps would tear the viewport down.
   const onIframeStateChangeRef = useRef(onIframeStateChange);
   onIframeStateChangeRef.current = onIframeStateChange;
+  // Refs for the same reason as the handlers above: the panel re-renders on
+  // every keystroke in its composer, and a new identity in the mount
+  // effect's deps would rebuild the viewport under the user.
+  const onCommentActivateRef = useRef(onCommentActivate);
+  onCommentActivateRef.current = onCommentActivate;
+  const onCommentDraftRef = useRef(onCommentDraft);
+  onCommentDraftRef.current = onCommentDraft;
+  const commentsEnabled = Boolean(onCommentDraft);
   const iframeRevisionsKey = JSON.stringify(iframeRevisions ?? null);
   const stableIframeRevisions = useMemo(
     () => JSON.parse(iframeRevisionsKey) as Record<string, string> | null,
@@ -181,6 +202,10 @@ export function CanvasViewport({
   const resolveImageUrlRef = useRef(resolveImageUrl);
   resolveImageUrlRef.current = resolveImageUrl;
 
+  // `comments` is read once for the first paint and then kept current by
+  // the effect below; as a dependency it would rebuild the viewport — and
+  // its iframes — every time a comment was posted.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -251,6 +276,14 @@ export function CanvasViewport({
       onGroupMove: (groupId, dx, dy) => onGroupMoveRef.current?.(groupId, dx, dy),
       onNodesMove: (nodeIds, dx, dy) => onNodesMoveRef.current?.(nodeIds, dx, dy),
       onDeleteNodes: (nodeIds) => onDeleteNodesRef.current?.(nodeIds),
+      comments,
+      ...(commentsEnabled
+        ? {
+            onCommentActivate: (commentId: string) => onCommentActivateRef.current?.(commentId),
+            onCommentDraft: (anchor: { nodeId?: string; point: { x: number; y: number } }) =>
+              onCommentDraftRef.current?.(anchor),
+          }
+        : {}),
       resolveElementRef: (nodeId) => {
         const currentCanvasRef = canvasRefRef.current;
         return currentCanvasRef ? formatElementRef(currentCanvasRef, nodeId) : undefined;
@@ -283,7 +316,11 @@ export function CanvasViewport({
       controllerRef.current = null;
       controller.dispose();
     };
-  }, [cameraStorageKey, editable, immersive, syncSelectionToUrl]);
+  }, [cameraStorageKey, commentsEnabled, editable, immersive, syncSelectionToUrl]);
+
+  useEffect(() => {
+    controllerRef.current?.setComments(comments ?? []);
+  }, [comments]);
 
   useEffect(() => {
     try {
@@ -1408,6 +1445,335 @@ export function PagesPanel({
   );
 }
 
+export interface CommentThread {
+  comment_id: string;
+  page_id: string;
+  node_id?: string;
+  point?: { x: number; y: number };
+  body: string;
+  status: "open" | "completed" | "resolved";
+  author_kind: "human" | "agent";
+  created_at: number;
+  completion?: { summary: string; version: number; draft_revision: number; at: number };
+  replies: Array<{
+    reply_id: string;
+    body: string;
+    author_kind: "human" | "agent";
+    created_at: number;
+  }>;
+}
+
+const COMMENT_STATUS_LABEL = {
+  open: "Open",
+  completed: "Agent says done",
+  resolved: "Resolved",
+} as const;
+
+/*
+ * The human half of the loop. The agent's half is the MCP `comment_*` tools;
+ * this panel exists so a person can leave the request in the first place and
+ * then accept or reject what came back — which is why `resolved` is only
+ * reachable from here.
+ */
+/*
+ * Its own component, mounted with a key derived from the anchor: "clear the
+ * box when the user points somewhere else" is a remount, not an effect that
+ * reaches in and resets state after the fact.
+ */
+function CommentComposer({
+  anchorLabel,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  anchorLabel: string;
+  busy: boolean;
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+}) {
+  const [body, setBody] = useState("");
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    fieldRef.current?.focus();
+  }, []);
+  return (
+    <form
+      className="canvas-comment-composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (body.trim()) onSubmit(body.trim());
+      }}
+    >
+      <label>
+        {anchorLabel}
+        <textarea
+          ref={fieldRef}
+          value={body}
+          rows={3}
+          placeholder="What should change here?"
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+      <div className="canvas-comment-actions">
+        <Button size="sm" type="submit" disabled={busy || body.trim().length === 0}>
+          Comment
+        </Button>
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function CommentReplyForm({
+  commentId,
+  busy,
+  onSubmit,
+}: {
+  commentId: string;
+  busy: boolean;
+  onSubmit: (body: string) => void;
+}) {
+  const [body, setBody] = useState("");
+  return (
+    <form
+      className="canvas-comment-reply-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (body.trim()) onSubmit(body.trim());
+      }}
+    >
+      <TextInput
+        id={`reply-${commentId}`}
+        label="Reply to this comment"
+        value={body}
+        placeholder="Reply"
+        onChange={(event: ChangeEvent<HTMLInputElement>) => setBody(event.target.value)}
+      />
+      <Button size="sm" type="submit" disabled={busy || body.trim().length === 0}>
+        Reply
+      </Button>
+    </form>
+  );
+}
+
+export function CommentsPanel({
+  threads,
+  doc,
+  draft,
+  activeId,
+  onDraftChange,
+  onActiveChange,
+  onCreate,
+  onReply,
+  onStatus,
+  onDelete,
+}: {
+  threads: CommentThread[];
+  doc: CanvasDoc | null;
+  draft: { nodeId?: string; point: { x: number; y: number } } | null;
+  activeId: string | null;
+  onDraftChange: (draft: { nodeId?: string; point: { x: number; y: number } } | null) => void;
+  onActiveChange: (commentId: string | null) => void;
+  onCreate: (input: {
+    nodeId?: string;
+    point?: { x: number; y: number };
+    body: string;
+  }) => Promise<void>;
+  onReply: (commentId: string, body: string) => Promise<void>;
+  onStatus: (commentId: string, status: "resolved" | "open") => Promise<void>;
+  onDelete: (commentId: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const { notify } = useToast();
+  const nodeTitle = useCallback(
+    (nodeId?: string) =>
+      nodeId ? (doc?.nodes.find((node) => node.id === nodeId)?.caption.title ?? null) : null,
+    [doc],
+  );
+
+  async function run(work: () => Promise<void>, failure: string) {
+    setBusy(true);
+    try {
+      await work();
+    } catch (err: unknown) {
+      notify(toastError(err, failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const open = threads.filter((thread) => thread.status !== "resolved");
+  const resolved = threads.filter((thread) => thread.status === "resolved");
+  /* "Open" here means open — a completed thread is waiting on the reader,
+     which is a different thing to say and the reason it gets its own
+     count rather than being folded in with the ones nobody has answered. */
+  const summary = [
+    `${threads.filter((thread) => thread.status === "open").length} open`,
+    threads.filter((thread) => thread.status === "completed").length > 0
+      ? `${threads.filter((thread) => thread.status === "completed").length} awaiting you`
+      : null,
+    resolved.length > 0 ? `${resolved.length} resolved` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <aside className="canvas-comments-panel" aria-label="Comments">
+      <header>
+        <strong>Comments</strong>
+        <span className="canvas-comments-count">{summary}</span>
+      </header>
+      {draft ? (
+        <CommentComposer
+          key={`${draft.nodeId ?? "page"}:${Math.round(draft.point.x)}:${Math.round(draft.point.y)}`}
+          // Naming the anchor is the difference between "a comment" and "a
+          // comment about this".
+          anchorLabel={
+            draft.nodeId
+              ? `On ${nodeTitle(draft.nodeId) ?? draft.nodeId}`
+              : `On this page · ${Math.round(draft.point.x)}, ${Math.round(draft.point.y)}`
+          }
+          busy={busy}
+          onCancel={() => onDraftChange(null)}
+          onSubmit={(body) =>
+            void run(
+              () => onCreate({ nodeId: draft.nodeId, point: draft.point, body }),
+              "Couldn't post comment",
+            )
+          }
+        />
+      ) : (
+        <p className="canvas-comments-hint">
+          Pick the Comment tool (<kbd>C</kbd>) and click a screen or empty space to leave one.
+        </p>
+      )}
+      {threads.length === 0 ? (
+        <p className="canvas-comments-empty">
+          No comments on this page yet. Your agent reads open ones over MCP and answers here.
+        </p>
+      ) : (
+        <ul className="canvas-comment-list">
+          {[...open, ...resolved].map((thread) => {
+            const anchor = thread.node_id
+              ? (nodeTitle(thread.node_id) ?? `${thread.node_id} (deleted)`)
+              : "Page";
+            const isActive = thread.comment_id === activeId;
+            return (
+              <li
+                key={thread.comment_id}
+                className={`canvas-comment${isActive ? " is-active" : ""}`}
+                data-status={thread.status}
+              >
+                <button
+                  type="button"
+                  className="canvas-comment-head"
+                  onClick={() => onActiveChange(isActive ? null : thread.comment_id)}
+                  aria-expanded={isActive}
+                >
+                  <span className="canvas-comment-status">
+                    {COMMENT_STATUS_LABEL[thread.status]}
+                  </span>
+                  <span className="canvas-comment-anchor">{anchor}</span>
+                </button>
+                <p className="canvas-comment-body">{thread.body}</p>
+                {thread.completion && (
+                  <div className="canvas-comment-completion">
+                    <p>{thread.completion.summary}</p>
+                    {/* The revision is the whole point of `completed`: it
+                        tells the reader exactly what to go and look at. */}
+                    <span>
+                      v{thread.completion.version} · draft {thread.completion.draft_revision}
+                    </span>
+                  </div>
+                )}
+                {thread.replies.length > 0 && (
+                  <ul className="canvas-comment-replies">
+                    {thread.replies.map((reply) => (
+                      <li key={reply.reply_id} data-author={reply.author_kind}>
+                        <span>{reply.author_kind === "agent" ? "Agent" : "You"}</span>
+                        {reply.body}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {isActive && (
+                  <>
+                    <CommentReplyForm
+                      commentId={thread.comment_id}
+                      busy={busy}
+                      onSubmit={(body) =>
+                        void run(() => onReply(thread.comment_id, body), "Couldn't post reply")
+                      }
+                    />
+                    <div className="canvas-comment-actions">
+                      {thread.status !== "resolved" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={Check}
+                            disabled={busy}
+                            onClick={() =>
+                              void run(
+                                () => onStatus(thread.comment_id, "resolved"),
+                                "Couldn't resolve",
+                              )
+                            }
+                          >
+                            Resolve
+                          </Button>
+                          {/* Rejecting the agent's claim without resolving
+                              it: the thread goes back on its queue. */}
+                          {thread.status === "completed" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              icon={RotateCcw}
+                              disabled={busy}
+                              onClick={() =>
+                                void run(
+                                  () => onStatus(thread.comment_id, "open"),
+                                  "Couldn't reopen",
+                                )
+                              }
+                            >
+                              Not done
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={RotateCcw}
+                          disabled={busy}
+                          onClick={() =>
+                            void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
+                          }
+                        >
+                          Reopen
+                        </Button>
+                      )}
+                      <ConfirmButton
+                        icon={Trash2}
+                        label="Delete"
+                        description="this comment and its replies"
+                        onConfirm={() => onDelete(thread.comment_id)}
+                      />
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </aside>
+  );
+}
+
 function PrototypeHotspotEditor({
   frameTitle,
   viewport,
@@ -1884,6 +2250,48 @@ export function CanvasPage() {
     },
     [setSearchParams],
   );
+  /*
+   * Comments are a canvas-level conversation but read per Page: the pins
+   * belong to what is on screen, and a thread about another Page is noise
+   * until you go there.
+   */
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState<{
+    nodeId?: string;
+    point: { x: number; y: number };
+  } | null>(null);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const commentThreads = useQuery(
+    api.comments.listMine,
+    canvasId && canvas?.kind === "canvas" && activePageId
+      ? { canvasId: canvasId as Id<"canvases">, pageId: activePageId, status: "all" as const }
+      : "skip",
+  );
+  const createComment = useMutation(api.comments.createMine);
+  const replyToComment = useMutation(api.comments.replyMine);
+  const setCommentStatus = useMutation(api.comments.setStatusMine);
+  const deleteComment = useMutation(api.comments.deleteMine);
+  const commentMarkers = useMemo<CommentMarker[]>(
+    () =>
+      (commentThreads ?? [])
+        // A resolved thread has been dealt with; keeping its pin on the
+        // canvas would leave the document permanently spotted.
+        .filter((thread) => thread.status !== "resolved")
+        .map((thread) => ({
+          id: thread.comment_id,
+          nodeId: thread.node_id,
+          point: thread.point,
+          status: thread.status,
+          replies: thread.replies.length,
+        })),
+    [commentThreads],
+  );
+  // Everything still on the person's plate: unanswered comments and the
+  // ones an agent says it has finished and nobody has confirmed.
+  const pendingCommentCount = (commentThreads ?? []).filter(
+    (thread) => thread.status !== "resolved",
+  ).length;
+
   const persistedVersionRef = useRef<number | undefined>(canvasVersion);
   const persistedDraftRevisionRef = useRef<number>(canvas?.draft_revision ?? 0);
   const pendingGeometrySavesRef = useRef(0);
@@ -2235,6 +2643,16 @@ export function CanvasPage() {
           </fieldset>
           <div className="canvas-command-actions">
             <IconButton
+              icon={MessageSquare}
+              label={commentsOpen ? "Hide comments" : "Show comments"}
+              text={pendingCommentCount > 0 ? `Comments · ${pendingCommentCount}` : "Comments"}
+              iconSize={16}
+              className="canvas-command-comments"
+              data-open={pendingCommentCount > 0 ? "" : undefined}
+              onClick={() => setCommentsOpen((open) => !open)}
+              aria-pressed={commentsOpen}
+            />
+            <IconButton
               icon={Info}
               label="Open canvas details"
               text="Details"
@@ -2466,6 +2884,36 @@ export function CanvasPage() {
           {file && activePageId && editorMode === "prototype" && (
             <PrototypePanel file={file} activePageId={activePageId} onSave={saveFile} />
           )}
+          {commentsOpen && canvasId && activePageId && (
+            <CommentsPanel
+              threads={commentThreads ?? []}
+              doc={doc ?? null}
+              draft={commentDraft}
+              activeId={activeCommentId}
+              onDraftChange={setCommentDraft}
+              onActiveChange={setActiveCommentId}
+              onCreate={async (input) => {
+                await createComment({
+                  canvasId: canvasId as Id<"canvases">,
+                  pageId: activePageId,
+                  nodeId: input.nodeId,
+                  point: input.nodeId ? undefined : input.point,
+                  body: input.body,
+                });
+                setCommentDraft(null);
+              }}
+              onReply={async (commentId, body) => {
+                await replyToComment({ commentId: commentId as Id<"canvasComments">, body });
+              }}
+              onStatus={async (commentId, status) => {
+                await setCommentStatus({ commentId: commentId as Id<"canvasComments">, status });
+              }}
+              onDelete={async (commentId) => {
+                await deleteComment({ commentId: commentId as Id<"canvasComments"> });
+                setActiveCommentId((current) => (current === commentId ? null : current));
+              }}
+            />
+          )}
           {docError && (
             <div className="canvas-page-loading">
               <EmptyState
@@ -2564,6 +3012,16 @@ export function CanvasPage() {
                 recordEdit({ kind: "nodes", nodeIds, dx, dy });
               }}
               onDeleteNodes={requestNodeDeletion}
+              comments={commentMarkers}
+              onCommentActivate={(commentId) => {
+                setActiveCommentId(commentId);
+                setCommentsOpen(true);
+              }}
+              onCommentDraft={(anchor) => {
+                setCommentDraft(anchor);
+                setActiveCommentId(null);
+                setCommentsOpen(true);
+              }}
               iframeBaseUrl={
                 iframeCapabilityToken
                   ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`

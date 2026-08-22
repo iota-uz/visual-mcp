@@ -11,6 +11,7 @@
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
+import type * as comments from "../comments.js";
 import type * as components_ from "../components.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   auth: typeof auth;
   canvases: typeof canvases;
+  comments: typeof comments;
   components: typeof components_;
   crons: typeof crons;
   http: typeof http;

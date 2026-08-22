@@ -473,6 +473,91 @@ describe("reactive viewport reconciliation", () => {
     return { container, controller, positioned, toScreen };
   }
 
+  test("comment pins only exist when the app opts in", () => {
+    const { container } = mountEditable(multiDoc());
+    // Present and the public share page mount this same viewport.
+    expect(container.querySelector('[data-tool="comment"]')).toBeNull();
+    expect(container.querySelector(".vc-comments")).not.toBeNull();
+    expect(container.querySelector(".vc-comment-marker")).toBeNull();
+  });
+
+  test("a pin follows its node, survives its deletion, and opens its thread", () => {
+    const onCommentActivate = vi.fn();
+    const { container, controller, positioned } = mountEditable(multiDoc(), {
+      onCommentDraft: vi.fn(),
+      onCommentActivate,
+      comments: [
+        { id: "c1", nodeId: "native", status: "open", replies: 2 },
+        { id: "c2", point: { x: 500, y: 300 }, status: "resolved" },
+      ],
+    });
+    const view = controller.getView();
+    const node = positioned.nodes.find((entry) => entry.id === "native");
+    if (!node) throw new Error("Missing node");
+
+    const pin = container.querySelector<HTMLElement>('[data-comment-id="c1"]');
+    expect(pin).not.toBeNull();
+    // Anchored to the node's top-right corner, projected through the camera,
+    // and labelled with the size of the conversation rather than "1".
+    expect(pin?.style.transform).toBe(
+      `translate(${(node.x + node.w) * view.scale + view.x}px, ${node.y * view.scale + view.y}px)`,
+    );
+    expect(pin).toHaveTextContent("3");
+    expect(container.querySelector('[data-comment-id="c2"]')).toHaveAttribute(
+      "data-status",
+      "resolved",
+    );
+
+    pin?.click();
+    expect(onCommentActivate).toHaveBeenCalledWith("c1");
+
+    // The node goes; the thread does not become a pin over empty canvas.
+    const withoutNative = multiDoc();
+    withoutNative.nodes = withoutNative.nodes.filter((entry) => entry.id !== "native");
+    withoutNative.edges = [];
+    controller.updateCanvas(layoutCanvas(withoutNative));
+    flushFrames();
+    expect(container.querySelector<HTMLElement>('[data-comment-id="c1"]')?.hidden).toBe(true);
+    expect(container.querySelector<HTMLElement>('[data-comment-id="c2"]')?.hidden).toBe(false);
+  });
+
+  test("the Comment tool hands the app an anchor instead of drawing anything", () => {
+    const onCommentDraft = vi.fn();
+    const { container, controller, toScreen } = mountEditable(multiDoc(), {
+      onCommentDraft,
+      comments: [],
+    });
+    const native = container.querySelector<HTMLElement>('[data-node-id="native"]');
+    if (!native) throw new Error("Missing node");
+
+    container.querySelector<HTMLButtonElement>('[data-tool="comment"]')?.click();
+    expect(controller.getTool()).toBe("comment");
+
+    dispatchPointer(native, "pointerdown", ...toScreen(120, 120));
+    expect(onCommentDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ nodeId: "native", point: expect.anything() }),
+    );
+    // Placing a comment neither selects the node nor starts a drag.
+    expect(controller.getSelection()).toEqual([]);
+
+    dispatchPointer(container, "pointerdown", ...toScreen(700, 400));
+    const [anchor] = onCommentDraft.mock.calls[1] as [{ nodeId?: string; point: { x: number } }];
+    expect(anchor.nodeId).toBeUndefined();
+    expect(Math.round(anchor.point.x)).toBe(700);
+  });
+
+  test("C selects the Comment tool only where comments exist", () => {
+    // mountEditable leaves the Move tool active, so an ignored C is visible
+    // as the tool staying exactly where it was.
+    const plain = mountEditable(multiDoc());
+    plain.container.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
+    expect(plain.controller.getTool()).toBe("move");
+
+    const withComments = mountEditable(multiDoc(), { onCommentDraft: vi.fn(), comments: [] });
+    withComments.container.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
+    expect(withComments.controller.getTool()).toBe("comment");
+  });
+
   test("a marquee in Move takes only the nodes it fully contains", () => {
     const { container, controller, toScreen } = mountEditable(multiDoc());
     const world = container.querySelector<HTMLElement>(".vc-world");

@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { sha256Hex } from "./lib/hash";
 import schema from "./schema";
@@ -290,7 +290,7 @@ describe("/mcp tool contracts", () => {
         outputSchema?: unknown;
       }>;
     };
-    expect(listed.tools).toHaveLength(37);
+    expect(listed.tools).toHaveLength(42);
     for (const tool of listed.tools) {
       const roots = tool.inputSchema.anyOf ?? [tool.inputSchema];
       expect(
@@ -658,9 +658,8 @@ describe("/mcp canvas_save", () => {
     const read = parse(
       await callTool(t, token, "canvas_get", { ref: "mockups/website", include: ["doc"] }),
     );
-    const node = (
-      read.data.doc as { pages: { doc: { nodes: Record<string, unknown>[] } }[] }
-    ).pages[0]?.doc.nodes[0];
+    const node = (read.data.doc as { pages: { doc: { nodes: Record<string, unknown>[] } }[] })
+      .pages[0]?.doc.nodes[0];
     expect(node?.frame).toMatchObject({ kind: "device", preset: "iphone-safari", display: "clip" });
     // The preset resolved the screen size the author never wrote down.
     expect(node?.viewport).toEqual({ width: 284, height: 590 });
@@ -708,8 +707,11 @@ describe("/mcp canvas_save", () => {
     const read = parse(
       await callTool(t, token, "canvas_get", { ref: "batch/move", include: ["doc"] }),
     );
-    const nodes = (read.data.doc as { pages: { doc: { nodes: { id: string; rect: { x: number; y: number } }[] } }[] })
-      .pages[0]?.doc.nodes;
+    const nodes = (
+      read.data.doc as {
+        pages: { doc: { nodes: { id: string; rect: { x: number; y: number } }[] } }[];
+      }
+    ).pages[0]?.doc.nodes;
     expect(nodes?.map((node) => [node.id, node.rect.x, node.rect.y])).toEqual([
       ["n1", 75, 40],
       ["n2", 425, 40],
@@ -724,7 +726,11 @@ describe("/mcp canvas_save", () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
     const created = parse(
-      await callTool(t, token, "canvas_save", { ref: "batch/stale", kind: "canvas", doc: canvasFile() }),
+      await callTool(t, token, "canvas_save", {
+        ref: "batch/stale",
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
     );
     const stale = parse(
       await callTool(t, token, "canvas_nodes_move", {
@@ -836,7 +842,9 @@ describe("/mcp canvas_save", () => {
       await callTool(t, token, "canvas_get", { ref: "batch/delete", include: ["doc"] }),
     );
     const file = read.data.doc as {
-      pages: { doc: { nodes: { id: string }[]; edges: unknown[]; groups: { nodeIds: string[] }[] } }[];
+      pages: {
+        doc: { nodes: { id: string }[]; edges: unknown[]; groups: { nodeIds: string[] }[] };
+      }[];
       prototype: { start?: unknown; interactions: unknown[] };
     };
     expect(file.pages[0]?.doc.nodes.map((node) => node.id)).toEqual(["s-two"]);
@@ -845,6 +853,120 @@ describe("/mcp canvas_save", () => {
     expect(file.pages[0]?.doc.groups[0]?.nodeIds).toEqual(["s-two"]);
     expect(file.prototype.start).toBeUndefined();
     expect(file.prototype.interactions).toEqual([]);
+  });
+
+  test("the comment loop: open feedback, complete with a summary, resolve is not the agent's", async () => {
+    const t = convexTest(schema, modules);
+    const { token, userId } = await seedUserWithToken(t);
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "kit/reviewed",
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
+    );
+    expect(saved.isError).toBeFalsy();
+    const canvasId = saved.data.canvas_id as Id<"canvases">;
+
+    // The person's comment arrives through the SPA, which is the direction
+    // this feature exists for.
+    const asHuman = t.withIdentity({ subject: `${userId}|session-abc`, issuer: "convex" });
+    const asked = await asHuman.mutation(api.comments.createMine, {
+      canvasId,
+      pageId: "overview",
+      nodeId: "n1",
+      body: "This node should say Intake, not Node",
+    });
+
+    const queue = parse(await callTool(t, token, "comment_list", { ref: "kit/reviewed" }));
+    expect(queue.isError).toBeFalsy();
+    expect(queue.data.open_count).toBe(1);
+    expect((queue.data.comments as { body: string; node_id: string }[])[0]).toMatchObject({
+      body: "This node should say Intake, not Node",
+      node_id: "n1",
+    });
+
+    // canvas_get surfaces the same queue without a second tool call.
+    const read = parse(
+      await callTool(t, token, "canvas_get", { ref: "kit/reviewed", include: ["comments"] }),
+    );
+    expect((read.data.canvas as { open_comments: number }).open_comments).toBe(1);
+    expect(read.data.comments).toHaveLength(1);
+
+    const commentId = asked.comment_id;
+    const replied = parse(
+      await callTool(t, token, "comment_reply", {
+        comment_id: commentId,
+        body: "Renaming it now.",
+      }),
+    );
+    expect(replied.data.replies as unknown[]).toHaveLength(1);
+    expect(replied.data.status).toBe("open");
+
+    const completed = parse(
+      await callTool(t, token, "comment_complete", {
+        comment_id: commentId,
+        summary: "Renamed the node caption to Intake",
+      }),
+    );
+    expect(completed.isError).toBeFalsy();
+    expect(completed.data.status).toBe("completed");
+    // Stamped from the canvas, not from anything the agent claimed.
+    expect((completed.data.completion as { version: number }).version).toBe(saved.data.version);
+
+    const refused = parse(
+      await callTool(t, token, "comment_status", { comment_id: commentId, status: "resolved" }),
+    );
+    expect(refused.isError).toBe(true);
+
+    // The person confirms; only then is the loop closed.
+    const resolved = await asHuman.mutation(api.comments.setStatusMine, {
+      commentId: commentId as Id<"canvasComments">,
+      status: "resolved",
+    });
+    expect(resolved.status).toBe("resolved");
+    const after = parse(await callTool(t, token, "comment_list", { ref: "kit/reviewed" }));
+    expect(after.data.comments).toHaveLength(0);
+    expect(after.data.open_count).toBe(0);
+  });
+
+  test("an agent's own note is its own to resolve, and a bad anchor is refused", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "kit/notes",
+      kind: "canvas",
+      doc: canvasFile(),
+    });
+
+    const typo = parse(
+      await callTool(t, token, "comment_create", {
+        ref: "kit/notes",
+        node_id: "n404",
+        body: "anchored to nothing",
+      }),
+    );
+    expect(typo.isError).toBe(true);
+
+    const note = parse(
+      await callTool(t, token, "comment_create", {
+        ref: "kit/notes",
+        at: { x: 120, y: 240 },
+        body: "TODO: this lane still needs a decision node",
+      }),
+    );
+    expect(note.isError).toBeFalsy();
+    expect(note.data.author_kind).toBe("agent");
+    expect(note.data.point).toEqual({ x: 120, y: 240 });
+
+    const resolved = parse(
+      await callTool(t, token, "comment_status", {
+        comment_id: note.data.comment_id as string,
+        status: "resolved",
+      }),
+    );
+    expect(resolved.isError).toBeFalsy();
+    expect(resolved.data.status).toBe("resolved");
   });
 
   test("a component captured from a canvas inserts into another as an independent copy", async () => {

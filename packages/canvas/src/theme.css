@@ -1145,6 +1145,60 @@
 .vc-viewport.is-tool-move .vc-node.selected.primary .vc-resize-handle {
   display: block;
 }
+/* --- comment pins ---
+   Screen space, like the guides: a pin is a constant-size affordance, not
+   part of the drawing, so it must not shrink with the camera. The layer
+   itself is transparent to the pointer; only the pins are hit targets. */
+.vc-comments {
+  position: absolute;
+  z-index: 26;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.vc-comment-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  padding: 0 6px;
+  border: 1px solid var(--vc-accent);
+  /* The one square corner points at what the comment is about, the way a
+     speech bubble's tail does. */
+  border-radius: var(--vc-radius-md) var(--vc-radius-md) var(--vc-radius-md) 2px;
+  background: var(--vc-accent);
+  color: #fff;
+  font: 650 11px/1 var(--vc-body);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--vc-shadow-sm);
+}
+.vc-comment-marker:hover {
+  filter: brightness(1.08);
+}
+/* Completed is the agent's claim awaiting a person; resolved is done and
+   should recede rather than keep asking to be read. */
+.vc-comment-marker[data-status="completed"] {
+  background: var(--vc-white);
+  color: var(--vc-accent-text);
+}
+.vc-comment-marker[data-status="resolved"] {
+  border-color: var(--vc-line);
+  background: var(--vc-white);
+  color: var(--vc-muted);
+  opacity: 0.72;
+}
+.vc-viewport.is-tool-comment {
+  cursor: crosshair;
+}
+.vc-viewport.is-tool-comment .vc-node {
+  cursor: crosshair;
+}
+
 /* --- marquee selection --- */
 .vc-viewport.is-tool-move {
   cursor: crosshair;

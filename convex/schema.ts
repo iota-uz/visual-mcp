@@ -319,6 +319,65 @@ export default defineSchema({
       filterFields: ["workspaceId"],
     }),
 
+  /**
+   * Human feedback pinned to a canvas, one of its Pages, or one node on a
+   * Page — the channel the agent reads before it edits and writes back to
+   * after. A node comment stores the node *id*, never a copy of its rect,
+   * so moving or resizing the node cannot detach it; a page comment stores
+   * a world point instead.
+   */
+  canvasComments: defineTable({
+    canvasId: v.id("canvases"),
+    pageId: v.string(),
+    /** Set for a comment about one node. */
+    nodeId: v.optional(v.string()),
+    /** Set for a comment dropped on empty page space, in world coordinates. */
+    point: v.optional(v.object({ x: v.number(), y: v.number() })),
+    body: v.string(),
+    /**
+     * `completed` is the agent saying "done, here is what I changed";
+     * `resolved` is the human agreeing. They are deliberately not the same
+     * state — see comments.ts for who is allowed to move between them.
+     */
+    status: v.union(v.literal("open"), v.literal("completed"), v.literal("resolved")),
+    authorId: v.id("users"),
+    /** Which door the author came through: the SPA session, or an MCP token. */
+    authorKind: v.union(v.literal("human"), v.literal("agent")),
+    /**
+     * What the agent did, and the canvas revision it did it in. Stamped by
+     * the server from the canvas row, never accepted from the caller, and
+     * kept across a reopen so the previous attempt stays readable.
+     */
+    completion: v.optional(
+      v.object({
+        summary: v.string(),
+        version: v.number(),
+        draftRevision: v.number(),
+        at: v.number(),
+        by: v.id("users"),
+      }),
+    ),
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_canvas_created", ["canvasId", "createdAt"])
+    .index("by_canvas_status", ["canvasId", "status"]),
+
+  canvasCommentReplies: defineTable({
+    commentId: v.id("canvasComments"),
+    // Denormalised so purging a canvas can find replies without walking
+    // every comment it owns.
+    canvasId: v.id("canvases"),
+    body: v.string(),
+    authorId: v.id("users"),
+    authorKind: v.union(v.literal("human"), v.literal("agent")),
+    createdAt: v.number(),
+  })
+    .index("by_comment", ["commentId", "createdAt"])
+    .index("by_canvas", ["canvasId"]),
+
   canvasFiles: defineTable({
     canvasId: v.id("canvases"),
     relPath: v.string(),

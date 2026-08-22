@@ -121,6 +121,20 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     .collect();
   for (const row of renders) await ctx.db.delete(row._id);
 
+  // Replies first: they are the rows that would still name a comment id
+  // nothing owns any more.
+  const commentReplies = await ctx.db
+    .query("canvasCommentReplies")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of commentReplies) await ctx.db.delete(row._id);
+
+  const comments = await ctx.db
+    .query("canvasComments")
+    .withIndex("by_canvas_created", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of comments) await ctx.db.delete(row._id);
+
   const capabilities = await ctx.db
     .query("iframeCapabilities")
     .filter((q) => q.eq(q.field("canvasId"), canvas._id))

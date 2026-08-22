@@ -7,7 +7,7 @@ import {
 import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
 import { escapeHtml, renderCanvas } from "./render.js";
 import { routeEdges } from "./router.js";
-import type { CanvasNode, IframeNode, ImageNode, Rect } from "./types.js";
+import type { CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -81,7 +81,27 @@ export interface CameraFitOptions {
   heightRatio?: number;
 }
 
-export type ViewportTool = "view" | "move";
+/**
+ * "comment" is only reachable when the app passes comment options: the
+ * public share page and Present mount the same viewport and have no comment
+ * surface to draft into.
+ */
+export type ViewportTool = "view" | "move" | "comment";
+
+/**
+ * One pin on the canvas. A node comment carries the node *id*, resolved
+ * against the live document every paint — a marker whose node has been
+ * deleted simply does not draw, and the thread stays readable in the app's
+ * own panel rather than floating over empty space.
+ */
+export interface CommentMarker {
+  id: string;
+  nodeId?: string;
+  point?: Point;
+  status: "open" | "completed" | "resolved";
+  /** Shown on the pin, so a thread with a conversation reads as one. */
+  replies?: number;
+}
 
 export interface ViewportSize {
   width: number;
@@ -560,6 +580,16 @@ export interface ViewportOptions {
   onDeleteNodes?: (nodeIds: string[]) => void | Promise<void>;
   resolveElementRef?: (nodeId: string) => string | undefined;
   onCopyElementRef?: (refId: string) => void | Promise<void>;
+  /**
+   * Comment pins to draw. Passing this (with `onCommentDraft`) is what turns
+   * the whole feature on: the Comment tool, its button and the markers all
+   * stay out of the DOM otherwise.
+   */
+  comments?: readonly CommentMarker[];
+  /** A pin was clicked — open that thread. */
+  onCommentActivate?: (commentId: string) => void;
+  /** The Comment tool was used on a node, or on empty page space. */
+  onCommentDraft?: (anchor: { nodeId?: string; point: Point }) => void;
 }
 
 export interface ViewportUpdateOptions {
@@ -581,6 +611,8 @@ export interface ViewportController {
   deactivateIframe(): void;
   setTool(tool: ViewportTool): void;
   getTool(): ViewportTool;
+  /** Replaces the comment pins; positions follow the live document. */
+  setComments(markers: readonly CommentMarker[]): void;
   getView(): ViewState;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
@@ -615,6 +647,7 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
     <dl>
       <div><dt>View tool</dt><dd><kbd>V</kbd></dd></div>
       <div><dt>Move tool</dt><dd><kbd>M</kbd></dd></div>
+      <div class="vc-shortcut-comment" hidden><dt>Comment tool</dt><dd><kbd>C</kbd></dd></div>
       <div><dt>Fit page</dt><dd><kbd>⇧1</kbd> <kbd>0</kbd></dd></div>
       <div><dt>Fit selection</dt><dd><kbd>⇧2</kbd></dd></div>
       <div><dt>Zoom to 100%</dt><dd><kbd>⇧0</kbd> <kbd>R</kbd></dd></div>
@@ -641,6 +674,14 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
  * wholesale — and would need the camera-inverse dance to stay hairline.
  */
 const GUIDES_SHELL = `<div class="vc-guides" aria-hidden="true"></div>`;
+/*
+ * Pins live in screen space beside the guides, and for the same reason: the
+ * world element is replaced on every re-render, and a pin has to stay the
+ * same size at every zoom rather than shrink with the document.
+ */
+const COMMENTS_SHELL = `<div class="vc-comments" hidden></div>`;
+/** Screen-space offset between pins that resolve to the same anchor. */
+const COMMENT_PIN_STACK = 16;
 const MARQUEE_SHELL = `<div class="vc-marquee" hidden aria-hidden="true"></div>`;
 /*
  * A multi-selection has nothing to put in the inspector — there is no single
@@ -663,11 +704,12 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
     <i class="vc-minimap-viewport"></i>
   </div>`;
 
-function toolbarShell(editable: boolean): string {
+function toolbarShell(editable: boolean, comments: boolean): string {
   return `<div class="vc-toolbar" role="toolbar" aria-label="Canvas tools">
     <div class="vc-tool-group">
       <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
       <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
+      ${comments ? `<button type="button" class="vc-tool" data-tool="comment" aria-label="Comment tool" aria-pressed="false" title="Comment (C)"><span>Comment</span><kbd>C</kbd></button>` : ""}
     </div>
     <div class="vc-zoom-control" aria-label="Canvas zoom">
       <button type="button" class="vc-zoom-step" data-zoom="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
@@ -702,7 +744,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable))}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
+  const commentsEnabled = typeof opts.onCommentDraft === "function";
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -712,6 +755,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   const world = must(".vc-world");
   const guidesLayer = must(".vc-guides");
+  const commentsLayer = must(".vc-comments");
   const marqueeLayer = must(".vc-marquee");
   const multiselectPanel = must(".vc-multiselect");
   const multiselectCount = must(".vc-multiselect-count");
@@ -782,6 +826,64 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const loadingIframeIds = new Set<string>();
   const iframeLoadTimeouts = new Map<string, number>();
 
+  let commentMarkers: readonly CommentMarker[] = opts.comments ?? [];
+  const commentElements = new Map<string, HTMLElement>();
+
+  /**
+   * One element per marker, rebuilt only when the set changes; positions are
+   * a per-frame style write in `positionComments`. A marker whose node is
+   * gone resolves to nothing and is simply not drawn.
+   */
+  function rebuildComments(): void {
+    if (!commentsEnabled) return;
+    commentElements.clear();
+    commentsLayer.replaceChildren(
+      ...commentMarkers.map((marker) => {
+        const pin = document.createElement("button");
+        pin.type = "button";
+        pin.className = "vc-comment-marker";
+        pin.dataset.commentId = marker.id;
+        pin.dataset.status = marker.status;
+        const replies = marker.replies ?? 0;
+        pin.textContent = replies > 0 ? String(replies + 1) : "";
+        pin.setAttribute(
+          "aria-label",
+          `${marker.status} comment${replies > 0 ? `, ${replies} replies` : ""}`,
+        );
+        commentElements.set(marker.id, pin);
+        return pin;
+      }),
+    );
+    commentsLayer.toggleAttribute("hidden", commentMarkers.length === 0);
+    positionComments();
+  }
+
+  function positionComments(): void {
+    if (!commentsEnabled || commentMarkers.length === 0) return;
+    // Two comments on the same node share an anchor, and one pin sitting
+    // exactly on another reads as a single thread. They fan out instead.
+    const stacked = new Map<string, number>();
+    for (const marker of commentMarkers) {
+      const pin = commentElements.get(marker.id);
+      if (!pin) continue;
+      const node = marker.nodeId ? nodeById.get(marker.nodeId) : undefined;
+      const anchor = node
+        ? { x: node.x + node.w, y: node.y }
+        : marker.nodeId
+          ? null
+          : (marker.point ?? null);
+      if (!anchor) {
+        pin.hidden = true;
+        continue;
+      }
+      const key = `${Math.round(anchor.x)}:${Math.round(anchor.y)}`;
+      const index = stacked.get(key) ?? 0;
+      stacked.set(key, index + 1);
+      pin.hidden = false;
+      pin.style.transform = `translate(${anchor.x * view.scale + view.x + index * COMMENT_PIN_STACK}px, ${anchor.y * view.scale + view.y}px)`;
+    }
+  }
+
   function paintView(): void {
     viewFrame = null;
     world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
@@ -806,6 +908,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.style.setProperty("--grid-x", `${grid.x}px`);
     container.style.setProperty("--grid-y", `${grid.y}px`);
     updateMinimapViewport();
+    positionComments();
     scheduleIframeSync();
     opts.onViewChange?.({ ...view });
   }
@@ -1139,6 +1242,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.dataset.tool = current;
     container.classList.toggle("is-tool-view", current === "view");
     container.classList.toggle("is-tool-move", current === "move");
+    container.classList.toggle("is-tool-comment", current === "comment");
     for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) {
       button.setAttribute("aria-pressed", String(button.dataset.tool === current));
     }
@@ -1148,8 +1252,15 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function setTool(tool: ViewportTool): void {
-    activeTool = tool === "move" && !opts.editable ? "view" : tool;
+    const unavailable =
+      (tool === "move" && !opts.editable) || (tool === "comment" && !commentsEnabled);
+    activeTool = unavailable ? "view" : tool;
     paintToolState(true);
+  }
+
+  function setComments(markers: readonly CommentMarker[]): void {
+    commentMarkers = markers;
+    rebuildComments();
   }
 
   function deactivateIframe(): void {
@@ -1701,6 +1812,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     groupById = new Map(nextCanvas.groups.map((group) => [group.id, group]));
     for (const node of nextCanvas.nodes) updateNodeElement(node);
+    positionComments();
     world.style.width = `${nextCanvas.width}px`;
     world.style.height = `${nextCanvas.height}px`;
     const edges = world.querySelector<SVGSVGElement>(".vc-edges");
@@ -1863,6 +1975,23 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (target.closest(".vc-node.iframe-active iframe")) return;
     if (target.closest("input, button, a, summary, details")) return;
     event.preventDefault();
+    /*
+     * The Comment tool is a placement gesture, not a drag: one press drops
+     * a pin on whatever is under it — a node if there is one, otherwise the
+     * world point — and hands the anchor to the app to compose into. It
+     * runs before pointer capture so no camera or marquee state is started.
+     */
+    if (activeTool === "comment" && commentsEnabled) {
+      const overNode = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+      opts.onCommentDraft?.({
+        nodeId: overNode,
+        point: {
+          x: (event.clientX - viewportRect.left - view.x) / view.scale,
+          y: (event.clientY - viewportRect.top - view.y) / view.scale,
+        },
+      });
+      return;
+    }
     // Touching the canvas always stops a coasting camera dead — the same
     // way it does in every scroll surface on every platform.
     stopFlick();
@@ -2233,6 +2362,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
     if (event.key === "v" || event.key === "V") setTool("view");
     else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
+    else if ((event.key === "c" || event.key === "C") && commentsEnabled) setTool("comment");
     else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
       event.preventDefault();
       fitAll();
@@ -2307,7 +2437,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
     if (button && !button.disabled) {
       const tool = button.dataset.tool;
-      if (tool === "view" || tool === "move") setTool(tool);
+      if (tool === "view" || tool === "move" || tool === "comment") setTool(tool);
     }
     const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-zoom]");
     if (zoomStep) {
@@ -2516,6 +2646,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   if (opts.initialView) applyView();
   else fitAll();
 
+  function onCommentLayerClick(event: MouseEvent): void {
+    const pin = (event.target as HTMLElement).closest<HTMLElement>("[data-comment-id]");
+    const id = pin?.dataset.commentId;
+    if (id) opts.onCommentActivate?.(id);
+  }
+  if (commentsEnabled) {
+    commentsLayer.addEventListener("click", onCommentLayerClick);
+    container.querySelector(".vc-shortcut-comment")?.removeAttribute("hidden");
+    rebuildComments();
+  }
+
   return {
     fitAll,
     fitSelection,
@@ -2528,6 +2669,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     deactivateIframe,
     setTool,
     getTool: () => activeTool,
+    setComments,
     getView: () => ({ ...view }),
     updateCanvas,
     dispose() {
@@ -2538,6 +2680,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (flickFrame !== null) cancelAnimationFrame(flickFrame);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
+      commentsLayer.removeEventListener("click", onCommentLayerClick);
       multiselectPanel.removeEventListener("click", onMultiselectClick);
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);

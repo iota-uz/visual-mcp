@@ -118,6 +118,8 @@
   --app-canvas-chrome-top: calc(var(--app-canvas-bar-h) + var(--app-space-3));
   --app-pages-panel-w: 260px;
   --app-pages-panel-collapsed-w: 44px;
+  --app-comments-panel-w: 300px;
+  --app-comments-panel-gap: calc(var(--app-comments-panel-w) + var(--app-space-6));
   --app-prototype-panel-w: 280px;
   --app-prototype-panel-gap: calc(var(--app-prototype-panel-w) + var(--app-space-6));
 
