@@ -3,7 +3,8 @@ import {
   layoutCanvas,
   moveGroupNodes,
   moveNodes,
-  restoreNodes,
+  type NodeRestorePayload,
+  restoreNodesIntoFile,
 } from "@visual-canvas/canvas/layout.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
@@ -2005,12 +2006,17 @@ export const patchGeometryMine = action({
         dy: v.number(),
       }),
       v.object({ kind: v.literal("delete"), nodeIds: v.array(v.string()) }),
-      // Session-local undo of a delete. Entities are echoed back from the
-      // client's own copy of the doc; the schema validates them on the way in.
+      // Session-local undo of a delete. The payload is the one this action
+      // handed back when it performed that delete, so it carries the group
+      // membership and prototype wiring the nodes were part of, not just the
+      // nodes themselves. The schema validates all of it on the way in.
       v.object({
         kind: v.literal("restore"),
         nodes: v.array(v.any()),
         edges: v.array(v.any()),
+        groups: v.optional(v.array(v.any())),
+        interactions: v.optional(v.array(v.any())),
+        start: v.optional(v.any()),
       }),
     ),
     expectedVersion: v.number(),
@@ -2022,6 +2028,8 @@ export const patchGeometryMine = action({
     dirty: v.boolean(),
     removedNodeIds: v.optional(v.array(v.string())),
     removedEdgeIds: v.optional(v.array(v.string())),
+    /** Everything the delete destroyed, in the shape `change: "restore"` takes. */
+    undo: v.optional(v.any()),
   }),
   handler: async (
     ctx,
@@ -2032,6 +2040,7 @@ export const patchGeometryMine = action({
     dirty: boolean;
     removedNodeIds?: string[];
     removedEdgeIds?: string[];
+    undo?: NodeRestorePayload;
   }> => {
     const identity = await requireIotaIdentity(ctx);
     const source = await ctx.runQuery(internal.canvases.getLayoutPatchSource, {
@@ -2067,13 +2076,26 @@ export const patchGeometryMine = action({
      */
     let removedNodeIds: string[] | undefined;
     let removedEdgeIds: string[] | undefined;
+    let undo: NodeRestorePayload | undefined;
     let patchedFile: CanvasFile;
     if (change.kind === "delete") {
       if (change.nodeIds.length === 0) throw new Error("Nothing to delete");
       const deleted = deleteNodesFromFile(file, page.id, change.nodeIds);
       removedNodeIds = deleted.removedNodeIds;
       removedEdgeIds = deleted.removedEdgeIds;
+      undo = deleted.undo;
       patchedFile = CanvasFileSchema.parse(deleted.file);
+    } else if (change.kind === "restore") {
+      // Restore reaches the prototype for the same reason delete does.
+      patchedFile = CanvasFileSchema.parse(
+        restoreNodesIntoFile(file, page.id, {
+          nodes: change.nodes as CanvasDoc["nodes"],
+          edges: change.edges as CanvasDoc["edges"],
+          groups: change.groups as CanvasDoc["groups"] | undefined,
+          interactions: change.interactions as CanvasFile["prototype"]["interactions"] | undefined,
+          start: change.start as CanvasFile["prototype"]["start"],
+        }),
+      );
     } else {
       const patched =
         change.kind === "node"
@@ -2090,15 +2112,7 @@ export const patchGeometryMine = action({
             })()
           : change.kind === "nodes"
             ? CanvasDocSchema.parse(moveNodes(doc, change.nodeIds, change.dx, change.dy))
-            : change.kind === "restore"
-              ? CanvasDocSchema.parse(
-                  restoreNodes(
-                    doc,
-                    change.nodes as CanvasDoc["nodes"],
-                    change.edges as CanvasDoc["edges"],
-                  ),
-                )
-              : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
+            : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
       patchedFile = CanvasFileSchema.parse({
         ...file,
         pages: file.pages.map((candidate) =>
@@ -2156,6 +2170,7 @@ export const patchGeometryMine = action({
         dirty: result.dirty,
         removedNodeIds,
         removedEdgeIds,
+        undo,
       };
     } catch (error) {
       await ctx.storage.delete(docStorageId);

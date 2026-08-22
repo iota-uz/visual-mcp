@@ -8,6 +8,7 @@ import {
   formatElementRef,
   layoutCanvas,
   mountViewport,
+  type NodeRestorePayload,
   type Rect as NodeRect,
   resolveCanvasPage,
   type ViewportController,
@@ -1948,7 +1949,8 @@ export function CanvasPage() {
       | { kind: "group"; groupId: string; dx: number; dy: number }
       | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
       | { kind: "delete"; nodeIds: string[] }
-      | { kind: "restore"; nodes: CanvasNode[]; edges: CanvasEdge[] },
+      | ({ kind: "restore" } & NodeRestorePayload),
+    onResult?: (result: { undo?: NodeRestorePayload }) => void,
   ) {
     if (!canvasId) return;
     pendingGeometrySavesRef.current += 1;
@@ -1968,6 +1970,7 @@ export function CanvasPage() {
         });
         persistedVersionRef.current = result.version;
         persistedDraftRevisionRef.current = result.draftRevision;
+        onResult?.(result as { undo?: NodeRestorePayload });
         failed = false;
       })
       .catch((error: unknown) => {
@@ -1999,7 +2002,15 @@ export function CanvasPage() {
     | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
     | { kind: "node"; nodeId: string; before: NodeRect; after: NodeRect }
     | { kind: "group"; groupId: string; dx: number; dy: number }
-    | { kind: "delete"; nodes: CanvasNode[]; edges: CanvasEdge[] };
+    /*
+     * `undo` is the payload the server handed back when it performed the
+     * delete: the nodes and edges plus the group membership and prototype
+     * hotspots they were part of. Only the server can produce it — it deletes
+     * against the current document, which may have moved on since this tab
+     * last saw it — so it is filled in on the way back and refreshed on every
+     * redo of the same edit.
+     */
+    | { kind: "delete"; nodeIds: string[]; undo: NodeRestorePayload };
   const undoStackRef = useRef<ManualEdit[]>([]);
   const redoStackRef = useRef<ManualEdit[]>([]);
   const HISTORY_LIMIT = 50;
@@ -2037,13 +2048,8 @@ export function CanvasPage() {
         });
         return;
       default:
-        if (direction === "undo")
-          queueGeometryChange({ kind: "restore", nodes: edit.nodes, edges: edit.edges });
-        else
-          queueGeometryChange({
-            kind: "delete",
-            nodeIds: edit.nodes.map((node) => node.id),
-          });
+        if (direction === "undo") queueGeometryChange({ kind: "restore", ...edit.undo });
+        else performNodeDeletion(edit);
     }
   }
 
@@ -2085,12 +2091,29 @@ export function CanvasPage() {
     setPendingDelete({ nodes, edges });
   }
 
+  /**
+   * Performs a delete and keeps the edit's undo payload in step with what the
+   * server actually removed. Shared by the confirmation dialog and redo.
+   */
+  function performNodeDeletion(edit: Extract<ManualEdit, { kind: "delete" }>) {
+    queueGeometryChange({ kind: "delete", nodeIds: edit.nodeIds }, (result) => {
+      if (result.undo) edit.undo = result.undo;
+    });
+  }
+
   function confirmNodeDeletion() {
     const target = pendingDelete;
     setPendingDelete(null);
     if (!target) return;
-    queueGeometryChange({ kind: "delete", nodeIds: target.nodes.map((node) => node.id) });
-    recordEdit({ kind: "delete", nodes: target.nodes, edges: target.edges });
+    const edit: Extract<ManualEdit, { kind: "delete" }> = {
+      kind: "delete",
+      nodeIds: target.nodes.map((node) => node.id),
+      // Replaced by the server's payload as soon as the write returns; this
+      // is only what this tab can see on its own.
+      undo: { nodes: target.nodes, edges: target.edges },
+    };
+    performNodeDeletion(edit);
+    recordEdit(edit);
   }
 
   /*
