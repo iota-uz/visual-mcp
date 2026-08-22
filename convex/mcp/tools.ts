@@ -39,6 +39,7 @@ import {
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
 import { layoutCanvas } from "@visual-canvas/canvas/layout.js";
+import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
@@ -85,6 +86,7 @@ export interface McpPrincipal {
 
 type WarningCode =
   | "unresolved_asset"
+  | "node_overlap"
   | "overwrote_other_author"
   | "truncated"
   | "render_failed"
@@ -95,11 +97,29 @@ interface Warning {
   code: WarningCode;
   message: string;
   path?: string;
+  /** Machine-readable detail. Only some codes carry it; see `WarningSchema`. */
+  data?: {
+    page_id?: string;
+    node_ids?: string[];
+    rects?: { x: number; y: number; w: number; h: number }[];
+    overlap_area?: number;
+    overlap_fraction?: number;
+    overlap_count?: number;
+    reported?: number;
+  };
 }
+
+const WarningRectSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
 
 const WarningSchema = z.object({
   code: z.enum([
     "unresolved_asset",
+    "node_overlap",
     "overwrote_other_author",
     "truncated",
     "render_failed",
@@ -108,6 +128,18 @@ const WarningSchema = z.object({
   ]),
   message: z.string(),
   path: z.string().optional(),
+  data: z
+    .object({
+      page_id: z.string().optional(),
+      node_ids: z.array(z.string()).optional(),
+      rects: z.array(WarningRectSchema).optional(),
+      overlap_area: z.number().optional(),
+      overlap_fraction: z.number().optional(),
+      overlap_count: z.number().int().nonnegative().optional(),
+      reported: z.number().int().nonnegative().optional(),
+    })
+    .optional()
+    .describe("Machine-readable detail for codes that carry one, e.g. node_overlap."),
 });
 
 const StorageSchema = z.object({ used_bytes: z.number(), quota_bytes: z.number() });
@@ -308,6 +340,60 @@ function scanUnresolvedRefs(
           "or use an absolute URL.",
       });
     }
+  }
+  return warnings;
+}
+
+/** How many overlapping pairs a single save reports before it stops listing. */
+const OVERLAP_REPORT_LIMIT = 20;
+
+/**
+ * Geometry the agent cannot see. Overlapping nodes are legal — a badge on a
+ * card is a stack on purpose — so this never blocks a write and never makes a
+ * save `partial`; it just tells the author what the render will look like.
+ */
+function scanNodeOverlaps(
+  pages: readonly { id: string; title?: string; doc: CanvasDoc }[],
+): Warning[] {
+  const warnings: Warning[] = [];
+  let total = 0;
+  let reported = 0;
+
+  for (const page of pages) {
+    const report = findNodeOverlaps(page.doc.nodes, {
+      limit: Math.max(0, OVERLAP_REPORT_LIMIT - reported),
+    });
+    total += report.total;
+    const where = pages.length > 1 ? `Page "${page.title ?? page.id}": ` : "";
+    for (const overlap of report.overlaps) {
+      reported += 1;
+      warnings.push({
+        code: "node_overlap",
+        // Unique per pair so dedupeWarnings keeps every one of them.
+        path: `${page.id}#${overlap.a}+${overlap.b}`,
+        message:
+          `${where}nodes "${overlap.a}" and "${overlap.b}" overlap by ` +
+          `${Math.round(overlap.area)} square units, covering ` +
+          `${Math.round(overlap.fraction * 100)}% of the smaller one. ` +
+          "Saved as-is; move or resize one of them if the stack was not intended.",
+        data: {
+          page_id: page.id,
+          node_ids: [overlap.a, overlap.b],
+          rects: [overlap.rectA, overlap.rectB],
+          overlap_area: overlap.area,
+          overlap_fraction: overlap.fraction,
+        },
+      });
+    }
+  }
+
+  if (total > reported) {
+    warnings.push({
+      code: "truncated",
+      path: "node_overlap",
+      message: `${total} overlapping node pairs were found; the first ${reported} are listed.`,
+      data: { overlap_count: total, reported },
+    });
   }
   return warnings;
 }
@@ -1333,6 +1419,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           );
         }
 
+        // --- geometry the author cannot see ---
+        if (preparedDoc) {
+          warnings.push(...scanNodeOverlaps(preparedDoc.doc.pages));
+        }
+
         // --- renders ---
         const artifacts: RenderedArtifact[] = [];
         let renderVersionId = committed?.versionId ?? null;
@@ -1756,7 +1847,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           dirty: saved.dirty,
           page_id: currentPage.id,
           operations: input.operations.length,
-          warnings: [],
+          warnings: dedupeWarnings(
+            scanNodeOverlaps([
+              { id: currentPage.id, title: currentPage.title, doc: patchedDoc },
+            ]),
+          ),
         });
       }),
   );

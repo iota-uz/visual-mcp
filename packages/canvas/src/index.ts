@@ -1,5 +1,6 @@
 export * from "./element-ref.js";
 export * from "./layout.js";
+export * from "./overlap.js";
 export * from "./patch.js";
 export * from "./phone-frame.js";
 export * from "./render.js";

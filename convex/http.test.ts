@@ -549,6 +549,81 @@ describe("/mcp canvas_save", () => {
     expect(invalid.text).toMatch(/version|Invalid input/i);
   });
 
+  test("overlapping nodes are reported as a warning without failing the save", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const stacked = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "geometry/stacked",
+        kind: "canvas",
+        doc: canvasFile({
+          ...baseDoc,
+          nodes: [
+            ...baseDoc.nodes,
+            {
+              id: "n2",
+              kind: "native",
+              laneId: "l1",
+              stageId: "s1",
+              // Half of n1's 200x100 box at (50,50).
+              rect: { x: 150, y: 50, w: 200, h: 100 },
+              shape: "note",
+              caption: { title: "Stacked" },
+              anchors: [],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(stacked.isError).toBeFalsy();
+    // A soft diagnostic: the document is saved and published as authored.
+    expect(stacked.data.status).toBe("ok");
+    expect(stacked.data.version).toBe(1);
+    const warnings = stacked.data.warnings as Array<{
+      code: string;
+      path?: string;
+      data?: { node_ids?: string[]; overlap_area?: number; overlap_fraction?: number };
+    }>;
+    const overlap = warnings.find((warning) => warning.code === "node_overlap");
+    expect(overlap).toBeDefined();
+    expect(overlap?.path).toBe("overview#n1+n2");
+    expect(overlap?.data?.node_ids).toEqual(["n1", "n2"]);
+    expect(overlap?.data?.overlap_area).toBe(100 * 100);
+    expect(overlap?.data?.overlap_fraction).toBe(0.5);
+  });
+
+  test("nodes that merely touch are not reported as overlapping", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const adjacent = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "geometry/adjacent",
+        kind: "canvas",
+        doc: canvasFile({
+          ...baseDoc,
+          nodes: [
+            ...baseDoc.nodes,
+            {
+              id: "n2",
+              kind: "native",
+              laneId: "l1",
+              stageId: "s1",
+              rect: { x: 250, y: 50, w: 200, h: 100 },
+              shape: "note",
+              caption: { title: "Beside" },
+              anchors: [],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(adjacent.isError).toBeFalsy();
+    const warnings = adjacent.data.warnings as Array<{ code: string }>;
+    expect(warnings.filter((warning) => warning.code === "node_overlap")).toHaveLength(0);
+  });
+
   test("files-only save publishes exactly one version and identical retry is a no-op", async () => {
     const t = convexTest(schema, modules);
     const { token } = await seedUserWithToken(t);
