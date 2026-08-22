@@ -76,38 +76,12 @@
   background-size: var(--app-grid-size) var(--app-grid-size);
 }
 
-.canvas-skeleton-rail {
-  display: none;
-}
-
-/* Matches the real rail's box exactly — reading the same chrome-offset and
-   width tokens the rail itself does, so nothing moves when the two swap. */
-@media (min-width: 900px) {
-  .canvas-skeleton-rail {
-    position: absolute;
-    display: grid;
-    gap: var(--app-space-3);
-    align-content: start;
-    inset: var(--app-canvas-chrome-top) auto var(--app-space-3) var(--app-space-3);
-    width: var(--app-pages-panel-w);
-    padding: var(--app-space-4);
-    border: 1px solid var(--app-line);
-    border-radius: var(--app-radius-lg);
-    background: var(--app-white);
-    animation: app-pulse 1.6s ease-in-out infinite;
-  }
-
-  .canvas-skeleton-nodes,
-  .canvas-skeleton-dock {
-    left: var(--app-pages-panel-gap);
-    right: 0;
-  }
-
-  .canvas-skeleton-dock {
-    left: calc(50% + var(--app-pages-panel-gap) / 2);
-  }
-}
-
+/*
+ * No rail stand-in. It existed to hold the layout open while the real rail
+ * loaded, back when the rail displaced the canvas — but the rail floats
+ * now, so there is no hole to keep, and the placeholder was just a white
+ * block sitting over the canvas for the length of the load.
+ */
 .canvas-skeleton-nodes {
   position: absolute;
   inset: 0;
@@ -157,7 +131,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .canvas-skeleton-nodes,
-  .canvas-skeleton-rail,
   .canvas-skeleton-dock {
     animation: none;
   }

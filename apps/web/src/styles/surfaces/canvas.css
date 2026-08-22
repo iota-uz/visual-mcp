@@ -1171,41 +1171,45 @@
  * `.vc-viewport { width: 100% }` outranks any width this layer sets.
  * Insets are not in that fight.
  */
-.canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host {
-  left: var(--app-pages-panel-gap);
-}
-
-.canvas-pages-panel.is-collapsed ~ .vc-viewport-host {
-  left: var(--app-pages-panel-collapsed-gap);
-}
-
+/*
+ * The Pages rail floats; only the Prototype panel insets the canvas.
+ *
+ * The rail used to push the viewport 284px to the right, which meant a
+ * full-height column of `--app-paper` beside a card 210px tall — a fifth of
+ * the window given over to a strip of empty blue-grey, and during the
+ * loading gate a bare column with not even the card in it. It is a small
+ * floating card like the toolbar and the minimap, so it now behaves like
+ * one and sits over the canvas.
+ *
+ * The Prototype panel keeps its inset: it is full height, it carries real
+ * working content, and it is opt-in — nothing is hidden behind a panel the
+ * user has not deliberately opened.
+ *
+ * `left`/`right` rather than `width` + `margin`: the host is
+ * `position: absolute; inset: 0`, and the engine's own unlayered
+ * `.vc-viewport { width: 100% }` outranks any width this layer sets.
+ * Insets are not in that fight.
+ */
 .canvas-prototype-panel ~ .vc-viewport-host {
   right: var(--app-prototype-panel-gap);
 }
 
-/* Matches the panel's own width transition so the canvas and the rail move
-   together. Collapsing used to animate the panel and jump the viewport. */
+/* Matches the panel's own transition so the canvas and the panel move
+   together; opening Prototype mode used to jump the viewport. */
 .vc-viewport-host {
-  transition:
-    left var(--app-transition) var(--app-ease-out),
-    right var(--app-transition) var(--app-ease-out);
+  transition: right var(--app-transition) var(--app-ease-out);
 }
 
-/*
- * Below 900px there is not enough room to inset for a 260px rail and still
- * have a canvas, so the expanded rail becomes a temporary overlay above the
- * chrome — but the canvas keeps the collapsed stub's offset either way, so
- * nothing is ever permanently hidden behind it.
- */
 @media (max-width: 899px) {
   .canvas-pages-panel:not(.is-collapsed) {
     z-index: var(--app-z-drawer-trigger);
     box-shadow: var(--app-shadow-lg);
   }
 
-  .canvas-pages-panel:not(.is-collapsed) ~ .vc-viewport-host,
+  /* No room to inset for a 280px panel and still have a canvas, so it
+     overlays here — and the minimap, the one piece of chrome it would land
+     on, stands down rather than being half-covered. */
   .canvas-prototype-panel ~ .vc-viewport-host {
-    left: var(--app-pages-panel-collapsed-gap);
     right: 0;
   }
 
@@ -1215,9 +1219,6 @@
     box-shadow: var(--app-shadow-lg);
   }
 
-  /* There is no room to inset for an overlaying panel here, so the minimap
-     — the one piece of chrome it would land on top of — stands down while
-     Prototype mode is open rather than being half-covered. */
   .canvas-prototype-panel ~ .vc-viewport-host .vc-minimap {
     display: none;
   }

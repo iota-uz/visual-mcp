@@ -108,9 +108,9 @@
   /* Canvas chrome geometry. `64px` used to be typed at four call sites and
      had to stay in step with the command bar's own box; nothing enforced
      that, and `--app-trigger-size` — added for exactly this — had zero
-     uses. The panel widths are read by both the panels and the rules that
-     inset the viewport away from them, which is what keeps the canvas from
-     rendering underneath its own chrome. */
+     uses. The Prototype panel's width is read by both the panel and the
+     rule that insets the viewport away from it; the Pages rail floats over
+     the canvas and insets nothing. */
   /* The canvas top bar is real chrome, not a floating pill: it spans the
      window, the viewport starts below it, and everything anchored to the
      top of the canvas measures from its height. */
@@ -118,8 +118,6 @@
   --app-canvas-chrome-top: calc(var(--app-canvas-bar-h) + var(--app-space-3));
   --app-pages-panel-w: 260px;
   --app-pages-panel-collapsed-w: 44px;
-  --app-pages-panel-gap: calc(var(--app-pages-panel-w) + var(--app-space-6));
-  --app-pages-panel-collapsed-gap: calc(var(--app-pages-panel-collapsed-w) + var(--app-space-6));
   --app-prototype-panel-w: 280px;
   --app-prototype-panel-gap: calc(var(--app-prototype-panel-w) + var(--app-space-6));
 
