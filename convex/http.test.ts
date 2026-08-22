@@ -471,6 +471,86 @@ describe("/mcp resources: templates", () => {
   });
 });
 
+describe("/mcp validation errors", () => {
+  const iframeDoc = (frame: Record<string, unknown>, viewport?: Record<string, unknown>) => ({
+    version: 2,
+    title: "Calculator",
+    world: { width: 4000, height: 4000 },
+    lanes: [],
+    stages: [],
+    labels: [],
+    edges: [],
+    nodes: [
+      {
+        id: "calc-mobile-app",
+        kind: "iframe",
+        rect: { x: 0, y: 0, w: 310, h: 708 },
+        caption: { title: "Mobile app" },
+        anchors: [{ id: "in", side: "left", offset: 0.5 }],
+        source: { entrypoint: "/src/screens/app.html" },
+        ...(viewport ? { viewport } : {}),
+        frame,
+      },
+    ],
+  });
+  const file = (doc: Record<string, unknown>) => ({
+    version: 3,
+    defaultPageId: "overview",
+    pages: [{ id: "overview", title: "Overview", order: 0, doc }],
+    prototype: { interactions: [] },
+  });
+
+  async function saveDoc(doc: Record<string, unknown>) {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const response = await callTool(t, token, "canvas_save", { ref: "osago/calc", doc: file(doc) });
+    const result = response.result as { isError?: boolean; content?: Array<{ text?: string }> };
+    return { isError: result.isError, text: result.content?.[0]?.text ?? "" };
+  }
+
+  /*
+   * A node is a union of three shapes, so every failure inside one used to
+   * surface as `nodes.10: Invalid input` — the same message for a wrong
+   * preset, a wrong size and a typo. An agent converting a real canvas burned
+   * eight calls guessing preset names off that.
+   */
+  test("a bad device preset names the field, the valid values and the node", async () => {
+    const { isError, text } = await saveDoc(iframeDoc({ kind: "device", preset: "iphone" }));
+    expect(isError).toBe(true);
+    expect(text).toContain("frame.preset");
+    expect(text).toContain("iphone-safari");
+    expect(text).toContain("desktop-safari");
+    expect(text).toContain("calc-mobile-app");
+    expect(text).not.toBe("nodes.0: Invalid input");
+  });
+
+  test("the right preset with the wrong viewport says which is wrong", async () => {
+    const { isError, text } = await saveDoc(
+      iframeDoc({ kind: "device", preset: "desktop-safari" }, { width: 940, height: 660 }),
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain("1280px wide");
+    expect(text).toContain("omit viewport");
+  });
+
+  test("the frame vocabulary reaches the client through the tool schema", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const listed = (await listTools(t, token)) as {
+      tools: Array<{ name: string; inputSchema: unknown }>;
+    };
+    // Not only in the server instructions: clients truncate that blob, and
+    // the preset ids were unreachable from every tool that needs them.
+    for (const name of ["canvas_save", "canvas_doc_patch"]) {
+      const tool = listed.tools.find((candidate) => candidate.name === name);
+      expect(JSON.stringify(tool), name).toContain("iphone-safari");
+      expect(JSON.stringify(tool), name).toContain("desktop-safari");
+    }
+    const patch = listed.tools.find((candidate) => candidate.name === "canvas_doc_patch");
+    expect(JSON.stringify(patch?.inputSchema)).toContain("viewport:null");
+  });
+});
+
 describe("/mcp canvas_save", () => {
   const baseDoc = {
     version: 2,

@@ -20,6 +20,7 @@
     "format": "biome format --write .",
     "check": "biome check .",
     "convex:dev": "convex dev",
+    "convex:push": "npm run build -w packages/canvas -w packages/runtime && convex dev --once",
     "dev:agent": "node scripts/dev-agent.mjs"
   },
   "dependencies": {

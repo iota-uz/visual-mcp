@@ -1,6 +1,7 @@
 export * from "./component.js";
 export * from "./device-frame.js";
 export * from "./element-ref.js";
+export * from "./issues.js";
 export * from "./layout.js";
 export * from "./overlap.js";
 export * from "./patch.js";

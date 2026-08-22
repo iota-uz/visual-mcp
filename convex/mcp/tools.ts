@@ -33,11 +33,6 @@
  */
 
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
-import {
-  formatElementRef,
-  parseElementRef,
-  resolveElementSelection,
-} from "@visual-canvas/canvas/element-ref.js";
 import type { CanvasComponentBody } from "@visual-canvas/canvas/component.js";
 import {
   CanvasComponentBodySchema,
@@ -45,6 +40,13 @@ import {
   extractComponent,
   insertComponent,
 } from "@visual-canvas/canvas/component.js";
+import { frameGuide } from "@visual-canvas/canvas/device-frame.js";
+import {
+  formatElementRef,
+  parseElementRef,
+  resolveElementSelection,
+} from "@visual-canvas/canvas/element-ref.js";
+import { describeIssues } from "@visual-canvas/canvas/issues.js";
 import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
@@ -63,10 +65,10 @@ import {
 } from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
 import { internal } from "../_generated/api";
-import { parseComponentRef } from "../components";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { fetchAssetImport, persistAsset } from "../assets";
+import { parseComponentRef } from "../components";
 import { inferArtifactInfo } from "../lib/artifactInfo";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "../lib/assetSecurity";
 import { sha256Hex, sha256HexBytes } from "../lib/hash";
@@ -182,16 +184,14 @@ function base64Bytes(bytes: Uint8Array): string {
  * naming the offending node. The path is the only part that makes it fixable.
  */
 function describeError(err: unknown): string {
-  if (err && typeof err === "object" && Array.isArray((err as { issues?: unknown }).issues)) {
-    const issues = (err as { issues: { message: string; path?: (string | number)[] }[] }).issues;
-    return issues
-      .map((issue) => {
-        const path = issue.path?.length ? issue.path.join(".") : null;
-        return path ? `${path}: ${issue.message}` : issue.message;
-      })
-      .join("; ");
-  }
-  return err instanceof Error ? err.message : String(err);
+  /*
+   * v2 joined the top-level issues and stopped there, which is one level too
+   * shallow for a union: a CanvasNode that fails inside its iframe branch
+   * reports a single `invalid_union` whose own message is the literal
+   * "Invalid input", and the branch that actually names the field is nested
+   * underneath. `describeIssues` walks in.
+   */
+  return describeIssues(err) ?? (err instanceof Error ? err.message : String(err));
 }
 
 async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
@@ -863,7 +863,12 @@ async function prepareSaveDoc(
   };
   stored: Id<"_storage">[];
 }> {
-  const doc = CanvasFileSchema.parse(rawDoc);
+  const parsedDoc = CanvasFileSchema.safeParse(rawDoc);
+  if (!parsedDoc.success) {
+    // With the raw value in hand the path can say which node, not which index.
+    throw new Error(describeIssues(parsedDoc.error, { value: rawDoc }) ?? "Invalid CanvasFile");
+  }
+  const doc = parsedDoc.data;
   const docJson = JSON.stringify(doc);
   const entry = canvasEntryHtml(resolveCanvasPage(doc).doc);
   const docBytes = new TextEncoder().encode(docJson);
@@ -1289,7 +1294,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             .unknown()
             .optional()
             .describe(
-              "CanvasFile v3: {version:3, defaultPageId, pages:[{id,title,order,doc:CanvasDocV2}], prototype:{start?,interactions}}. The complete multi-page file is saved atomically as a durable draft.",
+              "CanvasFile v3: {version:3, defaultPageId, pages:[{id,title,order,doc:CanvasDocV2}], " +
+                "prototype:{start?,interactions}}. The complete multi-page file is saved " +
+                `atomically as a durable draft. ${frameGuide()}`,
             ),
           files: z.array(FileInputSchema).max(500).optional(),
           renders: z.array(RenderInputSchema).max(4).optional(),
@@ -1733,7 +1740,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   const rootChangesSchema = z
     .record(z.string(), z.unknown())
     .describe(
-      "Shallow entity-root merge. Nested objects are replaced, not deep-merged; changing rect.x requires the complete {x,y,w,h} rect.",
+      "Shallow entity-root merge. Nested objects are replaced, not deep-merged; changing rect.x " +
+        "requires the complete {x,y,w,h} rect. A null value clears an optional field — the only " +
+        "way to unset one without replace, e.g. {frame:{kind:'device',preset:'iphone-safari'}," +
+        "viewport:null}.",
     );
   const entityValueSchema = z
     .unknown()
@@ -1791,7 +1801,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "optional fields; remove requires id; world.update requires changes. Nested objects are " +
         "replaced, so changing rect.x requires a complete {x,y,w,h} rect. Read the doc first and " +
         "pass its version as expected_version. Example: {op:'nodes.update',id:'phone',changes:{" +
-        "rect:{x:10,y:20,w:310,h:708}}}. The final graph is validated atomically.",
+        "rect:{x:10,y:20,w:310,h:708}}}. A null value in changes clears an optional field. " +
+        `The final graph is validated atomically. ${frameGuide()}`,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: z
         .object({
@@ -1856,9 +1867,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           page_id: currentPage.id,
           operations: input.operations.length,
           warnings: dedupeWarnings(
-            scanNodeOverlaps([
-              { id: currentPage.id, title: currentPage.title, doc: patchedDoc },
-            ]),
+            scanNodeOverlaps([{ id: currentPage.id, title: currentPage.title, doc: patchedDoc }]),
           ),
         });
       }),
@@ -2212,9 +2221,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       inputSchema: z
         .object({
           ref: ComponentRefArg,
-          target: z
-            .object({ ref: RefArg, page_id: z.string().optional() })
-            .strict(),
+          target: z.object({ ref: RefArg, page_id: z.string().optional() }).strict(),
           at: z.object({ x: z.number().finite(), y: z.number().finite() }).strict(),
           expected_version: z.number().int().nonnegative(),
           expected_draft_revision: z.number().int().nonnegative(),
@@ -2480,7 +2487,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Adds a message to one thread without changing its status. Use it to ask a question or " +
         "report progress; use comment_complete to say the work is done.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: z.object({ comment_id: CommentIdArg, body: z.string().min(1).max(4_000) }).strict(),
+      inputSchema: z
+        .object({ comment_id: CommentIdArg, body: z.string().min(1).max(4_000) })
+        .strict(),
       outputSchema: CommentThreadSchema,
     },
     async (input) =>
@@ -2535,8 +2544,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Resolve or reopen a comment",
       description:
-        "Reopens a comment (status:\"open\") when the work needs another pass, or resolves one " +
-        "(status:\"resolved\"). Resolving is refused for comments a person wrote: confirming " +
+        'Reopens a comment (status:"open") when the work needs another pass, or resolves one ' +
+        '(status:"resolved"). Resolving is refused for comments a person wrote: confirming ' +
         "someone else's feedback is theirs to do, and comment_complete is how an agent reports " +
         "its own work. An agent may resolve notes it left itself.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -3949,15 +3958,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           page_id: z.string().optional().describe("Select a Page; defaults to defaultPageId."),
           include: z
             .array(
-              z.enum([
-                "doc",
-                "files",
-                "artifacts",
-                "versions",
-                "renders",
-                "storage",
-                "comments",
-              ]),
+              z.enum(["doc", "files", "artifacts", "versions", "renders", "storage", "comments"]),
             )
             .optional(),
           doc_projection: z
