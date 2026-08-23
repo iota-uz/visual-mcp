@@ -1,7 +1,7 @@
 {
   "name": "@visual-canvas/convex",
   "version": "0.1.0-dev",
-  "description": "Convex backend: schema, queries/mutations/actions, /mcp and /s/:slug httpActions.",
+  "description": "Visual Canvas database, application BFF, auth, and public artifact HTTP endpoints.",
   "private": true,
   "type": "module",
   "engines": {

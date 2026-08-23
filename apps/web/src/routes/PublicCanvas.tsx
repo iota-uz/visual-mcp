@@ -6,8 +6,8 @@ import { api } from "../../../../convex/_generated/api";
 import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
+import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
-import { mcpBaseUrl } from "../lib/mcpUrl";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 import { CanvasViewport, useCanvasDocAndCss } from "./Canvas";
 
@@ -123,7 +123,7 @@ export function PublicCanvasPage() {
               iframeRevisions={canvas.iframe_revisions}
               version={canvas.version}
               theme={canvas.resolved_theme}
-              iframeBaseUrl={`${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`}
+              iframeBaseUrl={`${convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`}
             />
           )}
         </>

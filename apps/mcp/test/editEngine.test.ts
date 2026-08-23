@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyExactEdit, parseApplyPatch, prepareApplyPatch } from "./editEngine";
+import { applyExactEdit, parseApplyPatch, prepareApplyPatch } from "../src/editEngine.js";
 
 describe("applyExactEdit", () => {
   it("requires a unique exact match", () => {

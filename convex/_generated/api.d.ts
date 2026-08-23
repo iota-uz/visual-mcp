@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentGateway from "../agentGateway.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
@@ -32,10 +33,6 @@ import type * as lib_theme from "../lib/theme.js";
 import type * as lib_tokenFormat from "../lib/tokenFormat.js";
 import type * as lib_urls from "../lib/urls.js";
 import type * as lib_worker from "../lib/worker.js";
-import type * as mcp_editEngine from "../mcp/editEngine.js";
-import type * as mcp_guides from "../mcp/guides.js";
-import type * as mcp_instructions from "../mcp/instructions.js";
-import type * as mcp_tools from "../mcp/tools.js";
 import type * as seed from "../seed.js";
 import type * as tokens from "../tokens.js";
 import type * as users from "../users.js";
@@ -48,6 +45,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentGateway: typeof agentGateway;
   assets: typeof assets;
   auth: typeof auth;
   canvases: typeof canvases;
@@ -72,10 +70,6 @@ declare const fullApi: ApiFromModules<{
   "lib/tokenFormat": typeof lib_tokenFormat;
   "lib/urls": typeof lib_urls;
   "lib/worker": typeof lib_worker;
-  "mcp/editEngine": typeof mcp_editEngine;
-  "mcp/guides": typeof mcp_guides;
-  "mcp/instructions": typeof mcp_instructions;
-  "mcp/tools": typeof mcp_tools;
   seed: typeof seed;
   tokens: typeof tokens;
   users: typeof users;

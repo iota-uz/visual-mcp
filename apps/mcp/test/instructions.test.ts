@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInstructions } from "./instructions";
+import { buildInstructions } from "../src/instructions.js";
 
 describe("lean MCP server instructions", () => {
   it("stays within the 900-token budget using a conservative character bound", () => {

@@ -23,12 +23,12 @@ Status legend: ✅ shipped · 🚧 in progress · ⏳ not started.
 | 5 | **Remote MCP is the differentiator**, built on the official SDK, not hand-rolled transport code. |
 | 6 | **Local stdio server fully replaced.** Hosted only. The old `npx github:iota-uz/visual-mcp` path and `.claude-plugin/` are removed, not kept as a compatibility shim. |
 | 7 | **`run_code` ships as-is**, network access included. Risk accepted — see §10. |
-| 8 | **Backend is Convex** (data, file storage, auth, functions). Chromium cannot run there, so a Railway render worker stays. Single-org internal tool: no billing, admin panel, or audit log. |
+| 8 | **Convex is the database and BFF**, not the MCP runtime. Railway runs the stateless MCP service and render worker; Convex handles data, file storage, auth, fixed allowlisted gateway calls, and public artifacts. Single-org internal tool: no billing, admin panel, or audit log. |
 | 9 | **Writes are org-wide**, not creator-scoped — any signed-in @iota.uz user (and any valid MCP token) may write to any workspace, attributed via `createdBy`. Consistent with "no ACLs, no roles." |
 | 10 | **MCP tokens expire after 90 days**, non-configurable in v1 — the mechanism that makes a departed employee's access actually die, independent of their Google account's state. |
 | 11 | **UI is English-only.** No i18n in v1. |
 | 12 | **Static public preview cards are supported; embedded viewers remain deferred.** GitHub/Markdown receives a script-free image linked to the existing share view or artifact. No website iframe snippet and no separate `/embed/:slug` viewer. |
-| 13 | **One public product origin.** Agents connect to `https://canvas.iota.uz/mcp`, which Railway streams to the Convex HTTP action; Convex artifact and capability URLs remain on `*.convex.site`. The SPA domain is CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
+| 13 | **One public product origin.** Agents connect to `https://canvas.iota.uz/mcp`. The Railway web service streams that route over the private network to the Railway MCP service; Convex artifact and capability URLs remain on `*.convex.site`. The SPA domain is CNAME'd to Railway (DNS-only, not proxied, so Railway's own Let's Encrypt cert issuance can validate directly). (Originally scoped as Netlify; shipped on Railway instead. See §12.2.) |
 
 ---
 
@@ -44,7 +44,7 @@ version, never destroys the old one.
 | `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
 | `/assets` · `/w/:wsSlug` | SPA | Convex session | personal/workspace reusable media | ✅ |
 | `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
-| `/mcp` | `*.convex.site` | bearer | remote MCP endpoint | ✅ |
+| `/mcp` | `canvas.iota.uz` | bearer | Railway MCP endpoint through the web service's private proxy | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |
 
 Deep-linking: `?node=<nodeId>` selects and frames a node (a query param, not a `#` fragment —
@@ -137,15 +137,12 @@ readiness instead of silently publishing blank rectangles.
 
 ```
 Convex deployment                          Railway project
-├── schema + queries/mutations             ├── render-worker  (public domain, WORKER_TOKEN)
-├── file storage (docs, artifacts, thumbs) │   Playwright/Chromium · D2 wasm · Tailwind CLI
-├── asset metadata + immutable bindings    │   DNS-pinned HTTPS asset import
-├── Convex Auth + /mcp + /s/:slug          ├── Vite + React SPA
-└── crons + capability tokens              └── private S3 asset bucket
-├── Convex Auth (Google, hd-restricted)        sharp · run_code
-├── httpAction  /mcp                           creds: NONE — per-request Convex storage URLs
-├── httpAction  /s/:slug  (artifact proxy)
-└── crons (cache TTL, quota sweep)
+├── schema + queries/mutations             ├── web (SPA, social HTML, /mcp private proxy)
+├── file storage (docs, artifacts, thumbs) ├── mcp (stateless SDK transport + tools/resources)
+├── asset metadata + immutable bindings    ├── worker (Playwright, D2, Tailwind, run_code)
+├── Convex Auth + /s/:slug                 └── private S3 asset bucket
+├── fixed /agent-gateway BFF
+└── crons + capability tokens
 
 ```
 
@@ -155,18 +152,18 @@ subprocess, and `run_code` all need a real container. That container is also the
 untrusted code runs — and it holds no Convex deploy key, only short-lived upload/download URLs
 scoped to the canvas being rendered. That credential isolation is the §10.1 mitigation.
 
-**Cost of choosing Convex, recorded honestly:** the API and the worker don't share a private
-network, so `render-worker` needs a public domain guarded by a shared `WORKER_TOKEN` over HTTPS
-with no other routes exposed. Weaker than private networking; acceptable because the worker
-stores nothing and holds no credentials.
+The web, MCP, and worker services communicate over Railway private DNS. The MCP service holds
+the worker and S3 credentials and uses a separate high-entropy secret for short-lived calls to
+Convex's fixed agent gateway. It never receives a Convex deploy key. Long-lived MCP protocol
+requests terminate in Railway, so they cannot consume Convex action runtime.
 
 **Stack, current state:**
 
 ```
 packages/runtime/   ✅ render pipeline, templates, themes, path normalizer — see Part 2
 packages/canvas/    ✅ §2 engine, isomorphic
-convex/             ✅ schema, queries, mutations, actions, http.ts, mcp/tools.ts,
-                     auth.config.ts + lib/auth.ts (native Google OIDC, see §7)
+convex/             ✅ database, auth, fixed agent gateway, public artifact endpoints
+apps/mcp/           ✅ stateless MCP SDK transport, tools, resources, Railway service
 apps/worker/        ✅ Hono + Playwright + D2 + Tailwind + run_code + safe asset import
 apps/web/           ✅ Vite + React SPA — routes, viewer/layout editing, publish, tokens,
                      personal/workspace Asset Library
@@ -274,16 +271,12 @@ arithmetic, zero traversal surface.
 ## 6. Remote MCP — the official SDK v2 ✅ shipped
 
 **The protocol is stateless.** MCP revision 2026-07-28 removed the `initialize` handshake and
-`Mcp-Session-Id`; every request is self-contained. This is a natural fit for a Convex
-`httpAction`, which is a pure request/response function — the old stateful SSE model would have
-fought that. It also means there's no in-memory session-store problem to solve on this side of
-the system (the *old* stdio server's `session-store.ts` was a separate, unrelated thing, removed
-with the rest of the local path per decision #6).
+`Mcp-Session-Id`; every request is self-contained. The Railway service therefore keeps no
+session store, and subscriptions are disabled explicitly.
 
 **Library:** the official TypeScript SDK v2 (`@modelcontextprotocol/server`), mounted via
-`createMcpHandler` inside a Convex `httpAction` (`convex/http.ts`). Auth uses the SDK's own
-`requireBearerAuth` middleware. `createMcpHandler` runs cleanly in the Convex runtime — the
-Railway/Hono fallback considered during planning was never needed.
+`createMcpHandler` in `apps/mcp`. Auth uses the SDK's `requireBearerAuth` middleware, backed by
+a short Convex gateway call. The protocol request itself never enters Convex.
 
 ```ts
 export interface McpPrincipal { userId: Id<'users'>; tokenId: Id<'mcpTokens'>; email: string }
@@ -295,7 +288,7 @@ export interface RenderClient { render(req): Promise<RenderResult>; exec(req): P
 `run_code` and `render_file` share the worker's hydrate/persist shape — `POST /exec` takes the
 same signed payload plus a code string and returns `{success, stdout, stderr, error?}`.
 
-**Tools** — all 13 registered in `convex/mcp/tools.ts` (✅), `session_id` replaced by `canvas_id`
+**Tools** — registered in `apps/mcp/src/tools.ts` (✅), `session_id` replaced by `canvas_id`
 throughout with no compatibility alias, since decision #6 retires the stdio server entirely:
 
 | Tool | Status | Notes |
@@ -421,7 +414,7 @@ Convex session, not by this route.
 |---|---|---|
 | **A0** Foundations | npm workspaces; `src/` → `packages/runtime` with the local-runtime tests green; `normalizeCanvasPath` extracted, other guards folded in or deleted; `CanvasStorage` + disk impl; CI (typecheck + test) and Biome; worker Dockerfile; Convex project + Railway worker service provisioned | ✅ done |
 | **A1.0** MCP spike | Prove `createMcpHandler` runs in the Convex runtime before building real tools against it | ✅ done — ran cleanly, no Hono/Railway fallback needed |
-| **A1** Hosted MCP end-to-end | Convex schema + mutations/queries; Convex file storage wired; worker with hydrate/render/persist, credential-free env; `/mcp` httpAction on SDK v2 with bearer auth; all 13 tools; `export_artifact` size cap | ✅ done — `claude mcp add --transport http …` → create canvas → write HTML → render PNG → get a URL that loads, works end-to-end |
+| **A1** Hosted MCP end-to-end | Convex database/BFF and file storage; Railway MCP SDK transport; worker hydrate/render/persist; bearer auth; tool/resource surface | ✅ done — `claude mcp add --transport http …` → create canvas → render → get a URL that loads |
 | **A2** Web product | Native Google OIDC auth with `hd` + `email_verified` enforcement; public query/mutation layer for workspaces/canvases/tokens; SPA (workspaces, canvas grid, viewer, share toggle, token UI); `/s/:slug` httpAction with CSP; deploy | ✅ done — SPA live at `canvas.iota.uz`, built as a static Dockerfile image (`apps/web/Dockerfile`, served by `serve -s`) on Railway rather than the originally-scoped Netlify (§12.2); OAuth client ID and `SPA_ORIGIN` set on the real deployment. Live-updating thumbnails verified end-to-end against the deployed worker. Browser verification: §11 |
 
 ### Track B — canvas engine
@@ -533,7 +526,8 @@ Recorded because they were consciously chosen.
 1. **Write scoping** — resolved as decision #9: org-wide writes, `createdBy` attribution, no
    per-workspace ACL.
 2. **Domains** — resolved as decision #13: agents use `canvas.iota.uz/mcp`, streamed by the
-   Railway web service to Convex; artifacts and capability URLs remain on `*.convex.site`.
+   Railway web service to the private Railway MCP service; artifacts and capability URLs remain
+   on `*.convex.site`.
    **Host changed from the original Netlify plan to Railway**
    (`apps/web/Dockerfile`, static build served via `serve -s` with SPA fallback, deployed to the
    same Railway project as the render worker) — this session had authenticated Railway access
@@ -569,7 +563,7 @@ Everything below describes `packages/runtime` as it was originally specified bef
 Convex/worker split existed. The policies described are still accurate: Tailwind v4 styling
 rules, D2/ApexCharts authoring modes, sandbox restrictions, the template and theme systems, and
 the artifact manifest shape are unchanged by the migration to a hosted product — only the
-transport (`stdio` → Convex `/mcp`) and the identifier (`session_id` → `canvas_id`) changed, and
+transport (`stdio` → hosted Railway `/mcp`) and the identifier (`session_id` → `canvas_id`) changed, and
 those are covered by Part 1 §6.
 
 **Removed:** the three subsections that described the local stdio runtime rather than a policy —

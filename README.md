@@ -73,13 +73,17 @@ The built-in starter templates are MCP **resources**, not a tool —
 
 ## Architecture
 
-Convex is the control plane (metadata, auth, versions, bindings, `/mcp` and
-`/s/:slug`). One private Railway S3-compatible bucket stores immutable Asset Library
-objects. Two Railway services provide a render worker (Playwright/Chromium, D2,
-Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
-Vite+React SPA plus a minimal Node static server for the human-facing
-gallery/viewer. The server injects canvas-specific OG/Twitter metadata into
-the initial `/s/:slug` HTML and proxies a revocable raster social preview. It is live at
+Convex is the database and BFF: metadata, auth, versions, bindings, short-lived
+agent gateway calls, and public `/s/:slug` artifact delivery. One private Railway
+S3-compatible bucket stores immutable Asset Library objects. Three Railway services
+provide the stateless MCP protocol/tool runtime, a render worker
+(Playwright/Chromium, D2, Tailwind CLI, `run_code`), and the Vite+React SPA plus
+its minimal Node edge server. The web service keeps the canonical
+`canvas.iota.uz/mcp` URL and streams it over Railway's private network to the MCP
+service. The MCP service reaches the worker privately and calls Convex only through
+the fixed, shared-secret agent gateway; Convex never holds an MCP connection open.
+The server also injects canvas-specific OG/Twitter metadata into the initial
+`/s/:slug` HTML and proxies a revocable raster social preview. It is live at
 https://canvas.iota.uz. Full design, current
 milestone status, and accepted risks: [PLAN.md](./PLAN.md).
 
@@ -91,7 +95,8 @@ packages/runtime/   render pipeline (Playwright, D2, ApexCharts, Tailwind
                      part of the original local runtime that survived
 packages/canvas/    the canvas-document engine (types, layout, edge
                      routing, render, browser viewport) — isomorphic
-convex/             schema, queries/mutations/actions, /mcp and /s/:slug
+convex/             database, auth, fixed agent BFF, and /s/:slug artifact routes
+apps/mcp/           stateless MCP transport, auth adapter, tools, and resources (Railway)
 apps/worker/        Hono worker: render/exec plus DNS-pinned HTTPS asset import (Railway)
 apps/web/           Vite + React SPA and crawler-aware static server
                      (workspaces, gallery, viewer, MCP tokens, social cards)

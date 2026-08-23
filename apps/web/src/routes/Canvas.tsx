@@ -69,9 +69,9 @@ import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { TextInput } from "../components/ui/TextInput";
 import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
+import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
-import { mcpBaseUrl } from "../lib/mcpUrl";
 import {
   clampPrototypeHotspot,
   drawPrototypeHotspot,
@@ -3138,7 +3138,7 @@ export function CanvasPage() {
               }}
               iframeBaseUrl={
                 iframeCapabilityToken
-                  ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`
+                  ? `${convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`
                   : null
               }
             />

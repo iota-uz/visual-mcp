@@ -155,9 +155,11 @@ const existing = Object.fromEntries(
 // Generated once and reused, so a re-run doesn't invalidate the session in
 // a browser that is already signed in.
 const devSecret = existing.DEV_AUTH_SECRET || randomBytes(24).toString("base64url");
+const gatewaySecret = existing.AGENT_GATEWAY_SECRET || randomBytes(32).toString("base64url");
 
 const wanted = {
   DEV_AUTH_SECRET: devSecret,
+  AGENT_GATEWAY_SECRET: gatewaySecret,
   // Both are localhost here, and that is the point: SITE_URL is what Convex
   // Auth validates redirects against, and SPA_ORIGIN is what widens the
   // public canvas CSP's frame-ancestors so the viewer's iframe renders.
@@ -195,6 +197,7 @@ writeFileSync(
     "# Delete this file to go back to the deployment in .env.",
     `VITE_CONVEX_URL=${convexUrl}`,
     `VITE_DEV_AUTH_SECRET=${devSecret}`,
+    "VITE_MCP_URL=http://localhost:3212",
     "",
   ].join("\n"),
 );
@@ -250,10 +253,10 @@ const banner = `
 
   Signed in as   ${SEED_EMAIL}
   Backend        ${convexUrl}
-  MCP endpoint   ${convexSiteUrl}/mcp
+  MCP endpoint   http://localhost:3212/mcp
   MCP token      ${SEED_MCP_TOKEN}
 
-    claude mcp add --transport http visual-canvas-local ${convexSiteUrl}/mcp \\
+    claude mcp add --transport http visual-canvas-local http://localhost:3212/mcp \\
       --header "Authorization: Bearer ${SEED_MCP_TOKEN}"
 
   canvas_save writes and shows up in the UI. Renders do not run here (no
@@ -286,6 +289,19 @@ const guard = setInterval(restoreLiveEnv, 500);
 guard.unref?.();
 
 const children = [spawn("npx", devArgs, { cwd: ROOT, stdio: "inherit" })];
+children.push(
+  spawn("npm", ["run", "dev", "-w", "apps/mcp"], {
+    cwd: ROOT,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      PORT: "3212",
+      CONVEX_SITE_URL: convexSiteUrl,
+      SPA_ORIGIN: "http://localhost:5173",
+      AGENT_GATEWAY_SECRET: gatewaySecret,
+    },
+  }),
+);
 if (serve)
   children.push(
     spawn("npm", ["run", "dev", "-w", "apps/web", "--", "--port", "5173", "--strictPort"], {

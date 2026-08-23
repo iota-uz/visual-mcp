@@ -1,37 +1,3 @@
-/**
- * `/mcp` — the real remote MCP endpoint (PLAN.md section 6), replacing the
- * A1.0 spike's single unauthenticated `echo` tool now that the spike is
- * proven (see git history: "A1.0 SPIKE RESOLVED").
- *
- * Two zod majors coexist in this bundle by design — see ./mcp/tools.ts's
- * header comment. This file only touches the v4 one, via
- * `@modelcontextprotocol/server`'s own auth helpers.
- *
- * Auth: `requireBearerAuth` (the framework-free, fetch-native counterpart of
- * the SDK's Express middleware — see that package's
- * dist/createMcpHandler-*.d.mts) gates every request before the JSON-RPC
- * body is ever parsed. The verifier hashes the raw token, looks up
- * `mcpTokens` by that hash (see ./tokens.ts), and rejects unknown/revoked/
- * expired tokens with a spec-correct 401 + `WWW-Authenticate` challenge —
- * `verifyBearerToken` also rejects any `AuthInfo` missing `expiresAt`, so a
- * verifier that forgets to set it fails closed, not open.
- *
- * Per-request factory: `createMcpHandler`'s factory runs once per HTTP
- * request (see McpServerFactory's doc comment) and receives the verified
- * `AuthInfo` via `McpRequestContext.authInfo` — the SDK's documented way to
- * build multi-tenant servers keyed off the caller's identity, so no
- * module-level session/principal state is needed.
- */
-
-import {
-  type AuthInfo,
-  createMcpHandler,
-  McpServer,
-  OAuthError,
-  OAuthErrorCode,
-  type OAuthTokenVerifier,
-  requireBearerAuth,
-} from "@modelcontextprotocol/server";
 import { CanvasFileSchema } from "@visual-canvas/canvas";
 import type { Theme } from "@visual-canvas/canvas/themes.js";
 import { compileThemeToCssVariables } from "@visual-canvas/runtime/render/themes/index.js";
@@ -40,99 +6,25 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { httpAction } from "./_generated/server";
+import { handleAgentGateway } from "./agentGateway";
 // Aliased: the request handlers below bind a local `auth` for the verified
 // bearer AuthInfo.
 import { auth as convexAuth } from "./auth";
 import { renderEmbedCard } from "./lib/embedCard";
-import { sha256Hex } from "./lib/hash";
 import { getObject, presignObject } from "./lib/objectStore";
-import { buildInstructions } from "./mcp/instructions";
-import { type McpPrincipal, registerResources, registerTools } from "./mcp/tools";
-
-function principalFromAuthInfo(authInfo: AuthInfo | undefined): McpPrincipal {
-  const extra = authInfo?.extra;
-  if (!extra) {
-    throw new Error("MCP request reached the tool factory without a verified principal");
-  }
-  return {
-    userId: extra.userId as Id<"users">,
-    tokenId: extra.tokenId as Id<"mcpTokens">,
-    email: extra.email as string,
-  };
-}
-
-function buildVerifier(ctx: ActionCtx): OAuthTokenVerifier {
-  return {
-    async verifyAccessToken(token) {
-      const tokenHash = await sha256Hex(token);
-      const principal = await ctx.runQuery(internal.tokens.verify, { tokenHash, now: Date.now() });
-      if (!principal) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, "invalid, revoked, or expired token");
-      }
-      // Awaited — an unawaited action promise can be dropped once the
-      // action returns, which would make lastUsedAt silently unreliable.
-      await ctx.scheduler.runAfter(0, internal.tokens.touchLastUsed, {
-        tokenId: principal.tokenId,
-      });
-      return {
-        token,
-        clientId: principal.userId,
-        scopes: ["mcp"],
-        expiresAt: Math.floor(principal.expiresAt / 1000),
-        extra: { userId: principal.userId, tokenId: principal.tokenId, email: principal.email },
-      };
-    },
-  };
-}
 
 const http = httpRouter();
 
 // Convex Auth's own endpoints (../auth.ts): the OAuth redirect, the Google
 // callback, and the refresh-token exchange the SPA calls silently in the
-// background. They live under /api/auth/*, so they cannot collide with /mcp
-// or the public /s/:slug artifact route below.
+// background. They live under /api/auth/*, separate from the private agent
+// gateway and the public /s/:slug artifact route below.
 convexAuth.addHttpRoutes(http);
 
 http.route({
-  path: "/mcp",
+  path: "/agent-gateway",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const gate = requireBearerAuth({ verifier: buildVerifier(ctx) });
-    const auth = await gate(request);
-    if (auth instanceof Response) return auth;
-
-    const message = (await request.clone().json().catch(() => null)) as {
-      jsonrpc?: unknown;
-      id?: unknown;
-      method?: unknown;
-    } | null;
-    if (message?.method === "subscriptions/listen") {
-      return Response.json({
-        jsonrpc: "2.0",
-        id: message.id ?? null,
-        error: { code: -32601, message: "MCP subscriptions are disabled" },
-      });
-    }
-
-    const mcpHandler = createMcpHandler(
-      (reqCtx) => {
-        // `instructions` is how a server explains itself once, instead of
-        // repeating the addressing rules in all six tool descriptions — and it
-        // replaces the v1 descriptions' citations of "PLAN.md section 7", a
-        // file the caller has no way to read.
-        const server = new McpServer(
-          { name: "visual-canvas", version: "2.0.0" },
-          { instructions: buildInstructions() },
-        );
-        registerTools(server, ctx, principalFromAuthInfo(reqCtx.authInfo));
-        registerResources(server, ctx);
-        return server;
-      },
-      { maxSubscriptions: 0 },
-    );
-
-    return mcpHandler.fetch(request, { authInfo: auth });
-  }),
+  handler: httpAction(handleAgentGateway),
 });
 
 // Stay under the httpAction response cap (20 MiB) with margin for headers —

@@ -25,7 +25,7 @@
  *     returns `structuredContent`, instead of pretty-printed JSON inside a
  *     text blob the caller has to re-parse.
  *
- * Two zod majors are in play here on purpose (see ../http.ts's header
+ * Two zod majors are in play here on purpose (see ./index.ts's header
  * comment): tool schemas use zod v4 (this file's `z` import, which resolves
  * to root's zod@4 — what `@modelcontextprotocol/server` itself requires),
  * while `CanvasDocSchema` comes from `@visual-canvas/canvas` and validates
@@ -65,6 +65,7 @@ import {
   resolveCanvasPage,
 } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
+import { inferArtifactInfo } from "@visual-canvas/runtime/render/artifact-info.js";
 import {
   compileThemeToCssVariables,
   compileThemeToTailwindV4,
@@ -76,26 +77,32 @@ import {
   listTemplates as templateRegistryList,
 } from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
-import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
-import type { ActionCtx } from "../_generated/server";
-import { fetchAssetImport, persistAsset } from "../assets";
-import { parseComponentRef } from "../components";
-import { inferArtifactInfo } from "../lib/artifactInfo";
-import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "../lib/assetSecurity";
-import { sha256Hex, sha256HexBytes } from "../lib/hash";
-import { deleteObject, getObject, presignObject } from "../lib/objectStore";
-import { slugify } from "../lib/slug";
+import type { Id } from "../../../convex/_generated/dataModel.js";
+import type { ActionCtx } from "../../../convex/_generated/server.js";
+import { fetchAssetImport, persistAsset } from "./assets.js";
+import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
+import { MCP_GUIDES } from "./guides.js";
+import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
+import { sha256Hex, sha256HexBytes } from "./lib/hash.js";
+import { deleteObject, getObject, presignObject } from "./lib/objectStore.js";
+import { slugify } from "./lib/slug.js";
 import {
   canvasUrl,
   embedCardUrl,
   embedTargetUrl,
   githubEmbedMarkdown,
   shareUrl,
-} from "../lib/urls";
-import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
-import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine";
-import { MCP_GUIDES } from "./guides";
+} from "./lib/urls.js";
+import { callWorker, extractStorageId, getWorkerConfig } from "./lib/worker.js";
+import { internal } from "./refs.js";
+
+function parseComponentRef(ref: string): { workspaceSlug: string; componentSlug: string } {
+  const parts = ref.trim().split("/").filter(Boolean);
+  if (parts.length !== 2) {
+    throw new Error(`Component ref "${ref}" must be "workspace-slug/component-slug".`);
+  }
+  return { workspaceSlug: parts[0] as string, componentSlug: parts[1] as string };
+}
 
 export interface McpPrincipal {
   userId: Id<"users">;

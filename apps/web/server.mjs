@@ -135,7 +135,8 @@ function contentType(path) {
   );
 }
 
-async function proxyMcp(request, response, siteOrigin, fetchImpl) {
+async function proxyMcp(request, response, mcpOrigin, fetchImpl) {
+  if (!mcpOrigin) throw new Error("MCP_UPSTREAM_URL is required");
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (HOP_BY_HOP_HEADERS.has(name) || value === undefined) continue;
@@ -153,7 +154,7 @@ async function proxyMcp(request, response, siteOrigin, fetchImpl) {
   response.once("close", abortUpstream);
 
   try {
-    const upstream = await fetchImpl(new URL("/mcp", siteOrigin), {
+    const upstream = await fetchImpl(new URL("/mcp", mcpOrigin), {
       method: "POST",
       headers,
       body: request,
@@ -181,6 +182,7 @@ async function proxyMcp(request, response, siteOrigin, fetchImpl) {
 export function createAppServer({
   distRoot = ROOT,
   siteOrigin = convexSiteOrigin(process.env.CONVEX_SITE_URL ?? process.env.VITE_CONVEX_URL),
+  mcpOrigin = process.env.MCP_UPSTREAM_URL,
   fetchImpl = fetch,
 } = {}) {
   const templatePromise = readFile(join(distRoot, "index.html"), "utf8");
@@ -218,7 +220,7 @@ export function createAppServer({
           response.writeHead(405, { allow: "POST" }).end();
           return;
         }
-        await proxyMcp(request, response, siteOrigin, fetchImpl);
+        await proxyMcp(request, response, mcpOrigin, fetchImpl);
         return;
       }
       if (request.method !== "GET" && request.method !== "HEAD") {

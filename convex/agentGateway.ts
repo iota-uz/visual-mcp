@@ -1,0 +1,164 @@
+import type { FunctionReference } from "convex/server";
+import { internal } from "./_generated/api";
+import type { ActionCtx } from "./_generated/server";
+
+type GatewayFunction = FunctionReference<"query" | "mutation", "internal">;
+
+const FUNCTIONS: Record<string, GatewayFunction> = {
+  "assets:archiveByRef": internal.assets.archiveByRef,
+  "assets:commitAssetVersion": internal.assets.commitAssetVersion,
+  "assets:createUploads": internal.assets.createUploads,
+  "assets:getUpload": internal.assets.getUpload,
+  "assets:getWorkspace": internal.assets.getWorkspace,
+  "assets:getWorkspaceBySlug": internal.assets.getWorkspaceBySlug,
+  "assets:listInternal": internal.assets.listInternal,
+  "assets:moveByRef": internal.assets.moveByRef,
+  "assets:resolveRef": internal.assets.resolveRef,
+  "assets:restoreByRef": internal.assets.restoreByRef,
+  "canvases:attachCanvasRender": internal.canvases.attachCanvasRender,
+  "canvases:bindAssetAndVersion": internal.canvases.bindAssetAndVersion,
+  "canvases:changedPathsSinceVersion": internal.canvases.changedPathsSinceVersion,
+  "canvases:checkpointByRef": internal.canvases.checkpointByRef,
+  "canvases:commitFilePatch": internal.canvases.commitFilePatch,
+  "canvases:commitSaveContent": internal.canvases.commitSaveContent,
+  "canvases:currentDocStorageByRef": internal.canvases.currentDocStorageByRef,
+  "canvases:currentNodeByRef": internal.canvases.currentNodeByRef,
+  "canvases:currentVersion": internal.canvases.currentVersion,
+  "canvases:detailByRef": internal.canvases.detailByRef,
+  "canvases:detailFacetPageByRef": internal.canvases.detailFacetPageByRef,
+  "canvases:findCanvasNodes": internal.canvases.findCanvasNodes,
+  "canvases:findCanvases": internal.canvases.findCanvases,
+  "canvases:findWorkspaces": internal.canvases.findWorkspaces,
+  "canvases:getEditableFileByRef": internal.canvases.getEditableFileByRef,
+  "canvases:getSnapshotCache": internal.canvases.getSnapshotCache,
+  "canvases:listAssetBindingPaths": internal.canvases.listAssetBindingPaths,
+  "canvases:listFilesForCanvas": internal.canvases.listFilesForCanvas,
+  "canvases:listSourcesForVersion": internal.canvases.listSourcesForVersion,
+  "canvases:logRender": internal.canvases.logRender,
+  "canvases:putSnapshotCache": internal.canvases.putSnapshotCache,
+  "canvases:recordExecArtifacts": internal.canvases.recordExecArtifacts,
+  "canvases:removeByRef": internal.canvases.removeByRef,
+  "canvases:snapshotContextByRef": internal.canvases.snapshotContextByRef,
+  "canvases:storageAttachment": internal.canvases.storageAttachment,
+  "canvases:upsertByRef": internal.canvases.upsertByRef,
+  "comments:complete": internal.comments.complete,
+  "comments:create": internal.comments.create,
+  "comments:list": internal.comments.list,
+  "comments:openCount": internal.comments.openCount,
+  "comments:reply": internal.comments.reply,
+  "comments:resolveId": internal.comments.resolveId,
+  "comments:setStatus": internal.comments.setStatus,
+  "components:find": internal.components.find,
+  "components:getByRef": internal.components.getByRef,
+  "components:remove": internal.components.remove,
+  "components:upsert": internal.components.upsert,
+  "workspaces:getThemeBySlug": internal.workspaces.getThemeBySlug,
+};
+
+const QUERIES = new Set([
+  "assets:getUpload",
+  "assets:getWorkspace",
+  "assets:getWorkspaceBySlug",
+  "assets:listInternal",
+  "assets:resolveRef",
+  "canvases:changedPathsSinceVersion",
+  "canvases:currentDocStorageByRef",
+  "canvases:currentNodeByRef",
+  "canvases:currentVersion",
+  "canvases:detailByRef",
+  "canvases:detailFacetPageByRef",
+  "canvases:findCanvasNodes",
+  "canvases:findCanvases",
+  "canvases:findWorkspaces",
+  "canvases:getEditableFileByRef",
+  "canvases:getSnapshotCache",
+  "canvases:listAssetBindingPaths",
+  "canvases:listFilesForCanvas",
+  "canvases:listSourcesForVersion",
+  "canvases:snapshotContextByRef",
+  "canvases:storageAttachment",
+  "comments:list",
+  "comments:openCount",
+  "comments:resolveId",
+  "components:find",
+  "components:getByRef",
+  "workspaces:getThemeBySlug",
+]);
+
+function secret(): string {
+  const value = process.env.AGENT_GATEWAY_SECRET;
+  if (!value) throw new Error("AGENT_GATEWAY_SECRET is not configured");
+  return value;
+}
+
+function authorized(request: Request): boolean {
+  return request.headers.get("authorization") === `Bearer ${secret()}`;
+}
+
+function jsonError(status: number, message: string): Response {
+  return Response.json({ error: message }, { status });
+}
+
+export async function handleAgentGateway(ctx: ActionCtx, request: Request): Promise<Response> {
+  if (!authorized(request)) return jsonError(401, "Unauthorized");
+  const body = (await request.json().catch(() => null)) as {
+    operation?: unknown;
+    name?: unknown;
+    args?: unknown;
+  } | null;
+  if (!body || typeof body.operation !== "string") return jsonError(400, "Invalid request");
+
+  try {
+    if (body.operation === "authenticate") {
+      const tokenHash =
+        typeof body.args === "object" && body.args && "tokenHash" in body.args
+          ? (body.args as { tokenHash?: unknown }).tokenHash
+          : undefined;
+      if (typeof tokenHash !== "string") return jsonError(400, "Invalid token hash");
+      const principal = await ctx.runQuery(internal.tokens.verify, { tokenHash, now: Date.now() });
+      if (principal) {
+        await ctx.scheduler.runAfter(0, internal.tokens.touchLastUsed, {
+          tokenId: principal.tokenId,
+        });
+      }
+      return Response.json({ result: principal });
+    }
+
+    if (body.operation === "query" || body.operation === "mutation") {
+      if (typeof body.name !== "string") return jsonError(400, "Function name is required");
+      const fn = FUNCTIONS[body.name];
+      const actualOperation = QUERIES.has(body.name) ? "query" : "mutation";
+      if (!fn || actualOperation !== body.operation)
+        return jsonError(404, "Function is not exposed");
+      const args = body.args && typeof body.args === "object" ? body.args : {};
+      const result =
+        body.operation === "query"
+          ? await ctx.runQuery(fn as FunctionReference<"query", "internal">, args)
+          : await ctx.runMutation(fn as FunctionReference<"mutation", "internal">, args);
+      return Response.json({ result });
+    }
+
+    if (body.operation === "storage.generateUploadUrl") {
+      return Response.json({ result: await ctx.storage.generateUploadUrl() });
+    }
+    const storageId =
+      typeof body.args === "object" && body.args && "storageId" in body.args
+        ? (body.args as { storageId?: unknown }).storageId
+        : undefined;
+    if (typeof storageId !== "string") return jsonError(400, "storageId is required");
+    if (body.operation === "storage.getUrl") {
+      return Response.json({ result: await ctx.storage.getUrl(storageId) });
+    }
+    if (body.operation === "storage.getMetadata") {
+      return Response.json({ result: await ctx.storage.getMetadata(storageId) });
+    }
+    if (body.operation === "storage.delete") {
+      await ctx.storage.delete(storageId);
+      return Response.json({ result: null });
+    }
+    return jsonError(404, "Operation is not exposed");
+  } catch (error) {
+    console.error("Agent gateway request failed", error);
+    return jsonError(500, error instanceof Error ? error.message : "Gateway request failed");
+  }
+}

@@ -99,7 +99,7 @@ const CANVAS_STORAGE_QUOTA_BYTES = 250 * 1024 * 1024;
  * Checks `incomingBytes` against the canvas's running storage total and, if
  * it fits, reserves it by patching the counter — in one mutation so the
  * check and the reservation can't drift apart. Throws a clear,
- * MCP-tool-surfaced error (caught by ../mcp/tools.ts's `runTool`) when it
+ * tool-surfaced error (caught by the MCP service's `runTool`) when it
  * would push the canvas over its soft cap.
  */
 async function reserveCanvasStorage(

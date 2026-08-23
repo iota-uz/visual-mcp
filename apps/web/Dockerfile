@@ -7,17 +7,14 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY package.json package-lock.json ./
+COPY apps/mcp/package.json apps/mcp/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
 COPY packages/runtime/package.json packages/runtime/package.json
 COPY convex/package.json convex/package.json
-# apps/web's tsconfig pulls in convex/_generated/*.d.ts, which type-imports
-# the real convex/*.ts sources (e.g. "../mcp/tools.ts") for the shape of
-# `typeof http`/`typeof mcp_tools` etc. — not just their own file, but
-# everything THEY import too. That chain reaches @visual-canvas/runtime and
-# convex's own dependencies: zod and @modelcontextprotocol/server, both
-# declared on ROOT package.json, not per-workspace.
+# apps/web's tsconfig pulls in convex/_generated/*.d.ts, whose API types reach
+# the real Convex modules and their workspace dependencies.
 #
 # This must be a bare `npm ci` — no `--workspace=` flags. Passing even one
 # `--workspace` flag silently flips npm's `--include-workspace-root`
@@ -25,10 +22,7 @@ COPY convex/package.json convex/package.json
 # entirely (verified by hand: a `--workspace`-scoped install, with or
 # without an explicit `--include-workspace-root=false`, left
 # node_modules/zod and node_modules/@modelcontextprotocol/server missing
-# outright — not hoisted elsewhere, just never installed — which
-# skipLibCheck then silently degrades to unrelated-looking TS7006 "implicit
-# any" errors deep in apps/web's own route components, not a clear
-# module-not-found error at the actual missing import). All five workspace
+# outright — not hoisted elsewhere, just never installed. All six workspace
 # package.json files must be present for the install to match
 # package-lock.json's full topology.
 #

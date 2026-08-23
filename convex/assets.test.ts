@@ -308,9 +308,7 @@ describe("Asset Library bindings", () => {
       destinationScope: "personal",
     });
     expect(back.assetRef).toBe(personalRef);
-    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.objectKey).toBe(
-      "assets/mark",
-    );
+    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.objectKey).toBe("assets/mark");
     expect(workspaceId).toBeDefined();
   });
 

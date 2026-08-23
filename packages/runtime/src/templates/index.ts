@@ -2,7 +2,7 @@
  * Template registry (PLAN.md section 10).
  *
  * Exposes the built-in `Template` values published as MCP resources at
- * `canvas://templates/{id}` (see convex/mcp/tools.ts's registerResources).
+ * `canvas://templates/{id}` (see apps/mcp/src/tools.ts's registerResources).
  * Each template is a concrete example (real D2 / HTML+
  * Tailwind v4 source) rather than a programmatic builder API — see
  * PLAN.md section 13's explicit "no VisualKit SDK" constraint.

@@ -1,5 +1,6 @@
 import type { CanvasDoc } from "@visual-canvas/canvas";
 import { useMemo, useState } from "react";
+import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import {
   buildEmbedCardUrl,
   buildEmbedClickUrl,
@@ -7,7 +8,6 @@ import {
   type EmbedTarget,
   embedTargetKey,
 } from "../lib/embed";
-import { mcpBaseUrl } from "../lib/mcpUrl";
 import { CopyableValue } from "./ui/CopyableValue";
 import { Select, TextInput } from "./ui/TextInput";
 
@@ -54,7 +54,7 @@ export function EmbedControl({
 
   if (!selected) return null;
 
-  const publicOrigin = mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined);
+  const publicOrigin = convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined);
   const cardUrl = buildEmbedCardUrl({
     publicOrigin,
     publicSlug,

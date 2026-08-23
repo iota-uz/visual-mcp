@@ -22,8 +22,14 @@ async function fixtureServer(metadataBySlug) {
     '<!doctype html><head><!-- visual-canvas:meta:start --><title>Visual Canvas</title><!-- visual-canvas:meta:end --></head><body><div id="root"></div></body>',
   );
   await writeFile(join(root, "social-fallback.png"), Buffer.from([137, 80, 78, 71]));
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, init) => {
     const parsed = new URL(url);
+    if (parsed.hostname === "mcp.example") {
+      return Response.json({
+        authorization: init.headers.get("authorization"),
+        body: JSON.parse(await new Response(init.body).text()),
+      });
+    }
     if (parsed.hostname === "images.example") {
       const png = Buffer.alloc(24);
       Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
@@ -36,12 +42,33 @@ async function fixtureServer(metadataBySlug) {
     const metadata = typeof entry === "function" ? entry(parsed) : entry;
     return metadata ? Response.json(metadata) : new Response("Not found", { status: 404 });
   };
-  const server = createAppServer({ distRoot: root, siteOrigin: "https://api.example", fetchImpl });
+  const server = createAppServer({
+    distRoot: root,
+    siteOrigin: "https://api.example",
+    mcpOrigin: "https://mcp.example",
+    fetchImpl,
+  });
   servers.push(server);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   return `http://127.0.0.1:${address.port}`;
 }
+
+describe("MCP reverse proxy", () => {
+  it("keeps the public /mcp URL while forwarding auth and JSON to the MCP service", async () => {
+    const origin = await fixtureServer({});
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer token" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      authorization: "Bearer token",
+      body: { method: "tools/list" },
+    });
+  });
+});
 
 describe("crawler-facing public share HTML", () => {
   it("injects escaped canvas-specific OG and Twitter metadata before JavaScript runs", () => {

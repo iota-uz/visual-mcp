@@ -31,10 +31,8 @@
   "dependencies": {
     "@auth/core": "^0.41.3",
     "@convex-dev/auth": "^0.0.95",
-    "@modelcontextprotocol/server": "2.0.0",
     "aws4fetch": "^1.0.20",
-    "convex": "1.43.0",
-    "zod": "4.4.3"
+    "convex": "1.43.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

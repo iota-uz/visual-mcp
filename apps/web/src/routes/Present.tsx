@@ -11,7 +11,7 @@ import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { Button } from "../components/ui/Button";
 import { IconButton } from "../components/ui/IconButton";
-import { mcpBaseUrl } from "../lib/mcpUrl";
+import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { presentHotspotBox } from "../lib/presentGeometry";
 import { useAutoHideControls } from "../lib/useAutoHideControls";
 import { useIframeCapability } from "../lib/useIframeCapability";
@@ -58,7 +58,7 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     revisions: canvas?.iframe_revisions ?? null,
   });
   const signedIframeBase = capability
-    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${capability.token}`
+    ? `${convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${capability.token}`
     : null;
   const [history, setHistory] = useState<PrototypeTarget[]>([]);
   const [visited, setVisited] = useState<PrototypeTarget[]>([]);
@@ -304,7 +304,7 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     (interaction) => targetKey(interaction.source) === targetKey(active),
   );
   const iframeBaseUrl = publicView
-    ? `${mcpBaseUrl(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`
+    ? `${convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined)}/s/${slug}`
     : signedIframeBase;
 
   return (

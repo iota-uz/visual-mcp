@@ -4,7 +4,7 @@
  * `packages/runtime/src/render/artifact-info.ts` (extracted from that
  * package's old artifact-store module, which is gone — superseded by the
  * `artifacts` table); this module just re-exports it under the name
- * `convex/mcp/tools.ts` already imports.
+ * existing backend callers import.
  */
 
 export { inferArtifactInfo, isTextMime } from "@visual-canvas/runtime/render/artifact-info.js";
