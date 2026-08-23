@@ -289,39 +289,6 @@ export default defineSchema({
     .index("by_canvas_page_node", ["canvasId", "pageId", "nodeId"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
 
-  // /src, /output, /cache, /assets are prefixes on relPath, not directories
-  // (PLAN.md section 4) — /cache renders stay out of `artifacts`, as today.
-  /**
-   * Reusable blocks of nodes + their internal edges, saved once by an agent
-   * and inserted into any canvas in the same workspace. Insertion copies:
-   * there is no master/instance link back to this row, which is why the body
-   * can live here as one immutable JSON blob rather than a live graph.
-   */
-  canvasComponents: defineTable({
-    workspaceId: v.id("workspaces"),
-    slug: v.string(),
-    name: v.string(),
-    description: v.optional(v.string()),
-    tags: v.array(v.string()),
-    /** CanvasComponentBody: nodes and edges with origin-relative geometry. */
-    bodyJson: v.string(),
-    nodeCount: v.number(),
-    edgeCount: v.number(),
-    width: v.number(),
-    height: v.number(),
-    /** Bumped on every update; the optimistic-concurrency handle for writes. */
-    version: v.number(),
-    searchText: v.string(),
-    createdBy: v.id("users"),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace_slug", ["workspaceId", "slug"])
-    .index("by_workspace_updated", ["workspaceId", "updatedAt"])
-    .searchIndex("search_text", {
-      searchField: "searchText",
-      filterFields: ["workspaceId"],
-    }),
-
   /**
    * Human feedback pinned to a canvas, one of its Pages, or one node on a
    * Page — the channel the agent reads before it edits and writes back to

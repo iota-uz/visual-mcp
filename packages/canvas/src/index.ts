@@ -1,5 +1,4 @@
 export * from "./annotation.js";
-export * from "./component.js";
 export * from "./device-frame.js";
 export * from "./element-ref.js";
 export * from "./issues.js";

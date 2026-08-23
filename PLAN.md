@@ -716,10 +716,6 @@ Templates: `architecture-overview`, `sequence-flow`, `mobile-app-screen`, `phone
 `device-frame-screen`, `browser-app-screen`, `dashboard-overview`, `one-page-infographic`,
 `multipage-report`, `chart-report`, `iframe-service-flow`, `image-reference-board`.
 
-Templates are examples the agent copies. **Components** (`canvasComponents`, `component_*` tools)
-are the other half: a saved block of real nodes and edges, inserted as an independent copy with
-every id remapped. No master/instance link — a component edit never reaches placed copies.
-
 **No custom SDK abstraction** (no `Document`/`Diagram`/`Chart` classes, no "VisualKit") — each
 template is a concrete example of HTML/D2/ApexCharts code the LLM writes directly, and the render
 layer only wraps existing renderers (D2, Playwright, Sharp). This constraint predates the

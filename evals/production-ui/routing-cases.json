@@ -21,8 +21,6 @@
   { "query": "Read the unresolved feedback queue", "expected": "comment_list" },
   { "query": "Reply to this feedback thread", "expected": "comment_reply" },
   { "query": "Mark the requested change complete", "expected": "comment_complete" },
-  { "query": "Save this block for reuse", "expected": "component_save" },
-  { "query": "Insert the saved component here", "expected": "component_insert" },
   { "query": "What is the weather tomorrow?", "expected": null },
   { "query": "Explain this JavaScript function", "expected": null },
   { "query": "Search the public web for a restaurant", "expected": null },

@@ -64,5 +64,7 @@ describe("Railway MCP service", () => {
     const text = await response.text();
     expect(text).toContain("canvas_save");
     expect(text).toContain("asset_list");
+    expect(text).not.toContain("component_insert");
+    expect(text).not.toContain("component_save");
   });
 });

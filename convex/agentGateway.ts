@@ -48,10 +48,6 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "comments:reply": internal.comments.reply,
   "comments:resolveId": internal.comments.resolveId,
   "comments:setStatus": internal.comments.setStatus,
-  "components:find": internal.components.find,
-  "components:getByRef": internal.components.getByRef,
-  "components:remove": internal.components.remove,
-  "components:upsert": internal.components.upsert,
   "workspaces:getThemeBySlug": internal.workspaces.getThemeBySlug,
 };
 
@@ -80,8 +76,6 @@ const QUERIES = new Set([
   "comments:list",
   "comments:openCount",
   "comments:resolveId",
-  "components:find",
-  "components:getByRef",
   "workspaces:getThemeBySlug",
 ]);
 
