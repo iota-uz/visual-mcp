@@ -1615,15 +1615,62 @@ describe("canvases.removeByRef", () => {
       kind: "canvas",
     });
 
-    // A version blob (doc) that the quota never counted and no sweep touches
-    // — exactly the thing a naive delete orphans forever.
+    const asset = await t.run(async (ctx) => {
+      const assetId = await ctx.db.insert("assets", {
+        scope: "workspace",
+        workspaceId: created.workspaceId,
+        slug: "logo",
+        name: "Logo",
+        tags: [],
+        kind: "svg",
+        searchText: "logo",
+        createdBy,
+        updatedAt: 0,
+      });
+      const assetVersionId = await ctx.db.insert("assetVersions", {
+        assetId,
+        revision: 1,
+        sourceObjectKey: "source/logo",
+        deliveryObjectKey: "delivery/logo",
+        previewObjectKey: "delivery/logo",
+        contentHash: "logo",
+        mimeType: "image/svg+xml",
+        size: 1,
+        originalFilename: "logo.svg",
+        sourceType: "upload",
+        createdBy,
+      });
+      await ctx.db.insert("canvasAssetBindings", {
+        canvasId: created.canvasId,
+        logicalPath: "/assets/logo.svg",
+        assetId,
+        assetVersionId,
+      });
+      return { assetId, assetVersionId };
+    });
+
     const docStorageId = await seedStorage(t, "{}");
-    await t.mutation(internal.canvases.putDoc, {
+    const saved = await t.mutation(internal.canvases.putDoc, {
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId,
       createdBy,
-      nodes: [],
+      nodes: [
+        {
+          pageId: "main",
+          nodeId: "summary",
+          title: "Summary",
+          searchText: "summary",
+        },
+      ],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("iframeCapabilities", {
+        token: "temporary",
+        canvasId: created.canvasId,
+        userId: createdBy,
+        expiresAt: 1,
+      });
     });
 
     await t.mutation(internal.canvases.removeByRef, {
@@ -1634,8 +1681,24 @@ describe("canvases.removeByRef", () => {
 
     const blobStillThere = await t.run((ctx) => ctx.storage.getUrl(docStorageId));
     expect(blobStillThere).toBeNull();
-    const versionsLeft = await t.run((ctx) => ctx.db.query("canvasVersions").collect());
-    expect(versionsLeft).toHaveLength(0);
+    const leftovers = await t.run(async (ctx) => ({
+      versions: await ctx.db.query("canvasVersions").collect(),
+      versionAssets: await ctx.db.query("canvasVersionAssets").collect(),
+      bindings: await ctx.db.query("canvasAssetBindings").collect(),
+      nodes: await ctx.db.query("canvasNodes").collect(),
+      draftNodes: await ctx.db.query("canvasDraftNodes").collect(),
+      capabilities: await ctx.db.query("iframeCapabilities").collect(),
+    }));
+    expect(leftovers).toEqual({
+      versions: [],
+      versionAssets: [],
+      bindings: [],
+      nodes: [],
+      draftNodes: [],
+      capabilities: [],
+    });
+    expect(asset).toEqual(expect.objectContaining({ assetId: expect.any(String) }));
+    expect(saved).toEqual(expect.objectContaining({ versionId: expect.any(String) }));
   });
 
   test("purging a workspace removes every canvas inside it", async () => {

@@ -36,6 +36,9 @@ export class ConvexReactClient {
   constructor(public address: string) {}
   setAuth() {}
   clearAuth() {}
+  connectionState() {
+    return { isWebSocketConnected: true };
+  }
   close() {
     return Promise.resolve();
   }
@@ -77,11 +80,6 @@ export function useConvexAuth() {
   return { isLoading: false, isAuthenticated: true };
 }
 
-/*
- * Fixtures have no socket, so the connection banner must never appear in
- * them: `useConnectionStatus` treats a missing `connectionState` as
- * connected, and this returns a client without one.
- */
 export function useConvex() {
-  return null;
+  return new ConvexReactClient("fixture://local");
 }

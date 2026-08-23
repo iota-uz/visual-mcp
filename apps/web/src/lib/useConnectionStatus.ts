@@ -37,14 +37,8 @@ export function useConnectionStatus(): ConnectionStatus {
   }, []);
 
   useEffect(() => {
-    // `connectionState` is not part of the fixture client, and older
-    // clients may not expose it either — a missing method must read as
-    // "connected" rather than pinning a permanent banner to the page.
     const read = () => {
-      const state = (
-        convex as { connectionState?: () => { isWebSocketConnected?: boolean } } | undefined
-      )?.connectionState?.();
-      setSocketConnected(state?.isWebSocketConnected ?? true);
+      setSocketConnected(convex.connectionState().isWebSocketConnected);
     };
     read();
     const timer = window.setInterval(read, POLL_MS);

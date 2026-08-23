@@ -255,7 +255,9 @@ export default defineSchema({
     canvasId: v.id("canvases"),
     userId: v.id("users"),
     expiresAt: v.number(),
-  }).index("by_token", ["token"]),
+  })
+    .index("by_token", ["token"])
+    .index("by_canvas", ["canvasId"]),
 
   // One small document per canvas node — what makes `#node=` resolution and
   // full-text search index lookups instead of full-document scans (PLAN.md

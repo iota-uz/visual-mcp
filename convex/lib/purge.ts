@@ -106,6 +106,24 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     .collect();
   for (const row of nodes) await ctx.db.delete(row._id);
 
+  const draftNodes = await ctx.db
+    .query("canvasDraftNodes")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of draftNodes) await ctx.db.delete(row._id);
+
+  const assetBindings = await ctx.db
+    .query("canvasAssetBindings")
+    .withIndex("by_canvas_path", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of assetBindings) await ctx.db.delete(row._id);
+
+  const versionAssets = await ctx.db
+    .query("canvasVersionAssets")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of versionAssets) await ctx.db.delete(row._id);
+
   const canvasSnapshots = await ctx.db
     .query("canvasSnapshots")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
@@ -137,7 +155,7 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
 
   const capabilities = await ctx.db
     .query("iframeCapabilities")
-    .filter((q) => q.eq(q.field("canvasId"), canvas._id))
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
     .collect();
   for (const row of capabilities) await ctx.db.delete(row._id);
 

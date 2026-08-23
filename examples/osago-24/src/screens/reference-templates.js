@@ -299,15 +299,8 @@
       </div>`;
     const myidSafeBrand = `<div class="myid-safe-brand"><img src="../../assets/myid-logo.jpg" alt="MyID — safe identification"></div>`;
 
-    function phoneFrame(content, time = "09:42") {
-      // Device shell and status bar belong to CanvasDoc frame.kind="phone".
-      // Keep this compatibility-shaped helper so every screen declaration
-      // remains content-only without duplicating phone chrome in the iframe.
-      return content;
-    }
-
     function myidLoginScreen() {
-      return phoneFrame(`
+      return `
         <div class="phone-content">
           <div class="myid-screen myid-login">
             <span class="myid-close" aria-label="Закрыть MyID"></span>
@@ -333,11 +326,11 @@
             </div>
             <p class="myid-consent">Нажимая кнопку, вы соглашаетесь с <a>Пользовательским соглашением</a> и <a>Политикой конфиденциальности</a></p>
           </div>
-        </div>`, "1:01");
+        </div>`;
     }
 
     function myidFaceScreen({ message = "Смотрите прямо в камеру", tone = "", subject = "Проверка личности" } = {}) {
-      return phoneFrame(`
+      return `
         <div class="phone-content">
           <div class="myid-screen myid-camera ${tone}">
             <span class="myid-close" aria-label="Закрыть MyID"></span>
@@ -348,7 +341,7 @@
             </div>
             ${myidSafeBrand}
           </div>
-        </div>`, "1:01");
+        </div>`;
     }
 
     function phoneHeader(title, step) {
@@ -365,7 +358,7 @@
     }
 
     const templates = {
-      safety: () => phoneFrame(`
+      safety: () => `
         <div class="phone-content">
           ${phoneHeader("Безопасность", 1)}
           <div class="screen-body">
@@ -390,9 +383,9 @@
             <div class="app-btn red">Все в безопасности ${chevron}</div>
             <div class="text-center font-mono text-[7px] text-[var(--muted)]">МЕСТО И ВРЕМЯ УЖЕ ЗАФИКСИРОВАНЫ</div>
           </div>
-        </div>`, "09:41"),
+        </div>`,
 
-      qr: () => phoneFrame(`
+      qr: () => `
         <div class="phone-content">
           ${phoneHeader("Подключить водителя", 2)}
           <div class="screen-body">
@@ -417,9 +410,9 @@
             </div>
             <div class="app-btn ghost">Поделиться ссылкой <span class="text-[15px]">↗</span></div>
           </div>
-        </div>`, "09:42"),
+        </div>`,
 
-      identity: () => phoneFrame(`
+      identity: () => `
         <div class="phone-content">
           ${phoneHeader("Личность и полис", 3)}
           <div class="screen-body">
@@ -444,9 +437,9 @@
             </div>
             <div class="app-btn">Продолжить ${chevron}</div>
           </div>
-        </div>`, "09:43"),
+        </div>`,
 
-      evidence: () => phoneFrame(`
+      evidence: () => `
         <div class="phone-content">
           ${phoneHeader("Фото и видео", 4)}
           <div class="screen-body">
@@ -464,9 +457,9 @@
             <div class="info-strip amber"><span>↻</span><span><b>Офлайн-режим.</b> Камера работает без сети; оригиналы отправятся при подключении.</span></div>
             <div class="app-btn blue">Снять последний ракурс ${chevron}</div>
           </div>
-        </div>`, "09:44"),
+        </div>`,
 
-      protocol: () => phoneFrame(`
+      protocol: () => `
         <div class="phone-content">
           ${phoneHeader("AI-схема ДТП", 5)}
           <div class="screen-body">
@@ -485,12 +478,12 @@
             </div>
             <div class="app-btn">Продолжить ${chevron}</div>
           </div>
-        </div>`, "09:51"),
+        </div>`,
 
       sign: () => {
         const culpritName = activeFlowKey === "victim" ? "Д. Юсупов" : "Алишер Каримов";
         const otherName = activeFlowKey === "victim" ? "Алишер Каримов" : "Д. Юсупов";
-        return phoneFrame(`
+        return `
         <div class="phone-content">
           ${phoneHeader("Вина и MyID Face", 6)}
           <div class="screen-body">
@@ -516,10 +509,10 @@
             </div>
             <div class="app-btn red">Открыть MyID Face ${chevron}</div>
           </div>
-        </div>`, "09:55");
+        </div>`;
       },
 
-      decision: () => phoneFrame(`
+      decision: () => `
         <div class="phone-content">
           ${phoneHeader("Проверка дела", 7)}
           <div class="screen-body">
@@ -544,9 +537,9 @@
               <div class="app-copy">Методология: модель ТС × зона × тяжесть × износ</div>
             </div>
           </div>
-        </div>`, "09:58"),
+        </div>`,
 
-      paid: () => phoneFrame(`
+      paid: () => `
         <div class="phone-content">
           <div class="screen-body !pt-8 items-center text-center">
             <div class="success-ring mt-3"><svg width="40" height="40" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -569,9 +562,9 @@
             <div class="info-strip green w-full text-left"><span>${tick}</span><span>Квитанция и подписанный европротокол сохранены в приложении.</span></div>
             <div class="app-btn green w-full">Открыть квитанцию ${chevron}</div>
           </div>
-        </div>`, "10:09"),
+        </div>`,
 
-      inspection: () => phoneFrame(`
+      inspection: () => `
         <div class="phone-content">
           ${phoneHeader("Освидетельствование", 7)}
           <div class="screen-body">
@@ -594,9 +587,9 @@
             <div class="info-strip amber"><span>!</span><span><b>Только встроенная камера.</b> Выбрать снимок из галереи или файлов нельзя.</span></div>
             <div class="app-btn blue">Сфотографировать мою справку ${chevron}</div>
           </div>
-        </div>`, "10:12"),
+        </div>`,
 
-      regress: () => phoneFrame(`
+      regress: () => `
         <div class="phone-content">
           ${phoneHeader("Регресс", 10)}
           <div class="screen-body">
@@ -622,9 +615,9 @@
             </div>
             <div class="app-btn ghost">Открыть пакет документов ${chevron}</div>
           </div>
-        </div>`, "10:11"),
+        </div>`,
 
-      coverage: () => phoneFrame(`
+      coverage: () => `
         <div class="phone-content">
           ${phoneHeader("Покрытие EAI", 7)}
           <div class="screen-body">
@@ -646,9 +639,9 @@
             </div>
             <div class="app-btn">Следить за статусом ${chevron}</div>
           </div>
-        </div>`, "10:01"),
+        </div>`,
 
-      incoming: () => phoneFrame(`
+      incoming: () => `
         <div class="phone-content">
           ${phoneHeader("Требование другой СК", 8)}
           <div class="screen-body">
@@ -671,9 +664,9 @@
             </div>
             <div class="info-strip"><span>i</span><span>От нашего клиента дополнительных действий не требуется.</span></div>
           </div>
-        </div>`, "14:36"),
+        </div>`,
 
-      reimbursed: () => phoneFrame(`
+      reimbursed: () => `
         <div class="phone-content">
           ${phoneHeader("Дело закрыто", 9)}
           <div class="screen-body !pt-7 items-center text-center">
@@ -692,7 +685,7 @@
             <div class="info-strip green w-full text-left"><span>${tick}</span><span>Обязательства EAI перед страховой потерпевшего исполнены.</span></div>
             <div class="app-btn green w-full">Открыть итог дела ${chevron}</div>
           </div>
-        </div>`, "15:04")
+        </div>`
     };
 
     function mobileNav(title) {
@@ -708,8 +701,8 @@
         <div class="mobile-progress" style="--progress:${progress}%"><i></i></div>`;
     }
 
-    function mobileScreen({ nav, kicker, title, lead, body, action = "", tone = "", time = "09:42" }) {
-      return phoneFrame(`
+    function mobileScreen({ nav, kicker, title, lead, body, action = "", tone = "" }) {
+      return `
         <div class="phone-content">
           ${mobileNav(nav)}
           <div class="mobile-main">
@@ -719,7 +712,7 @@
             <div class="mobile-body">${body}</div>
             ${action ? `<div class="mobile-action ${tone}">${action}</div>` : ""}
           </div>
-        </div>`, time);
+        </div>`;
     }
 
     const polishedTemplates = {
@@ -746,7 +739,6 @@
             <span>Геолокация<b>Ташкент · ±14 м</b></span>
           </div>
           <div class="mobile-note"><span>i</span><span>Если связь прервётся, колл-центр увидит выбранный сценарий и поможет продолжить с этого места.</span></div>`,
-        time: "09:40"
       }),
 
       safety: () => mobileScreen({
@@ -774,7 +766,6 @@
           <div class="mobile-note alert"><span>!</span><span>Не перемещайте автомобили до фотографий, если они не блокируют движение.</span></div>`,
         action: `Всё безопасно — принять и продолжить ${chevron}`,
         tone: "red",
-        time: "09:41"
       }),
 
       cooperation: () => mobileScreen({
@@ -796,7 +787,6 @@
             </div>
           </div>
           <div class="mobile-note good"><span>${tick}</span><span><strong>Быстрое оформление:</strong> два автомобиля, нет пострадавших, оба участника рядом и согласны оформить ДТП.</span></div>`,
-        time: "09:42"
       }),
 
       invite: () => mobileScreen({
@@ -821,7 +811,6 @@
             <div class="mobile-doc-row"><span>Язык потерпевшего</span><b>Русский · изменить</b></div>
             <div class="mobile-doc-row"><span>Сессия</span><b>Одноразовая · 10 минут</b></div>
           </div>`,
-        time: "09:42"
       }),
 
       qr: () => mobileScreen({
@@ -838,7 +827,6 @@
           </div>`,
         action: "Скопировать web-ссылку",
         tone: "secondary",
-        time: "09:42"
       }),
 
       identity: () => myidLoginScreen(),
@@ -862,7 +850,6 @@
           <div class="mobile-note alert"><span>▣</span><span><strong>Галерея недоступна.</strong> Принимаются только оригиналы, снятые камерой приложения. Без интернета они отправятся позже.</span></div>`,
         action: "Снять в приложении",
         tone: "red",
-        time: "09:44"
       }),
 
       protocol: () => mobileScreen({
@@ -879,7 +866,6 @@
           </div>
           <div class="mobile-note"><span>AI</span><span>Если уверенность модели ниже порога, дело автоматически выйдет из 24-часового сценария.</span></div>`,
         action: `Продолжить ${chevron}`,
-        time: "09:51"
       }),
 
       sign: () => mobileScreen({
@@ -904,7 +890,6 @@
           </div>`,
         action: "Подтвердить и продолжить",
         tone: "red",
-        time: "09:55"
       }),
 
 
@@ -926,7 +911,6 @@
           <div class="mobile-note"><span>▣</span><span>Документы принимаются только камерой приложения. Выбор файла из галереи отключён.</span></div>`,
         action: "Снять справку",
         tone: "red",
-        time: "10:22"
       }),
 
 
@@ -935,9 +919,9 @@
     };
 
     /* Web-сессия потерпевшего: тот же телефон, но браузер на eai.uz, без установки приложения. */
-    function webScreen({ step, kicker, title, lead, body, action = "", tone = "", time = "09:45" }) {
+    function webScreen({ step, kicker, title, lead, body, action = "", tone = "" }) {
       const [currentStep, totalSteps] = step.split(" из ").map(Number);
-      return phoneFrame(`
+      return `
         <div class="phone-content web-session">
           <div class="web-bar">
             <span class="web-lock" aria-hidden="true"></span>
@@ -955,7 +939,7 @@
             <div class="mobile-body">${body}</div>
             ${action ? `<div class="mobile-action ${tone}">${action}</div>` : ""}
           </div>
-        </div>`, time);
+        </div>`;
     }
 
     /* Экраны, которые видит ТОЛЬКО потерпевший. Живут в своей дорожке полотна. */
@@ -984,7 +968,6 @@
           <div class="mobile-note"><span>i</span><span>Язык страницы можно сменить в любой момент.</span></div>`,
         action: `Принять и подтвердить личность ${chevron}`,
         tone: "red",
-        time: "09:43"
       }),
 
       evidence: () => webScreen({
@@ -1005,7 +988,6 @@
           <div class="mobile-note alert"><span>▣</span><span><strong>Галерея недоступна.</strong> Только кадры этой камеры. Виновник: 4 из 4 · вы: 2 из 3 — расчёт стартует, когда закончат оба.</span></div>`,
         action: "Открыть камеру",
         tone: "red",
-        time: "09:48"
       }),
 
       protocol: () => webScreen({
@@ -1022,7 +1004,6 @@
           </div>
           <div class="mobile-note"><span>AI</span><span>Уверенность ниже порога — дело уходит в стандартное урегулирование.</span></div>`,
         action: `Продолжить ${chevron}`,
-        time: "09:51"
       }),
 
       decision: () => webScreen({
@@ -1059,7 +1040,6 @@
           </div>`,
         action: "Получить 8 640 000 сум",
         tone: "red",
-        time: "10:18"
       }),
 
       documents: () => webScreen({
@@ -1077,7 +1057,6 @@
           <div class="mobile-note"><span>SMS</span><span>Ссылка на эту сессию придёт вам повторно на D+1 и D+2 — переход по ней снова откроет камеру.</span></div>`,
         action: "Снять справку",
         tone: "red",
-        time: "10:24"
       }),
 
       paid: () => webScreen({
@@ -1097,7 +1076,6 @@
           <div class="mobile-note good"><span>${tick}</span><span>Выплата завершена. До 01.08.2026 обеим сторонам нужно дослать документы по условиям оферты.</span></div>`,
         action: "Скачать квитанцию",
         tone: "secondary",
-        time: "10:21"
       })
     };
 
@@ -1150,7 +1128,6 @@
           </div>`,
         action: outcome.action,
         tone: policy.kind === "terminal" ? "secondary" : "red",
-        time: "10:04"
       });
     }
 
