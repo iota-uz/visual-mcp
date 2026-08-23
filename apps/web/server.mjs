@@ -137,6 +137,7 @@ function contentType(path) {
 
 async function proxyMcp(request, response, mcpOrigin, fetchImpl) {
   if (!mcpOrigin) throw new Error("MCP_UPSTREAM_URL is required");
+  const upstreamOrigin = mcpOrigin.includes("://") ? mcpOrigin : `http://${mcpOrigin}:8080`;
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (HOP_BY_HOP_HEADERS.has(name) || value === undefined) continue;
@@ -154,7 +155,7 @@ async function proxyMcp(request, response, mcpOrigin, fetchImpl) {
   response.once("close", abortUpstream);
 
   try {
-    const upstream = await fetchImpl(new URL("/mcp", mcpOrigin), {
+    const upstream = await fetchImpl(new URL("/mcp", upstreamOrigin), {
       method: "POST",
       headers,
       body: request,

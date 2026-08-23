@@ -1,7 +1,8 @@
 export function getWorkerConfig(): { url: string; token: string } {
-  const url = process.env.WORKER_URL;
+  const rawUrl = process.env.WORKER_URL;
   const token = process.env.WORKER_TOKEN;
-  if (!url || !token) throw new Error("render worker is not configured");
+  if (!rawUrl || !token) throw new Error("render worker is not configured");
+  const url = rawUrl.includes("://") ? rawUrl : `http://${rawUrl}:8080`;
   return { url: url.replace(/\/+$/, ""), token };
 }
 
