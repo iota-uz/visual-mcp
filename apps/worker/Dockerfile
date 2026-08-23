@@ -15,21 +15,26 @@ WORKDIR /repo
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
+COPY packages/canvas/package.json packages/canvas/package.json
 COPY packages/runtime/package.json packages/runtime/package.json
 # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: @visual-canvas/runtime's own
 # `postinstall: playwright install chromium` would otherwise re-download a
 # browser this base image already bundles — redundant at best, a version
 # mismatch at worst.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm ci --workspace=@visual-canvas/worker --workspace=@visual-canvas/runtime --include-workspace-root=false
+RUN npm ci --workspace=@visual-canvas/worker --workspace=@visual-canvas/canvas --workspace=@visual-canvas/runtime --include-workspace-root=false
 
 FROM deps AS build
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.json
 COPY apps/worker/src apps/worker/src
+COPY packages/canvas/tsconfig.json packages/canvas/tsconfig.json
+COPY packages/canvas/scripts packages/canvas/scripts
+COPY packages/canvas/src packages/canvas/src
 COPY packages/runtime/tsconfig.json packages/runtime/tsconfig.json
 COPY packages/runtime/src packages/runtime/src
-# @visual-canvas/runtime must build first: the worker imports its dist/*
-# subpaths directly (package.json "exports": { "./*": "./dist/*" }).
+# Canvas must build before runtime, and runtime before the worker: both import
+# workspace dist/* subpaths through their package.json exports maps.
+RUN npm run build --workspace=@visual-canvas/canvas
 RUN npm run build --workspace=@visual-canvas/runtime
 RUN npm run build --workspace=@visual-canvas/worker
 
@@ -46,9 +51,12 @@ COPY --from=deps /repo/node_modules node_modules
 # ERR_MODULE_NOT_FOUND — verified by actually booting the built image, not
 # just building it.
 COPY --from=deps /repo/apps/worker/node_modules apps/worker/node_modules
+COPY --from=deps /repo/packages/canvas/node_modules packages/canvas/node_modules
 COPY --from=deps /repo/packages/runtime/node_modules packages/runtime/node_modules
 COPY --from=build /repo/apps/worker/dist apps/worker/dist
 COPY apps/worker/package.json apps/worker/package.json
+COPY --from=build /repo/packages/canvas/dist packages/canvas/dist
+COPY packages/canvas/package.json packages/canvas/package.json
 COPY --from=build /repo/packages/runtime/dist packages/runtime/dist
 COPY packages/runtime/package.json packages/runtime/package.json
 
