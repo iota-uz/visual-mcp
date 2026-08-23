@@ -7,6 +7,7 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html>
@@ -14,19 +15,13 @@ const exampleCode = `<!doctype html>
     <meta charset="utf-8" />
     <style>
       @import "tailwindcss";
-
-      @theme {
-        --font-sans: Inter, sans-serif;
-        --color-brand: #2563eb;
-        --color-brand-soft: #eff6ff;
-      }
     </style>
   </head>
-  <body class="m-0 bg-slate-200 font-sans">
+  <body class="m-0 bg-surface font-sans">
     <!-- Device frame: narrow fixed-width viewport for a phone mockup -->
-    <main class="mx-auto w-[375px] h-[812px] bg-white overflow-hidden relative shadow-2xl">
+    <main class="mx-auto w-[375px] h-[812px] bg-background overflow-hidden relative shadow-2xl">
       <!-- Status bar -->
-      <div class="flex items-center justify-between px-6 pt-3 pb-1 text-xs font-semibold text-slate-900">
+      <div class="flex items-center justify-between px-6 pt-3 pb-1 text-xs font-semibold text-foreground">
         <span>9:41</span>
         <span class="flex items-center gap-1">
           <span>&#9679;&#9679;&#9679;</span>
@@ -35,67 +30,67 @@ const exampleCode = `<!doctype html>
       </div>
 
       <!-- Top nav -->
-      <header class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-        <button class="text-slate-500 text-xl leading-none">&#8592;</button>
-        <h1 class="text-base font-bold text-slate-950">My Policies</h1>
-        <button class="text-brand text-xl leading-none">&#9998;</button>
+      <header class="flex items-center justify-between px-5 py-3 border-b border-border">
+        <button class="text-muted-foreground text-xl leading-none">&#8592;</button>
+        <h1 class="text-base font-bold text-foreground">My Policies</h1>
+        <button class="text-primary text-xl leading-none">&#9998;</button>
       </header>
 
       <!-- Scrollable content -->
       <section class="px-5 py-4 space-y-4 overflow-y-auto h-[640px]">
-        <div class="rounded-2xl bg-brand text-white p-5">
+        <div class="rounded-2xl bg-primary text-background p-5">
           <p class="text-xs uppercase tracking-wide opacity-80">Active plan</p>
           <p class="mt-1 text-2xl font-bold">Comprehensive Auto</p>
           <p class="mt-3 text-sm opacity-90">Next payment: Aug 14 &middot; $84.00</p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
-          <div class="rounded-xl bg-brand-soft p-4">
-            <p class="text-xs text-slate-500">Coverage</p>
-            <p class="mt-1 text-lg font-bold text-slate-950">$50,000</p>
+          <div class="rounded-xl bg-primary/10 p-4">
+            <p class="text-xs text-muted-foreground">Coverage</p>
+            <p class="mt-1 text-lg font-bold text-foreground">$50,000</p>
           </div>
-          <div class="rounded-xl bg-brand-soft p-4">
-            <p class="text-xs text-slate-500">Claims filed</p>
-            <p class="mt-1 text-lg font-bold text-slate-950">2</p>
+          <div class="rounded-xl bg-primary/10 p-4">
+            <p class="text-xs text-muted-foreground">Claims filed</p>
+            <p class="mt-1 text-lg font-bold text-foreground">2</p>
           </div>
         </div>
 
         <div>
-          <h2 class="text-sm font-semibold text-slate-900 mb-2">Recent activity</h2>
-          <ul class="divide-y divide-slate-100 rounded-xl border border-slate-100">
+          <h2 class="text-sm font-semibold text-foreground mb-2">Recent activity</h2>
+          <ul class="divide-y divide-border rounded-xl border border-border">
             <li class="flex items-center justify-between px-4 py-3">
               <div>
-                <p class="text-sm font-medium text-slate-900">Payment received</p>
-                <p class="text-xs text-slate-500">Jul 14, 2026</p>
+                <p class="text-sm font-medium text-foreground">Payment received</p>
+                <p class="text-xs text-muted-foreground">Jul 14, 2026</p>
               </div>
-              <span class="text-sm font-semibold text-emerald-600">+$84.00</span>
+              <span class="text-sm font-semibold text-success">+$84.00</span>
             </li>
             <li class="flex items-center justify-between px-4 py-3">
               <div>
-                <p class="text-sm font-medium text-slate-900">Claim #A-1042 updated</p>
-                <p class="text-xs text-slate-500">Jul 09, 2026</p>
+                <p class="text-sm font-medium text-foreground">Claim #A-1042 updated</p>
+                <p class="text-xs text-muted-foreground">Jul 09, 2026</p>
               </div>
-              <span class="text-xs font-semibold text-amber-600">In review</span>
+              <span class="text-xs font-semibold text-warning">In review</span>
             </li>
           </ul>
         </div>
       </section>
 
       <!-- Bottom tab bar -->
-      <nav class="absolute bottom-0 left-0 right-0 h-20 bg-white border-t border-slate-100 flex items-center justify-around pb-4">
-        <button class="flex flex-col items-center gap-1 text-brand">
+      <nav class="absolute bottom-0 left-0 right-0 h-20 bg-background border-t border-border flex items-center justify-around pb-4">
+        <button class="flex flex-col items-center gap-1 text-primary">
           <span class="text-lg">&#127968;</span>
           <span class="text-[10px] font-medium">Home</span>
         </button>
-        <button class="flex flex-col items-center gap-1 text-slate-400">
+        <button class="flex flex-col items-center gap-1 text-muted-foreground">
           <span class="text-lg">&#128196;</span>
           <span class="text-[10px] font-medium">Policies</span>
         </button>
-        <button class="flex flex-col items-center gap-1 text-slate-400">
+        <button class="flex flex-col items-center gap-1 text-muted-foreground">
           <span class="text-lg">&#128179;</span>
           <span class="text-[10px] font-medium">Billing</span>
         </button>
-        <button class="flex flex-col items-center gap-1 text-slate-400">
+        <button class="flex flex-col items-center gap-1 text-muted-foreground">
           <span class="text-lg">&#128100;</span>
           <span class="text-[10px] font-medium">Profile</span>
         </button>
@@ -106,6 +101,7 @@ const exampleCode = `<!doctype html>
 `;
 
 export const mobileAppScreenTemplate: Template = {
+  ...templateMetadata("mobile-app-screen"),
   id: "mobile-app-screen",
   name: "Mobile App Screen",
   kind: "mockup",

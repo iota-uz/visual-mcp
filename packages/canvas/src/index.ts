@@ -1,3 +1,4 @@
+export * from "./annotation.js";
 export * from "./component.js";
 export * from "./device-frame.js";
 export * from "./element-ref.js";
@@ -8,5 +9,6 @@ export * from "./patch.js";
 export * from "./phone-frame.js";
 export * from "./render.js";
 export * from "./router.js";
+export * from "./themes.js";
 export * from "./types.js";
 export * from "./viewport.js";

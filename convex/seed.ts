@@ -124,11 +124,10 @@ const CANVAS_FILE = {
               { id: "right", side: "right", offset: 0.5 },
               { id: "bottom", side: "bottom", offset: 0.5 },
             ],
-            inspector: {
-              eyebrow: "Screen",
-              title: "Intake form",
-              copy: "Collects the minimum needed to price the claim.",
-              points: ["Autosaves per step", "Photos go straight to storage"],
+            annotation: {
+              format: "html",
+              content:
+                "<p>Collects the minimum needed to price the claim.</p><ul><li>Autosaves per step</li><li>Photos go straight to storage</li></ul>",
             },
           },
           {

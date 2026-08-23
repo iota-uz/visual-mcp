@@ -93,12 +93,17 @@ export const NodeCaptionSchema = z.object({
   subtitle: z.string().optional(),
   tag: z.string().optional(),
 });
-export const NodeInspectorSchema = z.object({
-  eyebrow: z.string(),
-  title: z.string(),
-  copy: z.string(),
-  points: z.array(z.string()).optional(),
-});
+export const NodeAnnotationSchema = z
+  .object({
+    format: z.enum(["text", "html"]),
+    content: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .refine((content) => content.trim().length > 0, "Annotation content cannot be blank"),
+  })
+  .strict();
+export type NodeAnnotation = z.infer<typeof NodeAnnotationSchema>;
 export const NativeBodySchema = z.object({
   text: z.string().optional(),
   points: z.array(z.string()).optional(),
@@ -124,27 +129,29 @@ const BaseNodeFields = {
   // Standalone gallery/reference nodes do not need connector geometry.
   // Edge validation below still requires referenced anchors to exist.
   anchors: z.array(ConnectorAnchorSchema).default([]),
-  inspector: NodeInspectorSchema.optional(),
+  annotation: NodeAnnotationSchema.optional(),
 };
-export const NativeNodeSchema = z.object({
-  kind: z.literal("native"),
-  ...BaseNodeFields,
-  shape: z.enum(NODE_SHAPES),
-  /*
-   * Which side of the interaction an `actor` node stands on: the person the
-   * flow is about, or the party they deal with. Purely a rendering variant
-   * (round avatar vs. squared one) and meaningless on every other shape,
-   * which is why it is optional rather than defaulted — a `note` should not
-   * carry an actor field just because it went through the parser.
-   *
-   * It exists because the renderer used to infer this by comparing the
-   * caption to a hardcoded Russian string — so the engine only drew the
-   * distinction for one document in one language, and any other canvas got
-   * every actor styled as a counterparty.
-   */
-  actorRole: z.enum(ACTOR_ROLES).optional(),
-  body: NativeBodySchema.optional(),
-});
+export const NativeNodeSchema = z
+  .object({
+    kind: z.literal("native"),
+    ...BaseNodeFields,
+    shape: z.enum(NODE_SHAPES),
+    /*
+     * Which side of the interaction an `actor` node stands on: the person the
+     * flow is about, or the party they deal with. Purely a rendering variant
+     * (round avatar vs. squared one) and meaningless on every other shape,
+     * which is why it is optional rather than defaulted — a `note` should not
+     * carry an actor field just because it went through the parser.
+     *
+     * It exists because the renderer used to infer this by comparing the
+     * caption to a hardcoded Russian string — so the engine only drew the
+     * distinction for one document in one language, and any other canvas got
+     * every actor styled as a counterparty.
+     */
+    actorRole: z.enum(ACTOR_ROLES).optional(),
+    body: NativeBodySchema.optional(),
+  })
+  .strict();
 export type NativeNode = z.infer<typeof NativeNodeSchema>;
 
 export const IframeSourceSchema = z.object({
@@ -214,6 +221,7 @@ export const IframeNodeSchema = z
       .refine((tokens) => new Set(tokens).size === tokens.length, "permissions must be unique"),
     activation: z.literal("double-click").default("double-click"),
   })
+  .strict()
   .superRefine((node, ctx) => {
     if (node.frame.kind === "device") {
       const preset = DEVICE_PRESETS[node.frame.preset];
@@ -328,14 +336,11 @@ export const LegendGroupSchema = z.object({
   items: z.array(LegendItemSchema).min(1),
 });
 export type LegendGroup = z.infer<typeof LegendGroupSchema>;
-export type ThemeId = string;
-
 export const CanvasDocSchema = z
   .object({
     version: z.literal(2),
     title: z.string().min(1),
     subtitle: z.string().optional(),
-    theme: z.string().optional(),
     world: z
       .object({
         width: z.number().finite().positive().max(1_000_000),

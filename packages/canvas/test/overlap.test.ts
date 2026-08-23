@@ -40,7 +40,11 @@ test("pair identity is stable regardless of input order", () => {
 
 test("the x sweep does not miss a pair hidden behind an unrelated node", () => {
   // "wide" starts first and spans everything; the sweep must not stop at it.
-  const report = findNodeOverlaps([at("wide", 0, 0, 1_000, 20), at("l", 400, 400), at("r", 450, 400)]);
+  const report = findNodeOverlaps([
+    at("wide", 0, 0, 1_000, 20),
+    at("l", 400, 400),
+    at("r", 450, 400),
+  ]);
   assert.equal(report.total, 1);
   assert.equal(report.overlaps[0]?.a, "l");
 });

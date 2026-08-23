@@ -41,6 +41,42 @@ function line(namespace: string, key: string, value: string): string {
   return `  ${name}: ${value};`;
 }
 
+function themeLines(theme: Theme): string[] {
+  const lines = [
+    line("color", "background", theme.colors.background),
+    line("color", "foreground", theme.colors.foreground),
+    line("color", "muted", theme.colors.muted),
+    line("color", "surface", theme.colors.surface),
+    line("color", "muted-foreground", theme.colors.mutedForeground),
+    line("color", "success", theme.colors.success),
+    line("color", "warning", theme.colors.warning),
+    line("color", "danger", theme.colors.danger),
+    line("color", "primary", theme.colors.primary),
+    line("color", "secondary", theme.colors.secondary),
+    line("color", "border", theme.colors.border),
+    line("font", "sans", theme.typography.fontSans),
+    line("font", "mono", theme.typography.fontMono),
+    line("radius", "sm", theme.radius.sm),
+    line("radius", "md", theme.radius.md),
+    line("radius", "lg", theme.radius.lg),
+    line("radius", "xl", theme.radius.xl),
+  ];
+  for (const [key, value] of Object.entries(theme.spacing)) lines.push(line("spacing", key, value));
+  for (const [key, value] of Object.entries(theme.shadows)) lines.push(line("shadow", key, value));
+  theme.chartPalette.forEach((color, index) => {
+    lines.push(line("color", `chart-${index + 1}`, color));
+  });
+  lines.push(line("diagram", "node-radius", theme.diagramStyle.nodeRadius));
+  lines.push(line("diagram", "edge-style", theme.diagramStyle.edgeStyle));
+  return lines;
+}
+
+/** Runtime custom properties for HTML/native documents, applied before first paint. */
+export function compileThemeToCssVariables(theme: Theme, selector = ":root"): string {
+  const safeSelector = selector === ":root" ? selector : "[data-visual-canvas-root]";
+  return `/* theme: ${theme.name} */\n${safeSelector} {\n${themeLines(theme).join("\n")}\n}\n`;
+}
+
 /**
  * Compiles a `Theme` into a Tailwind v4 `@theme { ... }` CSS block.
  *
@@ -70,42 +106,7 @@ export function compileThemeToTailwindV4(theme: Theme): string {
   lines.push(`/* theme: ${theme.name} */`);
   lines.push(`@theme {`);
 
-  // Colors
-  lines.push(line("color", "background", theme.colors.background));
-  lines.push(line("color", "foreground", theme.colors.foreground));
-  lines.push(line("color", "muted", theme.colors.muted));
-  lines.push(line("color", "primary", theme.colors.primary));
-  lines.push(line("color", "secondary", theme.colors.secondary));
-  lines.push(line("color", "border", theme.colors.border));
-
-  // Typography
-  lines.push(line("font", "sans", theme.typography.fontSans));
-  lines.push(line("font", "mono", theme.typography.fontMono));
-
-  // Radius
-  lines.push(line("radius", "sm", theme.radius.sm));
-  lines.push(line("radius", "md", theme.radius.md));
-  lines.push(line("radius", "lg", theme.radius.lg));
-  lines.push(line("radius", "xl", theme.radius.xl));
-
-  // Spacing (arbitrary key set)
-  for (const [key, value] of Object.entries(theme.spacing)) {
-    lines.push(line("spacing", key, value));
-  }
-
-  // Shadows (arbitrary key set)
-  for (const [key, value] of Object.entries(theme.shadows)) {
-    lines.push(line("shadow", key, value));
-  }
-
-  // Chart palette -> --color-chart-1..N (also usable as bg-chart-1 etc.)
-  theme.chartPalette.forEach((color, i) => {
-    lines.push(line("color", `chart-${i + 1}`, color));
-  });
-
-  // Diagram styling hints (plain custom properties, non-Tailwind namespace)
-  lines.push(line("diagram", "node-radius", theme.diagramStyle.nodeRadius));
-  lines.push(line("diagram", "edge-style", theme.diagramStyle.edgeStyle));
+  lines.push(...themeLines(theme));
 
   lines.push(`}`);
 

@@ -1,7 +1,7 @@
 import "../src/theme.css";
 import { layoutCanvas } from "../src/layout.js";
-import { mountViewport, type ViewportController } from "../src/viewport.js";
 import { CanvasDocSchema } from "../src/types.js";
+import { mountViewport, type ViewportController } from "../src/viewport.js";
 
 declare global {
   interface Window {

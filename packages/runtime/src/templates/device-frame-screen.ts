@@ -1,5 +1,6 @@
 /** Content-only web page for CanvasDoc frame.kind="device". */
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html lang="en">
@@ -10,18 +11,18 @@ const exampleCode = `<!doctype html>
       @import "tailwindcss";
       * { box-sizing: border-box; }
       html, body { margin: 0; min-height: 100%; }
-      body { font: 14px/1.5 Manrope, Arial, sans-serif; color: #0b1b2f; background: #fff; }
-      header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #e6ecf3; }
+      body { font: 14px/1.5 Manrope, Arial, sans-serif; color: var(--color-foreground); background: var(--color-background); }
+      header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border); }
       header b { font-size: 15px; letter-spacing: -.02em; }
-      header nav { display: flex; gap: 14px; color: #5d7086; }
+      header nav { display: flex; gap: 14px; color: var(--color-muted-foreground); }
       .hero { padding: 28px 18px 22px; }
-      .hero p { margin: 0 0 8px; color: #6b7d91; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .hero p { margin: 0 0 8px; color: var(--color-muted-foreground); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
       .hero h1 { margin: 0 0 12px; font-size: 26px; line-height: 1.1; letter-spacing: -.035em; }
-      .hero a { display: inline-block; border-radius: 12px; padding: 12px 18px; color: #fff; background: #1172ee; font-weight: 800; text-decoration: none; }
+      .hero a { display: inline-block; border-radius: var(--radius-lg); padding: 12px 18px; color: var(--color-background); background: var(--color-primary); font-weight: 800; text-decoration: none; }
       .cards { display: grid; gap: 12px; padding: 0 18px 28px; }
-      .card { padding: 15px; border: 1px solid #dbe5ef; border-radius: 15px; background: #fff; box-shadow: 0 10px 24px rgba(6,27,54,.07); }
+      .card { padding: 15px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-lg); }
       .card strong { display: block; margin-bottom: 4px; }
-      .card span { color: #62758a; font-size: 13px; }
+      .card span { color: var(--color-muted-foreground); font-size: 13px; }
       @media (min-width: 900px) { .cards { grid-template-columns: repeat(3, 1fr); } .hero h1 { font-size: 44px; max-width: 620px; } }
     </style>
   </head>
@@ -41,6 +42,7 @@ const exampleCode = `<!doctype html>
 </html>`;
 
 export const deviceFrameScreenTemplate: Template = {
+  ...templateMetadata("device-frame-screen"),
   id: "device-frame-screen",
   name: "Canvas Device Screen",
   kind: "mockup",

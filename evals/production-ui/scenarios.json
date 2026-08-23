@@ -1,0 +1,74 @@
+[
+  {
+    "id": "detailed-dashboard",
+    "category": "dashboard",
+    "detail": "detailed",
+    "prompt": "Create an executive insurance operations dashboard with four KPIs, a six-month trend, ranked claims drivers, populated/loading/empty/error states, and a desktop viewport."
+  },
+  {
+    "id": "ambiguous-dashboard",
+    "category": "dashboard",
+    "detail": "ambiguous",
+    "prompt": "Show leadership how the business is doing."
+  },
+  {
+    "id": "detailed-admin",
+    "category": "operational-admin",
+    "detail": "detailed",
+    "prompt": "Create a desktop claims operations queue with navigation, filters, priority and SLA signals, an accessible data table, bulk actions, pagination, and loading/empty/error states."
+  },
+  {
+    "id": "short-admin",
+    "category": "operational-admin",
+    "detail": "short",
+    "prompt": "Design a polished admin screen for handling claims."
+  },
+  {
+    "id": "detailed-mobile",
+    "category": "mobile-flow",
+    "detail": "detailed",
+    "prompt": "Create a content-only mobile policy flow for a CanvasDoc device frame, with coverage, payment activity, one primary action, and loading/empty/error states."
+  },
+  {
+    "id": "short-mobile",
+    "category": "mobile-flow",
+    "detail": "short",
+    "prompt": "Design a mobile insurance policy screen."
+  },
+  {
+    "id": "detailed-checkout",
+    "category": "form-checkout",
+    "detail": "detailed",
+    "prompt": "Create a responsive two-step insurance checkout with quote summary, customer and payment fields, validation, secure-payment cues, back/continue actions, and success/loading/error states."
+  },
+  {
+    "id": "ambiguous-checkout",
+    "category": "form-checkout",
+    "detail": "ambiguous",
+    "prompt": "Help customers finish buying a policy without getting stuck."
+  },
+  {
+    "id": "detailed-report",
+    "category": "report-data",
+    "detail": "detailed",
+    "prompt": "Create a three-page board report with cover, answer-first findings, two quantitative charts, risks, recommendations, sources, and print-safe A4 layout."
+  },
+  {
+    "id": "short-report",
+    "category": "report-data",
+    "detail": "short",
+    "prompt": "Make a polished quarterly insurance report."
+  },
+  {
+    "id": "detailed-repair",
+    "category": "ui-repair",
+    "detail": "detailed",
+    "prompt": "Replace an existing cluttered claims dashboard concept with a production-ready version: remove nested cards, decorative gradients and excess pills; restore hierarchy, semantic tokens, accessible controls, loading/empty/error states, and responsive behavior."
+  },
+  {
+    "id": "ambiguous-repair",
+    "category": "ui-repair",
+    "detail": "ambiguous",
+    "prompt": "This insurance dashboard looks like generic AI output. Fix it and verify the result visually."
+  }
+]

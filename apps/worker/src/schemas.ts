@@ -52,6 +52,9 @@ export const RenderRequestSchema = z.object({
   // marginal cost, no second Chromium launch"), so there's nothing to
   // capture for svg/pdf/html outputs yet.
   thumbnailUpload: SignedUploadSchema.optional(),
+  themeTailwindCss: z.string().optional(),
+  themeRuntimeCss: z.string().optional(),
+  themeJson: z.string().optional(),
 });
 export type RenderRequest = z.infer<typeof RenderRequestSchema>;
 
@@ -113,6 +116,9 @@ export const SnapshotRequestSchema = z.object({
   scale: z.union([z.literal(1), z.literal(2)]).optional(),
   readinessTimeoutMs: z.number().int().positive().max(30_000).optional(),
   upload: SignedUploadSchema,
+  themeTailwindCss: z.string().optional(),
+  themeRuntimeCss: z.string().optional(),
+  themeJson: z.string().optional(),
 });
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
 

@@ -8,6 +8,7 @@ import {
 } from "@visual-canvas/canvas/layout.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
+import type { Theme } from "@visual-canvas/canvas/themes.js";
 import type { CanvasDoc, CanvasFile } from "@visual-canvas/canvas/types.js";
 import {
   CanvasDocSchema,
@@ -16,6 +17,7 @@ import {
   resolveCanvasPage,
 } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
+import { resolveTheme } from "@visual-canvas/runtime/render/themes/index.js";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -40,6 +42,7 @@ import {
   purgeWorkspace,
 } from "./lib/purge";
 import { slugify } from "./lib/slug";
+import { ThemeIdValidator, ThemeOverrideValidator, validateThemeOverride } from "./lib/theme";
 import { randomPublicSlug } from "./lib/tokenFormat";
 
 const ArtifactTypeValidator = v.union(
@@ -56,8 +59,8 @@ const KindValidator = v.union(
   v.literal("pdf"),
 );
 
-function renderCanvasEntry(doc: ReturnType<typeof CanvasDocSchema.parse>): string {
-  const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
+function renderCanvasEntry(doc: ReturnType<typeof CanvasDocSchema.parse>, theme?: Theme): string {
+  const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager", theme });
   return (
     '<!doctype html><html><head><meta charset="utf-8" />' +
     `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
@@ -292,7 +295,8 @@ function toSummary(c: Doc<"canvases">) {
     kind: c.kind,
     visibility: c.visibility,
     public_slug: c.publicSlug,
-    theme: c.theme,
+    theme_id: c.themeId ?? "clean-saas",
+    brand_override: c.brand,
     updated_at: c.updatedAt,
   };
 }
@@ -357,10 +361,12 @@ export const create = internalMutation({
     title: v.string(),
     kind: v.union(v.literal("canvas"), v.literal("html"), v.literal("image"), v.literal("pdf")),
     slug: v.optional(v.string()),
-    theme: v.optional(v.string()),
+    themeId: v.optional(ThemeIdValidator),
+    brand: v.optional(ThemeOverrideValidator),
     createdBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const brand = validateThemeOverride(args.brand);
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${args.workspaceId}`);
 
@@ -386,7 +392,8 @@ export const create = internalMutation({
       title: args.title,
       kind: args.kind,
       visibility: "private",
-      theme: args.theme,
+      themeId: args.themeId ?? "clean-saas",
+      brand,
       draftRevision: 0,
       draftEditCount: 0,
       draftUpdatedAt: now,
@@ -425,6 +432,9 @@ async function getCanvas(
 ) {
   const canvas = await ctx.db.get(canvasId);
   if (!canvas) return null;
+  const workspace = await ctx.db.get(canvas.workspaceId);
+  if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
+  const resolvedTheme = resolveTheme(canvas.themeId ?? "clean-saas", workspace.brand, canvas.brand);
   let docStorageId: Id<"_storage"> | undefined;
   let entryStorageId: Id<"_storage"> | undefined;
   let cssStorageId: Id<"_storage"> | undefined;
@@ -515,6 +525,8 @@ async function getCanvas(
     .take(500);
   return {
     ...toSummary(canvas),
+    workspace_brand: workspace.brand,
+    resolved_theme: resolvedTheme,
     doc_storage_id: docStorageId,
     doc_url: docUrl,
     entry_url: entryUrl,
@@ -535,6 +547,12 @@ async function getCanvas(
     draft_updated_at: canvas.draftUpdatedAt,
     dirty: canvas.draftEditCount > 0,
   };
+}
+
+async function resolvedThemeForCanvas(ctx: QueryCtx, canvas: Doc<"canvases">) {
+  const workspace = await ctx.db.get(canvas.workspaceId);
+  if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
+  return resolveTheme(canvas.themeId ?? "clean-saas", workspace.brand, canvas.brand);
 }
 
 /**
@@ -767,7 +785,9 @@ export const saveCanvasFileMine = action({
     });
     if (!canvas) throw new Error("Canvas has no stable checkpoint");
     const docBytes = new TextEncoder().encode(JSON.stringify(file));
-    const entryBytes = new TextEncoder().encode(renderCanvasEntry(resolveCanvasPage(file).doc));
+    const entryBytes = new TextEncoder().encode(
+      renderCanvasEntry(resolveCanvasPage(file).doc, canvas.resolvedTheme),
+    );
     const docStorageId = await ctx.storage.store(
       new Blob([docBytes], { type: "application/json" }),
     );
@@ -809,15 +829,13 @@ export const saveCanvasFileMine = action({
               pageId: page.id,
               nodeId: node.id,
               title: node.caption.title,
-              eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+              eyebrow: node.caption.tag,
               searchText: [
                 page.title,
                 node.caption.title,
                 node.caption.subtitle,
                 node.caption.tag,
-                node.inspector?.eyebrow,
-                node.inspector?.title,
-                node.inspector?.copy,
+                node.annotation?.content,
               ]
                 .filter((value): value is string => Boolean(value))
                 .join(" "),
@@ -923,7 +941,7 @@ export const listVersionsMine = query({
   },
 });
 
-// Cross-workspace search over canvas-kind node titles/eyebrows/inspector
+// Cross-workspace search over canvas-kind node titles/tags/annotations
 // copy (PLAN.md section 4/9), backed by canvasNodes.search_text. Org-wide
 // like the rest of the signed-in read surface (decision #4) — no canvasId
 // filter, so a query can find the right canvas as well as the right node
@@ -1177,7 +1195,9 @@ export const commitSaveContent = internalMutation({
       v.object({
         title: v.optional(v.string()),
         description: v.optional(v.string()),
-        theme: v.optional(v.string()),
+        themeId: v.optional(ThemeIdValidator),
+        canvasBrand: v.optional(ThemeOverrideValidator),
+        workspaceBrand: v.optional(ThemeOverrideValidator),
         visibility: v.optional(v.union(v.literal("private"), v.literal("public"))),
         newPublicSlug: v.optional(v.string()),
       }),
@@ -1214,6 +1234,8 @@ export const commitSaveContent = internalMutation({
     changed: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    const canvasBrand = validateThemeOverride(args.metadata?.canvasBrand);
+    const workspaceBrand = validateThemeOverride(args.metadata?.workspaceBrand);
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
     const current = canvas.currentVersionId ? await ctx.db.get(canvas.currentVersionId) : null;
@@ -1324,11 +1346,17 @@ export const commitSaveContent = internalMutation({
       args.metadata.description !== canvas.description
     )
       metadataPatch.description = args.metadata.description;
-    if (args.metadata?.theme !== undefined && args.metadata.theme !== canvas.theme)
-      metadataPatch.theme = args.metadata.theme;
+    if (args.metadata?.themeId !== undefined && args.metadata.themeId !== canvas.themeId)
+      metadataPatch.themeId = args.metadata.themeId;
+    if (canvasBrand !== undefined) metadataPatch.brand = canvasBrand;
     if (nextVisibility !== canvas.visibility) metadataPatch.visibility = nextVisibility;
     if (nextPublicSlug !== canvas.publicSlug) metadataPatch.publicSlug = nextPublicSlug;
     const metadataChanged = Object.keys(metadataPatch).length > 0;
+    const workspace = await ctx.db.get(canvas.workspaceId);
+    if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
+    const workspaceBrandChanged =
+      args.metadata?.workspaceBrand !== undefined &&
+      JSON.stringify(workspaceBrand) !== JSON.stringify(workspace.brand);
 
     const publishRequested = args.metadata?.visibility === "public";
     if (!changed && !publishRequested) {
@@ -1348,6 +1376,9 @@ export const commitSaveContent = internalMutation({
       }
       if (metadataChanged) {
         await ctx.db.patch(canvas._id, { ...metadataPatch, updatedAt: Date.now() });
+      }
+      if (workspaceBrandChanged) {
+        await ctx.db.patch(workspace._id, { brand: workspaceBrand });
       }
       return {
         versionId: current?._id ?? null,
@@ -1508,6 +1539,9 @@ export const commitSaveContent = internalMutation({
           : canvas.publishedVersionId,
       updatedAt: Date.now(),
     });
+    if (workspaceBrandChanged) {
+      await ctx.db.patch(workspace._id, { brand: workspaceBrand });
+    }
     return {
       versionId: checkpoint.versionId,
       version: checkpoint.version,
@@ -1954,6 +1988,7 @@ export const getLayoutPatchSource = internalQuery({
       cssStorageId: canvas.draftCssStorageId,
       iframeEntrypoints: canvas.draftIframeEntrypoints,
       userId: user._id,
+      resolvedTheme: await resolvedThemeForCanvas(ctx, canvas),
     };
   },
 });
@@ -2123,7 +2158,7 @@ export const patchGeometryMine = action({
     const bytes = new TextEncoder().encode(JSON.stringify(patchedFile));
     const docStorageId = await ctx.storage.store(new Blob([bytes], { type: "application/json" }));
     const entryBytes = new TextEncoder().encode(
-      renderCanvasEntry(resolveCanvasPage(patchedFile).doc),
+      renderCanvasEntry(resolveCanvasPage(patchedFile).doc, source.resolvedTheme),
     );
     const entryStorageId = await ctx.storage.store(new Blob([entryBytes], { type: "text/html" }));
     try {
@@ -2156,8 +2191,9 @@ export const patchGeometryMine = action({
               pageId: candidate.id,
               nodeId: node.id,
               title: node.caption.title,
-              eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+              eyebrow: node.caption.tag,
               searchText: [candidate.title, node.caption.title, node.caption.subtitle]
+                .concat(node.caption.tag ?? [], node.annotation?.content ?? [])
                 .filter((value): value is string => typeof value === "string")
                 .join(" "),
             })),
@@ -2259,7 +2295,12 @@ export const currentVersion = internalQuery({
     if (!canvas?.currentVersionId) return null;
     const version = await ctx.db.get(canvas.currentVersionId);
     return version
-      ? { versionId: version._id, version: version.version, createdBy: canvas.createdBy }
+      ? {
+          versionId: version._id,
+          version: version.version,
+          createdBy: canvas.createdBy,
+          resolvedTheme: await resolvedThemeForCanvas(ctx, canvas),
+        }
       : null;
   },
 });
@@ -2612,6 +2653,7 @@ export const resolvePublicArtifact = internalQuery({
       .withIndex("by_publicSlug", (q) => q.eq("publicSlug", args.publicSlug))
       .unique();
     if (canvas?.visibility !== "public" || canvas.archivedAt !== undefined) return null;
+    const resolvedTheme = await resolvedThemeForCanvas(ctx, canvas);
     const publicVersionId = canvas.publishedVersionId;
     const currentVersion = publicVersionId ? await ctx.db.get(publicVersionId) : null;
     const requestedVersion =
@@ -2672,6 +2714,7 @@ export const resolvePublicArtifact = internalQuery({
           storageId: file.storageId,
           iframe: isEntrypoint,
           version: requestedVersion.version,
+          resolvedTheme,
         };
       }
       if (args.relPath.startsWith("/assets/")) {
@@ -2696,6 +2739,7 @@ export const resolvePublicArtifact = internalQuery({
               libraryAsset: true,
               iframe: false,
               version: requestedVersion.version,
+              resolvedTheme,
             };
           }
         }
@@ -2713,6 +2757,7 @@ export const resolvePublicArtifact = internalQuery({
       size: row.size,
       storageId: row.storageId,
       version: rowVersion.version,
+      resolvedTheme,
     };
   },
 });
@@ -2968,6 +3013,7 @@ export const resolveIframeCapability = internalQuery({
     // are still resident in a live viewer; it only causes the client to mint
     // a new capability when the iframe resource manifest actually changes.
     if (!canvas || canvas.archivedAt !== undefined) return null;
+    const resolvedTheme = await resolvedThemeForCanvas(ctx, canvas);
     const entrypoints = canvas.draftIframeEntrypoints;
     const allowed =
       (args.relPath.startsWith("/src/screens/") && entrypoints?.includes(args.relPath)) ||
@@ -2997,6 +3043,7 @@ export const resolveIframeCapability = internalQuery({
         mimeType: assetVersion.mimeType,
         iframe: false,
         libraryAsset: true,
+        resolvedTheme,
       };
     }
     if (!file) return null;
@@ -3007,6 +3054,7 @@ export const resolveIframeCapability = internalQuery({
       relPath: file.relPath,
       mimeType: classified.mime,
       iframe: entrypoints?.includes(args.relPath) ?? false,
+      resolvedTheme,
     };
   },
 });
@@ -3225,19 +3273,22 @@ export const upsertByRef = internalMutation({
     title: v.optional(v.string()),
     kind: v.optional(KindValidator),
     description: v.optional(v.string()),
-    theme: v.optional(v.string()),
+    themeId: v.optional(ThemeIdValidator),
+    brand: v.optional(ThemeOverrideValidator),
     mode: v.optional(v.union(v.literal("upsert"), v.literal("create"), v.literal("update"))),
     expectedVersion: v.optional(v.number()),
     deferExistingMetadata: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const brand = validateThemeOverride(args.brand);
     const { canvas, workspace, created, overwroteOtherAuthor } = await resolveOrCreateCanvas(ctx, {
       ref: args.ref,
       createdBy: args.createdBy,
       title: args.title,
       kind: args.kind,
       description: args.description,
-      theme: args.theme,
+      themeId: args.themeId,
+      brand,
       mode: args.mode,
       expectedVersion: args.expectedVersion,
       deferExistingMetadata: args.deferExistingMetadata,
@@ -3251,6 +3302,9 @@ export const upsertByRef = internalMutation({
       title: canvas.title,
       visibility: canvas.visibility,
       publicSlug: canvas.publicSlug,
+      themeId: canvas.themeId ?? "clean-saas",
+      workspaceBrand: workspace.brand,
+      canvasBrand: canvas.brand,
       created,
       overwroteOtherAuthor,
     };

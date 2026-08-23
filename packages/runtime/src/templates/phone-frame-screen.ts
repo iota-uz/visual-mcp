@@ -1,5 +1,6 @@
 /** Content-only screen for CanvasDoc frame.kind=\"phone\". */
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html lang="ru">
@@ -10,14 +11,14 @@ const exampleCode = `<!doctype html>
       @import "tailwindcss";
       * { box-sizing: border-box; }
       html, body { width: 284px; height: 642px; margin: 0; overflow: hidden; }
-      body { font: 12px/1.45 Manrope, Arial, sans-serif; color: #07111f; background: #f5f8fc; }
+      body { font: 12px/1.45 Manrope, Arial, sans-serif; color: var(--color-foreground); background: var(--color-surface); }
       main { height: 100%; display: flex; flex-direction: column; padding: 18px 16px 14px; }
-      .eyebrow { margin: 0 0 7px; color: #6b7d91; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .eyebrow { margin: 0 0 7px; color: var(--color-muted-foreground); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
       h1 { margin: 0; max-width: 230px; font-size: 22px; line-height: 1.05; letter-spacing: -.035em; }
-      .card { margin-top: 18px; padding: 15px; border: 1px solid #dbe5ef; border-radius: 15px; background: white; box-shadow: 0 10px 24px rgba(6,27,54,.08); }
+      .card { margin-top: 18px; padding: 15px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-background); box-shadow: var(--shadow-lg); }
       .card strong { display: block; margin-bottom: 5px; font-size: 14px; }
-      .card p { margin: 0; color: #62758a; }
-      button { margin-top: auto; width: 100%; border: 0; border-radius: 13px; padding: 14px; color: white; background: #1172ee; font: 800 12px Manrope, Arial, sans-serif; cursor: pointer; }
+      .card p { margin: 0; color: var(--color-muted-foreground); }
+      button { margin-top: auto; width: 100%; border: 0; border-radius: var(--radius-lg); padding: 14px; color: var(--color-background); background: var(--color-primary); font: 800 12px Manrope, Arial, sans-serif; cursor: pointer; }
     </style>
   </head>
   <body>
@@ -34,6 +35,7 @@ const exampleCode = `<!doctype html>
 </html>`;
 
 export const phoneFrameScreenTemplate: Template = {
+  ...templateMetadata("phone-frame-screen"),
   id: "phone-frame-screen",
   name: "Canvas Phone Screen",
   kind: "mockup",

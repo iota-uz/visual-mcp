@@ -18,6 +18,9 @@ export async function handleSnapshot(req: SnapshotRequest): Promise<SnapshotResp
       scale: req.scale,
       readinessTimeoutMs: req.readinessTimeoutMs,
       workspaceRoot: ws.root,
+      themeTailwindCss: req.themeTailwindCss,
+      themeRuntimeCss: req.themeRuntimeCss,
+      themeJson: req.themeJson,
     });
     const stats = await stat(outputPath);
     const upload = await uploadFile(req.upload.putUrl, outputPath, "image/png");

@@ -16,10 +16,10 @@
 import { z } from "zod";
 import {
   type CanvasDoc,
-  CanvasEdgeSchema,
-  CanvasNodeSchema,
   type CanvasEdge,
+  CanvasEdgeSchema,
   type CanvasNode,
+  CanvasNodeSchema,
   type Point,
 } from "./types.js";
 

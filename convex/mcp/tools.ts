@@ -32,7 +32,11 @@
  * with its own bundled zod v3. Never mix the two schema objects.
  */
 
-import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import {
+  type CallToolResult,
+  type McpServer,
+  ResourceTemplate,
+} from "@modelcontextprotocol/server";
 import type { CanvasComponentBody } from "@visual-canvas/canvas/component.js";
 import {
   CanvasComponentBodySchema,
@@ -52,6 +56,8 @@ import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
+import type { Theme, ThemeOverride } from "@visual-canvas/canvas/themes.js";
+import { THEME_IDS } from "@visual-canvas/canvas/themes.js";
 import type { CanvasDoc, CanvasFile } from "@visual-canvas/canvas/types.js";
 import {
   CanvasDocSchema,
@@ -59,6 +65,12 @@ import {
   resolveCanvasPage,
 } from "@visual-canvas/canvas/types.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
+import {
+  compileThemeToCssVariables,
+  compileThemeToTailwindV4,
+  listThemes,
+  resolveTheme,
+} from "@visual-canvas/runtime/render/themes/index.js";
 import {
   getTemplate,
   listTemplates as templateRegistryList,
@@ -83,6 +95,7 @@ import {
 } from "../lib/urls";
 import { callWorker, extractStorageId, getWorkerConfig } from "../lib/worker";
 import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine";
+import { MCP_GUIDES } from "./guides";
 
 export interface McpPrincipal {
   userId: Id<"users">;
@@ -119,6 +132,281 @@ interface Warning {
   };
 }
 
+type RecommendationCode =
+  | "inspect_unresolved_reference"
+  | "inspect_node_overlap"
+  | "inspect_out_of_bounds_node"
+  | "replace_hardcoded_visual_tokens"
+  | "add_image_alt_text"
+  | "remove_duplicate_device_chrome"
+  | "remove_internal_marker"
+  | "label_empty_interactive_control"
+  | "reduce_custom_color_count"
+  | "reduce_custom_radius_count"
+  | "reduce_custom_shadow_count"
+  | "inspect_changed_canvas";
+
+interface Recommendation {
+  code: RecommendationCode;
+  message: string;
+  location?: { path?: string; page_id?: string; node_id?: string; selector?: string };
+  suggested_tool?: { name: string; arguments: Record<string, unknown> };
+}
+
+const RecommendationSchema = z.object({
+  code: z.enum([
+    "inspect_unresolved_reference",
+    "inspect_node_overlap",
+    "inspect_out_of_bounds_node",
+    "replace_hardcoded_visual_tokens",
+    "add_image_alt_text",
+    "remove_duplicate_device_chrome",
+    "remove_internal_marker",
+    "label_empty_interactive_control",
+    "reduce_custom_color_count",
+    "reduce_custom_radius_count",
+    "reduce_custom_shadow_count",
+    "inspect_changed_canvas",
+  ]),
+  message: z.string(),
+  location: z
+    .object({
+      path: z.string().optional(),
+      page_id: z.string().optional(),
+      node_id: z.string().optional(),
+      selector: z.string().optional(),
+    })
+    .optional(),
+  suggested_tool: z
+    .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()) })
+    .optional(),
+});
+
+const RECOMMENDATION_LIMIT = 30;
+
+function boundedRecommendations(items: Recommendation[]): Recommendation[] {
+  const seen = new Set<string>();
+  const perCode = new Map<Recommendation["code"], number>();
+  const deduped = items.filter((item) => {
+    const key = `${item.code}:${JSON.stringify(item.location ?? {})}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const capped = deduped.filter((item) => {
+    if (item.code === "inspect_changed_canvas") return true;
+    const count = (perCode.get(item.code) ?? 0) + 1;
+    perCode.set(item.code, count);
+    return count <= 5;
+  });
+  return capped
+    .sort((a, b) =>
+      a.code === "inspect_changed_canvas"
+        ? -1
+        : b.code === "inspect_changed_canvas"
+          ? 1
+          : `${a.code}:${JSON.stringify(a.location)}`.localeCompare(
+              `${b.code}:${JSON.stringify(b.location)}`,
+            ),
+    )
+    .slice(0, RECOMMENDATION_LIMIT);
+}
+
+function warningRecommendations(warnings: Warning[]): Recommendation[] {
+  const recommendations: Recommendation[] = [];
+  for (const warning of warnings) {
+    if (warning.code === "unresolved_asset") {
+      recommendations.push({
+        code: "inspect_unresolved_reference" as const,
+        message: warning.message,
+        location: { path: warning.path },
+      });
+    }
+    if (warning.code === "node_overlap") {
+      recommendations.push({
+        code: "inspect_node_overlap" as const,
+        message: warning.message,
+        location: {
+          page_id: warning.data?.page_id,
+          node_id: warning.data?.node_ids?.[0],
+        },
+      });
+    }
+  }
+  return recommendations;
+}
+
+function scanProductionQuality(
+  writtenText: Array<{ path: string; text: string }>,
+  file?: CanvasFile,
+): Recommendation[] {
+  const recommendations: Recommendation[] = [];
+  for (const source of writtenText) {
+    if (!/\.html?$/i.test(source.path)) continue;
+    const html = source.text;
+    for (const match of html.matchAll(/<img\b(?![^>]*\balt\s*=)[^>]*>/gi)) {
+      recommendations.push({
+        code: "add_image_alt_text",
+        message: 'Image elements need meaningful alt text (or alt="" when decorative).',
+        location: { path: source.path, selector: match[0].slice(0, 120) },
+      });
+    }
+    for (const match of html.matchAll(/<(button|a)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+      const body = (match[2] ?? "").replace(/<[^>]*>/g, "").trim();
+      if (!body && !/\baria-label\s*=|\btitle\s*=/i.test(match[0])) {
+        recommendations.push({
+          code: "label_empty_interactive_control",
+          message: "Interactive controls need visible text or an accessible label.",
+          location: { path: source.path, selector: match[0].slice(0, 120) },
+        });
+      }
+    }
+    if (/\b(?:data-debug|data-internal|__meta|internal-only)\b/i.test(html)) {
+      recommendations.push({
+        code: "remove_internal_marker",
+        message: "Remove internal/debug markers from production-facing output.",
+        location: { path: source.path },
+      });
+    }
+    const colors = new Set(html.match(/#[\da-f]{3,8}\b|\brgba?\([^)]*\)/gi) ?? []);
+    if (colors.size > 8)
+      recommendations.push({
+        code: "reduce_custom_color_count",
+        message: `${colors.size} custom colors were found; prefer resolved semantic theme tokens.`,
+        location: { path: source.path },
+      });
+    if (
+      colors.size > 0 &&
+      !/var\(--color-|(?:bg|text|border)-(?:background|foreground|muted|primary|secondary|border)\b/.test(
+        html,
+      )
+    ) {
+      recommendations.push({
+        code: "replace_hardcoded_visual_tokens",
+        message: "Use semantic theme colors so workspace and canvas branding is preserved.",
+        location: { path: source.path },
+      });
+    }
+    const radii = new Set(html.match(/border-radius\s*:[^;}]+/gi) ?? []);
+    if (radii.size > 4)
+      recommendations.push({
+        code: "reduce_custom_radius_count",
+        message: `${radii.size} custom radii were found; use the theme radius scale.`,
+        location: { path: source.path },
+      });
+    const shadows = new Set(html.match(/box-shadow\s*:[^;}]+/gi) ?? []);
+    if (shadows.size > 4)
+      recommendations.push({
+        code: "reduce_custom_shadow_count",
+        message: `${shadows.size} custom shadows were found; use the theme shadow scale.`,
+        location: { path: source.path },
+      });
+  }
+  for (const page of file?.pages ?? []) {
+    for (const node of page.doc.nodes) {
+      if (
+        node.rect.x < 0 ||
+        node.rect.y < 0 ||
+        node.rect.x + node.rect.w > page.doc.world.width ||
+        node.rect.y + node.rect.h > page.doc.world.height
+      ) {
+        recommendations.push({
+          code: "inspect_out_of_bounds_node",
+          message: `Node "${node.id}" extends beyond the ${page.doc.world.width}×${page.doc.world.height} world.`,
+          location: { page_id: page.id, node_id: node.id },
+        });
+      }
+      if (
+        node.kind === "iframe" &&
+        node.frame.kind !== "none" &&
+        writtenText.some(
+          (source) =>
+            source.path === node.source.entrypoint &&
+            /(?:phone|device|browser)-(?:frame|chrome)|iphone\b/i.test(source.text),
+        )
+      ) {
+        recommendations.push({
+          code: "remove_duplicate_device_chrome",
+          message:
+            "The CanvasDoc device shell and iframe content both appear to draw device chrome.",
+          location: { path: node.source.entrypoint, page_id: page.id, node_id: node.id },
+        });
+      }
+    }
+  }
+  return recommendations;
+}
+
+function snapshotRecommendation(args: {
+  ref: string;
+  version: number;
+  draftRevision: number;
+  pageId?: string;
+  nodeId?: string;
+}): Recommendation {
+  return {
+    code: "inspect_changed_canvas",
+    message: args.nodeId
+      ? `Inspect changed node "${args.nodeId}" before handoff.`
+      : "Inspect the smallest changed canvas target before handoff.",
+    location: { page_id: args.pageId, node_id: args.nodeId },
+    suggested_tool: {
+      name: "canvas_snapshot",
+      arguments: {
+        ref: args.ref,
+        ...(args.pageId ? { page_id: args.pageId } : {}),
+        target: args.nodeId ? { type: "node", node_id: args.nodeId } : { type: "canvas" },
+        expected_version: args.version,
+        expected_draft_revision: args.draftRevision,
+      },
+    },
+  };
+}
+
+async function changedFileSnapshotRecommendations(
+  ctx: ActionCtx,
+  args: {
+    ref: string;
+    version: number;
+    draftRevision: number;
+    paths: string[];
+  },
+): Promise<Recommendation[]> {
+  const context = await ctx.runQuery(internal.canvases.snapshotContextByRef, { ref: args.ref });
+  if (context?.kind !== "canvas" || !context.docStorageId) {
+    return [snapshotRecommendation(args)];
+  }
+  const blob = await ctx.storage.get(context.docStorageId);
+  if (!blob) return [snapshotRecommendation(args)];
+  const file = CanvasFileSchema.parse(JSON.parse(await blob.text()));
+  const changedPaths = new Set(
+    args.paths.map((path) => normalizeCanvasPath(path, "read").displayPath),
+  );
+  const matches = file.pages.flatMap((page) =>
+    page.doc.nodes
+      .filter(
+        (node) =>
+          node.kind === "iframe" &&
+          changedPaths.has(normalizeCanvasPath(node.source.entrypoint, "read").displayPath),
+      )
+      .map((node) => ({ pageId: page.id, nodeId: node.id })),
+  );
+  const unique = matches.filter(
+    (match, index) =>
+      matches.findIndex(
+        (candidate) => candidate.pageId === match.pageId && candidate.nodeId === match.nodeId,
+      ) === index,
+  );
+  if (unique.length === 0) return [snapshotRecommendation(args)];
+  return unique.slice(0, 4).map((match) =>
+    snapshotRecommendation({
+      ...args,
+      pageId: match.pageId,
+      nodeId: match.nodeId,
+    }),
+  );
+}
+
 const WarningRectSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -153,6 +441,58 @@ const WarningSchema = z.object({
 });
 
 const StorageSchema = z.object({ used_bytes: z.number(), quota_bytes: z.number() });
+
+const ThemeOverrideInputSchema = z
+  .object({
+    colors: z
+      .object({
+        background: z.string().optional(),
+        foreground: z.string().optional(),
+        muted: z.string().optional(),
+        surface: z.string().optional(),
+        mutedForeground: z.string().optional(),
+        success: z.string().optional(),
+        warning: z.string().optional(),
+        danger: z.string().optional(),
+        primary: z.string().optional(),
+        secondary: z.string().optional(),
+        border: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    typography: z
+      .object({ fontSans: z.string().optional(), fontMono: z.string().optional() })
+      .strict()
+      .optional(),
+    radius: z
+      .object({
+        sm: z.string().optional(),
+        md: z.string().optional(),
+        lg: z.string().optional(),
+        xl: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    spacing: z.record(z.string(), z.string()).optional(),
+    shadows: z.record(z.string(), z.string()).optional(),
+    chartPalette: z.array(z.string()).min(4).max(12).optional(),
+    diagramStyle: z
+      .object({ nodeRadius: z.string().optional(), edgeStyle: z.string().optional() })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const ResolvedThemeOutputSchema = z.object({
+  name: z.enum(THEME_IDS),
+  colors: z.record(z.string(), z.string()),
+  typography: z.record(z.string(), z.string()),
+  radius: z.record(z.string(), z.string()),
+  spacing: z.record(z.string(), z.string()),
+  shadows: z.record(z.string(), z.string()),
+  chartPalette: z.array(z.string()),
+  diagramStyle: z.record(z.string(), z.string()),
+});
 
 /**
  * Every success returns both a human-readable text block and machine-readable
@@ -713,6 +1053,8 @@ async function performRender(
     }
 
     const config = getWorkerConfig();
+    const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
+    const theme = detail?.canvas.resolved_theme as Theme | undefined;
     const putUrl = await ctx.storage.generateUploadUrl();
     const thumbnailPutUrl =
       spec.format === "png" ? await ctx.storage.generateUploadUrl() : undefined;
@@ -752,6 +1094,9 @@ async function performRender(
         : undefined,
       upload: { putUrl },
       thumbnailUpload: thumbnailPutUrl ? { putUrl: thumbnailPutUrl } : undefined,
+      themeTailwindCss: theme ? compileThemeToTailwindV4(theme) : undefined,
+      themeRuntimeCss: theme ? compileThemeToCssVariables(theme) : undefined,
+      themeJson: theme ? JSON.stringify(theme) : undefined,
     });
 
     for (const ref of workerResult.unresolvedRefs ?? []) {
@@ -842,6 +1187,7 @@ async function performRender(
 async function prepareSaveDoc(
   ctx: ActionCtx,
   rawDoc: unknown,
+  theme?: Theme,
 ): Promise<{
   doc: CanvasFile;
   commit: {
@@ -870,7 +1216,7 @@ async function prepareSaveDoc(
   }
   const doc = parsedDoc.data;
   const docJson = JSON.stringify(doc);
-  const entry = canvasEntryHtml(resolveCanvasPage(doc).doc);
+  const entry = canvasEntryHtml(resolveCanvasPage(doc).doc, "", undefined, theme);
   const docBytes = new TextEncoder().encode(docJson);
   const entryBytes = new TextEncoder().encode(entry);
   const storageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
@@ -905,15 +1251,13 @@ async function prepareSaveDoc(
           pageId: page.id,
           nodeId: node.id,
           title: node.caption.title,
-          eyebrow: node.inspector?.eyebrow ?? node.caption.tag,
+          eyebrow: node.caption.tag,
           searchText: [
             page.title,
             node.caption.title,
             node.caption.subtitle,
             node.caption.tag,
-            node.inspector?.eyebrow,
-            node.inspector?.title,
-            node.inspector?.copy,
+            node.annotation?.content,
           ]
             .filter((value): value is string => typeof value === "string" && value.length > 0)
             .join(" "),
@@ -934,7 +1278,12 @@ async function saveCanvasFileDraft(
     note?: string;
   },
 ) {
-  const prepared = await prepareSaveDoc(ctx, file);
+  const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
+  const prepared = await prepareSaveDoc(
+    ctx,
+    file,
+    detail?.canvas.resolved_theme as Theme | undefined,
+  );
   try {
     return await ctx.runMutation(internal.canvases.commitSaveContent, {
       canvasId,
@@ -985,9 +1334,11 @@ function canvasEntryHtml(
     | { type: "canvas" }
     | { type: "node"; nodeId: string }
     | { type: "region"; x: number; y: number; width: number; height: number },
+  theme?: Theme,
 ): string {
   const positioned = layoutCanvas(doc);
   const { html } = renderCanvas(positioned, {
+    theme,
     iframeLoading: "eager",
     shouldLoadIframe: snapshotTarget
       ? (node) => {
@@ -1165,6 +1516,7 @@ const SaveOutputSchema = z.object({
   ),
   storage: StorageSchema,
   warnings: z.array(WarningSchema),
+  recommendations: z.array(RecommendationSchema),
 });
 
 const AssetRecordOutputSchema = z.object({
@@ -1266,7 +1618,51 @@ async function finalizeUploadedAsset(
   };
 }
 
+function productionToolDescription(
+  name: string,
+  base: string | undefined,
+  annotations:
+    | { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean }
+    | undefined,
+): string {
+  const readOnly = annotations?.readOnlyHint === true;
+  const destructive = annotations?.destructiveHint === true;
+  const idempotent = annotations?.idempotentHint === true;
+  return [
+    `Use: ${base ?? name}.`,
+    readOnly
+      ? "Do not use: when the request requires changing canvas state."
+      : "Do not use: for inspection-only requests or when a narrower read tool answers the question.",
+    "Prefer: this tool only when its named operation is the smallest operation that matches the request.",
+    readOnly
+      ? "Side effects: none; this tool reads current durable state."
+      : destructive
+        ? "Side effects: changes durable state and may remove or replace content named by the input."
+        : "Side effects: changes durable state within the addressed canvas or workspace.",
+    idempotent
+      ? "Retry: safe with identical arguments, subject to explicit version/hash guards."
+      : readOnly
+        ? "Retry: safe; results may reflect newer durable state."
+        : "Retry: first reread returned version/hash/revision fields; an identical retry may repeat the mutation.",
+    "Errors: invalid schemas, missing or stale refs, authorization failures, and version/hash conflicts are returned as tool errors with a stable leading code when actionable.",
+  ].join(" ");
+}
+
 export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
+  const rawRegisterTool = server.registerTool.bind(server) as (
+    ...args: Parameters<McpServer["registerTool"]>
+  ) => ReturnType<McpServer["registerTool"]>;
+  server.registerTool = ((...args: Parameters<McpServer["registerTool"]>) => {
+    const [name, config, callback] = args;
+    return rawRegisterTool(
+      name,
+      {
+        ...config,
+        description: productionToolDescription(name, config.description, config.annotations),
+      },
+      callback,
+    );
+  }) as McpServer["registerTool"];
   /* --- 1. canvas_save ------------------------------------------------- */
   server.registerTool(
     "canvas_save",
@@ -1285,7 +1681,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ref: RefArg,
           title: z.string().optional(),
           description: z.string().optional(),
-          theme: z.string().optional(),
+          theme_id: z.enum(THEME_IDS).optional(),
+          workspace_brand: ThemeOverrideInputSchema.optional().describe(
+            "Workspace-wide semantic token overrides inherited by every canvas.",
+          ),
+          brand_override: ThemeOverrideInputSchema.optional().describe(
+            "Canvas-specific semantic token overrides applied after workspace_brand.",
+          ),
           kind: z
             .enum(["canvas", "html", "image", "pdf"])
             .optional()
@@ -1328,6 +1730,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     async (input) =>
       runTool(async () => {
         const warnings: Warning[] = [];
+        const recommendations: Recommendation[] = [];
 
         const kind = input.kind ?? (input.doc !== undefined ? "canvas" : "html");
         const upserted = await ctx.runMutation(internal.canvases.upsertByRef, {
@@ -1336,12 +1739,18 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           title: input.title,
           kind,
           description: input.description,
-          theme: input.theme,
+          themeId: input.theme_id,
+          brand: input.brand_override as ThemeOverride | undefined,
           mode: input.mode,
           expectedVersion: input.expected_version,
           deferExistingMetadata: true,
         });
         const canvasId = upserted.canvasId;
+        const resolvedTheme = resolveTheme(
+          input.theme_id ?? upserted.themeId ?? "clean-saas",
+          (input.workspace_brand ?? upserted.workspaceBrand) as ThemeOverride | undefined,
+          (input.brand_override ?? upserted.canvasBrand) as ThemeOverride | undefined,
+        );
 
         if (upserted.overwroteOtherAuthor) {
           warnings.push({
@@ -1373,13 +1782,30 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             principal.userId,
             input.files ?? [],
           );
-          preparedDoc = input.doc === undefined ? undefined : await prepareSaveDoc(ctx, input.doc);
+          let docInput = input.doc;
+          if (
+            docInput === undefined &&
+            kind === "canvas" &&
+            (input.theme_id !== undefined ||
+              input.workspace_brand !== undefined ||
+              input.brand_override !== undefined)
+          ) {
+            const context = await ctx.runQuery(internal.canvases.snapshotContextByRef, {
+              ref: input.ref,
+            });
+            const blob = context?.docStorageId ? await ctx.storage.get(context.docStorageId) : null;
+            if (blob) docInput = JSON.parse(await blob.text());
+          }
+          preparedDoc =
+            docInput === undefined ? undefined : await prepareSaveDoc(ctx, docInput, resolvedTheme);
           if (
             preparedFiles.changes.length > 0 ||
             preparedDoc ||
             input.title !== undefined ||
             input.description !== undefined ||
-            input.theme !== undefined ||
+            input.theme_id !== undefined ||
+            input.workspace_brand !== undefined ||
+            input.brand_override !== undefined ||
             input.visibility !== undefined
           ) {
             committed = await ctx.runMutation(internal.canvases.commitSaveContent, {
@@ -1391,7 +1817,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               metadata: {
                 title: input.title,
                 description: input.description,
-                theme: input.theme,
+                themeId: input.theme_id,
+                workspaceBrand: input.workspace_brand as ThemeOverride | undefined,
+                canvasBrand: input.brand_override as ThemeOverride | undefined,
                 visibility: input.visibility,
                 newPublicSlug: input.visibility === "public" ? randomShareSlug() : undefined,
               },
@@ -1438,6 +1866,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         if (preparedDoc) {
           warnings.push(...scanNodeOverlaps(preparedDoc.doc.pages));
         }
+        recommendations.push(...scanProductionQuality(writtenText, preparedDoc?.doc));
 
         // --- renders ---
         const artifacts: RenderedArtifact[] = [];
@@ -1485,10 +1914,59 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           canvasEmbedImage,
           canvasEmbedTarget,
         );
+        recommendations.push(...warningRecommendations(warnings));
+        const stableRef = `${upserted.workspaceSlug}/${upserted.canvasSlug}`;
+        if (kind === "canvas" && preparedDoc) {
+          const onlyPage =
+            preparedDoc.doc.pages.length === 1 ? preparedDoc.doc.pages[0] : undefined;
+          const onlyNode = onlyPage?.doc.nodes.length === 1 ? onlyPage.doc.nodes[0] : undefined;
+          recommendations.push({
+            code: "inspect_changed_canvas",
+            message: onlyNode
+              ? `Inspect changed node "${onlyNode.id}" before handoff.`
+              : "Inspect the changed canvas before handoff.",
+            location: { page_id: onlyPage?.id, node_id: onlyNode?.id },
+            suggested_tool: {
+              name: "canvas_snapshot",
+              arguments: {
+                ref: stableRef,
+                ...(onlyPage ? { page_id: onlyPage.id } : {}),
+                target: onlyNode ? { type: "node", node_id: onlyNode.id } : { type: "canvas" },
+                expected_version: detail.canvas.version ?? 0,
+                expected_draft_revision: detail.canvas.draft_revision,
+              },
+            },
+          });
+        } else if ((preparedFiles?.changes.length ?? 0) > 0) {
+          recommendations.push(
+            ...(await changedFileSnapshotRecommendations(ctx, {
+              ref: stableRef,
+              version: detail.canvas.version ?? 0,
+              draftRevision: detail.canvas.draft_revision,
+              paths: preparedFiles?.changes.map((change) => change.path) ?? [],
+            })),
+          );
+        }
+        const finalizedRecommendations = boundedRecommendations(recommendations).map((item) => {
+          if (item.suggested_tool || !item.location?.node_id) return item;
+          return {
+            ...item,
+            suggested_tool: {
+              name: "canvas_snapshot",
+              arguments: {
+                ref: stableRef,
+                ...(item.location.page_id ? { page_id: item.location.page_id } : {}),
+                target: { type: "node", node_id: item.location.node_id },
+                expected_version: detail.canvas.version ?? 0,
+                expected_draft_revision: detail.canvas.draft_revision,
+              },
+            },
+          };
+        });
         return result({
           status: degraded ? "partial" : "ok",
           created: upserted.created,
-          ref: `${upserted.workspaceSlug}/${upserted.canvasSlug}`,
+          ref: stableRef,
           canvas_id: canvasId,
           workspace_slug: upserted.workspaceSlug,
           canvas_slug: upserted.canvasSlug,
@@ -1527,6 +2005,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }),
           storage: detail.storage,
           warnings: dedupeWarnings(warnings),
+          recommendations: finalizedRecommendations,
         });
       }),
   );
@@ -1566,6 +2045,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         draft_revision: z.number().int().nonnegative(),
         dirty: z.boolean(),
         rebased: z.boolean(),
+        recommendations: z.array(RecommendationSchema),
       }),
     },
     async (input) =>
@@ -1611,6 +2091,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         );
         const contentHash = committed.files[0]?.content_hash;
         if (!contentHash) throw new Error("canvas_edit committed without a content hash");
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: source.canvasId });
         return result({
           status: "ok",
           ref: input.ref,
@@ -1624,6 +2105,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           draft_revision: committed.draftRevision,
           dirty: committed.dirty,
           rebased: source.version !== input.expected_version,
+          recommendations:
+            detail?.canvas.kind === "canvas" || detail?.canvas.kind === "html"
+              ? await changedFileSnapshotRecommendations(ctx, {
+                  ref: input.ref,
+                  version: committed.version,
+                  draftRevision: committed.draftRevision,
+                  paths: [source.path],
+                })
+              : [],
         });
       }),
   );
@@ -1661,6 +2151,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         dirty: z.boolean(),
         rebased: z.boolean(),
         files: z.array(z.object({ path: z.string(), content_hash: z.string().optional() })),
+        recommendations: z.array(RecommendationSchema),
       }),
     },
     async (input) =>
@@ -1723,6 +2214,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           prepared,
           input.note,
         );
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
         return result({
           status: "ok",
           ref: input.ref,
@@ -1733,6 +2225,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           dirty: committed.dirty,
           rebased: currentVersion !== input.expected_version,
           files: committed.files,
+          recommendations:
+            detail?.canvas.kind === "canvas" || detail?.canvas.kind === "html"
+              ? await changedFileSnapshotRecommendations(ctx, {
+                  ref: input.ref,
+                  version: committed.version,
+                  draftRevision: committed.draftRevision,
+                  paths: committed.files.map((file) => file.path),
+                })
+              : [],
         });
       }),
   );
@@ -1788,6 +2289,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     page_id: z.string(),
     operations: z.number(),
     warnings: z.array(WarningSchema),
+    recommendations: z.array(RecommendationSchema),
   });
 
   server.registerTool(
@@ -1857,6 +2359,16 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             note: input.note ?? `CanvasDoc patch (${input.operations.length})`,
           },
         );
+        const warnings = dedupeWarnings(
+          scanNodeOverlaps([{ id: currentPage.id, title: currentPage.title, doc: patchedDoc }]),
+        );
+        const operation = input.operations.length === 1 ? input.operations[0] : undefined;
+        const targetNodeId =
+          operation?.op.startsWith("nodes.") && operation.op !== "nodes.remove"
+            ? "id" in operation
+              ? operation.id
+              : ((operation as { value?: { id?: string } }).value?.id ?? undefined)
+            : undefined;
         return result({
           status: "ok",
           ref: input.ref,
@@ -1866,9 +2378,18 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           dirty: saved.dirty,
           page_id: currentPage.id,
           operations: input.operations.length,
-          warnings: dedupeWarnings(
-            scanNodeOverlaps([{ id: currentPage.id, title: currentPage.title, doc: patchedDoc }]),
-          ),
+          warnings,
+          recommendations: boundedRecommendations([
+            ...scanProductionQuality([], patchedFile),
+            ...warningRecommendations(warnings),
+            snapshotRecommendation({
+              ref: input.ref,
+              version: saved.version,
+              draftRevision: saved.draftRevision,
+              pageId: currentPage.id,
+              nodeId: targetNodeId,
+            }),
+          ]),
         });
       }),
   );
@@ -1891,6 +2412,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     dx: z.number(),
     dy: z.number(),
     warnings: z.array(WarningSchema),
+    recommendations: z.array(RecommendationSchema),
   });
 
   server.registerTool(
@@ -1948,6 +2470,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             note: input.note ?? `Moved ${nodeIds.length} nodes`,
           },
         );
+        const warnings = dedupeWarnings(
+          scanNodeOverlaps([{ id: page.id, title: page.title, doc: movedDoc }]),
+        );
         return result({
           status: "ok",
           ref: input.ref,
@@ -1958,9 +2483,18 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           moved_node_ids: nodeIds,
           dx: input.dx,
           dy: input.dy,
-          warnings: dedupeWarnings(
-            scanNodeOverlaps([{ id: page.id, title: page.title, doc: movedDoc }]),
-          ),
+          warnings,
+          recommendations: boundedRecommendations([
+            ...scanProductionQuality([], nextFile),
+            ...warningRecommendations(warnings),
+            snapshotRecommendation({
+              ref: input.ref,
+              version: saved.version,
+              draftRevision: saved.draftRevision,
+              pageId: page.id,
+              nodeId: nodeIds.length === 1 ? nodeIds[0] : undefined,
+            }),
+          ]),
         });
       }),
   );
@@ -1977,6 +2511,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     removed_group_ids: z.array(z.string()),
     removed_interaction_ids: z.array(z.string()),
     cleared_prototype_start: z.boolean(),
+    recommendations: z.array(RecommendationSchema),
   });
 
   server.registerTool(
@@ -2039,6 +2574,14 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           removed_group_ids: deleted.removedGroupIds,
           removed_interaction_ids: deleted.removedInteractionIds,
           cleared_prototype_start: deleted.clearedStart,
+          recommendations: [
+            snapshotRecommendation({
+              ref: input.ref,
+              version: saved.version,
+              draftRevision: saved.draftRevision,
+              pageId: page.id,
+            }),
+          ],
         });
       }),
   );
@@ -3545,8 +4088,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Snapshot canvas selection",
       description:
-        "Returns a PNG image block for a native canvas, one node, or an exact world-coordinate " +
-        "region. Pass a copied ref_id to see that node immediately. The capture is rendered from " +
+        "Returns a PNG image block for a complete HTML artifact or for a native canvas, one native node, or an exact world-coordinate " +
+        "region. Pass a copied ref_id to see that native node immediately. The capture is rendered from " +
         "the current durable draft revision, not from transient browser state. PNGs above 5 MB " +
         "are not inlined; use download_url or the suggested smaller regions/scale.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -3605,8 +4148,16 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           : (input.target ?? ({ type: "canvas" } as const));
         const context = await ctx.runQuery(internal.canvases.snapshotContextByRef, { ref });
         if (!context) throw new Error(`canvas_not_found: No canvas found for ref "${ref}".`);
-        if (context.kind !== "canvas") {
-          throw new Error("unsupported_canvas_kind: canvas_snapshot supports kind=canvas only.");
+        if (context.kind !== "canvas" && context.kind !== "html") {
+          throw new Error(
+            "unsupported_canvas_kind: canvas_snapshot supports kind=canvas and kind=html.",
+          );
+        }
+        const isNativeCanvas = context.kind === "canvas";
+        if (!isNativeCanvas && (target.type !== "canvas" || input.page_id)) {
+          throw new Error(
+            "unsupported_snapshot_target: HTML artifacts support only the complete canvas target.",
+          );
         }
         if (input.expected_version !== undefined && input.expected_version !== context.version) {
           throw new Error(
@@ -3622,15 +4173,34 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           );
         }
 
-        if (!context.docStorageId) throw new Error("snapshot_failed: CanvasDoc is unavailable.");
-        const docBlob = await ctx.storage.get(context.docStorageId);
-        if (!docBlob) throw new Error("snapshot_failed: CanvasDoc storage object is unavailable.");
-        const file = CanvasFileSchema.parse(JSON.parse(await docBlob.text()));
-        const page = resolveCanvasPage(file, input.page_id);
-        if (input.page_id && page.id !== input.page_id)
-          throw new Error(`page_not_found: ${input.page_id}`);
-        const doc = page.doc;
-        if (target.type === "node") {
+        let doc: CanvasDoc | undefined;
+        let pageId = "artifact";
+        let workerEntrypoint: string;
+        if (isNativeCanvas) {
+          if (!context.docStorageId) throw new Error("snapshot_failed: CanvasDoc is unavailable.");
+          const docBlob = await ctx.storage.get(context.docStorageId);
+          if (!docBlob)
+            throw new Error("snapshot_failed: CanvasDoc storage object is unavailable.");
+          const file = CanvasFileSchema.parse(JSON.parse(await docBlob.text()));
+          const page = resolveCanvasPage(file, input.page_id);
+          if (input.page_id && page.id !== input.page_id)
+            throw new Error(`page_not_found: ${input.page_id}`);
+          doc = page.doc;
+          pageId = page.id;
+          workerEntrypoint = "/src/__canvas.html";
+        } else {
+          const htmlSource =
+            context.files.find((source) => source.relPath === "/src/index.html") ??
+            context.files.find(
+              (source) =>
+                source.relPath.endsWith(".html") && source.relPath !== "/src/__canvas.html",
+            );
+          if (!htmlSource) {
+            throw new Error("snapshot_failed: HTML artifact has no HTML entrypoint.");
+          }
+          workerEntrypoint = htmlSource.relPath;
+        }
+        if (target.type === "node" && doc) {
           if (!resolveElementSelection(doc, target.node_id)) {
             throw new Error(
               `node_not_found: node "${target.node_id}" does not exist at version ${context.version}.`,
@@ -3642,14 +4212,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const scale = input.scale ?? 1;
         const normalizedTarget =
           target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref });
+        const theme = detail?.canvas.resolved_theme as Theme | undefined;
         const cacheKey = await sha256Hex(
           JSON.stringify({
             renderer: 3,
             draftRevision: context.draftRevision,
-            pageId: page.id,
+            pageId,
             target: normalizedTarget,
             padding,
             scale,
+            theme,
           }),
         );
 
@@ -3703,25 +4276,29 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               })),
             )),
           ];
-          // Always stage a target-aware immutable export page. Reusing the
-          // version's eager page would load every sibling iframe before the
-          // worker knows which node/region was requested, contaminating a
-          // targeted snapshot with unrelated readiness and asset failures.
-          const cssBlob = context.cssStorageId ? await ctx.storage.get(context.cssStorageId) : null;
-          const entryBytes = new TextEncoder().encode(
-            canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : "", normalizedTarget),
-          );
-          const temporaryEntryStorageId = await ctx.storage.store(
-            new Blob([entryBytes], { type: "text/html" }),
-          );
-          const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
-          if (!getUrl) {
-            await ctx.storage.delete(temporaryEntryStorageId);
-            throw new Error("snapshot_failed: unable to stage immutable export page.");
+          let temporaryEntryStorageId: Id<"_storage"> | undefined;
+          if (doc) {
+            // Native canvases stage a target-aware immutable export page. Reusing the
+            // eager page would load every sibling iframe before the worker knows which
+            // node/region was requested.
+            const cssBlob = context.cssStorageId
+              ? await ctx.storage.get(context.cssStorageId)
+              : null;
+            const entryBytes = new TextEncoder().encode(
+              canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : "", normalizedTarget),
+            );
+            temporaryEntryStorageId = await ctx.storage.store(
+              new Blob([entryBytes], { type: "text/html" }),
+            );
+            const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
+            if (!getUrl) {
+              await ctx.storage.delete(temporaryEntryStorageId);
+              throw new Error("snapshot_failed: unable to stage immutable export page.");
+            }
+            const entryIndex = sources.findIndex((source) => source.relPath === workerEntrypoint);
+            if (entryIndex >= 0) sources.splice(entryIndex, 1);
+            sources.push({ relPath: workerEntrypoint, getUrl });
           }
-          const entryIndex = sources.findIndex((source) => source.relPath === "/src/__canvas.html");
-          if (entryIndex >= 0) sources.splice(entryIndex, 1);
-          sources.push({ relPath: "/src/__canvas.html", getUrl });
 
           const config = getWorkerConfig();
           let workerResult:
@@ -3756,12 +4333,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                   "/snapshot",
                   {
                     sources,
-                    entrypoint: "/src/__canvas.html",
+                    entrypoint: workerEntrypoint,
                     target: normalizedTarget,
                     padding,
                     scale,
                     readinessTimeoutMs: input.timeout_ms,
                     upload: { putUrl },
+                    themeTailwindCss: theme ? compileThemeToTailwindV4(theme) : undefined,
+                    themeRuntimeCss: theme ? compileThemeToCssVariables(theme) : undefined,
+                    themeJson: theme ? JSON.stringify(theme) : undefined,
                   },
                 );
                 workerResult = attemptResult;
@@ -3777,7 +4357,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               await new Promise((resolve) => setTimeout(resolve, 250));
             }
           } finally {
-            await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
+            if (temporaryEntryStorageId) {
+              await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
+            }
           }
           if (!workerResult)
             throw lastError ?? new Error("snapshot_failed: worker returned nothing");
@@ -3872,21 +4454,27 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           const bounds =
             target.type === "region"
               ? target
-              : { x: 0, y: 0, width: doc.world.width, height: doc.world.height };
-          const tileSize = 2_048;
-          outer: for (let y = bounds.y; y < bounds.y + bounds.height; y += tileSize) {
-            for (let x = bounds.x; x < bounds.x + bounds.width; x += tileSize) {
-              if (suggestedRegions.length >= 64) {
-                regionsTruncated = true;
-                break outer;
+              : doc
+                ? { x: 0, y: 0, width: doc.world.width, height: doc.world.height }
+                : null;
+          if (!bounds) {
+            regionsTruncated = false;
+          } else {
+            const tileSize = 2_048;
+            outer: for (let y = bounds.y; y < bounds.y + bounds.height; y += tileSize) {
+              for (let x = bounds.x; x < bounds.x + bounds.width; x += tileSize) {
+                if (suggestedRegions.length >= 64) {
+                  regionsTruncated = true;
+                  break outer;
+                }
+                suggestedRegions.push({
+                  type: "region",
+                  x,
+                  y,
+                  width: Math.min(tileSize, bounds.x + bounds.width - x),
+                  height: Math.min(tileSize, bounds.y + bounds.height - y),
+                });
               }
-              suggestedRegions.push({
-                type: "region",
-                x,
-                y,
-                width: Math.min(tileSize, bounds.x + bounds.width - x),
-                height: Math.min(tileSize, bounds.y + bounds.height - y),
-              });
             }
           }
         }
@@ -3899,7 +4487,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ref_id: canonicalRefId,
           version: context.version,
           draft_revision: context.draftRevision,
-          page_id: page.id,
+          page_id: pageId,
           target,
           mime_type: snapshot.mimeType,
           width: snapshot.width,
@@ -4038,6 +4626,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               draft_edit_count: z.number().int().nonnegative(),
               updated_at: z.number(),
               created_by_email: z.string().nullable(),
+              theme_id: z.enum(THEME_IDS),
+              workspace_brand: ThemeOverrideInputSchema.optional(),
+              brand_override: ThemeOverrideInputSchema.optional(),
+              resolved_theme: ResolvedThemeOutputSchema,
               // Always present, so an agent reading a canvas notices the
               // feedback waiting on it without having to ask a second tool.
               open_comments: z.number().int().nonnegative(),
@@ -4210,7 +4802,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 version: canvasDoc.version,
                 title: canvasDoc.title,
                 subtitle: canvasDoc.subtitle,
-                theme: canvasDoc.theme,
                 world: canvasDoc.world,
                 counts: {
                   lanes: canvasDoc.lanes.length,
@@ -4298,6 +4889,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             draft_edit_count: detail.canvas.draft_edit_count,
             updated_at: detail.canvas.updated_at,
             created_by_email: detail.created_by_email,
+            theme_id: detail.canvas.theme_id,
+            workspace_brand: detail.canvas.workspace_brand,
+            brand_override: detail.canvas.brand_override,
+            resolved_theme: detail.canvas.resolved_theme,
             open_comments: openComments,
             canvas_url: focusedCanvasUrl.toString(),
             present_url:
@@ -4969,7 +5564,136 @@ function randomShareSlug(): string {
  * data, which is exactly what MCP resources are for: the listing is titles
  * and descriptions, and a caller reads the one it actually wants.
  * ---------------------------------------------------------------------- */
-export function registerResources(server: McpServer): void {
+export function registerResources(server: McpServer, ctx: ActionCtx): void {
+  for (const guide of MCP_GUIDES) {
+    server.registerResource(
+      `guide-${guide.id}`,
+      `canvas://guides/${guide.id}`,
+      {
+        title: guide.title,
+        description: guide.description,
+        mimeType: "text/markdown",
+      },
+      async (uri) => ({
+        contents: [{ uri: uri.href, mimeType: "text/markdown", text: guide.text }],
+      }),
+    );
+  }
+
+  server.registerResource(
+    "template-catalog",
+    "canvas://templates",
+    {
+      title: "Canonical template catalog",
+      description:
+        "Compact metadata for choosing one production UI example before loading its source.",
+      mimeType: "application/json",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            templateRegistryList().map((template) => ({
+              id: template.id,
+              name: template.name,
+              kind: template.kind,
+              description: template.description,
+              useWhen: template.useWhen,
+              avoidWhen: template.avoidWhen,
+              compatibleThemes: template.compatibleThemes,
+              resource: `canvas://templates/${template.id}`,
+              previewResource: `canvas://templates/${template.id}/preview`,
+            })),
+            null,
+            2,
+          ),
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "theme-catalog",
+    "canvas://themes",
+    {
+      title: "Semantic theme catalog",
+      description: "Available base theme IDs and their complete semantic token sets.",
+      mimeType: "application/json",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            listThemes().map((theme) => ({
+              ...theme,
+              tailwindCss: compileThemeToTailwindV4(theme),
+            })),
+            null,
+            2,
+          ),
+        },
+      ],
+    }),
+  );
+  for (const theme of listThemes()) {
+    server.registerResource(
+      `theme-${theme.name}`,
+      `canvas://themes/${theme.name}`,
+      {
+        title: theme.name,
+        description: `Complete semantic tokens for ${theme.name}.`,
+        mimeType: "application/json",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(
+              { ...theme, tailwindCss: compileThemeToTailwindV4(theme) },
+              null,
+              2,
+            ),
+          },
+        ],
+      }),
+    );
+  }
+  server.registerResource(
+    "workspace-theme",
+    new ResourceTemplate("canvas://workspaces/{workspace}/theme", { list: undefined }),
+    {
+      title: "Resolved workspace theme",
+      description: "Base theme with the named workspace's brand overrides applied.",
+      mimeType: "application/json",
+    },
+    async (uri, variables) => {
+      const workspaceSlug = String(variables.workspace ?? "");
+      const workspace = await ctx.runQuery(internal.workspaces.getThemeBySlug, {
+        slug: workspaceSlug,
+      });
+      if (!workspace) throw new Error(`workspace_not_found: ${workspaceSlug}`);
+      const theme = resolveTheme(workspace.themeId, workspace.brand as ThemeOverride | undefined);
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(
+              { ...theme, tailwindCss: compileThemeToTailwindV4(theme) },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
   for (const template of templateRegistryList()) {
     server.registerResource(
       `template-${template.id}`,
@@ -4992,6 +5716,14 @@ export function registerResources(server: McpServer): void {
                 "",
                 full.description,
                 "",
+                `Use when: ${full.useWhen.join("; ")}`,
+                `Avoid when: ${full.avoidWhen.join("; ")}`,
+                `Supported viewports: ${JSON.stringify(full.supportedViewports)}`,
+                `Required states: ${full.requiredStates.join(", ")}`,
+                `Design characteristics: ${full.designCharacteristics.join(", ")}`,
+                `Compatible themes: ${full.compatibleThemes.join(", ")}`,
+                `Preview: canvas://templates/${full.id}/preview`,
+                "",
                 `Expected inputs: ${JSON.stringify(full.expectedInputs, null, 2)}`,
                 "",
                 "## Example source",
@@ -5002,6 +5734,24 @@ export function registerResources(server: McpServer): void {
           ],
         };
       },
+    );
+    server.registerResource(
+      `template-preview-${template.id}`,
+      `canvas://templates/${template.id}/preview`,
+      {
+        title: `${template.name} preview source`,
+        description: `Renderable ${template.preview.format} preview at ${template.preview.viewport.width}×${template.preview.viewport.height}.`,
+        mimeType: template.preview.format === "html" ? "text/html" : "text/plain",
+      },
+      async (uri) => ({
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: template.preview.format === "html" ? "text/html" : "text/plain",
+            text: template.exampleCode,
+          },
+        ],
+      }),
     );
   }
 }

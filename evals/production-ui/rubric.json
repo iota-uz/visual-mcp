@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "automated": {
+    "schema_valid": 10,
+    "correct_template_and_theme": 10,
+    "semantic_tokens": 10,
+    "required_states": 10,
+    "no_unresolved_references": 10,
+    "no_unintended_overlap_or_clipping": 10,
+    "snapshot_after_write": 10,
+    "snapshot_driven_correction": 10,
+    "no_internal_marker_leakage": 10,
+    "bounded_iterations": 10
+  },
+  "human_pairwise": {
+    "dimensions": ["hierarchy", "legibility", "task_fit", "visual_polish", "trustworthiness"],
+    "choices": ["A", "B", "tie"],
+    "pass_preference_rate": 0.8,
+    "blind": true
+  },
+  "release_thresholds": {
+    "automated_score": 0.9,
+    "routing_recall": 0.9,
+    "negative_precision": 0.95,
+    "snapshot_adherence": 0.9,
+    "human_preference": 0.8
+  }
+}

@@ -1,4 +1,5 @@
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `canvas_save({
   ref: "demo/reference-board",
@@ -24,6 +25,7 @@ const exampleCode = `canvas_save({
 })`;
 
 export const imageReferenceBoardTemplate: Template = {
+  ...templateMetadata("image-reference-board"),
   id: "image-reference-board",
   name: "Image reference board",
   kind: "canvas",

@@ -46,6 +46,58 @@ async function mkFixtureDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(TEST_TMP_ROOT, prefix));
 }
 
+test("HTML theme bootstrap preserves a leading doctype when head is omitted", async () => {
+  const dir = await mkFixtureDir("pw-doctype-");
+  try {
+    const entrypoint = path.join(dir, "index.html");
+    const outputPath = path.join(dir, "output.html");
+    await fs.writeFile(entrypoint, "<!doctype html><main>Standards mode</main>", "utf8");
+    await renderFile({
+      entrypoint,
+      outputPath,
+      format: "html",
+      workspaceRoot: dir,
+      themeRuntimeCss: ":root{--color-primary:#16a34a}",
+      themeJson: JSON.stringify({ id: "test-theme" }),
+    });
+    const output = await fs.readFile(outputPath, "utf8");
+    assert.match(output, /^<!doctype html><style data-visual-canvas-theme>/i);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("snapshotCanvas captures a complete standalone HTML artifact with theme context", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-html-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "index.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}main{width:1320px;height:900px;background:var(--color-primary)}</style><main></main>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "artifact.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "canvas" },
+      themeRuntimeCss: ":root{--color-primary:#16a34a}",
+      themeJson: JSON.stringify({ id: "test-theme" }),
+    });
+    assert.deepEqual([result.width, result.height], [1320, 900]);
+    const pixel = await sharp(await fs.readFile(outputPath))
+      .extract({ left: 10, top: 10, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    assert.deepEqual([...pixel.subarray(0, 3)], [22, 163, 74]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshotCanvas captures one node with padding at the requested scale", async () => {
   const dir = await mkFixtureDir("pw-snapshot-node-");
   try {

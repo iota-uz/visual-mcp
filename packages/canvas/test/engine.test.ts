@@ -5,6 +5,7 @@ import { layoutCanvas, moveGroupNodes, patchNodeRect } from "../src/layout.js";
 import { PHONE_FRAME, phoneFrameScale, phoneNodeHeightForWidth } from "../src/phone-frame.js";
 import { escapeHtml, renderCanvas } from "../src/render.js";
 import { anchorPoint, routeEdges } from "../src/router.js";
+import type { Theme } from "../src/themes.js";
 import { CanvasDocSchema, NativeNodeSchema } from "../src/types.js";
 import {
   cameraGridStyle,
@@ -13,12 +14,12 @@ import {
   clampCanvasScale,
   fitCameraToBounds,
   fitPageCamera,
-  resizeRect,
-  snapRectToNeighbours,
   iframeActiveCandidates,
   iframePrewarmCandidates,
   nextLadderScale,
+  resizeRect,
   screenToWorld,
+  snapRectToNeighbours,
   worldToScreen,
   zoomCameraAt,
 } from "../src/viewport.js";
@@ -29,6 +30,35 @@ test("explicit geometry is deterministic", () => {
   const b = layoutCanvas(fixture());
   assert.deepEqual(a, b);
   assert.equal(a.width, 1000);
+});
+test("native rendering applies resolved semantic tokens before first paint", () => {
+  const theme: Theme = {
+    name: "dark-terminal",
+    colors: {
+      background: "#010203",
+      foreground: "#f0f1f2",
+      muted: "#778899",
+      surface: "#111827",
+      mutedForeground: "#94a3b8",
+      success: "#22c55e",
+      warning: "#f59e0b",
+      danger: "#ef4444",
+      primary: "#00ff66",
+      secondary: "#0088ff",
+      border: "#223344",
+    },
+    typography: { fontSans: "Theme Sans", fontMono: "Theme Mono" },
+    radius: { sm: "2px", md: "4px", lg: "6px", xl: "8px" },
+    spacing: { md: "1rem" },
+    shadows: { sm: "none", md: "none", lg: "none", xl: "none" },
+    chartPalette: ["#00ff66", "#0088ff", "#ff00aa", "#ffcc00"],
+    diagramStyle: { nodeRadius: "4px", edgeStyle: "orthogonal" },
+  };
+  const rendered = renderCanvas(layoutCanvas(fixture()), { theme }).html;
+  assert.match(rendered, /data-theme-id="dark-terminal"/);
+  assert.match(rendered, /--vc-paper:#010203/);
+  assert.match(rendered, /--vc-accent:#00ff66/);
+  assert.match(rendered, /data-chart-palette="#00ff66,#0088ff,#ff00aa,#ffcc00"/);
 });
 test("move/resize changes anchor coordinates and edge path", () => {
   const doc = fixture();

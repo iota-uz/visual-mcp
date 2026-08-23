@@ -288,6 +288,7 @@ describe("/mcp tool contracts", () => {
           anyOf?: Array<{ additionalProperties?: boolean }>;
         };
         outputSchema?: unknown;
+        description?: string;
       }>;
     };
     expect(listed.tools).toHaveLength(42);
@@ -298,6 +299,16 @@ describe("/mcp tool contracts", () => {
         tool.name,
       ).toBe(true);
       expect(tool.outputSchema, tool.name).toBeDefined();
+      for (const label of [
+        "Use:",
+        "Do not use:",
+        "Prefer:",
+        "Side effects:",
+        "Retry:",
+        "Errors:",
+      ]) {
+        expect(tool.description, `${tool.name}:${label}`).toContain(label);
+      }
     }
 
     const docPatch = listed.tools.find((tool) => tool.name === "canvas_doc_patch");
@@ -426,7 +437,7 @@ describe("/mcp bearer-auth gate", () => {
   });
 });
 
-describe("/mcp resources: templates", () => {
+describe("/mcp resources: just-in-time guidance and templates", () => {
   async function rpc(
     t: ReturnType<typeof convexTest>,
     token: string,
@@ -452,11 +463,40 @@ describe("/mcp resources: templates", () => {
     const resources = (listed.result as { resources: Array<{ uri: string; name: string }> })
       .resources;
     expect(resources.length).toBeGreaterThan(0);
+    expect(resources.map((r) => r.uri)).toEqual(
+      expect.arrayContaining([
+        "canvas://guides/authoring",
+        "canvas://guides/production-ui",
+        "canvas://guides/device-frames",
+        "canvas://guides/assets",
+        "canvas://templates",
+        "canvas://themes",
+        "canvas://themes/dark-terminal",
+      ]),
+    );
     expect(resources.map((r) => r.uri)).toContain("canvas://templates/browser-app-screen");
     // The listing carries names and descriptions only — v1's list_templates
     // returned every template's full exampleCode (~46KB) on every call.
     const serialized = JSON.stringify(resources);
     expect(serialized).not.toContain("<!doctype html>");
+  });
+
+  test("the compact catalog omits source while a selected template and guide load on demand", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+
+    const catalog = await rpc(t, token, "resources/read", { uri: "canvas://templates" });
+    const catalogText = (catalog.result as { contents: Array<{ text: string }> }).contents[0]?.text;
+    expect(catalogText).toContain('"id": "browser-app-screen"');
+    expect(catalogText).not.toContain("<!doctype html>");
+    expect(catalogText).not.toContain("exampleCode");
+
+    const guide = await rpc(t, token, "resources/read", {
+      uri: "canvas://guides/production-ui",
+    });
+    const guideText = (guide.result as { contents: Array<{ text: string }> }).contents[0]?.text;
+    expect(guideText).toMatch(/Visual QA after a meaningful edit/);
+    expect(guideText).toMatch(/warnings.*recommendations/s);
   });
 
   test("reading one template returns its example source", async () => {
@@ -468,6 +508,26 @@ describe("/mcp resources: templates", () => {
     });
     const contents = (read.result as { contents: Array<{ text: string }> }).contents;
     expect(contents[0]?.text).toContain("<!doctype html>");
+  });
+
+  test("theme resources expose complete semantic tokens and workspace resolution", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    await callTool(t, token, "canvas_save", {
+      ref: "branded/first",
+      theme_id: "dark-terminal",
+      workspace_brand: { colors: { primary: "#123456" } },
+      files: [{ path: "/src/index.html", text: "<h1>Brand</h1>" }],
+    });
+
+    const resolved = await rpc(t, token, "resources/read", {
+      uri: "canvas://workspaces/branded/theme",
+    });
+    const value = JSON.parse(
+      (resolved.result as { contents: Array<{ text: string }> }).contents[0]?.text ?? "null",
+    );
+    expect(value.colors.primary).toBe("#123456");
+    expect(value.tailwindCss).toContain("--color-primary: #123456");
   });
 });
 
@@ -613,6 +673,111 @@ describe("/mcp canvas_save", () => {
     expect(data.previous_version).toBe(0);
     expect(data.version).toBe(1);
     expect(data.published).toBe(true);
+  });
+
+  test("validates theme IDs and returns base → workspace → canvas resolved context", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const invalid = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "brand/invalid",
+        theme_id: "unknown-theme",
+      }),
+    );
+    expect(invalid.isError).toBe(true);
+
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "brand/product",
+        theme_id: "clean-saas",
+        workspace_brand: { colors: { primary: "#112233", background: "#fefefe" } },
+        brand_override: { colors: { primary: "#abcdef" }, radius: { lg: "24px" } },
+        kind: "canvas",
+        doc: canvasFile(),
+      }),
+    );
+    expect(saved.isError).not.toBe(true);
+
+    const read = parse(await callTool(t, token, "canvas_get", { ref: "brand/product" }));
+    const canvas = read.data.canvas as {
+      theme_id: string;
+      workspace_brand: { colors: { primary: string } };
+      brand_override: { colors: { primary: string } };
+      resolved_theme: {
+        colors: { primary: string; background: string };
+        radius: { lg: string };
+      };
+    };
+    expect(canvas.theme_id).toBe("clean-saas");
+    expect(canvas.workspace_brand.colors.primary).toBe("#112233");
+    expect(canvas.brand_override.colors.primary).toBe("#abcdef");
+    expect(canvas.resolved_theme.colors.primary).toBe("#abcdef");
+    expect(canvas.resolved_theme.colors.background).toBe("#fefefe");
+    expect(canvas.resolved_theme.radius.lg).toBe("24px");
+  });
+
+  test("returns bounded structured production recommendations with ready snapshot arguments", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "quality/review",
+        kind: "canvas",
+        doc: canvasFile({
+          ...baseDoc,
+          nodes: [
+            {
+              ...baseDoc.nodes[0],
+              rect: { x: 750, y: 350, w: 200, h: 100 },
+            },
+          ],
+        }),
+        files: [
+          {
+            path: "/src/screens/review.html",
+            text: '<img src="/assets/missing.png"><button></button><div data-debug="1" style="color:#123456"></div>',
+          },
+        ],
+      }),
+    );
+    expect(saved.isError).not.toBe(true);
+    const recommendations = saved.data.recommendations as Array<{
+      code: string;
+      suggested_tool?: { name: string; arguments: Record<string, unknown> };
+    }>;
+    expect(recommendations.length).toBeLessThanOrEqual(30);
+    expect(recommendations.map((item) => item.code)).toEqual(
+      expect.arrayContaining([
+        "add_image_alt_text",
+        "inspect_out_of_bounds_node",
+        "label_empty_interactive_control",
+        "remove_internal_marker",
+        "replace_hardcoded_visual_tokens",
+        "inspect_changed_canvas",
+      ]),
+    );
+    expect(
+      recommendations.find((item) => item.code === "inspect_changed_canvas")?.suggested_tool,
+    ).toMatchObject({
+      name: "canvas_snapshot",
+      arguments: {
+        ref: "quality/review",
+        page_id: "overview",
+        target: { type: "node", node_id: "n1" },
+      },
+    });
+
+    const metadataOnly = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "quality/review",
+        title: "Renamed only",
+      }),
+    );
+    expect(
+      (metadataOnly.data.recommendations as Array<{ code: string }>).some(
+        (item) => item.code === "inspect_changed_canvas",
+      ),
+    ).toBe(false);
   });
 
   test("new canvas writes require the clean multi-page CanvasFile v3 model", async () => {
@@ -1636,6 +1801,30 @@ describe("/mcp canvas_save", () => {
     expect(isError).toBeFalsy();
     expect(data.version).toBe(1);
     expect(data.files_written).toHaveLength(1);
+
+    const edited = parse(
+      await callTool(t, token, "canvas_edit", {
+        ref: "osago/doc",
+        file_path: "/src/screens/runtime.html",
+        old_string: "ok",
+        new_string: "ready",
+        expected_version: 1,
+        expected_draft_revision: data.draft_revision,
+      }),
+    );
+    expect(edited.isError).toBeFalsy();
+    expect(edited.data.recommendations).toEqual([
+      expect.objectContaining({
+        code: "inspect_changed_canvas",
+        location: { page_id: "overview", node_id: "screen" },
+        suggested_tool: expect.objectContaining({
+          name: "canvas_snapshot",
+          arguments: expect.objectContaining({
+            target: { type: "node", node_id: "screen" },
+          }),
+        }),
+      }),
+    ]);
   });
 
   test("rejects the CanvasDoc-generated entry path before it can create duplicate file rows", async () => {
@@ -1748,6 +1937,132 @@ describe("/mcp canvas_save", () => {
         (second.result as { structuredContent: { cached: boolean } }).structuredContent.cached,
       ).toBe(true);
       expect(worker.requests.snapshot).toHaveLength(1);
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("HTML saves recommend and render a full-artifact snapshot with resolved theme context", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const saved = parse(
+      await callTool(t, token, "canvas_save", {
+        ref: "osago/html-snapshot",
+        kind: "html",
+        theme_id: "dark-terminal",
+        files: [{ path: "/src/index.html", text: '<main class="bg-background">Ready</main>' }],
+      }),
+    );
+    expect(
+      (saved.data.recommendations as Array<{ code: string }>).some(
+        (item) => item.code === "inspect_changed_canvas",
+      ),
+    ).toBe(true);
+
+    const snapshotStorageId = await t.run((ctx) =>
+      ctx.storage.store(
+        new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }),
+      ),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: snapshotStorageId,
+      snapshotStorageId,
+    });
+    try {
+      const response = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ref: "osago/html-snapshot",
+          target: { type: "canvas" },
+        }),
+      );
+      expect(response.isError).toBeFalsy();
+      expect(response.data.page_id).toBe("artifact");
+      expect(worker.requests.snapshot).toHaveLength(1);
+      expect(worker.requests.snapshot[0]).toMatchObject({
+        entrypoint: "/src/index.html",
+        target: { type: "canvas" },
+      });
+      expect(worker.requests.snapshot[0]).toHaveProperty("themeTailwindCss");
+      expect(worker.requests.snapshot[0]).toHaveProperty("themeRuntimeCss");
+      expect(worker.requests.snapshot[0]).toHaveProperty("themeJson");
+    } finally {
+      await worker.close();
+    }
+  });
+
+  test("integration trace follows save → targeted snapshot → correction → targeted snapshot", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const storageIds = await t.run((ctx) =>
+      Promise.all([
+        ctx.storage.store(
+          new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1])], { type: "image/png" }),
+        ),
+        ctx.storage.store(
+          new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 2])], { type: "image/png" }),
+        ),
+      ]),
+    );
+    const worker = await startMockRenderWorker({
+      renderStorageId: storageIds[0] as string,
+      snapshotStorageIds: storageIds,
+    });
+    try {
+      const saved = parse(
+        await callTool(t, token, "canvas_save", {
+          ref: "qa/correction-loop",
+          kind: "canvas",
+          doc: canvasFile(),
+        }),
+      );
+      const firstRecommendation = (
+        saved.data.recommendations as Array<{
+          code: string;
+          suggested_tool?: { name: string; arguments: Record<string, unknown> };
+        }>
+      ).find((item) => item.code === "inspect_changed_canvas");
+      expect(firstRecommendation?.suggested_tool?.name).toBe("canvas_snapshot");
+      const first = parse(
+        await callTool(
+          t,
+          token,
+          "canvas_snapshot",
+          firstRecommendation?.suggested_tool?.arguments ?? {},
+        ),
+      );
+      expect(first.isError).toBeFalsy();
+
+      const corrected = parse(
+        await callTool(t, token, "canvas_nodes_move", {
+          ref: "qa/correction-loop",
+          expected_version: saved.data.version,
+          expected_draft_revision: saved.data.draft_revision,
+          page_id: "overview",
+          node_ids: ["n1"],
+          dx: 10,
+          dy: 0,
+          note: "Correction after visual inspection",
+        }),
+      );
+      expect(corrected.isError, corrected.text).toBeFalsy();
+      const secondRecommendation = (
+        corrected.data.recommendations as Array<{
+          code: string;
+          suggested_tool?: { name: string; arguments: Record<string, unknown> };
+        }>
+      ).find((item) => item.code === "inspect_changed_canvas");
+      expect(secondRecommendation?.suggested_tool).toMatchObject({
+        name: "canvas_snapshot",
+        arguments: { page_id: "overview", target: { type: "node", node_id: "n1" } },
+      });
+      const second = parse(
+        await callTool(t, token, "canvas_snapshot", {
+          ...secondRecommendation?.suggested_tool?.arguments,
+          refresh: true,
+        }),
+      );
+      expect(second.isError).toBeFalsy();
+      expect(worker.requests.snapshot).toHaveLength(2);
     } finally {
       await worker.close();
     }
@@ -2943,7 +3258,9 @@ describe("GET /s/:slug", () => {
     const res = await t.fetch("/s/pub-slug-123", { method: "GET" });
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("<h1>hi</h1>");
+    const html = await res.text();
+    expect(html).toContain("<h1>hi</h1>");
+    expect(html).toContain("data-visual-canvas-theme");
     expect(res.headers.get("content-type")).toBe("text/html");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     const csp = res.headers.get("content-security-policy") ?? "";
@@ -3426,6 +3743,9 @@ describe("GET /i/:capability", () => {
     expect(html).toContain(`runtime="/i/${token}/src/runtime.js"`);
     expect(html).toContain('src="https://cdn.example/assets/external.png"');
     expect(html).toContain("visual-canvas:readiness");
+    expect(html).toContain("data-visual-canvas-theme");
+    expect(html).toContain("--color-primary: #2563eb");
+    expect(html).toContain("window.visualCanvasTheme=");
 
     const cssResponse = await t.fetch(`/i/${token}/src/screen.css`);
     expect(cssResponse.status).toBe(200);

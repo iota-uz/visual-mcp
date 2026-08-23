@@ -33,6 +33,8 @@ import {
   requireBearerAuth,
 } from "@modelcontextprotocol/server";
 import { CanvasFileSchema } from "@visual-canvas/canvas";
+import type { Theme } from "@visual-canvas/canvas/themes.js";
+import { compileThemeToCssVariables } from "@visual-canvas/runtime/render/themes/index.js";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -109,7 +111,7 @@ http.route({
         { instructions: buildInstructions() },
       );
       registerTools(server, ctx, principalFromAuthInfo(reqCtx.authInfo));
-      registerResources(server);
+      registerResources(server, ctx);
       return server;
     });
 
@@ -209,9 +211,18 @@ async function prepareScopedCanvasBlob(
   scopedBasePath: string,
   bridgeNonce?: string,
   version?: number,
+  theme?: Theme,
 ): Promise<Blob> {
   if (!bridgeNonce && !SCOPED_CANVAS_TEXT_MIME.test(mimeType)) return blob;
   let source = scopeCanvasRootReferences(await blob.text(), scopedBasePath, version);
+  if (/^text\/html(?:;|$)/i.test(mimeType) && theme) {
+    const themeJson = JSON.stringify(theme).replaceAll("<", "\\u003c");
+    const nonceAttribute = bridgeNonce ? ` nonce="${bridgeNonce}"` : "";
+    const bootstrap = `<style data-visual-canvas-theme>${compileThemeToCssVariables(theme)}</style><script${nonceAttribute}>window.visualCanvasTheme=${themeJson}</script>`;
+    source = source.includes("</head>")
+      ? source.replace("</head>", `${bootstrap}</head>`)
+      : bootstrap + source;
+  }
   if (bridgeNonce) {
     source = source.includes("</body>")
       ? source.replace("</body>", `${iframeBridge(bridgeNonce)}</body>`)
@@ -414,6 +425,7 @@ http.route({
       `/s/${slug}`,
       isIframe ? nonce : undefined,
       artifact.version,
+      artifact.resolvedTheme,
     );
     headers.set("content-type", artifact.mimeType);
     return new Response(blob, { status: 200, headers });
@@ -448,6 +460,8 @@ http.route({
       file.mimeType,
       `/i/${token}`,
       file.iframe ? nonce : undefined,
+      undefined,
+      file.resolvedTheme,
     );
     return new Response(blob, {
       headers: {

@@ -1,4 +1,4 @@
-import { type CanvasDoc, layoutCanvas, mountViewport } from "@visual-canvas/canvas";
+import { type CanvasDoc, layoutCanvas, mountViewport, type Theme } from "@visual-canvas/canvas";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const anchors = [
@@ -205,6 +205,56 @@ describe("reactive viewport reconciliation", () => {
     controller.dispose();
   });
 
+  test("updates theme attributes and tokens without resetting the camera", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const initialTheme = {
+      name: "clean-saas",
+      colors: {
+        background: "#ffffff",
+        foreground: "#111111",
+        muted: "#eeeeee",
+        surface: "#fafafa",
+        mutedForeground: "#666666",
+        success: "#008000",
+        warning: "#aa6600",
+        danger: "#bb0000",
+        primary: "#0055dd",
+        secondary: "#663399",
+        border: "#dddddd",
+      },
+      typography: { fontSans: "sans-serif", fontMono: "monospace" },
+      radius: { sm: "2px", md: "4px", lg: "8px", xl: "12px" },
+      spacing: { md: "16px" },
+      shadows: { md: "0 1px 2px #0002" },
+      chartPalette: ["#111111", "#222222", "#333333", "#444444"],
+      diagramStyle: { nodeRadius: "4px", edgeStyle: "solid" },
+    } satisfies Theme;
+    const nextTheme = {
+      ...initialTheme,
+      name: "dark-terminal",
+      colors: { ...initialTheme.colors, primary: "#22c55e" },
+      chartPalette: ["#aaaaaa", "#bbbbbb", "#cccccc", "#dddddd"],
+    } satisfies Theme;
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(doc()),
+      theme: initialTheme,
+    });
+    controller.zoomAt(300, 200, 1.2);
+    flushFrames();
+    const world = container.querySelector<HTMLElement>(".vc-world");
+    const transform = world?.style.transform;
+
+    controller.updateCanvas(layoutCanvas(doc()), { theme: nextTheme });
+
+    expect(world?.dataset.themeId).toBe("dark-terminal");
+    expect(world?.dataset.chartPalette).toContain("#aaaaaa");
+    expect(world?.style.getPropertyValue("--vc-role-primary")).toBe("#22c55e");
+    expect(world?.style.transform).toBe(transform);
+    controller.dispose();
+  });
+
   test("switches to a disjoint Page document without recreating the viewport shell", () => {
     const container = document.createElement("div");
     container.getBoundingClientRect = () =>
@@ -343,7 +393,9 @@ describe("reactive viewport reconciliation", () => {
      * everything, selection included.
      */
     const dimmed = () =>
-      [...container.querySelectorAll<HTMLElement>(".vc-node.dimmed")].map((el) => el.dataset.nodeId);
+      [...container.querySelectorAll<HTMLElement>(".vc-node.dimmed")].map(
+        (el) => el.dataset.nodeId,
+      );
     expect(dimmed()).toEqual(["native"]);
     expect(container.querySelector(".vc-node.selected")?.classList.contains("dimmed")).toBe(false);
 
@@ -354,6 +406,30 @@ describe("reactive viewport reconciliation", () => {
     );
     container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy")?.click();
     expect(onCopy).toHaveBeenCalledWith("canvas://osago/realtime?node=screen");
+    controller.dispose();
+  });
+
+  test("renders safe free-form annotation HTML outside iframe screen content", () => {
+    const container = viewportContainer();
+    const annotated = doc();
+    const screen = annotated.nodes[1];
+    if (!screen) throw new Error("Expected screen fixture");
+    screen.annotation = {
+      format: "html",
+      content:
+        '<p><strong>Review</strong> <a href="javascript:alert(1)" onclick="alert(2)">details</a></p><script>alert(3)</script>',
+    };
+    const controller = mountViewport({ container, canvas: layoutCanvas(annotated) });
+    controller.selectNode("screen");
+
+    const annotation = container.querySelector<HTMLElement>(".vc-inspector-annotation");
+    expect(annotation).toHaveTextContent("Review detailsalert(3)");
+    expect(annotation?.querySelector("strong")).toHaveTextContent("Review");
+    expect(annotation?.querySelector("a")).not.toHaveAttribute("href");
+    expect(annotation?.querySelector("script")).toBeNull();
+    expect(
+      container.querySelector("iframe")?.contentDocument?.body.textContent ?? "",
+    ).not.toContain("Review");
     controller.dispose();
   });
 

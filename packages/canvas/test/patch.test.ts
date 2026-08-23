@@ -56,5 +56,5 @@ test("CanvasDoc replace clears optional fields and preserves the semantic id", (
   assert.ok(replacement);
   assert.equal(replacement.id, node.id);
   assert.equal(replacement.caption.subtitle, undefined);
-  assert.equal(replacement.inspector, undefined);
+  assert.equal(replacement.annotation, undefined);
 });

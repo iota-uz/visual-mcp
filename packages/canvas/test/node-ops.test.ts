@@ -91,14 +91,8 @@ test("restore puts deleted nodes and edges back and ignores ids that returned al
     nodes: source.nodes.filter((node) => node.id === "b"),
     edges: source.edges,
   });
-  assert.deepEqual(
-    back.nodes.map((node) => node.id).sort(),
-    ["a", "b", "c"],
-  );
-  assert.deepEqual(
-    back.edges.map((edge) => edge.id).sort(),
-    ["ab", "bc"],
-  );
+  assert.deepEqual(back.nodes.map((node) => node.id).sort(), ["a", "b", "c"]);
+  assert.deepEqual(back.edges.map((edge) => edge.id).sort(), ["ab", "bc"]);
   CanvasDocSchema.parse(back);
   // A second restore is a no-op rather than a duplicate-id document.
   const again = restoreNodes(back, { nodes: source.nodes, edges: source.edges });

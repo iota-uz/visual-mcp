@@ -9,6 +9,7 @@
  */
 
 import type { Template } from "../types.js";
+import { templateMetadata } from "./metadata.js";
 
 const exampleCode = `<!doctype html>
 <html>
@@ -17,12 +18,7 @@ const exampleCode = `<!doctype html>
     <style>
       @import "tailwindcss";
 
-      @theme {
-        --font-sans: Inter, sans-serif;
-        --color-brand: #2563eb;
-      }
-
-      /* Print CSS: each .page section is one PDF page (PLAN.md section 5). */
+      /* Print CSS: each .page section is one PDF page. */
       @media print {
         .page {
           break-after: page;
@@ -34,23 +30,23 @@ const exampleCode = `<!doctype html>
     </style>
     <script src="/assets/js/apexcharts.min.js"></script>
   </head>
-  <body class="m-0 font-sans text-slate-900">
+  <body class="m-0 font-sans text-foreground">
     <!-- Page 1: cover -->
     <section class="page p-16 h-[1123px] flex flex-col justify-between" style="break-after: page;">
       <div>
-        <p class="text-sm font-semibold uppercase tracking-widest text-brand">Quarterly Report</p>
-        <h1 class="mt-4 text-5xl font-bold text-slate-950">Insurance CRM Platform</h1>
-        <p class="mt-4 text-xl text-slate-600">
+        <p class="text-sm font-semibold uppercase tracking-widest text-primary">Quarterly Report</p>
+        <h1 class="mt-4 text-5xl font-bold text-foreground">Insurance CRM Platform</h1>
+        <p class="mt-4 text-xl text-muted-foreground">
           A modular system for policies, claims, billing and analytics.
         </p>
       </div>
-      <p class="text-sm text-slate-400">Q2 2026 &middot; Prepared by Platform Engineering</p>
+      <p class="text-sm text-muted-foreground">Q2 2026 &middot; Prepared by Platform Engineering</p>
     </section>
 
     <!-- Page 2: architecture (D2 SVG embedded here) -->
     <section class="page p-16" style="break-after: page;">
       <h2 class="text-3xl font-bold mb-6">System Architecture</h2>
-      <p class="text-slate-600 mb-6">
+      <p class="text-muted-foreground mb-6">
         Client apps talk to core services through a single API gateway;
         async work fans out through a message queue.
       </p>
@@ -60,7 +56,7 @@ const exampleCode = `<!doctype html>
                     output_path: "/cache/architecture.svg", format: "svg" }]
         — then inline the resulting <svg>...</svg> markup here.
       -->
-      <div class="rounded-2xl border border-slate-200 p-8 text-slate-400 text-sm">
+      <div class="rounded-2xl border border-border p-8 text-muted-foreground text-sm">
         &lt;!-- inlined content of /cache/architecture.svg --&gt;
       </div>
     </section>
@@ -76,7 +72,7 @@ const exampleCode = `<!doctype html>
           series: [
             { name: "Policies", data: [1200, 1800, 2400, 3100, 2900, 3412] },
           ],
-          colors: ["#2563eb"],
+          colors: ["var(--color-chart-1)"],
         }).render();
       </script>
     </section>
@@ -85,6 +81,7 @@ const exampleCode = `<!doctype html>
 `;
 
 export const multipageReportTemplate: Template = {
+  ...templateMetadata("multipage-report"),
   id: "multipage-report",
   name: "Multipage Report",
   kind: "report",
@@ -92,7 +89,7 @@ export const multipageReportTemplate: Template = {
     "Multi-page PDF report using print-CSS `break-after: page` sections: " +
     "a cover page, an architecture page with a placeholder for an inlined " +
     "D2-rendered SVG, and a charts page with an inline ApexCharts config. " +
-    "Render once to PDF (PLAN.md section 15).",
+    "Render once to a print-safe PDF.",
   expectedInputs: {
     coverEyebrow: "string",
     coverTitle: "string",

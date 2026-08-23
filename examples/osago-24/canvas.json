@@ -2,7 +2,6 @@
   "version": 2,
   "title": "OSAGO Fast Settlement",
   "subtitle": "OSAGO 24 · native service blueprint with interactive product screens",
-  "theme": "osago-24",
   "world": {
     "width": 8700,
     "height": 3690
@@ -307,10 +306,7 @@
         "kind": "phone",
         "time": "09:40"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -364,10 +360,7 @@
         "kind": "phone",
         "time": "09:41"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -421,10 +414,7 @@
         "kind": "phone",
         "time": "09:42"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -478,10 +468,7 @@
         "kind": "phone",
         "time": "09:42"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -535,10 +522,7 @@
         "kind": "phone",
         "time": "09:42"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -592,10 +576,7 @@
         "kind": "phone",
         "time": "09:44"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -649,10 +630,7 @@
         "kind": "phone",
         "time": "09:51"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -706,10 +684,7 @@
         "kind": "phone",
         "time": "09:55"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -763,10 +738,7 @@
         "kind": "phone",
         "time": "10:22"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -825,10 +797,7 @@
         "kind": "phone",
         "time": "09:43"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -887,10 +856,7 @@
         "kind": "phone",
         "time": "1:01"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -944,10 +910,7 @@
         "kind": "phone",
         "time": "1:01"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1006,10 +969,7 @@
         "kind": "phone",
         "time": "09:48"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1063,10 +1023,7 @@
         "kind": "phone",
         "time": "09:51"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1125,10 +1082,7 @@
         "kind": "phone",
         "time": "10:18"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1187,10 +1141,7 @@
         "kind": "phone",
         "time": "10:21"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1249,10 +1200,7 @@
         "kind": "phone",
         "time": "10:24"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1307,10 +1255,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1365,10 +1310,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1423,10 +1365,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1481,10 +1420,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1539,10 +1475,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1597,10 +1530,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1655,10 +1585,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1713,10 +1640,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1771,10 +1695,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1829,10 +1750,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1887,10 +1805,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -1945,10 +1860,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2003,10 +1915,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2061,10 +1970,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2119,10 +2025,7 @@
         "radius": 0,
         "fit": "contain"
       },
-      "sandbox": [
-        "allow-scripts",
-        "allow-forms"
-      ],
+      "sandbox": ["allow-scripts", "allow-forms"],
       "permissions": [],
       "activation": "double-click"
     },
@@ -2810,14 +2713,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 1 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: подтверждает, что находится на месте ДТП.",
-        "points": [
-          "подтверждает, что находится на месте ДТП",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: подтверждает, что находится на месте ДТП. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -2874,14 +2772,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 2 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: подтверждает совместимость и принимает оферту.",
-        "points": [
-          "подтверждает совместимость и принимает оферту",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: подтверждает совместимость и принимает оферту. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -2938,14 +2831,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 3 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: выбирает совместное оформление с потерпевшим.",
-        "points": [
-          "выбирает совместное оформление с потерпевшим",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: выбирает совместное оформление с потерпевшим. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -3002,14 +2890,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 4 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: выбирает QR и язык web-сессии.",
-        "points": [
-          "выбирает QR и язык web-сессии",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: выбирает QR и язык web-сессии. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -3066,14 +2949,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 5 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: сканирует QR → принимает оферту на eai.uz.",
-        "points": [
-          "сканирует QR → принимает оферту на eai.uz",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: сканирует QR → принимает оферту на eai.uz. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3130,14 +3008,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 5 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: показывает QR из EAI app.",
-        "points": [
-          "показывает QR из EAI app",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: показывает QR из EAI app. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -3194,14 +3067,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 6 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: проходит MyID как получатель выплаты.",
-        "points": [
-          "проходит MyID как получатель выплаты",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: проходит MyID как получатель выплаты. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3258,14 +3126,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 7 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: снимает повреждения.",
-        "points": [
-          "снимает повреждения",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: снимает повреждения. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3322,14 +3185,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 7 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: снимает место и авто.",
-        "points": [
-          "снимает место и авто",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: снимает место и авто. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -3386,14 +3244,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 9 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: ставит галочку признания вины.",
-        "points": [
-          "ставит галочку признания вины",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: ставит галочку признания вины. Работает в авторизованном приложении EAI."
       }
     },
     {
@@ -3450,14 +3303,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 10 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: получает сумму решения и вводит PAN.",
-        "points": [
-          "получает сумму решения и вводит PAN",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: получает сумму решения и вводит PAN. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3514,14 +3362,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 11 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: получает деньги на карту.",
-        "points": [
-          "получает деньги на карту",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: получает деньги на карту. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3578,14 +3421,9 @@
           "current": true
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 12 · ПОТЕРПЕВШИЙ",
-        "title": "Потерпевший",
-        "copy": "Действие участника на этом этапе: досылает свой пакет до D+3.",
-        "points": [
-          "досылает свой пакет до D+3",
-          "Работает в браузере на eai.uz, приложение не устанавливает"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: досылает свой пакет до D+3. Работает в браузере на eai.uz, приложение не устанавливает."
       }
     },
     {
@@ -3642,14 +3480,9 @@
           "current": false
         }
       },
-      "inspector": {
-        "eyebrow": "ЭТАП 12 · ВИНОВНИК",
-        "title": "Виновник",
-        "copy": "Действие участника на этом этапе: досылает свой пакет до D+3.",
-        "points": [
-          "досылает свой пакет до D+3",
-          "Работает в авторизованном приложении EAI"
-        ]
+      "annotation": {
+        "format": "text",
+        "content": "Действие участника на этом этапе: досылает свой пакет до D+3. Работает в авторизованном приложении EAI."
       }
     }
   ],

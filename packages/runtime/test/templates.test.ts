@@ -38,6 +38,20 @@ test("every template conforms to the Template shape (PLAN.md section 10)", () =>
 
     assert.equal(typeof template.description, "string");
     assert.ok(template.description.length > 0, `description must be non-empty for ${template.id}`);
+    assert.ok(template.useWhen.length > 0, `useWhen must be populated for ${template.id}`);
+    assert.ok(template.avoidWhen.length > 0, `avoidWhen must be populated for ${template.id}`);
+    assert.ok(
+      template.supportedViewports.length > 0,
+      `viewports must be populated for ${template.id}`,
+    );
+    assert.ok(template.requiredStates.length > 0, `states must be populated for ${template.id}`);
+    assert.ok(
+      template.designCharacteristics.length > 0,
+      `design characteristics must be populated for ${template.id}`,
+    );
+    assert.equal(template.preview.viewport.width > 0, true);
+    assert.equal(template.preview.viewport.height > 0, true);
+    assert.equal(template.compatibleThemes.length, 4);
 
     assert.equal(typeof template.expectedInputs, "object");
     assert.notEqual(template.expectedInputs, null);
@@ -50,6 +64,23 @@ test("every template conforms to the Template shape (PLAN.md section 10)", () =>
     assert.ok(
       template.exampleCode.trim().length > 0,
       `exampleCode must be non-empty for ${template.id}`,
+    );
+    assert.doesNotMatch(template.exampleCode, /PLAN\.md|internal[-_ ]only|system prompt/i);
+  }
+});
+
+test("HTML templates consume semantic theme tokens without hardcoded palettes", () => {
+  for (const template of TEMPLATES.filter((candidate) => candidate.preview.format === "html")) {
+    assert.doesNotMatch(template.exampleCode, /(?<!&)#[0-9a-f]{3,8}\b/i, template.id);
+    assert.doesNotMatch(
+      template.exampleCode,
+      /\b(?:slate|blue|violet|emerald|rose|amber|gray|indigo)-\d+\b/i,
+      template.id,
+    );
+    assert.match(
+      template.exampleCode,
+      /(?:--color-|(?:bg|text|border)-(?:background|foreground|surface|primary|secondary|muted-foreground|success|warning|danger|border))/,
+      template.id,
     );
   }
 });

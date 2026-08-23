@@ -42,6 +42,16 @@ test("defaults anchors for standalone gallery nodes", () => {
   });
   assert.deepEqual(parsed.nodes[0]?.anchors, []);
 });
+test("accepts text and HTML annotations on every node kind and rejects the old inspector", () => {
+  const doc = fixture();
+  doc.nodes[0]!.annotation = { format: "text", content: "Native note" };
+  doc.nodes[1]!.annotation = { format: "html", content: "<p>Screen note</p>" };
+  assert.equal(CanvasDocSchema.safeParse(doc).success, true);
+
+  const legacy = structuredClone(doc) as unknown as { nodes: Record<string, unknown>[] };
+  legacy.nodes[0]!.inspector = { eyebrow: "Legacy", title: "Legacy", copy: "Legacy" };
+  assert.equal(CanvasDocSchema.safeParse(legacy).success, false);
+});
 test("accepts a native image node and rejects unsafe image sources", () => {
   const doc = fixture();
   doc.nodes.push({

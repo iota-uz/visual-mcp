@@ -1657,9 +1657,7 @@
     right: var(--app-space-3);
     z-index: var(--app-z-drawer-trigger);
     width: min(var(--app-comments-panel-w), calc(100vw - var(--app-space-8)));
-    max-height: calc(
-      100% - var(--app-canvas-chrome-top) - 84px - env(safe-area-inset-bottom)
-    );
+    max-height: calc(100% - var(--app-canvas-chrome-top) - 84px - env(safe-area-inset-bottom));
     box-shadow: var(--app-shadow-lg);
   }
 

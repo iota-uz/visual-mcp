@@ -78,10 +78,7 @@ test("two fingers touching are a grab, not a pinch", () => {
 
 test("a pinch cannot escape the zoom clamp", () => {
   assert.equal(pinchZoom({ startDistance: 100, startScale: 4, engaged: true }, 800).scale, 8);
-  assert.equal(
-    pinchZoom({ startDistance: 800, startScale: 0.01, engaged: true }, 1).scale,
-    0.005,
-  );
+  assert.equal(pinchZoom({ startDistance: 800, startScale: 0.01, engaged: true }, 1).scale, 0.005);
 });
 
 test("long-press arms only where it is the finger's only way to add to a selection", () => {
