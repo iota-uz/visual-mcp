@@ -71,7 +71,7 @@ const VISIBLE_WORKSPACES = 8;
 // Left sidebar, not a top bar — a canvas page (below) needs the full
 // viewport height for its viewport to feel like Figma/the original osago
 // file, and a horizontal nav bar would eat into that on every page.
-function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
+export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   const sessionUser = useSessionUser();
   const signOut = useSignOut();
   const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
@@ -120,12 +120,13 @@ function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
         </NavLink>
         {workspaces && workspaces.length > 0 && (
           <ul className="app-sidebar-workspaces">
-            {/* The workspace links carry the same weight as the index link
-                above them — they are the more common destination, and used
-                to be rendered smaller than the thing they hang off. */}
+            {/* These are workspace-scoped asset-library shortcuts. Keep the
+                explicit /assets suffix: /w/:slug is the canvas gallery, and
+                routing both destinations through that URL previously made
+                this behavior regress when the gallery was restored. */}
             {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map((w) => (
               <li key={w.workspace_id}>
-                <NavLink to={`/w/${w.slug}`} className={sidebarLinkClass} title={w.name}>
+                <NavLink to={`/w/${w.slug}/assets`} className={sidebarLinkClass} title={w.name}>
                   <span>{w.name}</span>
                 </NavLink>
               </li>
