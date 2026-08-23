@@ -3,7 +3,7 @@ export function buildInstructions(): string {
   return [
     "Visual Canvas turns product intent into production-grade, shareable interfaces, diagrams, dashboards, reports, and mockups.",
     "",
-    "WORKFLOW. Read relevant context first: canvas_get for an existing canvas, canvas://templates for canonical examples, and canvas://guides/* for detailed contracts. Author with canvas_save, canvas_edit, canvas_apply_patch, or canvas_doc_patch. After every meaningful visual change, follow the returned targeted canvas_snapshot recommendation, inspect the saved draft_revision, correct defects, and snapshot again. Never stop at an unchecked first draft.",
+    "WORKFLOW. Read relevant context first: canvas_get for an existing canvas, canvas://templates for canonical examples, canvas://themes for semantic token sets, and canvas://guides/* for detailed contracts. Author with canvas_save, canvas_edit, canvas_apply_patch, or canvas_doc_patch. After every meaningful visual change, follow the returned targeted canvas_snapshot recommendation, inspect the saved draft_revision, correct defects, and snapshot again. Never stop at an unchecked first draft.",
     "",
     "PRODUCT UI CONTRACT. Produce complete, credible interfaces with clear hierarchy, realistic content, responsive layouts, accessible labels/alt text, familiar controls, and required loading, empty, error, success, disabled, and overflow states. Use the selected semantic theme and workspace brand. Avoid internal instructions or metadata in user-facing UI, generic AI-copy, decorative blobs, gratuitous pills, cards nested inside cards, hardcoded palette drift, duplicate device chrome, clipped content, unresolved assets, and empty interactions.",
     "",

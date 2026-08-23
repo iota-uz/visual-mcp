@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { CanvasDocSchema, layoutCanvas, renderCanvas } from "../../packages/canvas/dist/index.js";
+
 const doc = CanvasDocSchema.parse(
   JSON.parse(await readFile(new URL("canvas.json", import.meta.url), "utf8")),
 );

@@ -165,7 +165,9 @@ describe("touch gestures", () => {
   test("a finger on a fine-pointer device switches the affordances over", () => {
     stubPointerMedia(false);
     const changes: string[] = [];
-    const { container, controller } = mount({ onPointerModeChange: (m: string) => changes.push(m) });
+    const { container, controller } = mount({
+      onPointerModeChange: (m: string) => changes.push(m),
+    });
     expect(container.dataset.pointer).toBe("fine");
 
     pointer(container, "pointerdown", 20, 20, 1, "touch");

@@ -1,4 +1,4 @@
-import type { ThemeOverride } from "@visual-canvas/canvas/themes.js";
+import { type ThemeOverride, ThemeOverrideSchema } from "@visual-canvas/canvas/themes.js";
 import { v } from "convex/values";
 
 export const ThemeIdValidator = v.union(
@@ -44,3 +44,8 @@ export const ThemeOverrideValidator = v.object({
 });
 
 export type StoredThemeOverride = ThemeOverride;
+
+/** Applies the canonical token and palette constraints before a brand is persisted. */
+export function validateThemeOverride(value: ThemeOverride | undefined): ThemeOverride | undefined {
+  return value === undefined ? undefined : ThemeOverrideSchema.parse(value);
+}

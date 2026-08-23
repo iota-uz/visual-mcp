@@ -1,4 +1,4 @@
-import { type CanvasDoc, layoutCanvas, mountViewport } from "@visual-canvas/canvas";
+import { type CanvasDoc, layoutCanvas, mountViewport, type Theme } from "@visual-canvas/canvas";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const anchors = [
@@ -202,6 +202,56 @@ describe("reactive viewport reconciliation", () => {
     expect(
       container.querySelector('[data-node-id="screen"] .vc-iframe-placeholder'),
     ).not.toBeNull();
+    controller.dispose();
+  });
+
+  test("updates theme attributes and tokens without resetting the camera", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const initialTheme = {
+      name: "clean-saas",
+      colors: {
+        background: "#ffffff",
+        foreground: "#111111",
+        muted: "#eeeeee",
+        surface: "#fafafa",
+        mutedForeground: "#666666",
+        success: "#008000",
+        warning: "#aa6600",
+        danger: "#bb0000",
+        primary: "#0055dd",
+        secondary: "#663399",
+        border: "#dddddd",
+      },
+      typography: { fontSans: "sans-serif", fontMono: "monospace" },
+      radius: { sm: "2px", md: "4px", lg: "8px", xl: "12px" },
+      spacing: { md: "16px" },
+      shadows: { md: "0 1px 2px #0002" },
+      chartPalette: ["#111111", "#222222", "#333333", "#444444"],
+      diagramStyle: { nodeRadius: "4px", edgeStyle: "solid" },
+    } satisfies Theme;
+    const nextTheme = {
+      ...initialTheme,
+      name: "dark-terminal",
+      colors: { ...initialTheme.colors, primary: "#22c55e" },
+      chartPalette: ["#aaaaaa", "#bbbbbb", "#cccccc", "#dddddd"],
+    } satisfies Theme;
+    const controller = mountViewport({
+      container,
+      canvas: layoutCanvas(doc()),
+      theme: initialTheme,
+    });
+    controller.zoomAt(300, 200, 1.2);
+    flushFrames();
+    const world = container.querySelector<HTMLElement>(".vc-world");
+    const transform = world?.style.transform;
+
+    controller.updateCanvas(layoutCanvas(doc()), { theme: nextTheme });
+
+    expect(world?.dataset.themeId).toBe("dark-terminal");
+    expect(world?.dataset.chartPalette).toContain("#aaaaaa");
+    expect(world?.style.getPropertyValue("--vc-role-primary")).toBe("#22c55e");
+    expect(world?.style.transform).toBe(transform);
     controller.dispose();
   });
 

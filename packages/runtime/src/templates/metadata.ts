@@ -46,18 +46,18 @@ const entries: Record<TemplateId, Omit<Metadata, "compatibleThemes">> = {
   "phone-frame-screen": {
     useWhen: ["Placing mobile content in CanvasDoc phone chrome"],
     avoidWhen: ["The iframe already draws a handset shell"],
-    supportedViewports: mobile,
+    supportedViewports: [{ label: "phone-content", width: 284, height: 642 }],
     requiredStates: ["default", "loading", "error"],
     designCharacteristics: ["content-only", "safe-area aware", "touch-first"],
-    preview: { viewport: { width: 390, height: 844 }, format: "html" },
+    preview: { viewport: { width: 284, height: 642 }, format: "html" },
   },
   "device-frame-screen": {
     useWhen: ["Previewing responsive content in a named device preset"],
     avoidWhen: ["A plain browser or frameless surface is requested"],
-    supportedViewports: [...mobile, ...desktop],
+    supportedViewports: [{ label: "mobile-preset-content", width: 284, height: 590 }],
     requiredStates: ["default", "loading", "error"],
     designCharacteristics: ["content-only", "responsive", "no duplicate chrome"],
-    preview: { viewport: { width: 430, height: 932 }, format: "html" },
+    preview: { viewport: { width: 284, height: 590 }, format: "html" },
   },
   "browser-app-screen": {
     useWhen: ["Designing a desktop web application surface"],

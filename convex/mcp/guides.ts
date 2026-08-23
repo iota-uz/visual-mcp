@@ -9,7 +9,8 @@ export const MCP_GUIDES: readonly McpGuide[] = [
   {
     id: "authoring",
     title: "Canvas authoring workflow",
-    description: "Addressing, reads, atomic writes, conflict recovery, pages, prototypes, and delivery.",
+    description:
+      "Addressing, reads, atomic writes, conflict recovery, pages, prototypes, and delivery.",
     text: `# Canvas authoring
 
 Use the loop: understand intent → read relevant canvas/template/theme context → author → inspect deterministic save diagnostics → snapshot the smallest changed target → refine.

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { certificationGates, validateProductionRubric } from "./lib.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const arg = (name) =>
@@ -13,32 +14,14 @@ const goldenPath = arg("golden") ?? join(root, "latest-report.json");
 const routingPath = arg("routing") ?? join(root, "latest-routing-report.json");
 const reviewPath = arg("review");
 const certificationId = arg("id") ?? new Date().toISOString().slice(0, 10);
-const [golden, routing, review] = await Promise.all([
+const [golden, routing, review, rubric] = await Promise.all([
   readFile(goldenPath, "utf8").then(JSON.parse),
   readFile(routingPath, "utf8").then(JSON.parse),
   reviewPath ? readFile(reviewPath, "utf8").then(JSON.parse) : Promise.resolve(null),
+  readFile(join(root, "rubric.json"), "utf8").then(JSON.parse).then(validateProductionRubric),
 ]);
 
-const gates = {
-  both_providers: ["codex", "claude"].every((provider) => golden.providers.includes(provider)),
-  complete_golden_set:
-    golden.scenario_count >= 12 &&
-    ["codex", "claude"].every(
-      (provider) =>
-        golden.results.filter((result) => result.provider === provider).length ===
-        golden.scenario_count,
-    ),
-  routing_both_providers: ["codex", "claude"].every((provider) =>
-    routing.results.some((result) => result.provider === provider),
-  ),
-  routing_recall: routing.results.every((item) => item.recall >= 0.9),
-  routing_negative_precision: routing.results.every((item) => item.negative_precision >= 0.95),
-  snapshot_adherence: golden.aggregate.snapshot_adherence >= 0.9,
-  no_critical_unresolved: golden.aggregate.unresolved_scenarios === 0,
-  no_clipping: golden.aggregate.clipping_scenarios === 0,
-  no_internal_leakage: golden.aggregate.internal_leakage_scenarios === 0,
-  blinded_human_preference: review?.candidate_preference_rate >= 0.8,
-};
+const gates = certificationGates(golden, routing, review, rubric);
 const failures = Object.entries(gates)
   .filter(([, passed]) => !passed)
   .map(([gate]) => ({ gate }));

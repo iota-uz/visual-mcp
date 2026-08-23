@@ -1815,6 +1815,21 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const nextNodesRoot = nextWorld?.querySelector<HTMLElement>(".vc-nodes");
     if (!nextWorld || !nextNodesRoot) throw new Error("Unable to render reactive canvas update");
 
+    const cameraTransform = world.style.transform;
+    const cameraScale = world.style.getPropertyValue("--vc-camera-scale");
+    const cameraInverseScale = world.style.getPropertyValue("--vc-camera-inverse-scale");
+    world.style.cssText = nextWorld.style.cssText;
+    world.style.transform = cameraTransform;
+    world.style.setProperty("--vc-camera-scale", cameraScale);
+    world.style.setProperty("--vc-camera-inverse-scale", cameraInverseScale);
+    if (nextTheme) {
+      world.dataset.themeId = nextTheme.name;
+      world.dataset.chartPalette = nextTheme.chartPalette.join(",");
+    } else {
+      world.removeAttribute("data-theme-id");
+      world.removeAttribute("data-chart-palette");
+    }
+
     for (const selector of [
       ".vc-lanes",
       ".vc-stages",

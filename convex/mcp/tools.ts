@@ -186,17 +186,28 @@ const RECOMMENDATION_LIMIT = 30;
 
 function boundedRecommendations(items: Recommendation[]): Recommendation[] {
   const seen = new Set<string>();
-  return items
-    .filter((item) => {
-      const key = `${item.code}:${JSON.stringify(item.location ?? {})}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
+  const perCode = new Map<Recommendation["code"], number>();
+  const deduped = items.filter((item) => {
+    const key = `${item.code}:${JSON.stringify(item.location ?? {})}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const capped = deduped.filter((item) => {
+    if (item.code === "inspect_changed_canvas") return true;
+    const count = (perCode.get(item.code) ?? 0) + 1;
+    perCode.set(item.code, count);
+    return count <= 5;
+  });
+  return capped
     .sort((a, b) =>
-      `${a.code}:${JSON.stringify(a.location)}`.localeCompare(
-        `${b.code}:${JSON.stringify(b.location)}`,
-      ),
+      a.code === "inspect_changed_canvas"
+        ? -1
+        : b.code === "inspect_changed_canvas"
+          ? 1
+          : `${a.code}:${JSON.stringify(a.location)}`.localeCompare(
+              `${b.code}:${JSON.stringify(b.location)}`,
+            ),
     )
     .slice(0, RECOMMENDATION_LIMIT);
 }
@@ -1771,10 +1782,22 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             principal.userId,
             input.files ?? [],
           );
+          let docInput = input.doc;
+          if (
+            docInput === undefined &&
+            kind === "canvas" &&
+            (input.theme_id !== undefined ||
+              input.workspace_brand !== undefined ||
+              input.brand_override !== undefined)
+          ) {
+            const context = await ctx.runQuery(internal.canvases.snapshotContextByRef, {
+              ref: input.ref,
+            });
+            const blob = context?.docStorageId ? await ctx.storage.get(context.docStorageId) : null;
+            if (blob) docInput = JSON.parse(await blob.text());
+          }
           preparedDoc =
-            input.doc === undefined
-              ? undefined
-              : await prepareSaveDoc(ctx, input.doc, resolvedTheme);
+            docInput === undefined ? undefined : await prepareSaveDoc(ctx, docInput, resolvedTheme);
           if (
             preparedFiles.changes.length > 0 ||
             preparedDoc ||
@@ -4189,6 +4212,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const scale = input.scale ?? 1;
         const normalizedTarget =
           target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref });
+        const theme = detail?.canvas.resolved_theme as Theme | undefined;
         const cacheKey = await sha256Hex(
           JSON.stringify({
             renderer: 3,
@@ -4197,6 +4222,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             target: normalizedTarget,
             padding,
             scale,
+            theme,
           }),
         );
 
@@ -4273,9 +4299,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             if (entryIndex >= 0) sources.splice(entryIndex, 1);
             sources.push({ relPath: workerEntrypoint, getUrl });
           }
-
-          const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref });
-          const theme = detail?.canvas.resolved_theme as Theme | undefined;
 
           const config = getWorkerConfig();
           let workerResult:

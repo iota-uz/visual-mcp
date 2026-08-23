@@ -205,7 +205,9 @@ export function restoreNodes(doc: CanvasDoc, payload: NodeRestorePayload): Canva
     ...doc.edges,
     ...payload.edges.filter(
       (edge) =>
-        !existingEdges.has(edge.id) && nodeIds.has(edge.source.nodeId) && nodeIds.has(edge.target.nodeId),
+        !existingEdges.has(edge.id) &&
+        nodeIds.has(edge.source.nodeId) &&
+        nodeIds.has(edge.target.nodeId),
     ),
   ];
 

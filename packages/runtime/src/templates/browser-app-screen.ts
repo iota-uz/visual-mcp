@@ -20,7 +20,7 @@ const exampleCode = `<!doctype html>
   <body class="m-0 bg-surface font-sans">
     <main class="w-[1440px] h-[900px] flex overflow-hidden">
       <!-- Sidebar -->
-      <aside class="w-64 shrink-0 bg-foreground text-muted-foreground flex flex-col">
+      <aside class="w-64 shrink-0 bg-foreground text-background flex flex-col">
         <div class="px-6 py-5 flex items-center gap-2">
           <div class="h-8 w-8 rounded-lg bg-primary"></div>
           <span class="text-background font-bold text-lg">Insurly</span>
@@ -29,20 +29,20 @@ const exampleCode = `<!doctype html>
           <a class="flex items-center gap-3 rounded-lg bg-secondary px-3 py-2 text-sm font-medium text-background">
             <span>&#128202;</span> Dashboard
           </a>
-          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-background">
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-background">
             <span>&#128196;</span> Policies
           </a>
-          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-background">
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-background">
             <span>&#9878;</span> Claims
           </a>
-          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-background">
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-background">
             <span>&#128100;</span> Customers
           </a>
-          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-background">
+          <a class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-background">
             <span>&#9881;</span> Settings
           </a>
         </nav>
-        <div class="px-6 py-5 border-t border-border text-xs text-muted-foreground">
+        <div class="px-6 py-5 border-t border-border text-xs text-background">
           v0.1 &middot; Insurance CRM
         </div>
       </aside>

@@ -12,8 +12,8 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation, internalQuery } from "./_generated/server";
 
 /** `workspace-slug/component-slug`, mirroring the canvas ref grammar. */
 export function parseComponentRef(ref: string): { workspaceSlug: string; componentSlug: string } {
@@ -167,11 +167,12 @@ export const find = internalQuery({
             .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspace._id))
             .order("desc")
             .take(limit * 2)
-        : await ctx.db.query("canvasComponents").order("desc").take(limit * 2);
+        : await ctx.db
+            .query("canvasComponents")
+            .order("desc")
+            .take(limit * 2);
 
-    const filtered = args.tag
-      ? rows.filter((row) => row.tags.includes(args.tag as string))
-      : rows;
+    const filtered = args.tag ? rows.filter((row) => row.tags.includes(args.tag as string)) : rows;
     const slugs = new Map<Id<"workspaces">, string>();
     const out = [];
     for (const row of filtered.slice(0, limit)) {

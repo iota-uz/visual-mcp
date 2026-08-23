@@ -96,7 +96,11 @@ export const NodeCaptionSchema = z.object({
 export const NodeAnnotationSchema = z
   .object({
     format: z.enum(["text", "html"]),
-    content: z.string().min(1).max(20_000),
+    content: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .refine((content) => content.trim().length > 0, "Annotation content cannot be blank"),
   })
   .strict();
 export type NodeAnnotation = z.infer<typeof NodeAnnotationSchema>;

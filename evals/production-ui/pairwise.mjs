@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,9 +23,16 @@ if (mode === "prepare") {
     .sort();
   const pairs = [];
   const key = [];
+  const skipped = [];
   await mkdir(join(output, "pairs"), { recursive: true });
   for (const [index, relPath] of candidateFiles.entries()) {
     const baselinePath = join(baseline, relPath);
+    try {
+      await access(baselinePath);
+    } catch {
+      skipped.push(relPath);
+      continue;
+    }
     const candidatePath = join(candidate, relPath);
     const pairId = `${String(index + 1).padStart(3, "0")}-${basename(relPath, ".png")}`;
     const candidateLabel =
@@ -38,7 +45,6 @@ if (mode === "prepare") {
     await copyFile(bSource, join(output, "pairs", `${pairId}-B.png`));
     pairs.push({
       id: pairId,
-      source: relPath,
       A: `pairs/${pairId}-A.png`,
       B: `pairs/${pairId}-B.png`,
       choice: null,
@@ -46,6 +52,7 @@ if (mode === "prepare") {
     });
     key.push({
       id: pairId,
+      source: relPath,
       candidate: candidateLabel,
       baseline: candidateLabel === "A" ? "B" : "A",
     });
@@ -66,12 +73,17 @@ if (mode === "prepare") {
   await writeFile(
     join(output, "key.json"),
     JSON.stringify(
-      { baseline: relative(output, baseline), candidate: relative(output, candidate), pairs: key },
+      {
+        baseline: relative(output, baseline),
+        candidate: relative(output, candidate),
+        pairs: key,
+        skipped,
+      },
       null,
       2,
     ),
   );
-  console.log(`Prepared ${pairs.length} blinded pairs in ${output}`);
+  console.log(`Prepared ${pairs.length} blinded pairs in ${output}; skipped ${skipped.length}`);
 } else {
   const review = JSON.parse(await readFile(join(output, "review.json"), "utf8"));
   const key = JSON.parse(await readFile(join(output, "key.json"), "utf8"));

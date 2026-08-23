@@ -7,6 +7,58 @@ const WRITE_TOOLS = new Set([
   "canvas_nodes_delete",
 ]);
 
+export const PRODUCTION_METRIC_KEYS = [
+  "schema_valid",
+  "correct_template_and_theme",
+  "semantic_tokens",
+  "required_states",
+  "no_unresolved_references",
+  "no_unintended_overlap_or_clipping",
+  "snapshot_after_write",
+  "snapshot_driven_correction",
+  "no_internal_marker_leakage",
+  "bounded_iterations",
+];
+
+export function validateProductionRubric(rubric) {
+  const actual = Object.keys(rubric.automated ?? {}).sort();
+  const expected = [...PRODUCTION_METRIC_KEYS].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`Rubric automated keys must exactly match metrics: ${expected.join(", ")}`);
+  }
+  return rubric;
+}
+
+export function certificationGates(golden, routing, review, rubric) {
+  return {
+    both_providers: ["codex", "claude"].every((provider) => golden.providers.includes(provider)),
+    complete_golden_set:
+      golden.scenario_count >= 12 &&
+      ["codex", "claude"].every(
+        (provider) =>
+          golden.results.filter((result) => result.provider === provider).length ===
+          golden.scenario_count,
+      ),
+    routing_both_providers: ["codex", "claude"].every((provider) =>
+      routing.results.some((result) => result.provider === provider),
+    ),
+    routing_recall: routing.results.every(
+      (item) => item.recall >= rubric.release_thresholds.routing_recall,
+    ),
+    routing_negative_precision: routing.results.every(
+      (item) => item.negative_precision >= rubric.release_thresholds.negative_precision,
+    ),
+    automated_score: golden.aggregate.automated_score >= rubric.release_thresholds.automated_score,
+    snapshot_adherence:
+      golden.aggregate.snapshot_adherence >= rubric.release_thresholds.snapshot_adherence,
+    no_critical_unresolved: golden.aggregate.unresolved_scenarios === 0,
+    no_clipping: golden.aggregate.clipping_scenarios === 0,
+    no_internal_leakage: golden.aggregate.internal_leakage_scenarios === 0,
+    blinded_human_preference:
+      review?.candidate_preference_rate >= rubric.release_thresholds.human_preference,
+  };
+}
+
 function hasRequiredStates(authored) {
   const loading = /loading|skeleton|animate-pulse|scoring[^<"]{0,80}(?:claims|records|items)/i.test(
     authored,

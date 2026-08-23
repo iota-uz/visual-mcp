@@ -126,6 +126,13 @@ const DEFAULT_VIEWPORT_HEIGHT = 800;
 const SNAPSHOT_MAX_DIMENSION = 4096;
 const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 
+function injectBootstrap(html: string, bootstrap: string): string {
+  if (html.includes("</head>")) return html.replace("</head>", `${bootstrap}</head>`);
+  return /^\s*<!doctype html>/i.test(html)
+    ? html.replace(/^(\s*<!doctype html>)/i, `$1${bootstrap}`)
+    : bootstrap + html;
+}
+
 /** Captures a native CanvasDoc world, one rendered node, or a world-coordinate region. */
 export async function snapshotCanvas(
   options: SnapshotCanvasOptions,
@@ -141,9 +148,7 @@ export async function snapshotCanvas(
   if (options.themeRuntimeCss || options.themeJson) {
     const json = (options.themeJson ?? "null").replaceAll("<", "\\u003c");
     const bootstrap = `${options.themeRuntimeCss ? `<style data-visual-canvas-theme>${options.themeRuntimeCss}</style>` : ""}<script>window.visualCanvasTheme=${json}</script>`;
-    builtHtml = builtHtml.includes("</head>")
-      ? builtHtml.replace("</head>", `${bootstrap}</head>`)
-      : bootstrap + builtHtml;
+    builtHtml = injectBootstrap(builtHtml, bootstrap);
   }
   const tempHtmlPath = path.join(entrypointDir, `.snapshot-${randomUUID()}.html`);
   await fs.mkdir(path.dirname(absOutputPath), { recursive: true });
@@ -369,9 +374,7 @@ export async function renderFile(options: RenderFileOptions): Promise<RenderFile
   if (options.themeRuntimeCss || options.themeJson) {
     const json = (options.themeJson ?? "null").replaceAll("<", "\\u003c");
     const bootstrap = `${options.themeRuntimeCss ? `<style data-visual-canvas-theme>${options.themeRuntimeCss}</style>` : ""}<script>window.visualCanvasTheme=${json}</script>`;
-    builtHtml = builtHtml.includes("</head>")
-      ? builtHtml.replace("</head>", `${bootstrap}</head>`)
-      : bootstrap + builtHtml;
+    builtHtml = injectBootstrap(builtHtml, bootstrap);
   }
 
   if (format === "html") {

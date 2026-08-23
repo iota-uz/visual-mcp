@@ -46,6 +46,27 @@ async function mkFixtureDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(TEST_TMP_ROOT, prefix));
 }
 
+test("HTML theme bootstrap preserves a leading doctype when head is omitted", async () => {
+  const dir = await mkFixtureDir("pw-doctype-");
+  try {
+    const entrypoint = path.join(dir, "index.html");
+    const outputPath = path.join(dir, "output.html");
+    await fs.writeFile(entrypoint, "<!doctype html><main>Standards mode</main>", "utf8");
+    await renderFile({
+      entrypoint,
+      outputPath,
+      format: "html",
+      workspaceRoot: dir,
+      themeRuntimeCss: ":root{--color-primary:#16a34a}",
+      themeJson: JSON.stringify({ id: "test-theme" }),
+    });
+    const output = await fs.readFile(outputPath, "utf8");
+    assert.match(output, /^<!doctype html><style data-visual-canvas-theme>/i);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshotCanvas captures a complete standalone HTML artifact with theme context", async () => {
   const dir = await mkFixtureDir("pw-snapshot-html-");
   try {

@@ -67,7 +67,10 @@ test("clip pins the preset height and full-height only ever grows it", () => {
   assert.equal(tall.viewport.height, 1400);
   // The body grows with the page; the chrome stays exactly as tall.
   const shell = deviceShellSize("iphone-safari", 1400);
-  assert.equal(shell.height - deviceShellSize("iphone-safari").height, 1400 - preset.viewport.height);
+  assert.equal(
+    shell.height - deviceShellSize("iphone-safari").height,
+    1400 - preset.viewport.height,
+  );
 
   assert.throws(
     () =>
@@ -168,9 +171,7 @@ test("a device address is escaped, never interpolated as markup", () => {
 });
 
 test("renderCanvas puts the shell inside the node and keeps the screen interactive", () => {
-  const doc = docWith(
-    iframeNode({ kind: "device", preset: "iphone-safari", url: "acme.example" }),
-  );
+  const doc = docWith(iframeNode({ kind: "device", preset: "iphone-safari", url: "acme.example" }));
   const { html } = renderCanvas(layoutCanvas(doc), { iframeLoading: "eager" });
   assert.match(html, /vc-shape-iframe-device/);
   assert.match(html, /vc-frame-device/);

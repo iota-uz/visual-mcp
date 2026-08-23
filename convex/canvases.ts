@@ -42,7 +42,7 @@ import {
   purgeWorkspace,
 } from "./lib/purge";
 import { slugify } from "./lib/slug";
-import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
+import { ThemeIdValidator, ThemeOverrideValidator, validateThemeOverride } from "./lib/theme";
 import { randomPublicSlug } from "./lib/tokenFormat";
 
 const ArtifactTypeValidator = v.union(
@@ -366,6 +366,7 @@ export const create = internalMutation({
     createdBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const brand = validateThemeOverride(args.brand);
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) throw new Error(`Unknown workspace: ${args.workspaceId}`);
 
@@ -392,7 +393,7 @@ export const create = internalMutation({
       kind: args.kind,
       visibility: "private",
       themeId: args.themeId ?? "clean-saas",
-      brand: args.brand,
+      brand,
       draftRevision: 0,
       draftEditCount: 0,
       draftUpdatedAt: now,
@@ -1233,6 +1234,8 @@ export const commitSaveContent = internalMutation({
     changed: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    const canvasBrand = validateThemeOverride(args.metadata?.canvasBrand);
+    const workspaceBrand = validateThemeOverride(args.metadata?.workspaceBrand);
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
     const current = canvas.currentVersionId ? await ctx.db.get(canvas.currentVersionId) : null;
@@ -1345,7 +1348,7 @@ export const commitSaveContent = internalMutation({
       metadataPatch.description = args.metadata.description;
     if (args.metadata?.themeId !== undefined && args.metadata.themeId !== canvas.themeId)
       metadataPatch.themeId = args.metadata.themeId;
-    if (args.metadata?.canvasBrand !== undefined) metadataPatch.brand = args.metadata.canvasBrand;
+    if (canvasBrand !== undefined) metadataPatch.brand = canvasBrand;
     if (nextVisibility !== canvas.visibility) metadataPatch.visibility = nextVisibility;
     if (nextPublicSlug !== canvas.publicSlug) metadataPatch.publicSlug = nextPublicSlug;
     const metadataChanged = Object.keys(metadataPatch).length > 0;
@@ -1353,7 +1356,7 @@ export const commitSaveContent = internalMutation({
     if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
     const workspaceBrandChanged =
       args.metadata?.workspaceBrand !== undefined &&
-      JSON.stringify(args.metadata.workspaceBrand) !== JSON.stringify(workspace.brand);
+      JSON.stringify(workspaceBrand) !== JSON.stringify(workspace.brand);
 
     const publishRequested = args.metadata?.visibility === "public";
     if (!changed && !publishRequested) {
@@ -1375,7 +1378,7 @@ export const commitSaveContent = internalMutation({
         await ctx.db.patch(canvas._id, { ...metadataPatch, updatedAt: Date.now() });
       }
       if (workspaceBrandChanged) {
-        await ctx.db.patch(workspace._id, { brand: args.metadata?.workspaceBrand });
+        await ctx.db.patch(workspace._id, { brand: workspaceBrand });
       }
       return {
         versionId: current?._id ?? null,
@@ -1537,7 +1540,7 @@ export const commitSaveContent = internalMutation({
       updatedAt: Date.now(),
     });
     if (workspaceBrandChanged) {
-      await ctx.db.patch(workspace._id, { brand: args.metadata?.workspaceBrand });
+      await ctx.db.patch(workspace._id, { brand: workspaceBrand });
     }
     return {
       versionId: checkpoint.versionId,
@@ -2190,6 +2193,7 @@ export const patchGeometryMine = action({
               title: node.caption.title,
               eyebrow: node.caption.tag,
               searchText: [candidate.title, node.caption.title, node.caption.subtitle]
+                .concat(node.caption.tag ?? [], node.annotation?.content ?? [])
                 .filter((value): value is string => typeof value === "string")
                 .join(" "),
             })),
@@ -3276,6 +3280,7 @@ export const upsertByRef = internalMutation({
     deferExistingMetadata: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const brand = validateThemeOverride(args.brand);
     const { canvas, workspace, created, overwroteOtherAuthor } = await resolveOrCreateCanvas(ctx, {
       ref: args.ref,
       createdBy: args.createdBy,
@@ -3283,7 +3288,7 @@ export const upsertByRef = internalMutation({
       kind: args.kind,
       description: args.description,
       themeId: args.themeId,
-      brand: args.brand,
+      brand,
       mode: args.mode,
       expectedVersion: args.expectedVersion,
       deferExistingMetadata: args.deferExistingMetadata,

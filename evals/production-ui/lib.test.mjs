@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { inspectTrace, parseTrace } from "./lib.mjs";
+import { certificationGates, inspectTrace, parseTrace, validateProductionRubric } from "./lib.mjs";
 
 const event = (tool, args, value, content = []) =>
   JSON.stringify({
@@ -184,4 +184,61 @@ test("failed snapshot calls do not satisfy adherence", () => {
   assert.equal(inspected.snapshots, 0);
   assert.equal(inspected.metrics.snapshot_after_write, false);
   assert.equal(inspected.score, 0);
+});
+
+test("certification rejects an automated score below the rubric threshold", () => {
+  const metricKeys = [
+    "schema_valid",
+    "correct_template_and_theme",
+    "semantic_tokens",
+    "required_states",
+    "no_unresolved_references",
+    "no_unintended_overlap_or_clipping",
+    "snapshot_after_write",
+    "snapshot_driven_correction",
+    "no_internal_marker_leakage",
+    "bounded_iterations",
+  ];
+  const rubric = {
+    automated: Object.fromEntries(metricKeys.map((key) => [key, 10])),
+    release_thresholds: {
+      automated_score: 0.9,
+      routing_recall: 0.9,
+      negative_precision: 0.95,
+      snapshot_adherence: 0.9,
+      human_preference: 0.8,
+    },
+  };
+  validateProductionRubric(rubric);
+  const golden = {
+    providers: ["codex", "claude"],
+    scenario_count: 12,
+    results: ["codex", "claude"].flatMap((provider) =>
+      Array.from({ length: 12 }, () => ({ provider })),
+    ),
+    aggregate: {
+      automated_score: 0.89,
+      snapshot_adherence: 1,
+      unresolved_scenarios: 0,
+      clipping_scenarios: 0,
+      internal_leakage_scenarios: 0,
+    },
+  };
+  const routing = {
+    results: ["codex", "claude"].map((provider) => ({
+      provider,
+      recall: 1,
+      negative_precision: 1,
+    })),
+  };
+  const gates = certificationGates(golden, routing, { candidate_preference_rate: 1 }, rubric);
+  assert.equal(gates.automated_score, false);
+  assert.equal(Object.values(gates).filter((passed) => !passed).length, 1);
+});
+
+test("rubric metric keys must exactly match implemented metrics", () => {
+  assert.throws(
+    () => validateProductionRubric({ automated: { schema_valid: 100 } }),
+    /exactly match metrics/,
+  );
 });

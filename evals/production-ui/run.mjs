@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspectTrace } from "./lib.mjs";
+import { inspectTrace, validateProductionRubric } from "./lib.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const allScenarios = JSON.parse(await readFile(join(root, "scenarios.json"), "utf8"));
-const rubric = JSON.parse(await readFile(join(root, "rubric.json"), "utf8"));
+const rubric = validateProductionRubric(
+  JSON.parse(await readFile(join(root, "rubric.json"), "utf8")),
+);
 const args = new Set(process.argv.slice(2));
 const live = args.has("--live");
 const providerArg = process.argv.find((value) => value.startsWith("--provider="));
@@ -159,4 +161,4 @@ const report = {
 await writeFile(join(runDir, "report.json"), JSON.stringify(report, null, 2));
 await writeFile(join(root, "latest-report.json"), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report.aggregate, null, 2));
-if (!live && failures.length > 0) process.exitCode = 1;
+if (failures.length > 0) process.exitCode = 1;
