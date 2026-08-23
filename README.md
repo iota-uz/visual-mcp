@@ -74,8 +74,8 @@ The built-in starter templates are MCP **resources**, not a tool —
 ## Architecture
 
 Convex is the control plane (metadata, auth, versions, bindings, `/mcp` and
-`/s/:slug`). Private Railway S3-compatible buckets store Asset Library source
-and delivery objects. Two Railway services provide a render worker (Playwright/Chromium, D2,
+`/s/:slug`). One private Railway S3-compatible bucket stores immutable Asset Library
+objects. Two Railway services provide a render worker (Playwright/Chromium, D2,
 Tailwind CLI, `run_code` — everything Convex's own sandbox can't run) and a
 Vite+React SPA plus a minimal Node static server for the human-facing
 gallery/viewer. The server injects canvas-specific OG/Twitter metadata into

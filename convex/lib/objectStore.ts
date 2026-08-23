@@ -1,7 +1,5 @@
 import { AwsClient } from "aws4fetch";
 
-export type ObjectStoreName = "source" | "delivery";
-
 export interface ObjectStoreConfig {
   endpoint: string;
   bucket: string;
@@ -11,36 +9,32 @@ export interface ObjectStoreConfig {
   urlStyle: "virtual" | "path";
 }
 
-function envPrefix(store: ObjectStoreName): string {
-  return store === "source" ? "S3_SOURCE" : "S3_DELIVERY";
-}
+const ENV_PREFIX = "S3_ASSET";
 
-export function objectStoreConfigured(store: ObjectStoreName): boolean {
-  const prefix = envPrefix(store);
+export function objectStoreConfigured(): boolean {
   return Boolean(
-    process.env[`${prefix}_ENDPOINT`] &&
-      process.env[`${prefix}_BUCKET`] &&
-      process.env[`${prefix}_ACCESS_KEY_ID`] &&
-      process.env[`${prefix}_SECRET_ACCESS_KEY`],
+    process.env[`${ENV_PREFIX}_ENDPOINT`] &&
+      process.env[`${ENV_PREFIX}_BUCKET`] &&
+      process.env[`${ENV_PREFIX}_ACCESS_KEY_ID`] &&
+      process.env[`${ENV_PREFIX}_SECRET_ACCESS_KEY`],
   );
 }
 
-export function getObjectStoreConfig(store: ObjectStoreName): ObjectStoreConfig {
-  const prefix = envPrefix(store);
-  const endpoint = process.env[`${prefix}_ENDPOINT`];
-  const bucket = process.env[`${prefix}_BUCKET`];
-  const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`];
-  const secretAccessKey = process.env[`${prefix}_SECRET_ACCESS_KEY`];
+export function getObjectStoreConfig(): ObjectStoreConfig {
+  const endpoint = process.env[`${ENV_PREFIX}_ENDPOINT`];
+  const bucket = process.env[`${ENV_PREFIX}_BUCKET`];
+  const accessKeyId = process.env[`${ENV_PREFIX}_ACCESS_KEY_ID`];
+  const secretAccessKey = process.env[`${ENV_PREFIX}_SECRET_ACCESS_KEY`];
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
-    throw new Error(`${prefix} object storage is not configured`);
+    throw new Error(`${ENV_PREFIX} object storage is not configured`);
   }
   return {
     endpoint: endpoint.replace(/\/$/, ""),
     bucket,
     accessKeyId,
     secretAccessKey,
-    region: process.env[`${prefix}_REGION`] || "auto",
-    urlStyle: process.env[`${prefix}_URL_STYLE`] === "path" ? "path" : "virtual",
+    region: process.env[`${ENV_PREFIX}_REGION`] || "auto",
+    urlStyle: process.env[`${ENV_PREFIX}_URL_STYLE`] === "path" ? "path" : "virtual",
   };
 }
 
@@ -77,12 +71,11 @@ function client(config: ObjectStoreConfig): AwsClient {
 }
 
 export async function presignObject(
-  store: ObjectStoreName,
   key: string,
   method: "GET" | "PUT",
   expiresSeconds = 900,
 ): Promise<string> {
-  const config = getObjectStoreConfig(store);
+  const config = getObjectStoreConfig();
   const url = new URL(objectUrl(config, key));
   url.searchParams.set("X-Amz-Expires", String(Math.max(1, Math.min(expiresSeconds, 604800))));
   const request = await client(config).sign(url.toString(), {
@@ -92,23 +85,22 @@ export async function presignObject(
   return request.url;
 }
 
-export async function getObject(store: ObjectStoreName, key: string): Promise<Response> {
-  const config = getObjectStoreConfig(store);
+export async function getObject(key: string): Promise<Response> {
+  const config = getObjectStoreConfig();
   return client(config).fetch(objectUrl(config, key), { method: "GET" });
 }
 
-export async function headObject(store: ObjectStoreName, key: string): Promise<Response> {
-  const config = getObjectStoreConfig(store);
+export async function headObject(key: string): Promise<Response> {
+  const config = getObjectStoreConfig();
   return client(config).fetch(objectUrl(config, key), { method: "HEAD" });
 }
 
 export async function putObject(
-  store: ObjectStoreName,
   key: string,
   bytes: Uint8Array,
   contentType: string,
 ): Promise<void> {
-  const config = getObjectStoreConfig(store);
+  const config = getObjectStoreConfig();
   const response = await client(config).fetch(objectUrl(config, key), {
     method: "PUT",
     headers: {
@@ -119,14 +111,14 @@ export async function putObject(
     body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
   });
   if (!response.ok) {
-    throw new Error(`Object upload failed (${store}/${key}): HTTP ${response.status}`);
+    throw new Error(`Object upload failed (${key}): HTTP ${response.status}`);
   }
 }
 
-export async function deleteObject(store: ObjectStoreName, key: string): Promise<void> {
-  const config = getObjectStoreConfig(store);
+export async function deleteObject(key: string): Promise<void> {
+  const config = getObjectStoreConfig();
   const response = await client(config).fetch(objectUrl(config, key), { method: "DELETE" });
   if (!response.ok && response.status !== 404) {
-    throw new Error(`Object delete failed (${store}/${key}): HTTP ${response.status}`);
+    throw new Error(`Object delete failed (${key}): HTTP ${response.status}`);
   }
 }

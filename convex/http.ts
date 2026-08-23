@@ -101,19 +101,35 @@ http.route({
     const auth = await gate(request);
     if (auth instanceof Response) return auth;
 
-    const mcpHandler = createMcpHandler((reqCtx) => {
-      // `instructions` is how a server explains itself once, instead of
-      // repeating the addressing rules in all six tool descriptions — and it
-      // replaces the v1 descriptions' citations of "PLAN.md section 7", a
-      // file the caller has no way to read.
-      const server = new McpServer(
-        { name: "visual-canvas", version: "2.0.0" },
-        { instructions: buildInstructions() },
-      );
-      registerTools(server, ctx, principalFromAuthInfo(reqCtx.authInfo));
-      registerResources(server, ctx);
-      return server;
-    });
+    const message = (await request.clone().json().catch(() => null)) as {
+      jsonrpc?: unknown;
+      id?: unknown;
+      method?: unknown;
+    } | null;
+    if (message?.method === "subscriptions/listen") {
+      return Response.json({
+        jsonrpc: "2.0",
+        id: message.id ?? null,
+        error: { code: -32601, message: "MCP subscriptions are disabled" },
+      });
+    }
+
+    const mcpHandler = createMcpHandler(
+      (reqCtx) => {
+        // `instructions` is how a server explains itself once, instead of
+        // repeating the addressing rules in all six tool descriptions — and it
+        // replaces the v1 descriptions' citations of "PLAN.md section 7", a
+        // file the caller has no way to read.
+        const server = new McpServer(
+          { name: "visual-canvas", version: "2.0.0" },
+          { instructions: buildInstructions() },
+        );
+        registerTools(server, ctx, principalFromAuthInfo(reqCtx.authInfo));
+        registerResources(server, ctx);
+        return server;
+      },
+      { maxSubscriptions: 0 },
+    );
 
     return mcpHandler.fetch(request, { authInfo: auth });
   }),
@@ -405,7 +421,7 @@ http.route({
     if (oversized) {
       const directUrl =
         typeof artifact.objectKey === "string"
-          ? await presignObject("delivery", artifact.objectKey, "GET", 300)
+          ? await presignObject(artifact.objectKey, "GET", 300)
           : await ctx.storage.getUrl(artifact.storageId);
       if (!directUrl) return new Response("Not found", { status: 404 });
       return Response.redirect(directUrl, 302);
@@ -414,7 +430,7 @@ http.route({
     let blob =
       typeof artifact.objectKey === "string"
         ? await (async () => {
-            const response = await getObject("delivery", artifact.objectKey);
+            const response = await getObject(artifact.objectKey);
             return response.ok ? await response.blob() : null;
           })()
         : await ctx.storage.get(artifact.storageId);
@@ -449,7 +465,7 @@ http.route({
     let blob =
       typeof file.objectKey === "string"
         ? await (async () => {
-            const response = await getObject("delivery", file.objectKey);
+            const response = await getObject(file.objectKey);
             return response.ok ? await response.blob() : null;
           })()
         : await ctx.storage.get(file.storageId);

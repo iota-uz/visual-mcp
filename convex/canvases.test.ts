@@ -1630,9 +1630,7 @@ describe("canvases.removeByRef", () => {
       const assetVersionId = await ctx.db.insert("assetVersions", {
         assetId,
         revision: 1,
-        sourceObjectKey: "source/logo",
-        deliveryObjectKey: "delivery/logo",
-        previewObjectKey: "delivery/logo",
+        objectKey: "assets/logo",
         contentHash: "logo",
         mimeType: "image/svg+xml",
         size: 1,
@@ -1952,9 +1950,7 @@ describe("canvases.restoreVersionByRef", () => {
       const assetVersionId = await ctx.db.insert("assetVersions", {
         assetId,
         revision: 1,
-        sourceObjectKey: "source/logo",
-        deliveryObjectKey: "delivery/logo",
-        previewObjectKey: "preview/logo",
+        objectKey: "assets/logo",
         contentHash: "logo-hash",
         mimeType: "image/png",
         size: 4,

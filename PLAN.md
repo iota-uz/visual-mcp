@@ -141,7 +141,7 @@ Convex deployment                          Railway project
 ├── file storage (docs, artifacts, thumbs) │   Playwright/Chromium · D2 wasm · Tailwind CLI
 ├── asset metadata + immutable bindings    │   DNS-pinned HTTPS asset import
 ├── Convex Auth + /mcp + /s/:slug          ├── Vite + React SPA
-└── crons + capability tokens              └── private S3 source/delivery buckets
+└── crons + capability tokens              └── private S3 asset bucket
 ├── Convex Auth (Google, hd-restricted)        sharp · run_code
 ├── httpAction  /mcp                           creds: NONE — per-request Convex storage URLs
 ├── httpAction  /s/:slug  (artifact proxy)
@@ -796,7 +796,7 @@ Every successful operation creates an immutable canvas snapshot and uses optimis
 `expected_version`/content-hash checks.
 
 Reusable media lives in a personal or workspace Asset Library. Convex stores metadata,
-permissions, revisions and canvas bindings; private S3-compatible Railway buckets store
-source and validated delivery objects. Canvas versions pin exact asset revisions. Asset
+permissions, revisions and canvas bindings; one private S3-compatible Railway bucket stores
+validated immutable objects. Canvas versions pin exact asset revisions. Asset
 updates never propagate implicitly, and public/private viewers can only resolve objects
 present in their version manifest.

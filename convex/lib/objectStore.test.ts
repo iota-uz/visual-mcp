@@ -3,7 +3,7 @@ import { objectUrl } from "./objectStore";
 
 const config = {
   endpoint: "https://storage.railway.app",
-  bucket: "visual-canvas-delivery-abc",
+  bucket: "visual-canvas-assets-abc",
   accessKeyId: "test",
   secretAccessKey: "test",
   region: "auto",
@@ -13,7 +13,7 @@ const config = {
 describe("object store keys", () => {
   it("builds virtual-hosted immutable object URLs", () => {
     expect(objectUrl(config, "blobs/sha256/ab/hash value")).toBe(
-      "https://visual-canvas-delivery-abc.storage.railway.app/blobs/sha256/ab/hash%20value",
+      "https://visual-canvas-assets-abc.storage.railway.app/blobs/sha256/ab/hash%20value",
     );
   });
 

@@ -24,9 +24,7 @@ describe("Asset Library bindings", () => {
         name: slug,
         tags: [],
         kind: "image",
-        sourceObjectKey: `source/${slug}`,
-        deliveryObjectKey: `delivery/${slug}`,
-        previewObjectKey: `delivery/${slug}`,
+        objectKey: `assets/${slug}`,
         contentHash: slug,
         mimeType: "image/png",
         size: 1,
@@ -100,9 +98,7 @@ describe("Asset Library bindings", () => {
       name: "Logo",
       tags: ["brand"],
       kind: "svg",
-      sourceObjectKey: "blobs/source",
-      deliveryObjectKey: "blobs/delivery",
-      previewObjectKey: "blobs/delivery",
+      objectKey: "blobs/asset",
       contentHash: "hash",
       mimeType: "image/svg+xml",
       size: 123,
@@ -186,9 +182,7 @@ describe("Asset Library bindings", () => {
       name: "Logo",
       tags: [],
       kind: "image",
-      sourceObjectKey: "source/logo",
-      deliveryObjectKey: "delivery/logo",
-      previewObjectKey: "delivery/logo",
+      objectKey: "assets/logo",
       contentHash: "logo-hash",
       mimeType: "image/png",
       size: 42,
@@ -282,9 +276,7 @@ describe("Asset Library bindings", () => {
       name: "Mark",
       tags: [],
       kind: "svg",
-      sourceObjectKey: "source/mark",
-      deliveryObjectKey: "delivery/mark",
-      previewObjectKey: "delivery/mark",
+      objectKey: "assets/mark",
       contentHash: "mark-hash",
       mimeType: "image/svg+xml",
       size: 9,
@@ -316,8 +308,8 @@ describe("Asset Library bindings", () => {
       destinationScope: "personal",
     });
     expect(back.assetRef).toBe(personalRef);
-    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.deliveryObjectKey).toBe(
-      "delivery/mark",
+    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.objectKey).toBe(
+      "assets/mark",
     );
     expect(workspaceId).toBeDefined();
   });
@@ -348,9 +340,7 @@ describe("Asset Library bindings", () => {
       name: "Logo",
       tags: [],
       kind: "image" as const,
-      sourceObjectKey: "source/logo",
-      deliveryObjectKey: "delivery/logo",
-      previewObjectKey: "delivery/logo",
+      objectKey: "assets/logo",
       contentHash: "hash",
       mimeType: "image/png",
       size: 10,

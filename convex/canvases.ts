@@ -1739,7 +1739,7 @@ export const listAssetSourcesForCanvas = internalQuery({
       if (!version) continue;
       sources.push({
         relPath: binding.logicalPath,
-        objectKey: version.deliveryObjectKey,
+        objectKey: version.objectKey,
         size: version.size,
         mimeType: version.mimeType,
       });
@@ -1775,7 +1775,7 @@ export const listSourcesForVersion = internalQuery({
       if (!assetVersion) continue;
       assets.push({
         relPath: binding.logicalPath,
-        objectKey: assetVersion.deliveryObjectKey,
+        objectKey: assetVersion.objectKey,
       });
     }
     return {
@@ -2355,7 +2355,7 @@ export const snapshotContextByRef = internalQuery({
       if (!assetVersion) continue;
       assets.push({
         relPath: binding.logicalPath,
-        objectKey: assetVersion.deliveryObjectKey,
+        objectKey: assetVersion.objectKey,
         size: assetVersion.size,
         mimeType: assetVersion.mimeType,
       });
@@ -2735,7 +2735,7 @@ export const resolvePublicArtifact = internalQuery({
               type,
               mimeType: assetVersion.mimeType,
               size: assetVersion.size,
-              objectKey: assetVersion.deliveryObjectKey,
+              objectKey: assetVersion.objectKey,
               libraryAsset: true,
               iframe: false,
               version: requestedVersion.version,
@@ -3037,7 +3037,7 @@ export const resolveIframeCapability = internalQuery({
       const assetVersion = await ctx.db.get(binding.assetVersionId);
       if (!assetVersion) return null;
       return {
-        objectKey: assetVersion.deliveryObjectKey,
+        objectKey: assetVersion.objectKey,
         size: assetVersion.size,
         relPath: args.relPath,
         mimeType: assetVersion.mimeType,

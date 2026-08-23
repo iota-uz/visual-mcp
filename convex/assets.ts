@@ -74,9 +74,9 @@ type AssetListRow = {
   content_hash: string;
   original_filename: string;
   updated_at: number;
-  preview_object_key: string;
+  object_key: string;
 };
-type PublicAssetListRow = Omit<AssetListRow, "preview_object_key"> & { preview_url: string };
+type PublicAssetListRow = Omit<AssetListRow, "object_key"> & { preview_url: string };
 
 type AssetLookupCtx = QueryCtx | MutationCtx;
 
@@ -150,7 +150,7 @@ export const createUpload = internalMutation({
     scope: scopeValidator,
     ownerUserId: v.id("users"),
     workspaceId: v.optional(v.id("workspaces")),
-    sourceObjectKey: v.string(),
+    objectKey: v.string(),
     filename: v.string(),
     declaredMimeType: v.string(),
     expectedSize: v.optional(v.number()),
@@ -177,7 +177,7 @@ export const createUploads = internalMutation({
     workspaceId: v.optional(v.id("workspaces")),
     uploads: v.array(
       v.object({
-        sourceObjectKey: v.string(),
+        objectKey: v.string(),
         filename: v.string(),
         declaredMimeType: v.string(),
         expectedSize: v.optional(v.number()),
@@ -217,7 +217,7 @@ export const getUpload = internalQuery({
       scope: scopeValidator,
       ownerUserId: v.optional(v.id("users")),
       workspaceId: v.optional(v.id("workspaces")),
-      sourceObjectKey: v.string(),
+      objectKey: v.string(),
       filename: v.string(),
       declaredMimeType: v.string(),
       expectedSize: v.optional(v.number()),
@@ -231,7 +231,7 @@ export const getUpload = internalQuery({
       scope: upload.scope,
       ownerUserId: upload.ownerUserId,
       workspaceId: upload.workspaceId,
-      sourceObjectKey: upload.sourceObjectKey,
+      objectKey: upload.objectKey,
       filename: upload.filename,
       declaredMimeType: upload.declaredMimeType,
       expectedSize: upload.expectedSize,
@@ -252,9 +252,7 @@ export const commitAssetVersion = internalMutation({
     description: v.optional(v.string()),
     tags: v.array(v.string()),
     kind: kindValidator,
-    sourceObjectKey: v.string(),
-    deliveryObjectKey: v.string(),
-    previewObjectKey: v.string(),
+    objectKey: v.string(),
     contentHash: v.string(),
     mimeType: v.string(),
     size: v.number(),
@@ -321,9 +319,7 @@ export const commitAssetVersion = internalMutation({
     const versionId = await ctx.db.insert("assetVersions", {
       assetId,
       revision,
-      sourceObjectKey: args.sourceObjectKey,
-      deliveryObjectKey: args.deliveryObjectKey,
-      previewObjectKey: args.previewObjectKey,
+      objectKey: args.objectKey,
       contentHash: args.contentHash,
       mimeType: args.mimeType,
       size: args.size,
@@ -350,11 +346,11 @@ export async function fetchAssetImport(
       {
         url,
         maxBytes: ASSET_MAX_BYTES,
-        upload: { putUrl: await presignObject("source", stagingKey, "PUT", 900) },
+        upload: { putUrl: await presignObject(stagingKey, "PUT", 900) },
       },
     );
     if (imported.size > ASSET_MAX_BYTES) throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
-    const response = await getObject("source", stagingKey);
+    const response = await getObject(stagingKey);
     if (!response.ok) throw new Error(`Imported object is unavailable: HTTP ${response.status}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength !== imported.size) {
@@ -362,18 +358,13 @@ export async function fetchAssetImport(
     }
     return { bytes, mimeType: imported.mimeType, finalUrl: imported.finalUrl };
   } finally {
-    await deleteObject("source", stagingKey).catch(() => undefined);
+    await deleteObject(stagingKey).catch(() => undefined);
   }
 }
 
-async function ensureObject(
-  store: "source" | "delivery",
-  key: string,
-  bytes: Uint8Array,
-  mimeType: string,
-) {
-  const existing = await headObject(store, key);
-  if (existing.status === 404) await putObject(store, key, bytes, mimeType);
+async function ensureObject(key: string, bytes: Uint8Array, mimeType: string) {
+  const existing = await headObject(key);
+  if (existing.status === 404) await putObject(key, bytes, mimeType);
   else if (!existing.ok) throw new Error(`Unable to inspect object: HTTP ${existing.status}`);
 }
 
@@ -396,12 +387,9 @@ export async function persistAsset(
     sourceUrl?: string;
   },
 ): Promise<PersistedAsset> {
-  const rawHash = await sha256HexBytes(input.rawBytes);
   const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
-  const sourceObjectKey = `blobs/sha256/${rawHash.slice(0, 2)}/${rawHash}`;
-  const deliveryObjectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
-  await ensureObject("source", sourceObjectKey, input.rawBytes, input.declaredMime);
-  await ensureObject("delivery", deliveryObjectKey, validated.bytes, validated.mimeType);
+  const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
+  await ensureObject(objectKey, validated.bytes, validated.mimeType);
   const committed: { assetId: Id<"assets">; versionId: Id<"assetVersions">; revision: number } =
     await ctx.runMutation(internal.assets.commitAssetVersion, {
       uploadId: input.uploadId,
@@ -414,9 +402,7 @@ export async function persistAsset(
       description: input.description,
       tags: input.tags,
       kind: validated.kind,
-      sourceObjectKey,
-      deliveryObjectKey,
-      previewObjectKey: deliveryObjectKey,
+      objectKey,
       contentHash: validated.contentHash,
       mimeType: validated.mimeType,
       size: validated.bytes.byteLength,
@@ -479,7 +465,7 @@ export const prepareUploadMine = action({
       scope: args.scope,
       ownerUserId: principal.userId,
       workspaceId: principal.workspaceId ?? undefined,
-      sourceObjectKey: key,
+      objectKey: key,
       filename: args.filename,
       declaredMimeType: args.contentType,
       expectedSize: args.sizeBytes,
@@ -488,7 +474,7 @@ export const prepareUploadMine = action({
     });
     return {
       uploadId,
-      uploadUrl: await presignObject("source", key, "PUT", 3600),
+      uploadUrl: await presignObject(key, "PUT", 3600),
       method: "PUT",
       expiresAt,
     };
@@ -532,7 +518,7 @@ export const finalizeUploadMine = action({
       now: Date.now(),
     });
     if (!upload) throw new Error("Upload does not exist or has expired");
-    const response = await getObject("source", upload.sourceObjectKey);
+    const response = await getObject(upload.objectKey);
     if (!response.ok) throw new Error(`Uploaded object is unavailable: HTTP ${response.status}`);
     const rawBytes = new Uint8Array(await response.arrayBuffer());
     if (upload.expectedSize !== undefined && rawBytes.byteLength !== upload.expectedSize)
@@ -558,7 +544,7 @@ export const finalizeUploadMine = action({
       declaredMime: upload.declaredMimeType,
       sourceType: "upload",
     });
-    await deleteObject("source", upload.sourceObjectKey);
+    await deleteObject(upload.objectKey);
     return {
       assetId: saved.assetId,
       assetRef: saved.assetRef,
@@ -721,7 +707,7 @@ export const listInternal = internalQuery({
         content_hash: version.contentHash,
         original_filename: version.originalFilename,
         updated_at: asset.updatedAt,
-        preview_object_key: version.previewObjectKey,
+        object_key: version.objectKey,
       });
     }
     return {
@@ -756,9 +742,9 @@ export const listMine = action({
       paginationOpts: { numItems: Math.min(args.limit ?? 100, 100), cursor: null },
     });
     return Promise.all(
-      page.page.map(async ({ preview_object_key, ...row }) => ({
+      page.page.map(async ({ object_key, ...row }) => ({
         ...row,
-        preview_url: await presignObject("delivery", preview_object_key, "GET", 900),
+        preview_url: await presignObject(object_key, "GET", 900),
       })),
     );
   },
@@ -773,8 +759,7 @@ export const resolveRef = internalQuery({
     mimeType: v.string(),
     size: v.number(),
     contentHash: v.string(),
-    deliveryObjectKey: v.string(),
-    previewObjectKey: v.string(),
+    objectKey: v.string(),
     assetRef: v.string(),
   }),
   handler: async (ctx, args) => {
@@ -801,8 +786,7 @@ export const resolveRef = internalQuery({
       mimeType: version.mimeType,
       size: version.size,
       contentHash: version.contentHash,
-      deliveryObjectKey: version.deliveryObjectKey,
-      previewObjectKey: version.previewObjectKey,
+      objectKey: version.objectKey,
       assetRef: formatAssetRef({
         scope: asset.scope,
         workspaceSlug,

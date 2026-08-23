@@ -568,7 +568,7 @@ async function resolveCanvasSources(
   const assets = await Promise.all(
     assetSources.map(async (asset) => ({
       relPath: asset.relPath,
-      getUrl: await presignObject("delivery", asset.objectKey, "GET", 3600),
+      getUrl: await presignObject(asset.objectKey, "GET", 3600),
     })),
   );
   return [
@@ -1578,7 +1578,7 @@ async function finalizeUploadedAsset(
     now: Date.now(),
   });
   if (!upload) throw new AssetFinalizeFailure("Upload does not exist or has expired", false);
-  const response = await getObject("source", upload.sourceObjectKey);
+  const response = await getObject(upload.objectKey);
   if (!response.ok) throw new Error(`Uploaded object is unavailable: HTTP ${response.status}`);
   const rawBytes = new Uint8Array(await response.arrayBuffer());
   if (upload.expectedSize !== undefined && rawBytes.byteLength !== upload.expectedSize)
@@ -1606,7 +1606,7 @@ async function finalizeUploadedAsset(
   });
   // The DB commit above is authoritative. Staging cleanup must never turn a
   // successful finalize into a false retryable failure after upload_id vanished.
-  await deleteObject("source", upload.sourceObjectKey).catch(() => undefined);
+  await deleteObject(upload.objectKey).catch(() => undefined);
   return {
     status: "ok" as const,
     asset_id: saved.assetId,
@@ -3600,9 +3600,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           paginationOpts: { numItems: input.limit ?? 50, cursor: input.cursor ?? null },
         });
         const assets = await Promise.all(
-          page.page.map(async ({ preview_object_key, ...asset }) => ({
+          page.page.map(async ({ object_key, ...asset }) => ({
             ...asset,
-            preview_url: await presignObject("delivery", preview_object_key, "GET", 900),
+            preview_url: await presignObject(object_key, "GET", 900),
           })),
         );
         return result({
@@ -3649,10 +3649,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           mime_type: asset.mimeType,
           size_bytes: asset.size,
           content_hash: asset.contentHash,
-          preview_url: await presignObject("delivery", asset.previewObjectKey, "GET", 900),
+          preview_url: await presignObject(asset.objectKey, "GET", 900),
         };
         if (!input.include_preview || !asset.mimeType.startsWith("image/")) return result(payload);
-        const response = await getObject("delivery", asset.previewObjectKey);
+        const response = await getObject(asset.objectKey);
         if (!response.ok) throw new Error(`Asset preview failed: HTTP ${response.status}`);
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength > 5 * 1024 * 1024)
@@ -3831,7 +3831,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           return {
             ...file,
             mime,
-            sourceObjectKey: `staging/${principal.userId}/${crypto.randomUUID()}`,
+            objectKey: `staging/${principal.userId}/${crypto.randomUUID()}`,
             expiresAt: Date.now() + 60 * 60 * 1000,
           };
         });
@@ -3847,7 +3847,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ownerUserId: principal.userId,
           workspaceId: workspace?.workspaceId,
           uploads: normalized.map((file) => ({
-            sourceObjectKey: file.sourceObjectKey,
+            objectKey: file.objectKey,
             filename: file.filename,
             declaredMimeType: file.mime,
             expectedSize: file.size_bytes,
@@ -3860,7 +3860,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             normalized.map(async (file, index) => ({
               upload_id: uploadIds[index] as string,
               filename: file.filename,
-              upload_url: await presignObject("source", file.sourceObjectKey, "PUT", 3600),
+              upload_url: await presignObject(file.objectKey, "PUT", 3600),
               method: "PUT" as const,
               expires_at: file.expiresAt,
             })),
@@ -3876,7 +3876,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Finalize an uploaded asset",
       description:
-        "Validates MIME/size/hash, stores immutable source and delivery objects, " +
+        "Validates MIME/size/hash, stores one immutable object, " +
         "and creates Asset Library revisions. Pass one item or up to 50 items; a batch returns " +
         "per-item results so only failed upload_ids need to be resumed.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
@@ -4272,7 +4272,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             ...(await Promise.all(
               context.assets.map(async (asset) => ({
                 relPath: asset.relPath,
-                getUrl: await presignObject("delivery", asset.objectKey, "GET", 3600),
+                getUrl: await presignObject(asset.objectKey, "GET", 3600),
               })),
             )),
           ];

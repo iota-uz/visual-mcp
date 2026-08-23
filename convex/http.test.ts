@@ -435,6 +435,42 @@ describe("/mcp bearer-auth gate", () => {
     expect(response.error).toBeUndefined();
     expect(response.result).toBeDefined();
   });
+
+  test("rejects MCP subscriptions immediately instead of opening an SSE stream", async () => {
+    const t = convexTest(schema, modules);
+    const { token } = await seedUserWithToken(t);
+    const res = await Promise.race([
+      t.fetch("/mcp", {
+        method: "POST",
+        headers: {
+          ...MCP_HEADERS,
+          authorization: `Bearer ${token}`,
+          "mcp-protocol-version": "2026-07-28",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 77,
+          method: "subscriptions/listen",
+          params: {
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+            notifications: {},
+          },
+        }),
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("subscription request remained open")), 2_000),
+      ),
+    ]);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toMatchObject({
+      id: 77,
+      error: { code: -32601, message: "MCP subscriptions are disabled" },
+    });
+  });
 });
 
 describe("/mcp resources: just-in-time guidance and templates", () => {
@@ -3089,9 +3125,7 @@ describe("/mcp asset lifecycle", () => {
       name: "Logo",
       tags: ["brand"],
       kind: "image",
-      sourceObjectKey: "source/logo",
-      deliveryObjectKey: "delivery/logo",
-      previewObjectKey: "delivery/logo",
+      objectKey: "assets/logo",
       contentHash: "logo-hash",
       mimeType: "image/png",
       size: 12,
@@ -3111,8 +3145,8 @@ describe("/mcp asset lifecycle", () => {
       previous_asset_ref: previousRef,
       asset_ref: "asset://personal/logo@1",
     });
-    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.deliveryObjectKey).toBe(
-      "delivery/logo",
+    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.objectKey).toBe(
+      "assets/logo",
     );
     expect(parse(await callTool(t, token, "asset_get", { asset_ref: previousRef })).isError).toBe(
       true,
@@ -3155,7 +3189,7 @@ describe("/mcp asset lifecycle", () => {
       ctx.db.insert("assetUploads", {
         scope: "personal",
         ownerUserId: userId,
-        sourceObjectKey: "staging/expired",
+        objectKey: "staging/expired",
         filename: "expired.png",
         declaredMimeType: "image/png",
         createdBy: userId,
@@ -3526,9 +3560,7 @@ describe("GET /s/:slug", () => {
       const assetVersionId = await ctx.db.insert("assetVersions", {
         assetId,
         revision: 1,
-        sourceObjectKey: "source/logo",
-        deliveryObjectKey: "delivery/logo",
-        previewObjectKey: "preview/logo",
+        objectKey: "assets/logo",
         contentHash: "logo-hash",
         mimeType: "image/png",
         size: 123,
@@ -3552,7 +3584,7 @@ describe("GET /s/:slug", () => {
         version: 1,
       }),
     ).toMatchObject({
-      objectKey: "delivery/logo",
+      objectKey: "assets/logo",
       libraryAsset: true,
       mimeType: "image/png",
       version: 1,

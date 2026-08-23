@@ -447,9 +447,7 @@ export const write = internalMutation({
     await ctx.db.insert("assetVersions", {
       assetId: lifecycleAssetId,
       revision: 1,
-      sourceObjectKey: "local-fixture/source/lifecycle-logo",
-      deliveryObjectKey: "local-fixture/delivery/lifecycle-logo",
-      previewObjectKey: "local-fixture/delivery/lifecycle-logo",
+      objectKey: "local-fixture/assets/lifecycle-logo",
       contentHash: "local-fixture-lifecycle-logo",
       mimeType: "image/png",
       size: 1,
