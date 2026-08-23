@@ -99,6 +99,17 @@ export interface CommentMarker {
   status: "open" | "completed" | "resolved";
 }
 
+/**
+ * Where a comment popover is pinned. `draft` means nothing has been posted
+ * yet, so the viewport draws a provisional pin the app's thread list does
+ * not know about.
+ */
+export interface CommentAnchor {
+  nodeId?: string;
+  point?: Point;
+  draft?: boolean;
+}
+
 export interface ViewportSize {
   width: number;
   height: number;
@@ -697,6 +708,8 @@ export interface ViewportOptions {
   onCommentActivate?: (commentId: string) => void;
   /** The Comment tool was used on a node, or on empty page space. */
   onCommentDraft?: (anchor: { nodeId?: string; point: Point }) => void;
+  /** A press landed outside the open popover, or the tool changed under it. */
+  onCommentDismiss?: () => void;
 }
 
 export interface ViewportUpdateOptions {
@@ -726,6 +739,14 @@ export interface ViewportController {
   setComments(markers: readonly CommentMarker[]): void;
   /** Highlights the pin carrying this thread; null clears the highlight. */
   setActiveComment(commentId: string | null): void;
+  /**
+   * Pins the comment popover to a node or a page point, panning the camera
+   * only if the anchor is off screen. A `draft` anchor also draws the
+   * provisional pin the composer hangs off. Null puts both away.
+   */
+  setCommentAnchor(anchor: CommentAnchor | null): void;
+  /** The element to render the comment popover into; positioned by the viewport. */
+  commentOverlayElement(): HTMLElement;
   getView(): ViewState;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
@@ -794,6 +815,13 @@ const GUIDES_SHELL = `<div class="vc-guides" aria-hidden="true"></div>`;
  * same size at every zoom rather than shrink with the document.
  */
 const COMMENTS_SHELL = `<div class="vc-comments" hidden></div>`;
+/*
+ * The popover host is a sibling of the pin layer, not a child of it: pins
+ * are meant to be clipped at the viewport edge, a popover anchored to one
+ * near that edge is not. It carries no chrome of its own — the app portals
+ * its own card in — so it is `hidden` until an anchor is set.
+ */
+const COMMENT_OVERLAY_SHELL = `<div class="vc-comment-overlay" hidden></div>`;
 const MARQUEE_SHELL = `<div class="vc-marquee" hidden aria-hidden="true"></div>`;
 /*
  * A multi-selection has nothing to put in the inspector — there is no single
@@ -859,7 +887,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
   const commentsEnabled = typeof opts.onCommentDraft === "function";
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -870,6 +898,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const world = must(".vc-world");
   const guidesLayer = must(".vc-guides");
   const commentsLayer = must(".vc-comments");
+  const commentOverlay = must(".vc-comment-overlay");
   const marqueeLayer = must(".vc-marquee");
   const multiselectPanel = must(".vc-multiselect");
   const multiselectCount = must(".vc-multiselect-count");
@@ -952,6 +981,20 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let activeCommentId: string | null = opts.activeCommentId ?? null;
   /** Anchor key → the pin drawn for it, and the threads it stands for. */
   const commentClusters = new Map<string, { pin: HTMLButtonElement; markers: CommentMarker[] }>();
+  /*
+   * Where the app's popover is pinned, and — while it is a draft — the
+   * provisional pin standing in for the thread that does not exist yet.
+   * Figma's comment tool puts the composer under the cursor rather than in
+   * a rail, and the pin is what makes the two read as one object.
+   */
+  let commentOverlayAnchor: CommentAnchor | null = null;
+  /** Press position while a dismissal is armed; see onPointerDown. */
+  let commentDismissAt: { x: number; y: number } | null = null;
+  let commentOverlayKey: string | null = null;
+  const draftPin = document.createElement("span");
+  draftPin.className = "vc-comment-marker";
+  draftPin.dataset.draft = "";
+  draftPin.setAttribute("aria-hidden", "true");
 
   /**
    * One pin per *anchor*, not per thread. Two comments on the same node
@@ -981,6 +1024,23 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     );
   }
 
+  /*
+   * A pin says one of three things and nothing else: there is a
+   * conversation here (solid, no label), there are several (the count), or
+   * the agent says it is done and is waiting on you (the tick). The tick is
+   * the state this product has and a human-to-human commenting tool does
+   * not, so it is the one that gets its own shape rather than a colour.
+   */
+  const PIN_TICK = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.2 8.4l3.1 3.1 6.5-6.9" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  function paintPin(pin: HTMLElement, markers: CommentMarker[]): void {
+    const status = clusterStatus(markers);
+    pin.dataset.status = status;
+    const count = markers.length > 1 ? `<b>${markers.length}</b>` : "";
+    pin.innerHTML = status === "completed" ? `${PIN_TICK}${count}` : count;
+    pin.toggleAttribute("data-bare", markers.length === 1 && status !== "completed");
+  }
+
   function rebuildComments(): void {
     if (!commentsEnabled) return;
     commentClusters.clear();
@@ -997,8 +1057,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       pin.type = "button";
       pin.className = "vc-comment-marker";
       pin.dataset.commentId = clusterLead(markers).id;
-      pin.dataset.status = status;
-      pin.textContent = String(markers.length);
+      paintPin(pin, markers);
       pin.setAttribute(
         "aria-label",
         markers.length === 1
@@ -1006,8 +1065,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
           : `${markers.length} comments, ${status === "open" ? "some open" : "none open"}`,
       );
     }
-    commentsLayer.replaceChildren(...[...commentClusters.values()].map((cluster) => cluster.pin));
-    commentsLayer.toggleAttribute("hidden", commentClusters.size === 0);
+    const pins: HTMLElement[] = [...commentClusters.values()].map((cluster) => cluster.pin);
+    // The draft pin is what the composer is attached to, so it has to be in
+    // the layer before the layer decides whether it has anything to show.
+    if (commentOverlayAnchor?.draft) pins.push(draftPin);
+    commentsLayer.replaceChildren(...pins);
+    commentsLayer.toggleAttribute("hidden", pins.length === 0);
     paintActiveComment();
     positionComments();
   }
@@ -1020,23 +1083,98 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  /** A node comment hangs off the frame's top-right corner; a page comment
+      sits on the point that was clicked. Null means the node is gone. */
+  function anchorScreenPoint(anchor: {
+    nodeId?: string;
+    point?: Point;
+  }): { x: number; y: number } | null {
+    const node = anchor.nodeId ? nodeById.get(anchor.nodeId) : undefined;
+    const world = node
+      ? { x: node.x + node.w, y: node.y }
+      : anchor.nodeId
+        ? null
+        : (anchor.point ?? null);
+    if (!world) return null;
+    return { x: world.x * view.scale + view.x, y: world.y * view.scale + view.y };
+  }
+
   function positionComments(): void {
-    if (!commentsEnabled || commentClusters.size === 0) return;
+    if (!commentsEnabled) return;
     for (const { pin, markers } of commentClusters.values()) {
-      const marker = markers[0] as CommentMarker;
-      const node = marker.nodeId ? nodeById.get(marker.nodeId) : undefined;
-      const anchor = node
-        ? { x: node.x + node.w, y: node.y }
-        : marker.nodeId
-          ? null
-          : (marker.point ?? null);
-      if (!anchor) {
+      const at = anchorScreenPoint(markers[0] as CommentMarker);
+      if (!at) {
         pin.hidden = true;
         continue;
       }
       pin.hidden = false;
-      pin.style.transform = `translate(${anchor.x * view.scale + view.x}px, ${anchor.y * view.scale + view.y}px)`;
+      pin.style.transform = `translate(${at.x}px, ${at.y}px)`;
     }
+    if (commentOverlayAnchor?.draft) {
+      const at = anchorScreenPoint(commentOverlayAnchor);
+      draftPin.hidden = !at;
+      if (at) draftPin.style.transform = `translate(${at.x}px, ${at.y}px)`;
+    }
+    positionCommentOverlay();
+  }
+
+  /*
+   * Placement, the way every popover has to do it: preferred side first,
+   * flipped when the card would run off the edge, then clamped so it can
+   * never be half outside the viewport. Measured from the card the app
+   * portalled in, so it follows a textarea growing under the cursor.
+   */
+  const OVERLAY_GAP = 14;
+  const OVERLAY_EDGE = 12;
+
+  function positionCommentOverlay(): void {
+    if (!commentsEnabled || !commentOverlayAnchor) return;
+    const card = commentOverlay.firstElementChild as HTMLElement | null;
+    const at = anchorScreenPoint(commentOverlayAnchor);
+    if (!card || !at) {
+      commentOverlay.toggleAttribute("hidden", true);
+      return;
+    }
+    commentOverlay.toggleAttribute("hidden", false);
+    const { width: vw, height: vh } = viewportRect;
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const fits = (value: number, size: number, limit: number) =>
+      value + size <= limit - OVERLAY_EDGE;
+    const clamp = (value: number, size: number, limit: number) =>
+      Math.min(Math.max(OVERLAY_EDGE, value), Math.max(OVERLAY_EDGE, limit - size - OVERLAY_EDGE));
+    let left = at.x + OVERLAY_GAP;
+    if (!fits(left, w, vw)) left = at.x - OVERLAY_GAP - w;
+    let top = at.y + OVERLAY_GAP;
+    if (!fits(top, h, vh)) top = at.y - OVERLAY_GAP - h;
+    commentOverlay.style.transform = `translate(${clamp(left, w, vw)}px, ${clamp(top, h, vh)}px)`;
+  }
+
+  /*
+   * Opening a thread from the app's list must not leave its pin off screen
+   * with the popover clamped to an edge pointing at nothing. Only the
+   * shortfall is panned, so a pin already in view never moves the camera —
+   * and a draft never does, because its anchor is the pixel the user just
+   * pressed and moving the drawing out from under that is disorienting.
+   */
+  function revealCommentAnchor(): void {
+    if (!commentOverlayAnchor || commentOverlayAnchor.draft) return;
+    const at = anchorScreenPoint(commentOverlayAnchor);
+    if (!at) return;
+    const margin = 48;
+    const shortfall = (value: number, limit: number) =>
+      value < margin ? margin - value : value > limit - margin ? limit - margin - value : 0;
+    const dx = shortfall(at.x, viewportRect.width);
+    const dy = shortfall(at.y, viewportRect.height);
+    if (dx === 0 && dy === 0) return;
+    setView(
+      clampCameraToBounds(
+        { ...view, x: view.x + dx, y: view.y + dy },
+        contentBounds(),
+        viewportRect,
+      ),
+      true,
+    );
   }
 
   function paintView(): void {
@@ -1406,13 +1544,35 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function setTool(tool: ViewportTool): void {
     const unavailable =
       (tool === "move" && !opts.editable) || (tool === "comment" && !commentsEnabled);
-    activeTool = unavailable ? "view" : tool;
+    const next = unavailable ? "view" : tool;
+    // An unposted draft belongs to the comment tool. Leaving the tool with
+    // the composer still open would strand it over a canvas you are now
+    // selecting and dragging in.
+    if (next !== activeTool && commentOverlayAnchor?.draft) opts.onCommentDismiss?.();
+    activeTool = next;
     paintToolState(true);
   }
 
   function setComments(markers: readonly CommentMarker[]): void {
     commentMarkers = markers;
     rebuildComments();
+  }
+
+  function anchorKey(anchor: CommentAnchor | null): string | null {
+    if (!anchor) return null;
+    return `${anchor.draft ? "draft" : "thread"}:${anchor.nodeId ?? ""}:${Math.round(anchor.point?.x ?? 0)}:${Math.round(anchor.point?.y ?? 0)}`;
+  }
+
+  function setCommentAnchor(anchor: CommentAnchor | null): void {
+    const key = anchorKey(anchor);
+    const moved = key !== commentOverlayKey;
+    const draftChanged = Boolean(anchor?.draft) !== draftPin.isConnected;
+    commentOverlayAnchor = anchor;
+    commentOverlayKey = key;
+    commentOverlay.toggleAttribute("hidden", anchor === null);
+    if (draftChanged) rebuildComments();
+    if (anchor && moved) revealCommentAnchor();
+    positionComments();
   }
 
   function setActiveComment(commentId: string | null): void {
@@ -2228,7 +2388,16 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest(".vc-node.iframe-active iframe")) return;
-    if (target.closest("input, button, a, summary, details")) return;
+    // The comment popover is portalled inside this container, so without
+    // this a press inside the composer would drop a second pin under it.
+    if (target.closest(".vc-comment-overlay")) return;
+    if (target.closest("input, textarea, button, a, summary, details")) return;
+    /*
+     * Anywhere else with a popover open means "I am done here". Armed on
+     * press and fired on release only if the pointer stayed put: a drag is
+     * a pan, and panning while reading a thread must not close it.
+     */
+    commentDismissAt = commentOverlayAnchor ? { x: event.clientX, y: event.clientY } : null;
     event.preventDefault();
     /*
      * The Comment tool is a placement gesture, not a drag: one press drops
@@ -2237,6 +2406,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
      * runs before pointer capture so no camera or marquee state is started.
      */
     if (activeTool === "comment" && commentsEnabled) {
+      commentDismissAt = null;
       const overNode = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
       opts.onCommentDraft?.({
         nodeId: overNode,
@@ -2506,6 +2676,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onPointerUp(event: PointerEvent): void {
+    if (commentDismissAt) {
+      const moved =
+        Math.hypot(event.clientX - commentDismissAt.x, event.clientY - commentDismissAt.y) >
+        dragThresholdPx();
+      commentDismissAt = null;
+      if (!moved) opts.onCommentDismiss?.();
+    }
     activePointers.delete(event.pointerId);
     cancelLongPress();
     clearDragClasses();
@@ -2631,6 +2808,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onPointerCancel(event: PointerEvent): void {
+    commentDismissAt = null;
     activePointers.delete(event.pointerId);
     cancelLongPress();
     if (activePointers.size === 0) {
@@ -3019,7 +3197,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const id = pin?.dataset.commentId;
     if (id) opts.onCommentActivate?.(id);
   }
+  /*
+   * The card is the app's, and it changes height as the textarea grows and
+   * as replies arrive. Without this it would be placed once and then hang
+   * off the bottom of the screen.
+   */
+  const overlayResize =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          positionCommentOverlay();
+        });
   if (commentsEnabled) {
+    overlayResize?.observe(commentOverlay);
     commentsLayer.addEventListener("click", onCommentLayerClick);
     container.querySelector(".vc-shortcut-comment")?.removeAttribute("hidden");
     rebuildComments();
@@ -3044,6 +3234,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     getPointerMode: () => resolvedPointer,
     setComments,
     setActiveComment,
+    setCommentAnchor,
+    commentOverlayElement: () => commentOverlay,
     getView: () => ({ ...view }),
     updateCanvas,
     dispose() {
@@ -3056,6 +3248,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       coarseQuery?.removeEventListener?.("change", onCoarseQueryChange);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
+      overlayResize?.disconnect();
       commentsLayer.removeEventListener("click", onCommentLayerClick);
       multiselectPanel.removeEventListener("click", onMultiselectClick);
       container.removeEventListener("pointerdown", onPointerDown);

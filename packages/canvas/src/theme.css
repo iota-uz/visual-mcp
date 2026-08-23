@@ -1271,48 +1271,70 @@
   position: absolute;
   top: 0;
   left: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   min-width: var(--vc-marker);
   height: var(--vc-marker);
-  /* Centred on its anchor, so the offset has to follow the size. */
-  margin: calc(var(--vc-marker) / -2) 0 0 calc(var(--vc-marker) / -2);
-  padding: 0 6px;
+  /* The tail sits on the anchor, so the body hangs up and to the right of
+     it — the same way a speech bubble is offset from the mouth. */
+  margin: calc(var(--vc-marker) * -1) 0 0 0;
+  padding: 0 7px;
   /* A white ring, so a pin landing on a node's own border still reads as a
      separate object sitting above the drawing. */
   border: 2px solid var(--vc-white);
-  /* The one square corner points at what the comment is about, the way a
-     speech bubble's tail does. */
-  border-radius: var(--vc-radius-md) var(--vc-radius-md) var(--vc-radius-md) 2px;
+  /* Three round corners and a point at the bottom left: a pin, and the
+     point is the pixel it is talking about. */
+  border-radius: 999px 999px 999px 3px;
   background: var(--vc-accent);
   color: #fff;
-  font: 650 11px / 1 var(--vc-body);
+  font: 700 11px / 1 var(--vc-body);
   cursor: pointer;
   pointer-events: auto;
-  box-shadow: var(--vc-shadow-sm);
+  box-shadow:
+    0 1px 1px rgba(9, 27, 51, 0.12),
+    0 4px 12px rgba(9, 27, 51, 0.16);
   transform-origin: bottom left;
-  transition: transform var(--vc-duration-fast) var(--vc-ease-out);
+  transition:
+    transform var(--vc-duration-fast) var(--vc-ease-out),
+    box-shadow var(--vc-duration-fast) var(--vc-ease-out);
+}
+/* One thread and nobody waiting on you: the pin is the marker, and a "1"
+   printed in it is a number that never says anything. */
+.vc-comment-marker[data-bare] {
+  padding: 0;
+  width: var(--vc-marker);
+}
+.vc-comment-marker b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 /* iOS keeps `:hover` on a tapped element until the next tap elsewhere, so
    unguarded this would leave a pin sitting enlarged. */
 @media (hover: hover) {
   .vc-comment-marker:hover {
-    transform: scale(1.12);
+    transform: scale(1.1);
+    box-shadow:
+      0 1px 1px rgba(9, 27, 51, 0.12),
+      0 6px 18px rgba(9, 27, 51, 0.22);
   }
 }
 .vc-comment-marker:focus-visible {
   outline: 2px solid var(--vc-accent);
   outline-offset: 2px;
 }
-/* The thread the panel has open. The pin says which one you are reading,
-   which is the whole reason the panel and the canvas are side by side. */
+/* The thread the popover has open. The pin says which one you are reading,
+   which is what keeps the card and the drawing tied together. */
 .vc-comment-marker[data-active] {
   box-shadow:
-    var(--vc-shadow-md),
-    0 0 0 3px color-mix(in srgb, var(--vc-accent) 28%, transparent);
+    0 1px 1px rgba(9, 27, 51, 0.12),
+    0 6px 18px rgba(9, 27, 51, 0.2),
+    0 0 0 4px var(--vc-accent-ring);
 }
-/* Completed is the agent's claim awaiting a person; resolved is done and
-   should recede rather than keep asking to be read. */
+/* The agent says it is done and is waiting on a person. This is the state
+   a human-to-human commenting tool does not have, so it is the one that
+   changes shape rather than shade: a tick, not a count. */
 .vc-comment-marker[data-status="completed"] {
   border-color: var(--vc-accent);
   background: var(--vc-white);
@@ -1324,6 +1346,46 @@
   color: var(--vc-muted);
   opacity: 0.72;
 }
+/* The pin for a comment that has not been written yet: solid, unnumbered,
+   and not a button — it belongs to the composer sitting beside it. */
+.vc-comment-marker[data-draft] {
+  width: var(--vc-marker);
+  padding: 0;
+  animation: vc-pin-drop var(--vc-duration-fast) var(--vc-ease-out);
+  cursor: default;
+  pointer-events: none;
+}
+@keyframes vc-pin-drop {
+  from {
+    transform-origin: bottom left;
+    scale: 0.55;
+    opacity: 0;
+  }
+}
+
+/* --- comment popover ---
+   Outside the pin layer, which clips: a card anchored to a pin near the
+   edge has to be able to sit over the toolbar rather than be cut off. The
+   viewport positions it; the app fills it. */
+.vc-comment-overlay {
+  position: absolute;
+  z-index: 31;
+  top: 0;
+  left: 0;
+  width: max-content;
+  pointer-events: auto;
+}
+.vc-comment-overlay[hidden] {
+  display: none;
+}
+
+/* Pins ride the camera transform, so they have to be given the same
+   transition or they arrive before the drawing does. */
+.vc-viewport.is-camera-animating .vc-comment-marker,
+.vc-viewport.is-camera-animating .vc-comment-overlay {
+  transition: transform var(--vc-duration-camera) var(--vc-ease-out);
+}
+
 .vc-viewport.is-tool-comment {
   cursor: crosshair;
 }
@@ -2136,9 +2198,15 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vc-viewport.is-camera-animating .vc-world,
+  .vc-viewport.is-camera-animating .vc-comment-marker,
+  .vc-viewport.is-camera-animating .vc-comment-overlay,
+  .vc-comment-marker,
   .vc-node,
   .vc-inspector,
   .vc-toolbar {
     transition-duration: 0s;
+  }
+  .vc-comment-marker[data-draft] {
+    animation: none;
   }
 }

@@ -5,6 +5,7 @@ import {
   type CanvasFile,
   CanvasFileSchema,
   type CanvasNode,
+  type CommentAnchor,
   type CommentMarker,
   formatElementRef,
   layoutCanvas,
@@ -17,8 +18,6 @@ import {
 } from "@visual-canvas/canvas";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
-  Bot,
-  Check,
   Copy,
   ExternalLink,
   GripVertical,
@@ -33,14 +32,10 @@ import {
   Play,
   Plus,
   RefreshCw,
-  RotateCcw,
   Trash2,
   Unplug,
-  User,
-  X,
 } from "lucide-react";
 import {
-  type ChangeEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -50,12 +45,19 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { useSessionUser } from "../auth";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  CommentComposerPopover,
+  CommentThreadPopover,
+} from "../components/comments/CommentPopover";
+import { CommentsPanel } from "../components/comments/CommentsPanel";
+import { commentAnchorLabel } from "../components/comments/types";
 import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
@@ -67,7 +69,6 @@ import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
-import { TextInput } from "../components/ui/TextInput";
 import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
 import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { formatBytes } from "../lib/formatBytes";
@@ -105,8 +106,11 @@ export function CanvasViewport({
   onIframeStateChange,
   comments,
   activeCommentId,
+  commentAnchor,
+  commentPopover,
   onCommentActivate,
   onCommentDraft,
+  onCommentDismiss,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
@@ -130,8 +134,13 @@ export function CanvasViewport({
   /** Passing a handler is what turns the Comment tool and its pins on. */
   comments?: readonly CommentMarker[];
   activeCommentId?: string | null;
+  /** Where to pin `commentPopover`; the viewport owns the placement. */
+  commentAnchor?: CommentAnchor | null;
+  /** Rendered into the viewport's own positioned host, over the drawing. */
+  commentPopover?: ReactNode;
   onCommentActivate?: (commentId: string) => void;
   onCommentDraft?: (anchor: { nodeId?: string; point: { x: number; y: number } }) => void;
+  onCommentDismiss?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
@@ -172,7 +181,15 @@ export function CanvasViewport({
   onCommentActivateRef.current = onCommentActivate;
   const onCommentDraftRef = useRef(onCommentDraft);
   onCommentDraftRef.current = onCommentDraft;
+  const onCommentDismissRef = useRef(onCommentDismiss);
+  onCommentDismissRef.current = onCommentDismiss;
   const commentsEnabled = Boolean(onCommentDraft);
+  /*
+   * State, not a ref: the portal target only exists once the viewport has
+   * mounted, and the popover has to render on the paint after that rather
+   * than never.
+   */
+  const [commentHost, setCommentHost] = useState<HTMLElement | null>(null);
   const iframeRevisionsKey = JSON.stringify(iframeRevisions ?? null);
   const stableIframeRevisions = useMemo(
     () => JSON.parse(iframeRevisionsKey) as Record<string, string> | null,
@@ -291,6 +308,7 @@ export function CanvasViewport({
             onCommentActivate: (commentId: string) => onCommentActivateRef.current?.(commentId),
             onCommentDraft: (anchor: { nodeId?: string; point: { x: number; y: number } }) =>
               onCommentDraftRef.current?.(anchor),
+            onCommentDismiss: () => onCommentDismissRef.current?.(),
           }
         : {}),
       resolveElementRef: (nodeId) => {
@@ -307,6 +325,7 @@ export function CanvasViewport({
       },
     });
     controllerRef.current = controller;
+    setCommentHost(commentsEnabled ? controller.commentOverlayElement() : null);
     if (immersive) {
       const iframeNode = docRef.current.nodes.find((node) => node.kind === "iframe");
       if (iframeNode) controller.activateIframe(iframeNode.id);
@@ -323,6 +342,7 @@ export function CanvasViewport({
 
     return () => {
       controllerRef.current = null;
+      setCommentHost(null);
       controller.dispose();
     };
   }, [cameraStorageKey, commentsEnabled, editable, immersive, syncSelectionToUrl]);
@@ -334,6 +354,10 @@ export function CanvasViewport({
   useEffect(() => {
     controllerRef.current?.setActiveComment(activeCommentId ?? null);
   }, [activeCommentId]);
+
+  useEffect(() => {
+    controllerRef.current?.setCommentAnchor(commentAnchor ?? null);
+  }, [commentAnchor]);
 
   useEffect(() => {
     try {
@@ -366,6 +390,7 @@ export function CanvasViewport({
   return (
     <div className={`vc-viewport-host${immersive ? " vc-immersive" : ""}`}>
       <div ref={containerRef} className="vc-viewport-surface" />
+      {commentHost && commentPopover ? createPortal(commentPopover, commentHost) : null}
     </div>
   );
 }
@@ -1462,411 +1487,6 @@ export function PagesPanel({
   );
 }
 
-export interface CommentThread {
-  comment_id: string;
-  page_id: string;
-  node_id?: string;
-  point?: { x: number; y: number };
-  body: string;
-  status: "open" | "completed" | "resolved";
-  author_kind: "human" | "agent";
-  created_at: number;
-  completion?: { summary: string; version: number; draft_revision: number; at: number };
-  replies: Array<{
-    reply_id: string;
-    body: string;
-    author_kind: "human" | "agent";
-    created_at: number;
-  }>;
-}
-
-/* Workspaces have one person in them, so a human comment is this reader's
-   own. When that stops being true this is where a name goes. */
-function commentAuthor(kind: "human" | "agent"): string {
-  return kind === "agent" ? "Agent" : "You";
-}
-
-function CommentByline({ kind, at }: { kind: "human" | "agent"; at: number }) {
-  return (
-    <span className="canvas-comment-byline">
-      <strong>{commentAuthor(kind)}</strong>
-      <time dateTime={new Date(at).toISOString()} title={formatAbsoluteTime(at)}>
-        {formatRelativeTime(at)}
-      </time>
-    </span>
-  );
-}
-
-/*
- * The human half of the loop. The agent's half is the MCP `comment_*` tools;
- * this panel exists so a person can leave the request in the first place and
- * then accept or reject what came back — which is why `resolved` is only
- * reachable from here.
- */
-/*
- * Its own component, mounted with a key derived from the anchor: "clear the
- * box when the user points somewhere else" is a remount, not an effect that
- * reaches in and resets state after the fact.
- */
-function CommentComposer({
-  anchorLabel,
-  busy,
-  onSubmit,
-  onCancel,
-}: {
-  anchorLabel: string;
-  busy: boolean;
-  onSubmit: (body: string) => void;
-  onCancel: () => void;
-}) {
-  const [body, setBody] = useState("");
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    fieldRef.current?.focus();
-  }, []);
-  return (
-    <form
-      className="canvas-comment-composer"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (body.trim()) onSubmit(body.trim());
-      }}
-    >
-      <label>
-        {anchorLabel}
-        <textarea
-          ref={fieldRef}
-          value={body}
-          rows={3}
-          placeholder="What should change here?"
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </label>
-      <div className="canvas-comment-actions">
-        <Button size="sm" type="submit" disabled={busy || body.trim().length === 0}>
-          Comment
-        </Button>
-        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function CommentReplyForm({
-  commentId,
-  busy,
-  onSubmit,
-}: {
-  commentId: string;
-  busy: boolean;
-  onSubmit: (body: string) => void;
-}) {
-  const [body, setBody] = useState("");
-  return (
-    <form
-      className="canvas-comment-reply-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (body.trim()) onSubmit(body.trim());
-      }}
-    >
-      <TextInput
-        id={`reply-${commentId}`}
-        label="Reply to this comment"
-        value={body}
-        placeholder="Write a reply…"
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setBody(event.target.value)}
-      />
-      <Button size="sm" type="submit" disabled={busy || body.trim().length === 0}>
-        Reply
-      </Button>
-    </form>
-  );
-}
-
-export function CommentsPanel({
-  threads,
-  doc,
-  draft,
-  activeId,
-  onDraftChange,
-  onActiveChange,
-  onCreate,
-  onReply,
-  onStatus,
-  onDelete,
-  onClose,
-}: {
-  threads: CommentThread[];
-  doc: CanvasDoc | null;
-  draft: { nodeId?: string; point: { x: number; y: number } } | null;
-  activeId: string | null;
-  onDraftChange: (draft: { nodeId?: string; point: { x: number; y: number } } | null) => void;
-  onActiveChange: (commentId: string | null) => void;
-  onCreate: (input: {
-    nodeId?: string;
-    point?: { x: number; y: number };
-    body: string;
-  }) => Promise<void>;
-  onReply: (commentId: string, body: string) => Promise<void>;
-  onStatus: (commentId: string, status: "resolved" | "open") => Promise<void>;
-  onDelete: (commentId: string) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const { notify } = useToast();
-  const nodeTitle = useCallback(
-    (nodeId?: string) =>
-      nodeId ? (doc?.nodes.find((node) => node.id === nodeId)?.caption.title ?? null) : null,
-    [doc],
-  );
-
-  async function run(work: () => Promise<void>, failure: string) {
-    setBusy(true);
-    try {
-      await work();
-    } catch (err: unknown) {
-      notify(toastError(err, failure));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* Three buckets, and they are not the same job: `completed` is the
-     agent's claim waiting on this reader, `open` is what nobody has
-     answered, `resolved` is history. The header counted them already;
-     the list now separates them. */
-  const awaiting = threads.filter((thread) => thread.status === "completed");
-  const openThreads = threads.filter((thread) => thread.status === "open");
-  const resolved = threads.filter((thread) => thread.status === "resolved");
-  const summary = [
-    `${openThreads.length} open`,
-    awaiting.length > 0 ? `${awaiting.length} awaiting you` : null,
-    resolved.length > 0 ? `${resolved.length} resolved` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const groups = [
-    { key: "awaiting", title: "Needs you", items: awaiting },
-    { key: "open", title: "Open", items: openThreads },
-  ].filter((group) => group.items.length > 0);
-
-  function renderThread(thread: CommentThread) {
-    const anchor = thread.node_id
-      ? (nodeTitle(thread.node_id) ?? `${thread.node_id} (deleted)`)
-      : "Page";
-    const isActive = thread.comment_id === activeId;
-    const Avatar = thread.author_kind === "agent" ? Bot : User;
-    return (
-      <li
-        key={thread.comment_id}
-        className="canvas-comment"
-        data-status={thread.status}
-        data-active={isActive ? "" : undefined}
-      >
-        {/* Collapsed, a row carries only what picks it out of a list: who,
-            when, where, and what it says. Everything else — what the agent
-            claims it did, the conversation, the buttons — is behind the
-            click, so ten threads read as a list rather than a wall. */}
-        <button
-          type="button"
-          className="canvas-comment-head"
-          onClick={() => onActiveChange(isActive ? null : thread.comment_id)}
-          aria-expanded={isActive}
-        >
-          <span className="canvas-comment-avatar" data-author={thread.author_kind}>
-            <Avatar size={13} aria-hidden="true" />
-          </span>
-          <span className="canvas-comment-main">
-            <span className="canvas-comment-topline">
-              <CommentByline kind={thread.author_kind} at={thread.created_at} />
-              <span className="canvas-comment-anchor" title={anchor}>
-                {anchor}
-              </span>
-            </span>
-            <span className="canvas-comment-body">{thread.body}</span>
-            {/* No status on the row: it sits under "Needs you", "Open" or
-                the resolved disclosure, and repeating that on every line
-                was the loudest thing in the list. */}
-            <span className="canvas-comment-meta">
-              {thread.replies.length > 0 && (
-                <span>
-                  {thread.replies.length} {thread.replies.length === 1 ? "reply" : "replies"}
-                </span>
-              )}
-            </span>
-          </span>
-        </button>
-        {isActive && (
-          <div className="canvas-comment-detail">
-            {thread.completion && (
-              <div className="canvas-comment-completion">
-                <p>
-                  <Check size={13} aria-hidden="true" />
-                  {thread.completion.summary}
-                </p>
-                {/* The revision is the whole point of `completed`: it tells
-                    the reader exactly what to go and look at. The block is
-                    always the agent's, so it says when rather than who. */}
-                <span title={formatAbsoluteTime(thread.completion.at)}>
-                  v{thread.completion.version} · draft {thread.completion.draft_revision} ·{" "}
-                  {formatRelativeTime(thread.completion.at)}
-                </span>
-              </div>
-            )}
-            {thread.replies.length > 0 && (
-              <ul className="canvas-comment-replies">
-                {thread.replies.map((reply) => (
-                  <li key={reply.reply_id} data-author={reply.author_kind}>
-                    <CommentByline kind={reply.author_kind} at={reply.created_at} />
-                    <p>{reply.body}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <CommentReplyForm
-              commentId={thread.comment_id}
-              busy={busy}
-              onSubmit={(body) =>
-                void run(() => onReply(thread.comment_id, body), "Couldn't post reply")
-              }
-            />
-            <div className="canvas-comment-actions">
-              {thread.status !== "resolved" ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon={Check}
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() => onStatus(thread.comment_id, "resolved"), "Couldn't resolve")
-                    }
-                  >
-                    Resolve
-                  </Button>
-                  {/* Rejecting the agent's claim without resolving it: the
-                      thread goes back on its queue. */}
-                  {thread.status === "completed" && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      icon={RotateCcw}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
-                      }
-                    >
-                      Not done
-                    </Button>
-                  )}
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={RotateCcw}
-                  disabled={busy}
-                  onClick={() =>
-                    void run(() => onStatus(thread.comment_id, "open"), "Couldn't reopen")
-                  }
-                >
-                  Reopen
-                </Button>
-              )}
-              {/* Destructive, and last: pushed to its own end of the row so
-                  it is never the button next to the cursor. */}
-              <span className="canvas-comment-destructive">
-                <ConfirmButton
-                  icon={Trash2}
-                  label="Delete"
-                  description="this comment and its replies"
-                  onConfirm={() => onDelete(thread.comment_id)}
-                />
-              </span>
-            </div>
-          </div>
-        )}
-      </li>
-    );
-  }
-
-  return (
-    <aside className="canvas-comments-panel" aria-label="Comments">
-      <header>
-        <strong>Comments</strong>
-        <span className="canvas-comments-count">{summary}</span>
-        {/* The only other way out is the Comments chip in the top bar,
-            which on a tablet is a small target on the far side of the
-            screen from the panel it closes. */}
-        <IconButton
-          icon={X}
-          label="Close comments"
-          iconSize={15}
-          className="canvas-comments-close"
-          onClick={onClose}
-        />
-      </header>
-      {draft ? (
-        <CommentComposer
-          key={`${draft.nodeId ?? "page"}:${Math.round(draft.point.x)}:${Math.round(draft.point.y)}`}
-          // Naming the anchor is the difference between "a comment" and "a
-          // comment about this".
-          anchorLabel={
-            draft.nodeId
-              ? `On ${nodeTitle(draft.nodeId) ?? draft.nodeId}`
-              : `On this page · ${Math.round(draft.point.x)}, ${Math.round(draft.point.y)}`
-          }
-          busy={busy}
-          onCancel={() => onDraftChange(null)}
-          onSubmit={(body) =>
-            void run(
-              () => onCreate({ nodeId: draft.nodeId, point: draft.point, body }),
-              "Couldn't post comment",
-            )
-          }
-        />
-      ) : (
-        <p className="canvas-comments-hint">
-          Pick the Comment tool (<kbd>C</kbd>) and click a screen or empty space to leave one.
-        </p>
-      )}
-      {threads.length === 0 ? (
-        <p className="canvas-comments-empty">
-          No comments on this page yet. Your agent reads open ones over MCP and answers here.
-        </p>
-      ) : (
-        <div className="canvas-comment-groups">
-          {groups.map((group) => (
-            <section className="canvas-comment-section" key={group.key}>
-              {/* Always headed: with no status label on the row, the
-                  section is what says whether a thread is waiting on the
-                  reader or on the agent. */}
-              <h3>
-                {group.title}
-                <span className="canvas-comment-section-count">{group.items.length}</span>
-              </h3>
-              <ul className="canvas-comment-list">{group.items.map(renderThread)}</ul>
-            </section>
-          ))}
-          {resolved.length > 0 && (
-            /* Done, and folded away: the panel is a to-do list, not an
-               archive, but the archive is one click below it. */
-            <Disclosure
-              className="canvas-comments-resolved"
-              summary={`Resolved · ${resolved.length}`}
-            >
-              <ul className="canvas-comment-list">{resolved.map(renderThread)}</ul>
-            </Disclosure>
-          )}
-        </div>
-      )}
-    </aside>
-  );
-}
-
 function PrototypeHotspotEditor({
   frameTitle,
   viewport,
@@ -2402,6 +2022,22 @@ export function CanvasPage() {
   const pendingCommentCount = (commentThreads ?? []).filter(
     (thread) => thread.status !== "resolved",
   ).length;
+  /*
+   * One popover at a time, pinned to the canvas: either the composer for a
+   * comment being placed, or the thread that is open. A draft outranks a
+   * thread because placing a new pin is what the person just did.
+   */
+  const activeThread =
+    (commentThreads ?? []).find((thread) => thread.comment_id === activeCommentId) ?? null;
+  const commentAnchor = useMemo<CommentAnchor | null>(() => {
+    if (commentDraft) return { ...commentDraft, draft: true };
+    if (!activeThread) return null;
+    return { nodeId: activeThread.node_id, point: activeThread.point };
+  }, [commentDraft, activeThread]);
+  const closeCommentPopover = useCallback(() => {
+    setCommentDraft(null);
+    setActiveCommentId(null);
+  }, []);
 
   const persistedVersionRef = useRef<number | undefined>(canvasVersion);
   const persistedDraftRevisionRef = useRef<number>(canvas?.draft_revision ?? 0);
@@ -2999,31 +2635,12 @@ export function CanvasPage() {
             <CommentsPanel
               threads={commentThreads ?? []}
               doc={doc ?? null}
-              draft={commentDraft}
               activeId={activeCommentId}
-              onDraftChange={setCommentDraft}
-              onActiveChange={setActiveCommentId}
-              onClose={() => showComments(false)}
-              onCreate={async (input) => {
-                await createComment({
-                  canvasId: canvasId as Id<"canvases">,
-                  pageId: activePageId,
-                  nodeId: input.nodeId,
-                  point: input.nodeId ? undefined : input.point,
-                  body: input.body,
-                });
+              onActiveChange={(commentId) => {
                 setCommentDraft(null);
+                setActiveCommentId(commentId);
               }}
-              onReply={async (commentId, body) => {
-                await replyToComment({ commentId: commentId as Id<"canvasComments">, body });
-              }}
-              onStatus={async (commentId, status) => {
-                await setCommentStatus({ commentId: commentId as Id<"canvasComments">, status });
-              }}
-              onDelete={async (commentId) => {
-                await deleteComment({ commentId: commentId as Id<"canvasComments"> });
-                setActiveCommentId((current) => (current === commentId ? null : current));
-              }}
+              onClose={() => showComments(false)}
             />
           )}
           {docError && (
@@ -3127,15 +2744,76 @@ export function CanvasPage() {
               onDeleteNodes={requestNodeDeletion}
               comments={commentMarkers}
               activeCommentId={activeCommentId}
+              commentAnchor={commentAnchor}
+              /* Opening the rail is no longer part of leaving a comment:
+                 the conversation is on the canvas, and the panel is the
+                 index you go to on purpose. */
               onCommentActivate={(commentId) => {
+                setCommentDraft(null);
                 setActiveCommentId(commentId);
-                showComments(true);
               }}
               onCommentDraft={(anchor) => {
-                setCommentDraft(anchor);
                 setActiveCommentId(null);
-                showComments(true);
+                setCommentDraft(anchor);
               }}
+              onCommentDismiss={closeCommentPopover}
+              commentPopover={
+                canvasId && activePageId ? (
+                  commentDraft ? (
+                    <CommentComposerPopover
+                      // Remount when the pin moves: "clear the box because
+                      // you pointed somewhere else" is a new component, not
+                      // an effect that reaches in and resets state.
+                      key={`${commentDraft.nodeId ?? "page"}:${Math.round(commentDraft.point.x)}:${Math.round(commentDraft.point.y)}`}
+                      anchorLabel={commentAnchorLabel(doc ?? null, commentDraft.nodeId)}
+                      onCancel={() => setCommentDraft(null)}
+                      onSubmit={async (body) => {
+                        const created = await createComment({
+                          canvasId: canvasId as Id<"canvases">,
+                          pageId: activePageId,
+                          nodeId: commentDraft.nodeId,
+                          point: commentDraft.nodeId ? undefined : commentDraft.point,
+                          body,
+                        });
+                        // Straight from composing into the thread that was
+                        // just created, so the pin you dropped is the pin
+                        // you are now reading.
+                        setCommentDraft(null);
+                        setActiveCommentId(created.comment_id);
+                      }}
+                    />
+                  ) : activeThread ? (
+                    <CommentThreadPopover
+                      key={activeThread.comment_id}
+                      thread={activeThread}
+                      anchorLabel={commentAnchorLabel(doc ?? null, activeThread.node_id)}
+                      onClose={() => setActiveCommentId(null)}
+                      onReply={(body) =>
+                        replyToComment({
+                          commentId: activeThread.comment_id as Id<"canvasComments">,
+                          body,
+                        })
+                      }
+                      onStatus={async (status) => {
+                        await setCommentStatus({
+                          commentId: activeThread.comment_id as Id<"canvasComments">,
+                          status,
+                        });
+                        // Resolving retires the pin, so the card has to go
+                        // with it — a thread card left hanging over nothing
+                        // is the tell of a screen nobody used twice.
+                        if (status === "resolved") setActiveCommentId(null);
+                      }}
+                      onDelete={async () => {
+                        await deleteComment({
+                          commentId: activeThread.comment_id as Id<"canvasComments">,
+                        });
+                        setActiveCommentId(null);
+                      }}
+                    />
+                  ) : null
+                ) : null
+              }
               iframeBaseUrl={
                 iframeCapabilityToken
                   ? `${convexSiteOrigin(import.meta.env.VITE_CONVEX_URL as string | undefined)}/i/${iframeCapabilityToken}`

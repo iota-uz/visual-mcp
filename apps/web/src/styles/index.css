@@ -44,6 +44,7 @@
 @import "./patterns/error-boundary.css" layer(patterns);
 @import "./patterns/publish-control.css" layer(patterns);
 @import "./patterns/version-history.css" layer(patterns);
+@import "./patterns/comments.css" layer(patterns);
 @import "./surfaces/app-shell.css" layer(surfaces);
 @import "./surfaces/sidebar.css" layer(surfaces);
 @import "./surfaces/page.css" layer(surfaces);

@@ -61,6 +61,14 @@ describe("reactive viewport reconciliation", () => {
   const frames = new Map<number, FrameRequestCallback>();
   let nextFrame = 1;
 
+  const live: Array<ReturnType<typeof mountViewport>> = [];
+
+  function mount(options: Parameters<typeof mountViewport>[0]) {
+    const controller = mountViewport(options);
+    live.push(controller);
+    return controller;
+  }
+
   beforeEach(() => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = nextFrame++;
@@ -72,6 +80,9 @@ describe("reactive viewport reconciliation", () => {
   });
 
   afterEach(() => {
+    // Every mount is torn down, whether or not the test remembered: a live
+    // viewport keeps timers that fire into a dismantled environment.
+    for (const controller of live.splice(0)) controller.dispose();
     frames.clear();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
@@ -142,7 +153,7 @@ describe("reactive viewport reconciliation", () => {
       }) as DOMRect;
     document.body.appendChild(container);
     const initial = doc();
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(initial),
       resolveIframeUrl: (node) =>
@@ -236,7 +247,7 @@ describe("reactive viewport reconciliation", () => {
       colors: { ...initialTheme.colors, primary: "#22c55e" },
       chartPalette: ["#aaaaaa", "#bbbbbb", "#cccccc", "#dddddd"],
     } satisfies Theme;
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(doc()),
       theme: initialTheme,
@@ -270,7 +281,7 @@ describe("reactive viewport reconciliation", () => {
         toJSON() {},
       }) as DOMRect;
     document.body.appendChild(container);
-    const controller = mountViewport({ container, canvas: layoutCanvas(doc()) });
+    const controller = mount({ container, canvas: layoutCanvas(doc()) });
     flushFrames();
     const world = container.querySelector(".vc-world");
     const transform = (world as HTMLElement | null)?.style.transform;
@@ -329,7 +340,7 @@ describe("reactive viewport reconciliation", () => {
       "/src/screens/runtime.html": "runtime@1",
       "/src/screens/untouched.html": "untouched@1",
     };
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(initial),
       resolveIframeUrl: (node) => `https://screens.test/token-1${node.source.entrypoint}`,
@@ -377,7 +388,7 @@ describe("reactive viewport reconciliation", () => {
       }) as DOMRect;
     document.body.appendChild(container);
     const onCopy = vi.fn();
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(doc()),
       resolveElementRef: (nodeId) => `canvas://osago/realtime?node=${nodeId}`,
@@ -419,7 +430,7 @@ describe("reactive viewport reconciliation", () => {
       content:
         '<p><strong>Review</strong> <a href="javascript:alert(1)" onclick="alert(2)">details</a></p><script>alert(3)</script>',
     };
-    const controller = mountViewport({ container, canvas: layoutCanvas(annotated) });
+    const controller = mount({ container, canvas: layoutCanvas(annotated) });
     controller.selectNode("screen");
 
     const annotation = container.querySelector<HTMLElement>(".vc-inspector-annotation");
@@ -440,7 +451,7 @@ describe("reactive viewport reconciliation", () => {
     const stageless = doc();
     stageless.stages = [];
     stageless.nodes = stageless.nodes.map((node) => ({ ...node, stageId: undefined }));
-    const controller = mountViewport({ container, canvas: layoutCanvas(stageless) });
+    const controller = mount({ container, canvas: layoutCanvas(stageless) });
     flushFrames();
 
     controller.selectNode("screen");
@@ -458,7 +469,7 @@ describe("reactive viewport reconciliation", () => {
     const positionedNode = positioned.nodes[0];
     if (!positionedNode) throw new Error("Missing positioned node");
     const original = { ...positionedNode.rect };
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: positioned,
       editable: true,
@@ -538,7 +549,7 @@ describe("reactive viewport reconciliation", () => {
   function mountEditable(canvasDoc: CanvasDoc, options: Record<string, unknown> = {}) {
     const container = viewportContainer();
     const positioned = layoutCanvas(canvasDoc);
-    const controller = mountViewport({ container, canvas: positioned, editable: true, ...options });
+    const controller = mount({ container, canvas: positioned, editable: true, ...options });
     flushFrames();
     container.querySelector<HTMLButtonElement>('[data-tool="move"]')?.click();
     const view = controller.getView();
@@ -573,12 +584,14 @@ describe("reactive viewport reconciliation", () => {
 
     const pin = container.querySelector<HTMLElement>('[data-comment-id="c1"]');
     expect(pin).not.toBeNull();
-    // Anchored to the node's top-right corner, projected through the camera,
-    // and carrying how many threads are on that anchor — never blank.
+    // Anchored to the node's top-right corner, projected through the camera.
     expect(pin?.style.transform).toBe(
       `translate(${(node.x + node.w) * view.scale + view.x}px, ${node.y * view.scale + view.y}px)`,
     );
-    expect(pin).toHaveTextContent("1");
+    // A lone thread needs no number on it: a "1" printed in every pin is a
+    // count that never tells anyone anything.
+    expect(pin).toHaveTextContent("");
+    expect(pin).toHaveAttribute("data-bare");
     expect(container.querySelector('[data-comment-id="c2"]')).toHaveAttribute(
       "data-status",
       "resolved",
@@ -646,6 +659,95 @@ describe("reactive viewport reconciliation", () => {
     const [anchor] = onCommentDraft.mock.calls[1] as [{ nodeId?: string; point: { x: number } }];
     expect(anchor.nodeId).toBeUndefined();
     expect(Math.round(anchor.point.x)).toBe(700);
+  });
+
+  test("the popover host follows its anchor and stays inside the viewport", () => {
+    const { container, controller, positioned, toScreen } = mountEditable(multiDoc(), {
+      onCommentDraft: vi.fn(),
+      onCommentDismiss: vi.fn(),
+      comments: [],
+    });
+    const host = controller.commentOverlayElement();
+    // Nothing pinned yet, and nothing in the way of the canvas either.
+    expect(host).toHaveAttribute("hidden");
+
+    // The app portals its card in; the viewport measures that card.
+    const card = document.createElement("div");
+    Object.defineProperties(card, {
+      offsetWidth: { value: 300 },
+      offsetHeight: { value: 200 },
+    });
+    host.appendChild(card);
+
+    const node = positioned.nodes.find((entry) => entry.id === "native");
+    if (!node) throw new Error("Missing node");
+    controller.setCommentAnchor({ nodeId: "native", draft: true });
+    expect(host).not.toHaveAttribute("hidden");
+    // Placed clear of the pin, down and to the right where there is room.
+    const [nodeX, nodeY] = toScreen(node.x + node.w, node.y);
+    expect(host.style.transform).toBe(`translate(${nodeX + 14}px, ${nodeY + 14}px)`);
+    // A draft draws its own pin: the composer has to hang off something.
+    expect(container.querySelector(".vc-comment-marker[data-draft]")).not.toBeNull();
+
+    // Against the bottom-right corner it flips rather than hanging off the
+    // edge. The container is 1200×800 (see viewportContainer), so aim the
+    // anchor at (1150, 760) in screen space and work back to a world point.
+    const view = controller.getView();
+    controller.setCommentAnchor({
+      point: { x: (1150 - view.x) / view.scale, y: (760 - view.y) / view.scale },
+      draft: true,
+    });
+    expect(host.style.transform).toBe(`translate(${1150 - 14 - 300}px, ${760 - 14 - 200}px)`);
+
+    // A posted thread has a pin of its own; the provisional one goes.
+    controller.setCommentAnchor({ nodeId: "native" });
+    expect(container.querySelector(".vc-comment-marker[data-draft]")).toBeNull();
+
+    controller.setCommentAnchor(null);
+    expect(host).toHaveAttribute("hidden");
+    controller.dispose();
+  });
+
+  test("a press dismisses an open popover, but a pan does not", () => {
+    const onCommentDismiss = vi.fn();
+    const { container, controller, toScreen } = mountEditable(multiDoc(), {
+      onCommentDraft: vi.fn(),
+      onCommentDismiss,
+      comments: [],
+    });
+    controller.setCommentAnchor({ point: { x: 400, y: 300 } });
+
+    // Dragging the canvas is how you read a thread about something just off
+    // screen; it must not close the thread you are reading.
+    dispatchPointer(container, "pointerdown", ...toScreen(700, 400));
+    dispatchPointer(container, "pointermove", ...toScreen(760, 440));
+    dispatchPointer(container, "pointerup", ...toScreen(760, 440));
+    expect(onCommentDismiss).not.toHaveBeenCalled();
+
+    // A press that goes nowhere is a click on the canvas: done here.
+    dispatchPointer(container, "pointerdown", ...toScreen(700, 400));
+    dispatchPointer(container, "pointerup", ...toScreen(700, 400));
+    expect(onCommentDismiss).toHaveBeenCalledTimes(1);
+    controller.dispose();
+  });
+
+  test("leaving the Comment tool discards an unposted draft", () => {
+    const onCommentDismiss = vi.fn();
+    const { container, controller } = mountEditable(multiDoc(), {
+      onCommentDraft: vi.fn(),
+      onCommentDismiss,
+      comments: [],
+    });
+    controller.setCommentAnchor({ nodeId: "native" });
+    // A posted thread is not the tool's to close.
+    container.querySelector<HTMLButtonElement>('[data-tool="view"]')?.click();
+    expect(onCommentDismiss).not.toHaveBeenCalled();
+
+    controller.setTool("comment");
+    controller.setCommentAnchor({ nodeId: "native", draft: true });
+    container.querySelector<HTMLButtonElement>('[data-tool="view"]')?.click();
+    expect(onCommentDismiss).toHaveBeenCalledTimes(1);
+    controller.dispose();
   });
 
   test("C selects the Comment tool only where comments exist", () => {
@@ -764,7 +866,7 @@ describe("reactive viewport reconciliation", () => {
     const container = viewportContainer();
     const onGeometryChange = vi.fn();
     const positioned = layoutCanvas(doc());
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: positioned,
       editable: true,
@@ -822,7 +924,7 @@ describe("reactive viewport reconciliation", () => {
     const container = viewportContainer();
     const onViewChange = vi.fn();
     const positioned = layoutCanvas(doc());
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: positioned,
       initialView: { x: 24, y: 36, scale: 0.5 },
@@ -876,7 +978,7 @@ describe("reactive viewport reconciliation", () => {
 
   test("accepts a typed zoom percentage and opens shortcut help on ?", () => {
     const container = viewportContainer();
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(doc()),
       initialView: { x: 0, y: 0, scale: 1 },
@@ -943,7 +1045,7 @@ describe("reactive viewport reconciliation", () => {
     const source = doc();
     source.groups = [{ id: "pair", label: "Pair", nodeIds: ["native", "screen"] }];
     const onGroupMove = vi.fn();
-    const controller = mountViewport({
+    const controller = mount({
       container,
       canvas: layoutCanvas(source),
       editable: true,
@@ -977,7 +1079,7 @@ describe("reactive viewport reconciliation", () => {
   test("does not animate Fit when reduced motion is requested", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     const container = viewportContainer();
-    const controller = mountViewport({ container, canvas: layoutCanvas(doc()) });
+    const controller = mount({ container, canvas: layoutCanvas(doc()) });
     flushFrames();
     controller.fitAll();
     flushFrames();

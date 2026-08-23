@@ -1,0 +1,530 @@
+/* --- comments ---
+   One conversation, two places to read it: a popover pinned to the canvas
+   where the comment is about something, and a row in the panel where the
+   question is "what is still outstanding?". Everything shared between the
+   two — the avatar, the byline, the input, the send button — is defined
+   once here, because a thread has to be recognisably the same object in
+   both. */
+
+.comment-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 999px;
+  background: var(--app-paper);
+  color: var(--app-muted);
+  box-shadow: inset 0 0 0 1px var(--app-line);
+}
+
+/* The agent is the other party in this conversation, not a system notice:
+   worth telling apart at a glance rather than by reading the name. */
+.comment-avatar[data-author="agent"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 22%, transparent);
+}
+
+.comment-byline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.comment-byline strong {
+  color: var(--app-ink-soft);
+  font-weight: 650;
+}
+
+/* A comment box grows with what is typed in it, and carries no chrome of
+   its own: the card around it is already the field. */
+.comment-input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-ink);
+  font: 400 max(var(--app-text-sm), var(--app-input-font-size)) / 1.45 var(--app-font-body);
+  resize: none;
+  overflow-y: auto;
+}
+
+.comment-input::placeholder {
+  color: var(--app-muted);
+}
+
+.comment-input:focus {
+  outline: none;
+}
+
+/* The one control that posts a message, and the same one everywhere. */
+.comment-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: max(28px, var(--app-hit-min));
+  height: max(28px, var(--app-hit-min));
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-white);
+  cursor: pointer;
+  transition:
+    background var(--app-transition),
+    opacity var(--app-transition),
+    transform var(--app-duration-fast) var(--app-ease-out);
+}
+
+.comment-send:hover:not(:disabled) {
+  background: var(--app-accent-text);
+}
+
+.comment-send:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* Nothing to send yet: present, so the shape of the box does not change
+   under the cursor, but plainly not armed. */
+.comment-send:disabled {
+  background: var(--app-line);
+  color: var(--app-muted);
+  cursor: default;
+}
+
+.comment-icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: max(26px, var(--app-hit-min));
+  height: max(26px, var(--app-hit-min));
+  padding: 0;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+  transition:
+    background var(--app-transition),
+    color var(--app-transition);
+}
+
+.comment-icon-button:hover:not(:disabled) {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.comment-icon-button:disabled {
+  opacity: var(--app-disabled-opacity);
+  cursor: default;
+}
+
+/* --- the popover ---
+   Positioned by the canvas engine against the pin; everything below is
+   what goes inside that box. */
+
+.comment-pop {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  max-width: calc(100vw - var(--app-space-6));
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-white);
+  box-shadow:
+    0 1px 2px rgba(16, 38, 64, 0.08),
+    0 12px 32px rgba(16, 38, 64, 0.16);
+  animation: comment-pop-in var(--app-duration-fast) var(--app-ease-out);
+}
+
+@keyframes comment-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment-pop {
+    animation: none;
+  }
+}
+
+.comment-pop-form {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--app-space-3) var(--app-space-3) var(--app-space-2);
+}
+
+/* What the comment is about. An eyebrow rather than a sentence: the pin
+   beside it already points at the thing, so this only has to name it. */
+.comment-pop-anchor {
+  margin: 0;
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-pop-field {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+}
+
+.comment-pop-field .comment-avatar {
+  margin-top: 2px;
+}
+
+.comment-pop-field .comment-send {
+  align-self: flex-end;
+}
+
+.comment-pop-hint,
+.comment-pop-error {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.comment-pop-error {
+  color: var(--app-danger);
+}
+
+.comment-pop-hint kbd {
+  color: var(--app-ink-soft);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+}
+
+.comment-pop-form .comment-pop-hint,
+.comment-pop-form .comment-pop-error {
+  padding-left: calc(24px + var(--app-space-2));
+}
+
+.comment-pop[data-kind="thread"] > .comment-pop-error {
+  padding: 0 var(--app-space-3) var(--app-space-2);
+}
+
+/* --- thread --- */
+
+.comment-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 6px 6px var(--app-space-3);
+  border-bottom: 1px solid var(--app-line);
+}
+
+.comment-pop-head .comment-pop-anchor {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-pop-status {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--app-paper);
+  color: var(--app-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.comment-pop-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+  /* Long threads scroll inside the card rather than growing it past the
+     bottom of the window. */
+  max-height: 264px;
+  margin: 0;
+  padding: var(--app-space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.comment-message {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--app-space-2);
+}
+
+.comment-message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 1px;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.comment-message-head strong {
+  color: var(--app-ink-soft);
+  font-weight: 650;
+}
+
+.comment-message-body {
+  margin: 0;
+  color: var(--app-ink);
+  font-size: var(--app-text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The agent says it has done the work and the thread is waiting on a
+   verdict. This is the state a person-to-person commenting tool does not
+   have, so it is the one thing in the card that gets its own surface. */
+.comment-completion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 var(--app-space-3) var(--app-space-3);
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, transparent);
+  border-radius: var(--app-radius-md);
+  /* A wash rather than the full accent surface: the block already says
+     whose voice this is, and a solid accent button inside a solid accent
+     panel is two blues arguing. */
+  background: color-mix(in srgb, var(--app-accent) 5%, var(--app-white));
+}
+
+.comment-completion-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--app-ink);
+  font-size: var(--app-text-sm);
+  line-height: 1.4;
+}
+
+.comment-completion-head > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--app-accent-text);
+}
+
+.comment-completion-meta {
+  margin: 0;
+  padding-left: 19px;
+  color: var(--app-accent-text);
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+}
+
+.comment-completion-verdict {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 19px;
+}
+
+/* The two answers to a claim. Both are plain: accepting is not a
+   celebration and rejecting is not a failure. */
+.comment-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: max(26px, var(--app-hit-min));
+  padding: 0 var(--app-space-2);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-white);
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-xs);
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color var(--app-transition),
+    color var(--app-transition);
+}
+
+.comment-verdict:hover:not(:disabled) {
+  border-color: var(--app-muted);
+  color: var(--app-ink);
+}
+
+.comment-verdict[data-tone="accept"] {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: var(--app-white);
+}
+
+.comment-verdict[data-tone="accept"]:hover:not(:disabled) {
+  background: var(--app-accent-text);
+  border-color: var(--app-accent-text);
+  color: var(--app-white);
+}
+
+.comment-verdict:disabled {
+  opacity: var(--app-disabled-opacity);
+  cursor: default;
+}
+
+.comment-pop-reopen {
+  justify-content: center;
+  margin: 0 var(--app-space-3) var(--app-space-3);
+}
+
+.comment-pop-reply {
+  padding: var(--app-space-2) var(--app-space-3);
+  border-top: 1px solid var(--app-line);
+}
+
+/* --- the overflow menu --- */
+
+.comment-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.comment-menu-list {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 172px;
+  padding: 4px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-lg);
+}
+
+.comment-menu-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-height: max(30px, var(--app-hit-min));
+  padding: 0 var(--app-space-2);
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-ink-soft);
+  font-size: var(--app-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.comment-menu-list button:hover {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.comment-menu-list button[data-danger] {
+  color: var(--app-danger);
+}
+
+.comment-menu-list button[data-danger]:hover {
+  background: var(--app-danger-soft);
+}
+
+/* Armed, in place: a menu that deletes on the first click is one stray
+   press away from losing a thread. */
+.comment-menu-list button[data-armed] {
+  background: var(--app-danger-soft);
+  font-weight: 650;
+}
+
+/* --- the panel's rows --- */
+
+.comment-row > button {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: var(--app-space-2);
+  min-height: var(--app-hit-min);
+  padding: var(--app-space-2);
+  border: 0;
+  border-radius: var(--app-radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--app-transition);
+}
+
+.comment-row > button:hover {
+  background: var(--app-paper);
+}
+
+/* The row whose thread is open on the canvas. The pin says so too — that
+   pairing is the whole reason the list and the drawing sit side by side. */
+.comment-row > button[data-active] {
+  background: var(--app-accent-soft);
+  box-shadow: inset 2px 0 0 var(--app-accent);
+}
+
+.comment-row[data-status="resolved"] > button {
+  opacity: 0.62;
+}
+
+.comment-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.comment-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.comment-row-anchor {
+  overflow: hidden;
+  flex: none;
+  max-width: 45%;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two lines is enough to recognise a comment; the conversation itself is
+   on the canvas, one click away. */
+.comment-row-body {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--app-ink);
+  font-size: var(--app-text-sm);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* The last word in the thread, which is what says whether it has moved
+   since you left it. A reply count does not. */
+.comment-row-last {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.comment-row-last strong {
+  color: var(--app-ink-soft);
+  font-weight: 650;
+}
