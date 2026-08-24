@@ -20,7 +20,7 @@
     "@visual-canvas/canvas": "*",
     "@visual-canvas/runtime": "*",
     "aws4fetch": "^1.0.20",
-    "convex": "1.43.0",
+    "convex": "1.45.0",
     "hono": "4.13.1",
     "zod": "4.4.3"
   },
