@@ -22,7 +22,7 @@ import { auth as convexAuth } from "./auth";
 import { renderEmbedCard } from "./lib/embedCard";
 import { embedPlaceholderPng } from "./lib/embedPlaceholder";
 import { sha256Hex } from "./lib/hash";
-import { getObject, presignObject } from "./lib/objectStore";
+import { deleteObject, getObject, presignObject } from "./lib/objectStore";
 
 const http = httpRouter();
 
@@ -453,7 +453,7 @@ async function renderPublicEmbed(
       if (result.readiness.status === "ready") break;
       if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    if (result?.readiness.status !== "ready") throw new Error("iframe_not_ready");
+    if (!result) throw new Error("snapshot worker returned no result");
     return result;
   } finally {
     if (temporaryEntryStorageId) {
@@ -649,6 +649,48 @@ async function handlePublicEmbed(
 
   try {
     const rendered = await renderPublicEmbed(ctx, context, embed, objectKey);
+    if (rendered.readiness.status === "partial") {
+      // Chromium still produced a useful board/stage capture. Serve it for this
+      // request, but never promote it into the durable embed cache: a later
+      // request should retry iframe readiness and replace it with a complete PNG.
+      const currentContext = (await ctx.runQuery(internal.embeds.resolvePublicContext, {
+        publicSlug,
+        version: context.version,
+      })) as PublicEmbedContext | null;
+      if (!currentContext || currentContext.versionId !== context.versionId) {
+        await ctx.runMutation(internal.embeds.abandonColdRender, {
+          versionId: context.versionId,
+          cacheKey,
+          objectKey,
+        });
+        await deleteObject(objectKey).catch(() => undefined);
+        return embedNotFound();
+      }
+      const object = await getObject(objectKey);
+      if (!object.ok) throw new Error("partial rendered embed object is unavailable");
+      const bytes = await object.arrayBuffer();
+      await ctx.runMutation(internal.embeds.abandonColdRender, {
+        versionId: context.versionId,
+        cacheKey,
+        objectKey,
+      });
+      await deleteObject(objectKey).catch(() => undefined);
+      const headers = embedHeaders(false, rendered.contentHash, rendered.downscaled);
+      headers.set("cache-control", "no-store");
+      headers.set("x-embed-partial", "1");
+      console.warn("canvas_embed", {
+        shareSlug: publicSlug,
+        version: context.version,
+        target: embed.targetLabel,
+        cacheHit: false,
+        outcome: "partial_render",
+        downscaled: rendered.downscaled,
+        warnings: rendered.readiness.warnings,
+        renderDurationMs: Date.now() - startedAt,
+        durationMs: Date.now() - startedAt,
+      });
+      return new Response(bytes, { status: 200, headers });
+    }
     await ctx.runMutation(internal.embeds.finishColdRender, {
       versionId: context.versionId,
       cacheKey,

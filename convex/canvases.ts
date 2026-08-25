@@ -696,13 +696,22 @@ async function checkpointCanvas(
       iframeEntrypoints: canvas.draftIframeEntrypoints,
     },
   });
+  const publishesCheckpoint =
+    canvas.visibility === "public" &&
+    canvas.publicSlug !== undefined &&
+    canvas.publishedVersionId !== undefined;
+  const now = Date.now();
+  if (publishesCheckpoint) {
+    await ctx.db.patch(checkpoint.versionId, { publishedAt: now });
+  }
   await ctx.db.patch(canvas._id, {
     currentVersionId: checkpoint.versionId,
+    publishedVersionId: publishesCheckpoint ? checkpoint.versionId : canvas.publishedVersionId,
     draftEditCount: 0,
-    draftUpdatedAt: Date.now(),
-    updatedAt: Date.now(),
+    draftUpdatedAt: now,
+    updatedAt: now,
   });
-  return { ...checkpoint, draftRevision, dirty: false };
+  return { ...checkpoint, draftRevision, dirty: false, published: publishesCheckpoint };
 }
 
 export const checkpoint = internalMutation({
@@ -717,6 +726,7 @@ export const checkpoint = internalMutation({
     version: v.number(),
     draftRevision: v.number(),
     dirty: v.boolean(),
+    published: v.boolean(),
   }),
   handler: checkpointCanvas,
 });
@@ -734,6 +744,7 @@ export const checkpointByRef = internalMutation({
     version: v.number(),
     draftRevision: v.number(),
     dirty: v.boolean(),
+    published: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const canvas = await findCanvasByRef(ctx, args.ref);

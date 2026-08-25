@@ -102,7 +102,7 @@ await Promise.resolve(); // ordinary top-level await
 canvas.commit();
 \`\`\`
 
-After committing, snapshot the smallest group, stage, node, or region that tells the story. Publish it, then call \`canvas_embed\`; paste its linked Markdown into GitHub, Linear, Notion, or Slack. Canvas owns the visual evidence, while the tracker integration owns issue creation.`,
+After committing, snapshot the smallest group, stage, node, or region that tells the story. Enable public sharing once, then run \`canvas_checkpoint\` after meaningful changes before calling \`canvas_embed\`; paste its linked Markdown into GitHub, Linear, Notion, or Slack. Canvas owns the visual evidence, while the tracker integration owns issue creation.`,
   },
   {
     id: "embeds",
@@ -112,7 +112,7 @@ After committing, snapshot the smallest group, stage, node, or region that tells
 
 Use \`canvas_embed\` when another system needs an image URL or ready-to-paste Markdown without PNG bytes in the MCP conversation. It supports a complete native/HTML canvas and native canvas nodes, groups, stages, or regions. Every returned image and target URL uses \`canvas.iota.uz\`.
 
-Embeds expose only immutable published checkpoints. An unpublished draft never changes public image bytes; the tool reports \`unpublished_changes\` until the next publish. By default \`pin_version=false\`, so the stable URL resolves the newest published checkpoint and re-renders after a later publish. Set \`pin_version=true\` only when the external record must preserve the exact historical image.
+Embeds expose only immutable published checkpoints. An unpublished draft never changes public image bytes; the tool reports \`unpublished_changes\` until the next \`canvas_checkpoint\`. On an already-public canvas, checkpointing advances the published share/embed revision. By default \`pin_version=false\`, so the stable URL resolves the newest published checkpoint and re-renders after a later checkpoint. Set \`pin_version=true\` only when the external record must preserve the exact historical image.
 
 Public sharing is mandatory. \`canvas_not_shared\` means sharing must be enabled before a usable URL can be returned. Revoking or replacing the share slug makes every old endpoint request return 404 even when its PNG remains in the embed cache. Public PNGs are capped at 4 MiB and may be downscaled automatically.`,
   },

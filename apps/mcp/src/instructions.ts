@@ -13,6 +13,6 @@ export function buildInstructions(): string {
     "",
     "FILES AND ASSETS. Writable roots are /src, /assets, and /output. Use root-relative asset paths. Keep large bytes out of JSON: request upload URLs and pass upload_id. The Asset Library is separate reusable media; attach immutable asset refs into /assets. SVG is trusted workspace content and is preserved as authored. Audio is unsupported.",
     "",
-    "DELIVERY. Use returned canvas_url/present_url/share_url; never construct them. Use canvas_embed for canvas.iota.uz PNG Markdown in trackers; it exposes published content only and updates after publish unless explicitly pinned. Hand the user share_url only when public sharing was requested. Read canvas://guides/authoring, production-ui, device-frames, assets, embeds, or programmable-drawing when relevant.",
+    "DELIVERY. Use returned canvas_url/present_url/share_url; never construct them. Use canvas_embed for canvas.iota.uz PNG Markdown in trackers; it exposes published content only and updates after canvas_checkpoint on an already-public canvas unless explicitly pinned. Hand the user share_url only when public sharing was requested. Read canvas://guides/authoring, production-ui, device-frames, assets, embeds, or programmable-drawing when relevant.",
   ].join("\n");
 }

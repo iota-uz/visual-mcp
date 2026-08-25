@@ -1063,14 +1063,54 @@ async function publicEmbedMetadata(
     const page = resolveCanvasPage(file, input.page_id);
     if (input.page_id && page.id !== input.page_id) {
       if (!required) return null;
+      const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, {
+        ref: input.ref,
+      });
+      const draftBlob = source ? await ctx.storage.get(source.storageId) : null;
+      const draftFile = draftBlob
+        ? CanvasFileSchema.parse(JSON.parse(await draftBlob.text()))
+        : undefined;
+      if (draftFile?.pages.some((candidate) => candidate.id === input.page_id)) {
+        throw new Error(
+          `target_not_published: Page "${input.page_id}" exists in the current draft but published version ${context.version} does not contain it. Run canvas_checkpoint to publish the current draft.`,
+        );
+      }
       throw new Error(`page_not_found: ${input.page_id}`);
     }
     pageId = page.id;
+    const targetExistsInDraft = async (
+      kind: "node" | "group" | "stage",
+      id: string,
+    ): Promise<boolean> => {
+      const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, {
+        ref: input.ref,
+      });
+      const draftBlob = source ? await ctx.storage.get(source.storageId) : null;
+      if (!draftBlob) return false;
+      const draftFile = CanvasFileSchema.parse(JSON.parse(await draftBlob.text()));
+      const draftPage = resolveCanvasPage(draftFile, input.page_id);
+      if (input.page_id && draftPage.id !== input.page_id) return false;
+      if (kind === "node") {
+        return draftPage.doc.nodes.some((candidate) => candidate.id === id);
+      }
+      if (kind === "group") {
+        return draftPage.doc.groups.some((candidate) => candidate.id === id);
+      }
+      if (kind === "stage") {
+        return draftPage.doc.stages.some((candidate) => candidate.id === id);
+      }
+      return false;
+    };
+    const staleTargetError = (kind: "Node" | "Group" | "Stage", id: string) =>
+      new Error(
+        `target_not_published: ${kind} "${id}" exists in the current draft but published version ${context.version} does not contain it. Run canvas_checkpoint to publish the current draft.`,
+      );
     if (input.target.type === "node") {
       const nodeId = input.target.node_id;
       const node = page.doc.nodes.find((candidate) => candidate.id === nodeId);
       if (!node) {
         if (!required) return null;
+        if (await targetExistsInDraft("node", nodeId)) throw staleTargetError("Node", nodeId);
         throw new Error(`node_not_found: ${input.target.node_id}`);
       }
       alt = node.caption.title?.trim() || node.id;
@@ -1079,6 +1119,7 @@ async function publicEmbedMetadata(
       const group = page.doc.groups.find((candidate) => candidate.id === groupId);
       if (!group) {
         if (!required) return null;
+        if (await targetExistsInDraft("group", groupId)) throw staleTargetError("Group", groupId);
         throw new Error(`group_not_found: ${input.target.group_id}`);
       }
       alt = group.label?.trim() || group.id;
@@ -1087,6 +1128,7 @@ async function publicEmbedMetadata(
       const stage = page.doc.stages.find((candidate) => candidate.id === stageId);
       if (!stage) {
         if (!required) return null;
+        if (await targetExistsInDraft("stage", stageId)) throw staleTargetError("Stage", stageId);
         throw new Error(`stage_not_found: ${input.target.stage_id}`);
       }
       alt = stage.label.trim() || stage.id;
@@ -2999,7 +3041,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Create canvas checkpoint",
       description:
-        "Atomically snapshots the complete durable draft — all Pages, prototype state, files and asset bindings — as one immutable version.",
+        "Atomically snapshots the complete durable draft — all Pages, prototype state, files and asset bindings — as one immutable version. If the canvas is already shared publicly, the checkpoint also becomes its new published share/embed revision.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
@@ -3014,6 +3056,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         version: z.number().int().positive(),
         draft_revision: z.number().int().nonnegative(),
         dirty: z.literal(false),
+        published: z.boolean(),
         canvas_url: z.string(),
         present_url: z.string(),
       }),
@@ -3032,6 +3075,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           version: checkpoint.version,
           draft_revision: checkpoint.draftRevision,
           dirty: false as const,
+          published: checkpoint.published,
           canvas_url: canvasUrl(checkpoint.canvasId),
           present_url: `${canvasUrl(checkpoint.canvasId)}/present`,
         });

@@ -25,10 +25,12 @@ return 404 even though the cached object may still exist in the bucket.
   returns `Cache-Control: public, max-age=31536000, immutable`.
 - The internal key includes canvas id, published version, Page, target, scale,
   padding, and renderer version. Thus the same unpinned URL causes a cold render
-  after the next publish while draft-only edits remain invisible.
+  after the next published checkpoint while draft-only edits remain invisible.
 - The worker hashes final PNG bytes for `ETag`; matching `If-None-Match` returns
   304. It compresses and downsizes any PNG over 4 MiB and the endpoint adds
   `X-Embed-Downscaled: 1`.
-- Only cold misses consume the per-share-slug rate limit. A transient worker or
-  readiness failure returns the static unavailable-preview PNG with
-  `Cache-Control: no-store`.
+- Only cold misses consume the per-share-slug rate limit. A successful capture
+  with incomplete iframe readiness is returned as the real PNG with
+  `X-Embed-Partial: 1` and `Cache-Control: no-store`, and is not promoted into
+  the durable cache so the next request retries. A worker/browser failure that
+  produces no PNG returns the static unavailable-preview PNG with `no-store`.

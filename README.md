@@ -23,7 +23,7 @@ immutable `asset://` refs.
 | Tool | Purpose |
 | --- | --- |
 | `canvas_save` | Creates or updates the durable working draft atomically. The first save creates v1; later edits advance `draft_revision` without filling checkpoint history. |
-| `canvas_checkpoint` | Snapshots the complete draft—Pages, prototype, files, and bindings—as one named immutable version. Publish checkpoints first. |
+| `canvas_checkpoint` | Snapshots the complete draft—Pages, prototype, files, and bindings—as one named immutable version. On an already-public canvas, it also advances the published share/embed revision. |
 | `canvas_get` | Reads one canvas: metadata and URLs always, plus cursor-paginated `files` / `artifacts` / `versions` / `renders`, `doc`, or `storage`. Cursor continuation is pinned with `pagination.expected_version`, so concurrent saves cannot mix pages. Bytes come back as links, never inlined. |
 | `canvas_file_get` | Reads one canvas file with version/hash metadata and bounded ranges. Full/line reads are UTF-8; exact byte ranges are base64 and declare their `encoding`. |
 | `canvas_snapshot` | Captures a whole native canvas, one `ref_id` node, or an exact world-coordinate region. It isolates targeted iframes, retries transient readiness once, never caches partials, reports resource failure details, and suggests readable tiles when an overview was downscaled. PNGs above 5 MB return a short-lived `download_url` instead of overflowing MCP inline transport. |
@@ -52,7 +52,7 @@ Native canvases write `CanvasFile` version 3. It contains one or more ordered Pa
 
 CanvasDoc v2 uses explicit `world` and `rect` geometry and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to a canvas file or Asset Library binding, support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the file via `canvas_save({ kind: "canvas", doc: canvasFile, files })`. External iframe URLs and `allow-same-origin` are rejected.
 
-Draft writes are durable and concurrency-safe through `draft_revision`; they do not become visible Versions. Use `canvas_checkpoint` or the UI’s **Create checkpoint** action for meaningful milestones. Publishing always checkpoints first, and public readers remain pinned to that published checkpoint while newer draft work continues.
+Draft writes are durable and concurrency-safe through `draft_revision`; they do not become visible Versions. Use `canvas_checkpoint` or the UI’s **Create checkpoint** action for meaningful milestones. Publishing always checkpoints first. Newer draft work remains private until the next checkpoint; on an already-public canvas that checkpoint also advances public readers, share previews, and embeds.
 
 For a phone screen, use `viewport: { width: 284, height: 642 }` and `frame: { kind: "phone", time: "09:42" }`. The shared canvas renderer supplies the canonical 310×708 OSAGO device shell, notch and status bar in viewer, public share, thumbnail, PNG and PDF. The iframe entrypoint contains only the app screen; adding another bezel or status bar is invalid product output.
 

@@ -349,7 +349,7 @@ describe("canvases.publish", () => {
     ).rejects.toThrow(/newPublicSlug is required/);
   });
 
-  test("keeps the public canvas pinned while the durable draft changes", async () => {
+  test("keeps draft edits private, then publishes them through checkpoint", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await seedUser(t);
     const workspaceId = await seedWorkspace(t, createdBy);
@@ -419,15 +419,44 @@ describe("canvases.publish", () => {
     expect(stillPublic?.doc_url).toBe(before?.doc_url);
     expect(social?.version).toBe(2);
 
-    const republished = await t.mutation(internal.canvases.publish, {
+    const republished = await t.mutation(internal.canvases.checkpoint, {
       canvasId,
-      visibility: "public",
+      createdBy,
     });
-    expect(republished.version).toBe(3);
+    expect(republished).toMatchObject({ version: 3, published: true, dirty: false });
     const after = await t.query(api.canvases.getPublic, {
       publicSlug: "pinned-public-canvas",
     });
     expect(after?.doc_url).toBe(draft?.doc_url);
+    const publishedVersion = await t.run((ctx) => ctx.db.get(republished.versionId));
+    expect(publishedVersion?.publishedAt).toEqual(expect.any(Number));
+    const embed = await t.query(internal.embeds.resolvePublicContext, {
+      publicSlug: "pinned-public-canvas",
+    });
+    expect(embed).toMatchObject({ version: 3, unpublishedChanges: false });
+  });
+
+  test("checkpoint remains private when the canvas is not shared", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Private checkpoint",
+      kind: "canvas",
+      createdBy,
+    });
+
+    const checkpoint = await t.mutation(internal.canvases.checkpoint, {
+      canvasId,
+      createdBy,
+    });
+
+    expect(checkpoint.published).toBe(false);
+    const canvas = await t.run((ctx) => ctx.db.get(canvasId));
+    const version = await t.run((ctx) => ctx.db.get(checkpoint.versionId));
+    expect(canvas?.publishedVersionId).toBeUndefined();
+    expect(version?.publishedAt).toBeUndefined();
   });
 
   test("publishing then unpublishing clears publicSlug, revoking the old link", async () => {
