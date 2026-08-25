@@ -23,6 +23,7 @@ function doc(): CanvasDoc {
     labels: [],
     groups: [],
     edges: [],
+    drawings: [],
     nodes: [
       {
         id: "a",

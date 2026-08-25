@@ -149,6 +149,11 @@ export interface RunCodeOutput {
   stderr: string;
   /** Present when `success` is false. */
   error?: string;
+  canvas?: {
+    commitRequested: boolean;
+    operations: unknown[];
+    createdNodeIds: string[];
+  };
 }
 
 /* ------------------------------------------------------------------------

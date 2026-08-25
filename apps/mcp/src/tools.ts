@@ -954,6 +954,8 @@ type RenderInput = z.infer<typeof RenderInputSchema>;
 const SnapshotTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("canvas") }).strict(),
   z.object({ type: z.literal("node"), node_id: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("group"), group_id: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("stage"), stage_id: z.string().min(1) }).strict(),
   z
     .object({
       type: z.literal("region"),
@@ -1072,6 +1074,22 @@ async function publicEmbedMetadata(
         throw new Error(`node_not_found: ${input.target.node_id}`);
       }
       alt = node.caption.title?.trim() || node.id;
+    } else if (input.target.type === "group") {
+      const groupId = input.target.group_id;
+      const group = page.doc.groups.find((candidate) => candidate.id === groupId);
+      if (!group) {
+        if (!required) return null;
+        throw new Error(`group_not_found: ${input.target.group_id}`);
+      }
+      alt = group.label?.trim() || group.id;
+    } else if (input.target.type === "stage") {
+      const stageId = input.target.stage_id;
+      const stage = page.doc.stages.find((candidate) => candidate.id === stageId);
+      if (!stage) {
+        if (!required) return null;
+        throw new Error(`stage_not_found: ${input.target.stage_id}`);
+      }
+      alt = stage.label.trim() || stage.id;
     }
   }
   const scale = input.scale ?? 2;
@@ -1081,11 +1099,12 @@ async function publicEmbedMetadata(
   ) {
     throw new Error("invalid_region: Region exceeds the 40 megapixel render limit.");
   }
-  const padding = input.padding ?? (input.target.type === "node" ? 24 : 0);
+  const padding = input.padding ?? (input.target.type === "canvas" ? 0 : 24);
   const version = input.pin_version ? context.version : undefined;
   const imageUrl = embedPngUrl(context.publicSlug, input.target, {
     pageId: context.kind === "canvas" ? pageId : undefined,
     version,
+    revision: input.pin_version ? undefined : context.version,
     scale,
     padding,
   });
@@ -2337,7 +2356,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   const entityValueSchema = z
     .unknown()
     .describe("Complete CanvasDoc entity, validated as part of the final document.");
-  const docPatchCollections = ["lanes", "stages", "labels", "nodes", "groups", "edges"] as const;
+  const docPatchCollections = [
+    "lanes",
+    "stages",
+    "labels",
+    "nodes",
+    "groups",
+    "edges",
+    "drawings",
+  ] as const;
   const docPatchOperationSchema = z.discriminatedUnion("op", [
     z
       .object({
@@ -3881,7 +3908,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       title: "Create public canvas embed",
       description:
         "Returns a canvas.iota.uz PNG URL and ready-to-paste linked Markdown for the latest " +
-        "published canvas, node, or region without putting image bytes in the MCP response. " +
+        "published canvas, node, group, stage, or region without putting image bytes in the MCP response. " +
         "URLs update after the next publish unless pin_version=true. Draft content is never exposed.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: EmbedInputSchema,
@@ -3915,7 +3942,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Snapshot canvas selection",
       description:
-        "Returns a PNG image block for a complete HTML artifact or for a native canvas, one native node, or an exact world-coordinate " +
+        "Returns a PNG image block for a complete HTML artifact or for a native canvas, node, group, stage, or exact world-coordinate " +
         "region. Pass a copied ref_id to see that native node immediately. The capture is rendered from " +
         "the current durable draft revision, not from transient browser state. PNGs above 5 MB " +
         "are not inlined; use download_url or the suggested smaller regions/scale.",
@@ -4036,10 +4063,28 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }
         }
 
-        const padding = input.padding ?? (target.type === "node" ? 24 : 0);
+        if (target.type === "group" && doc) {
+          if (!doc.groups.some((group) => group.id === target.group_id)) {
+            throw new Error(`group_not_found: ${target.group_id}`);
+          }
+        }
+
+        if (target.type === "stage" && doc) {
+          if (!doc.stages.some((stage) => stage.id === target.stage_id)) {
+            throw new Error(`stage_not_found: ${target.stage_id}`);
+          }
+        }
+
+        const padding = input.padding ?? (target.type === "canvas" ? 0 : 24);
         const scale = input.scale ?? 1;
         const normalizedTarget =
-          target.type === "node" ? { type: "node" as const, nodeId: target.node_id } : target;
+          target.type === "node"
+            ? { type: "node" as const, nodeId: target.node_id }
+            : target.type === "group"
+              ? { type: "group" as const, groupId: target.group_id }
+              : target.type === "stage"
+                ? { type: "stage" as const, stageId: target.stage_id }
+                : target;
         const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref });
         const theme = detail?.canvas.resolved_theme as Theme | undefined;
         const cacheKey = await sha256Hex(
@@ -4418,8 +4463,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               summary: z.boolean().optional(),
               node_ids: z.array(z.string()).max(100).optional(),
               collections: z
-                .array(z.enum(["lanes", "stages", "labels", "nodes", "edges", "legend"]))
-                .max(6)
+                .array(
+                  z.enum(["lanes", "stages", "labels", "nodes", "edges", "drawings", "legend"]),
+                )
+                .max(7)
                 .optional(),
             })
             .strict()
@@ -4673,6 +4720,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                   labels: canvasDoc.labels.length,
                   nodes: canvasDoc.nodes.length,
                   edges: canvasDoc.edges.length,
+                  drawings: canvasDoc.drawings.length,
                 },
                 lanes: collections.has("lanes") ? canvasDoc.lanes : undefined,
                 stages: collections.has("stages") ? canvasDoc.stages : undefined,
@@ -4692,6 +4740,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                           selectedNodeIds.has(edge.target.nodeId),
                       )
                     : undefined,
+                drawings: collections.has("drawings") ? canvasDoc.drawings : undefined,
                 legend: collections.has("legend") ? canvasDoc.legend : undefined,
               },
             },
@@ -5190,17 +5239,22 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Run code",
       description:
-        "Executes a synchronous JS/TS script in a sandboxed worker against this canvas's files. " +
+        "Executes an async JS/TS script in a sandboxed worker against this canvas's files; top-level await is supported. " +
         "Injected globals include fs (readFileSync/writeFileSync/mkdirSync/readdirSync/existsSync), " +
         "console, fetch, WebSocket, Buffer, URL, timers, and require for path/buffer/util/assert, " +
-        "network modules, ApexCharts, D2, and Tailwind. Do not use top-level await; wrap async work " +
-        "as `(async () => { ... })().catch(console.error)`. Anything written to /output is collected " +
-        "as an artifact. There is no shell and filesystem access is confined to the canvas workspace.",
+        "network modules, ApexCharts, D2, and Tailwind. The canvas global accumulates typed CanvasDoc " +
+        "operations; canvas.commit() requests one validated, revision-checked draft transaction after " +
+        "the script succeeds. Anything written to /output is collected as an artifact. There is no " +
+        "shell and filesystem access is confined to the canvas workspace.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
           ref: RefArg,
           code: z.string(),
+          page_id: z
+            .string()
+            .optional()
+            .describe("Canvas Page to mutate; defaults to defaultPageId."),
           timeout_ms: z
             .number()
             .int()
@@ -5231,15 +5285,43 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }),
         ),
         warnings: z.array(WarningSchema),
+        canvas: z
+          .object({
+            committed: z.boolean(),
+            page_id: z.string(),
+            previous_revision: z.number().int().nonnegative(),
+            revision: z.number().int().nonnegative(),
+            operations_applied: z.number().int().nonnegative(),
+            created_node_ids: z.array(z.string()),
+          })
+          .optional(),
       }),
     },
     async (input) =>
       runTool(async () => {
-        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, {
+          ref: input.ref,
+          includeDoc: true,
+        });
         if (!detail) throw new Error(`No canvas found for ref "${input.ref}".`);
         const canvasId = detail.canvas.canvas_id;
+        const initialVersion = detail.canvas.version ?? 0;
+        const initialDraftRevision = detail.canvas.draft_revision;
         const currentVersion = await ctx.runQuery(internal.canvases.currentVersion, { canvasId });
         if (!currentVersion) throw new Error("Canvas has no current version.");
+
+        let initialFile: CanvasFile | undefined;
+        let initialPageId: string | undefined;
+        if (detail.canvas.kind === "canvas" && detail.canvas.doc_url) {
+          const response = await fetch(detail.canvas.doc_url);
+          if (!response.ok) throw new Error(`Unable to load CanvasDoc: HTTP ${response.status}`);
+          initialFile = CanvasFileSchema.parse(await response.json());
+          const page = resolveCanvasPage(initialFile, input.page_id);
+          if (input.page_id && page.id !== input.page_id) {
+            throw new Error(`page_not_found: ${input.page_id}`);
+          }
+          initialPageId = page.id;
+        }
 
         const config = getWorkerConfig();
         const sources = await resolveCanvasSources(ctx, canvasId, currentVersion.versionId);
@@ -5261,6 +5343,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             uploaded: boolean;
             uploadBody?: unknown;
           }>;
+          canvas?: {
+            commitRequested: boolean;
+            operations: unknown[];
+            createdNodeIds: string[];
+          };
         }>(config, "/exec", {
           sources,
           code: input.code,
@@ -5273,6 +5360,29 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         });
 
         const warnings: Warning[] = [];
+        let patchedFile: CanvasFile | undefined;
+        const requestedCommit =
+          workerResult.success && workerResult.canvas?.commitRequested === true;
+        const canvasOperations = workerResult.canvas?.operations ?? [];
+        if (requestedCommit) {
+          if (!initialFile || !initialPageId) {
+            throw new Error("canvas_commit_unsupported: canvas.commit() requires kind=canvas.");
+          }
+          if (canvasOperations.length === 0 || canvasOperations.length > 100) {
+            throw new Error("canvas_commit_invalid: expected between 1 and 100 operations.");
+          }
+          const page = resolveCanvasPage(initialFile, initialPageId);
+          const patchedDoc = applyCanvasDocPatch(
+            page.doc,
+            canvasOperations as CanvasDocPatchOperation[],
+          );
+          patchedFile = CanvasFileSchema.parse({
+            ...initialFile,
+            pages: initialFile.pages.map((candidate) =>
+              candidate.id === page.id ? { ...candidate, doc: patchedDoc } : candidate,
+            ),
+          });
+        }
         const uploaded = workerResult.artifacts.filter((a) => a.uploaded);
         if (workerResult.artifacts.some((a) => !a.uploaded)) {
           warnings.push({
@@ -5306,6 +5416,40 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }
         }
 
+        let canvasCommit:
+          | {
+              committed: boolean;
+              page_id: string;
+              previous_revision: number;
+              revision: number;
+              operations_applied: number;
+              created_node_ids: string[];
+            }
+          | undefined;
+        if (patchedFile && initialPageId) {
+          try {
+            const saved = await saveCanvasFileDraft(ctx, principal, canvasId, patchedFile, {
+              expectedVersion: initialVersion,
+              expectedDraftRevision: initialDraftRevision,
+              note: `canvas_run commit (${canvasOperations.length})`,
+            });
+            canvasCommit = {
+              committed: true,
+              page_id: initialPageId,
+              previous_revision: initialDraftRevision,
+              revision: saved.draftRevision,
+              operations_applied: canvasOperations.length,
+              created_node_ids: workerResult.canvas?.createdNodeIds ?? [],
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/draft conflict|version conflict/i.test(message)) {
+              throw new Error(`revision_conflict: ${message}`);
+            }
+            throw error;
+          }
+        }
+
         const payload = {
           status: workerResult.success ? "ok" : "failed",
           stdout: workerResult.stdout,
@@ -5318,6 +5462,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             uploaded: a.uploaded,
           })),
           warnings,
+          canvas: canvasCommit,
         };
 
         // A script that threw is a failure, not a success with a flag buried

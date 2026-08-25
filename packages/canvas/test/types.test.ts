@@ -19,9 +19,36 @@ test("defaults diagram-only collections for gallery-oriented documents", () => {
       nodes: parsed.nodes,
       groups: parsed.groups,
       edges: parsed.edges,
+      drawings: parsed.drawings,
     },
-    { lanes: [], stages: [], labels: [], nodes: [], groups: [], edges: [] },
+    { lanes: [], stages: [], labels: [], nodes: [], groups: [], edges: [], drawings: [] },
   );
+});
+
+test("accepts node-relative drawings and rejects stale targets", () => {
+  const doc = CanvasDocSchema.parse(fixture());
+  doc.drawings.push({
+    id: "focus",
+    kind: "rect",
+    bounds: { type: "node", nodeId: "a", x: 0.1, y: 0.2, w: 0.6, h: 0.4, clip: true },
+    style: {
+      preset: "danger",
+      strokeWidth: 4,
+      opacity: 1,
+      dashed: false,
+    },
+  });
+  assert.equal(CanvasDocSchema.safeParse(doc).success, true);
+  doc.drawings[0]!.bounds = {
+    type: "node",
+    nodeId: "missing",
+    x: 0,
+    y: 0,
+    w: 1,
+    h: 1,
+    clip: true,
+  };
+  assert.equal(CanvasDocSchema.safeParse(doc).success, false);
 });
 
 test("defaults anchors for standalone gallery nodes", () => {

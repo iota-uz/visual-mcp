@@ -3,7 +3,17 @@ import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
 import type { Theme } from "./themes.js";
-import { type IframeNode, type ImageNode, type LegendGroup, PERMISSIONS } from "./types.js";
+import {
+  type CanvasDrawing,
+  type DrawingBounds,
+  type DrawingPoint,
+  type IframeNode,
+  type ImageNode,
+  type LegendGroup,
+  PERMISSIONS,
+  type Point,
+  type Rect,
+} from "./types.js";
 
 export function escapeHtml(input: string): string {
   return input
@@ -34,6 +44,9 @@ function themeStyle(theme?: Theme): string {
     "--vc-white": theme.colors.background,
     "--vc-line": theme.colors.border,
     "--vc-muted": theme.colors.mutedForeground,
+    "--vc-success": theme.colors.success,
+    "--vc-warning": theme.colors.warning,
+    "--vc-danger": theme.colors.danger,
     "--vc-body": theme.typography.fontSans,
     "--vc-mono": theme.typography.fontMono,
     "--vc-role-primary": theme.colors.primary,
@@ -212,6 +225,107 @@ function markerDefs(): string {
     )
     .join("")}</defs>`;
 }
+
+function drawingTargetRect(node: PositionedNode): Rect {
+  if (node.kind === "image" || node.kind === "iframe") {
+    return { x: node.x, y: node.y + 47, w: node.w, h: Math.max(1, node.h - 47) };
+  }
+  return { x: node.x, y: node.y, w: node.w, h: node.h };
+}
+
+function resolveDrawingPoint(point: DrawingPoint, nodes: Map<string, PositionedNode>): Point {
+  if (point.type === "point") return point;
+  const node = nodes.get(point.nodeId);
+  if (!node) throw new Error(`drawing references unknown node "${point.nodeId}"`);
+  if (point.type === "node") {
+    const rect = drawingTargetRect(node);
+    return { x: rect.x + rect.w * point.x, y: rect.y + rect.h * point.y };
+  }
+  if (point.side === "top") return { x: node.x + node.w * point.offset, y: node.y };
+  if (point.side === "right") return { x: node.x + node.w, y: node.y + node.h * point.offset };
+  if (point.side === "bottom") return { x: node.x + node.w * point.offset, y: node.y + node.h };
+  return { x: node.x, y: node.y + node.h * point.offset };
+}
+
+function resolveDrawingBounds(bounds: DrawingBounds, nodes: Map<string, PositionedNode>): Rect {
+  if (bounds.type === "rect") return bounds;
+  const node = nodes.get(bounds.nodeId);
+  if (!node) throw new Error(`drawing references unknown node "${bounds.nodeId}"`);
+  const rect = drawingTargetRect(node);
+  return {
+    x: rect.x + rect.w * bounds.x,
+    y: rect.y + rect.h * bounds.y,
+    w: rect.w * bounds.w,
+    h: rect.h * bounds.h,
+  };
+}
+
+function drawingStyle(drawing: CanvasDrawing): string {
+  const style = drawing.style;
+  return [
+    `stroke-width="${style.strokeWidth}"`,
+    `opacity="${style.opacity}"`,
+    style.dashed ? 'stroke-dasharray="10 8"' : "",
+    style.color ? `stroke="${escapeHtml(style.color)}"` : "",
+    style.fill ? `fill="${escapeHtml(style.fill)}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function renderDrawing(drawing: CanvasDrawing, nodes: Map<string, PositionedNode>): string {
+  const className = `vc-drawing vc-drawing-${drawing.kind} vc-drawing-${drawing.style.preset}`;
+  const clip =
+    "bounds" in drawing && drawing.bounds.type === "node" && drawing.bounds.clip
+      ? ` clip-path="url(#vc-drawing-clip-${escapeHtml(drawing.id)})"`
+      : "";
+  const common = `class="${className}" data-drawing-id="${escapeHtml(drawing.id)}" ${drawingStyle(drawing)}${clip}`;
+  if ("bounds" in drawing) {
+    const bounds = resolveDrawingBounds(drawing.bounds, nodes);
+    if (drawing.kind === "ellipse") {
+      return `<ellipse ${common} cx="${bounds.x + bounds.w / 2}" cy="${bounds.y + bounds.h / 2}" rx="${bounds.w / 2}" ry="${bounds.h / 2}"/>`;
+    }
+    return `<rect ${common} x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" rx="${drawing.kind === "highlight" ? 6 : 10}"/>`;
+  }
+  if ("from" in drawing) {
+    const from = resolveDrawingPoint(drawing.from, nodes);
+    const to = resolveDrawingPoint(drawing.to, nodes);
+    return `<line ${common} x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"${drawing.kind === "arrow" ? ' marker-end="url(#vc-drawing-arrow)"' : ""}/>`;
+  }
+  if ("points" in drawing) {
+    const points = drawing.points.map((point) => resolveDrawingPoint(point, nodes));
+    const d = points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" ");
+    return `<path ${common} d="${d}${drawing.closed ? " Z" : ""}"/>`;
+  }
+  const at = resolveDrawingPoint(drawing.at, nodes);
+  if (drawing.kind === "badge") {
+    const width = Math.max(36, drawing.text.length * 8 + 20);
+    return `<g ${common}><rect x="${at.x}" y="${at.y - 16}" width="${width}" height="32" rx="16"/><text x="${at.x + width / 2}" y="${at.y}">${escapeHtml(drawing.text)}</text></g>`;
+  }
+  const number = drawing.number
+    ? `<circle cx="${at.x}" cy="${at.y}" r="18"/><text class="vc-drawing-callout-number" x="${at.x}" y="${at.y}">${drawing.number}</text>`
+    : "";
+  const textX = drawing.number ? at.x + 28 : at.x;
+  return `<g ${common}>${number}<text class="vc-drawing-callout-text" x="${textX}" y="${at.y}">${escapeHtml(drawing.text)}</text></g>`;
+}
+
+function drawingDefs(drawings: CanvasDrawing[], nodes: Map<string, PositionedNode>): string {
+  const clips = drawings
+    .filter(
+      (drawing) => "bounds" in drawing && drawing.bounds.type === "node" && drawing.bounds.clip,
+    )
+    .map((drawing) => {
+      if (!("bounds" in drawing) || drawing.bounds.type !== "node") return "";
+      const node = nodes.get(drawing.bounds.nodeId);
+      if (!node) return "";
+      const rect = drawingTargetRect(node);
+      return `<clipPath id="vc-drawing-clip-${escapeHtml(drawing.id)}"><rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}"/></clipPath>`;
+    })
+    .join("");
+  return `<defs><marker id="vc-drawing-arrow" class="vc-drawing-arrow-marker" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 1 1 L 11 6 L 1 11 z"/></marker>${clips}</defs>`;
+}
 function renderLegend(groups?: LegendGroup[]): string {
   return groups?.length
     ? `<div class="vc-legend">${groups.map((group) => `<div class="vc-legend-group">${group.title ? `<div class="vc-legend-title">${escapeHtml(group.title)}</div>` : ""}${group.items.map((item) => `<div class="vc-legend-item ${item.role ? `vc-role-${item.role}` : item.maturity ? `vc-tone-${item.maturity}` : ""}"><span class="vc-legend-swatch"></span>${escapeHtml(item.label)}</div>`).join("")}</div>`).join("")}</div>`
@@ -228,7 +342,9 @@ export function renderCanvas(
   options: RenderOptions = {},
 ): RenderedCanvas {
   const edges = routeEdges(canvas);
-  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
+  const drawings = canvas.doc.drawings ?? [];
+  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}</svg><svg class="vc-drawings" width="${canvas.width}" height="${canvas.height}">${drawingDefs(drawings, nodesById)}${drawings.map((drawing) => renderDrawing(drawing, nodesById)).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
   const themedHtml = options.theme
     ? html
         .replace(

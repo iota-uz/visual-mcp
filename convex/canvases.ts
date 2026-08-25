@@ -2065,6 +2065,7 @@ export const patchGeometryMine = action({
         kind: v.literal("restore"),
         nodes: v.array(v.any()),
         edges: v.array(v.any()),
+        drawings: v.optional(v.array(v.any())),
         groups: v.optional(v.array(v.any())),
         interactions: v.optional(v.array(v.any())),
         start: v.optional(v.any()),
@@ -2142,6 +2143,7 @@ export const patchGeometryMine = action({
         restoreNodesIntoFile(file, page.id, {
           nodes: change.nodes as CanvasDoc["nodes"],
           edges: change.edges as CanvasDoc["edges"],
+          drawings: change.drawings as CanvasDoc["drawings"] | undefined,
           groups: change.groups as CanvasDoc["groups"] | undefined,
           interactions: change.interactions as CanvasFile["prototype"]["interactions"] | undefined,
           start: change.start as CanvasFile["prototype"]["start"],

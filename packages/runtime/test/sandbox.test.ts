@@ -15,6 +15,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import {
+  applyCanvasDocPatch,
+  type CanvasDoc,
+  type CanvasDocPatchOperation,
+} from "@visual-canvas/canvas";
 import { runCode, SandboxPathError, writeFile } from "../src/sandbox/index.js";
 import { WORKSPACE_SUBDIRS } from "../src/sandbox/workspace.js";
 import type { Session } from "../src/types.js";
@@ -105,6 +110,112 @@ test("run_code transpiles and executes TypeScript", async () => {
     );
     assert.equal(result.success, true);
     assert.match(result.stdout, /42/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("run_code supports top-level await", async () => {
+  const { session, cleanup } = freshSession();
+  try {
+    const result = await runCode(
+      session,
+      'const value: number = await Promise.resolve(42); console.log("awaited", value);',
+    );
+    assert.equal(result.success, true, result.error);
+    assert.match(result.stdout, /awaited 42/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("run_code exposes the Canvas operation accumulator", async () => {
+  const { session, cleanup } = freshSession();
+  try {
+    const result = await runCode(
+      session,
+      `
+        canvas.node({
+          id: "note",
+          kind: "native",
+          shape: "note",
+          rect: { x: 20, y: 30, w: 240, h: 120 },
+          caption: { title: "Generated" },
+          anchors: []
+        });
+        canvas.commit();
+      `,
+    );
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.canvas, {
+      commitRequested: true,
+      operations: [
+        {
+          op: "nodes.add",
+          value: {
+            id: "note",
+            kind: "native",
+            shape: "note",
+            rect: { x: 20, y: 30, w: 240, h: 120 },
+            caption: { title: "Generated" },
+            anchors: [],
+          },
+        },
+      ],
+      createdNodeIds: ["note"],
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test("run_code exposes nested drawing APIs and reusable issue compositions", async () => {
+  const { session, cleanup } = freshSession();
+  try {
+    const result = await runCode(
+      session,
+      `
+        canvas.composition.issueSection({
+          id: "issue",
+          title: "Checkout defect",
+          rect: { x: 0, y: 0, w: 1200, h: 700 },
+          screenshot: { id: "shot", src: "/assets/shot.png", alt: "Checkout", title: "Current" },
+          annotations: [{ kind: "highlight", bounds: canvas.bounds("shot", 0.2, 0.3, 0.4, 0.2) }],
+          acceptance: ["Message stays below the field"]
+        });
+        canvas.drawing.arrow({
+          id: "pointer",
+          from: canvas.worldPoint(1100, 200),
+          to: canvas.anchor("shot", "right", 0.5)
+        });
+        canvas.commit();
+      `,
+    );
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.canvas?.commitRequested, true);
+    assert.deepEqual(
+      result.canvas?.operations.map((operation) => operation.op),
+      ["stages.add", "nodes.add", "drawings.add", "nodes.add", "groups.add", "drawings.add"],
+    );
+    assert.deepEqual(result.canvas?.createdNodeIds, ["shot", "issue-acceptance"]);
+    const emptyDoc: CanvasDoc = {
+      version: 2,
+      title: "Issue evidence",
+      world: { width: 1600, height: 1000 },
+      lanes: [],
+      stages: [],
+      labels: [],
+      groups: [],
+      nodes: [],
+      edges: [],
+      drawings: [],
+    };
+    const committed = applyCanvasDocPatch(
+      emptyDoc,
+      result.canvas?.operations as CanvasDocPatchOperation[],
+    );
+    assert.deepEqual(committed.groups[0]?.nodeIds, ["shot", "issue-acceptance"]);
+    assert.equal(committed.drawings.length, 2);
   } finally {
     cleanup();
   }
@@ -235,7 +346,7 @@ test("run_code enforces a timeout on hanging async code", async () => {
   const { session, cleanup } = freshSession();
   try {
     const start = Date.now();
-    const result = await runCode(session, "(async () => { await new Promise(() => {}); })();", {
+    const result = await runCode(session, "await new Promise(() => {});", {
       timeoutMs: 300,
     });
     const elapsed = Date.now() - start;

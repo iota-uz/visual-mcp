@@ -42,6 +42,7 @@ export function fixture(): CanvasDoc {
       },
     ],
     groups: [{ id: "flow", label: "Flow", nodeIds: ["a", "b"] }],
+    drawings: [],
     edges: [
       {
         id: "ab",

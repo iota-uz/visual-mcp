@@ -186,4 +186,15 @@ describe("public embed image proxy", () => {
     const conditional = await fetch(url, { headers: { "if-none-match": '"embed-hash"' } });
     expect(conditional.status).toBe(304);
   });
+
+  it.each([
+    "/s/live/_embed/group/fallback.png?rev=8",
+    "/s/live/_embed/stage/manual-entry.png?scale=2",
+  ])("proxies addressable composition %s", async (path) => {
+    const origin = await fixtureServer({});
+    const response = await fetch(`${origin}${path}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 });

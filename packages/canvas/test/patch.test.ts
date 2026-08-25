@@ -26,6 +26,23 @@ test("CanvasDoc semantic patch creates and updates groups", () => {
   assert.deepEqual(updated.groups, [{ id: "pair", label: "Updated pair", nodeIds: ["a", "b"] }]);
 });
 
+test("CanvasDoc semantic patch adds a drawing attached to a node", () => {
+  const patched = applyCanvasDocPatch(fixtureDoc, [
+    {
+      op: "drawings.add",
+      value: {
+        id: "arrow",
+        kind: "arrow",
+        from: { type: "anchor", nodeId: "a", side: "right", offset: 0.5 },
+        to: { type: "node", nodeId: "b", x: 0.5, y: 0.5 },
+        style: { preset: "danger", strokeWidth: 5 },
+      },
+    },
+  ]);
+  assert.equal(patched.drawings[0]?.id, "arrow");
+  assert.equal(patched.drawings[0]?.style.preset, "danger");
+});
+
 test("CanvasDoc semantic patch is validated as one atomic result", () => {
   const node = fixtureDoc.nodes[0];
   assert.ok(node);

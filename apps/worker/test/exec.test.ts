@@ -25,6 +25,31 @@ test("handleExec: runs code and reports stdout", async () => {
   }
 });
 
+test("handleExec: forwards Canvas operations and top-level await", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const result = await handleExec({
+      sources: [],
+      code: `
+        await Promise.resolve();
+        canvas.label({ id: "title", text: "Generated", rect: { x: 0, y: 0, w: 200, h: 40 } });
+        canvas.commit();
+      `,
+      uploads: [],
+    });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.canvas?.commitRequested, true);
+    assert.deepEqual(result.canvas?.operations, [
+      {
+        op: "labels.add",
+        value: { id: "title", text: "Generated", rect: { x: 0, y: 0, w: 200, h: 40 } },
+      },
+    ]);
+  } finally {
+    await uploadServer.close();
+  }
+});
+
 test("handleExec: uploads a file the code wrote to /output", async () => {
   const uploadServer = await startTestUploadServer();
   try {

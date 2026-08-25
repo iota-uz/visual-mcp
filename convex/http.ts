@@ -212,6 +212,23 @@ function parseEmbedRequest(segments: string[], url: URL): EmbedRequest | Respons
     if (!nodeId || nodeId.length > 500) return embedBadRequest("Invalid node id");
     target = { type: "node", nodeId };
     targetLabel = `node:${nodeId}`;
+  } else if (
+    segments.length === 4 &&
+    (segments[2] === "group" || segments[2] === "stage") &&
+    segments[3]?.endsWith(".png")
+  ) {
+    const filename = segments[3];
+    const targetId = filename ? decodeURIComponent(filename.slice(0, -4)) : "";
+    if (!targetId || targetId.length > 500) {
+      return embedBadRequest(`Invalid ${segments[2]} id`);
+    }
+    if (segments[2] === "group") {
+      target = { type: "group", groupId: targetId };
+      targetLabel = `group:${targetId}`;
+    } else {
+      target = { type: "stage", stageId: targetId };
+      targetLabel = `stage:${targetId}`;
+    }
   } else if (segments.length === 4 && segments[2] === "region") {
     const regionFilename = segments[3];
     if (!regionFilename) return embedBadRequest("Invalid region; expected x-y-w-h.png");
@@ -242,7 +259,7 @@ function parseEmbedRequest(segments: string[], url: URL): EmbedRequest | Respons
   const scale = rawScale === null ? 2 : Number(rawScale);
   if (scale !== 1 && scale !== 2) return embedBadRequest("Invalid scale; expected 1 or 2");
   const rawPadding = url.searchParams.get("padding");
-  const padding = rawPadding === null ? (target.type === "node" ? 24 : 0) : Number(rawPadding);
+  const padding = rawPadding === null ? (target.type === "canvas" ? 0 : 24) : Number(rawPadding);
   if (!Number.isInteger(padding) || padding < 0 || padding > 256) {
     return embedBadRequest("Invalid padding; expected an integer from 0 to 256");
   }
@@ -375,6 +392,16 @@ async function renderPublicEmbed(
         if (!page.doc.nodes.some((node) => node.id === nodeId)) {
           throw new Error("node_not_found");
         }
+      } else if (request.target.type === "group") {
+        const groupId = request.target.groupId;
+        if (!page.doc.groups.some((group) => group.id === groupId)) {
+          throw new Error("group_not_found");
+        }
+      } else if (request.target.type === "stage") {
+        const stageId = request.target.stageId;
+        if (!page.doc.stages.some((stage) => stage.id === stageId)) {
+          throw new Error("stage_not_found");
+        }
       }
       const cssBlob = context.cssStorageId ? await ctx.storage.get(context.cssStorageId) : null;
       const entry = canvasSnapshotEntryHtml(
@@ -476,9 +503,19 @@ async function publicEmbedAddressExists(
   const file = CanvasFileSchema.parse(JSON.parse(await blob.text()));
   const page = resolveCanvasPage(file, request.pageId);
   if (request.pageId && page.id !== request.pageId) return false;
-  if (request.target.type !== "node") return true;
-  const nodeId = request.target.nodeId;
-  return page.doc.nodes.some((node) => node.id === nodeId);
+  if (request.target.type === "node") {
+    const nodeId = request.target.nodeId;
+    return page.doc.nodes.some((node) => node.id === nodeId);
+  }
+  if (request.target.type === "group") {
+    const groupId = request.target.groupId;
+    return page.doc.groups.some((group) => group.id === groupId);
+  }
+  if (request.target.type === "stage") {
+    const stageId = request.target.stageId;
+    return page.doc.stages.some((stage) => stage.id === stageId);
+  }
+  return true;
 }
 
 async function handlePublicEmbed(
@@ -649,6 +686,8 @@ async function handlePublicEmbed(
     if (
       message === "page_not_found" ||
       message === "node_not_found" ||
+      message === "group_not_found" ||
+      message === "stage_not_found" ||
       message === "unsupported_snapshot_target" ||
       message === "unsupported_canvas_kind"
     ) {

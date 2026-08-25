@@ -229,7 +229,7 @@ export function createAppServer({
         return;
       }
       const embedImage =
-        /^\/s\/([^/]+)\/_embed\/(?:canvas\.png|node\/[^/]+\.png|region\/[^/]+\.png)$/.exec(
+        /^\/s\/([^/]+)\/_embed\/(?:canvas\.png|(?:node|group|stage)\/[^/]+\.png|region\/[^/]+\.png)$/.exec(
           url.pathname,
         );
       if (embedImage) {

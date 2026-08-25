@@ -37,6 +37,8 @@ const SANDBOX_TOKENS = ["allow-scripts", "allow-forms"] as const;
 export type IframeSandboxToken = (typeof SANDBOX_TOKENS)[number];
 const ACTOR_ROLES = ["subject", "counterparty"] as const;
 export type ActorRole = (typeof ACTOR_ROLES)[number];
+const DRAWING_PRESETS = ["neutral", "info", "success", "warning", "danger"] as const;
+export type DrawingPreset = (typeof DRAWING_PRESETS)[number];
 
 export const PERMISSIONS = ["camera", "microphone", "geolocation", "clipboard-write"] as const;
 export type IframePermission = (typeof PERMISSIONS)[number];
@@ -81,6 +83,104 @@ export const CanvasGroupSchema = z.object({
   nodeIds: z.array(z.string().min(1)).min(1).max(1_000),
 });
 export type CanvasGroup = z.infer<typeof CanvasGroupSchema>;
+
+const DrawingStyleSchema = z
+  .object({
+    preset: z.enum(DRAWING_PRESETS).default("info"),
+    color: z.string().min(1).max(100).optional(),
+    fill: z.string().min(1).max(100).optional(),
+    strokeWidth: z.number().finite().positive().max(64).default(4),
+    opacity: z.number().finite().min(0).max(1).default(1),
+    dashed: z.boolean().default(false),
+  })
+  .strict();
+export type DrawingStyle = z.infer<typeof DrawingStyleSchema>;
+
+export const DrawingPointSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("point"), x: z.number().finite(), y: z.number().finite() }).strict(),
+  z
+    .object({
+      type: z.literal("node"),
+      nodeId: z.string().min(1),
+      x: z.number().finite().min(0).max(1),
+      y: z.number().finite().min(0).max(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("anchor"),
+      nodeId: z.string().min(1),
+      side: z.enum(ANCHOR_SIDES),
+      offset: z.number().finite().min(0).max(1).default(0.5),
+    })
+    .strict(),
+]);
+export type DrawingPoint = z.infer<typeof DrawingPointSchema>;
+
+export const DrawingBoundsSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("rect"), ...RectSchema.shape }).strict(),
+  z
+    .object({
+      type: z.literal("node"),
+      nodeId: z.string().min(1),
+      x: z.number().finite().min(0).max(1),
+      y: z.number().finite().min(0).max(1),
+      w: z.number().finite().positive().max(1),
+      h: z.number().finite().positive().max(1),
+      clip: z.boolean().default(true),
+    })
+    .strict(),
+]);
+export type DrawingBounds = z.infer<typeof DrawingBoundsSchema>;
+
+const DrawingBaseFields = {
+  id: z.string().min(1),
+  style: DrawingStyleSchema.default({}),
+  label: z.string().min(1).max(500).optional(),
+};
+export const CanvasDrawingSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.enum(["rect", "ellipse", "highlight"]),
+      ...DrawingBaseFields,
+      bounds: DrawingBoundsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.enum(["line", "arrow"]),
+      ...DrawingBaseFields,
+      from: DrawingPointSchema,
+      to: DrawingPointSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("path"),
+      ...DrawingBaseFields,
+      points: z.array(DrawingPointSchema).min(2).max(500),
+      closed: z.boolean().default(false),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("badge"),
+      ...DrawingBaseFields,
+      at: DrawingPointSchema,
+      text: z.string().min(1).max(80),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("callout"),
+      ...DrawingBaseFields,
+      at: DrawingPointSchema,
+      text: z.string().min(1).max(500),
+      number: z.number().int().positive().max(999).optional(),
+    })
+    .strict(),
+]);
+export type CanvasDrawing = z.infer<typeof CanvasDrawingSchema>;
 
 export const ConnectorAnchorSchema = z.object({
   id: z.string().min(1),
@@ -353,6 +453,7 @@ export const CanvasDocSchema = z
     nodes: z.array(CanvasNodeSchema).max(1_000).default([]),
     groups: z.array(CanvasGroupSchema).max(500).default([]),
     edges: z.array(CanvasEdgeSchema).max(3_000).default([]),
+    drawings: z.array(CanvasDrawingSchema).max(3_000).default([]),
     legend: z.array(LegendGroupSchema).max(50).optional(),
   })
   .strict()
@@ -376,6 +477,7 @@ export const CanvasDocSchema = z
     const nodeIds = unique(doc.nodes, "nodes");
     unique(doc.groups, "groups");
     unique(doc.edges, "edges");
+    unique(doc.drawings, "drawings");
     const nodeById = new Map(doc.nodes.map((node) => [node.id, node]));
     doc.nodes.forEach((node, index) => {
       if (node.laneId && !laneIds.has(node.laneId))
@@ -438,6 +540,34 @@ export const CanvasDocSchema = z
             code: z.ZodIssueCode.custom,
             path: ["edges", index, key, "anchorId"],
             message: `unknown anchor "${endpoint.anchorId}" on node "${endpoint.nodeId}"`,
+          });
+      }
+    });
+    const drawingNodeRefs = (drawing: CanvasDrawing): string[] => {
+      const pointRefs = (point: DrawingPoint) => (point.type === "point" ? [] : [point.nodeId]);
+      if ("bounds" in drawing) return drawing.bounds.type === "node" ? [drawing.bounds.nodeId] : [];
+      if ("from" in drawing) return [...pointRefs(drawing.from), ...pointRefs(drawing.to)];
+      if ("points" in drawing) return drawing.points.flatMap(pointRefs);
+      return pointRefs(drawing.at);
+    };
+    doc.drawings.forEach((drawing, index) => {
+      if (
+        "bounds" in drawing &&
+        drawing.bounds.type === "node" &&
+        (drawing.bounds.x + drawing.bounds.w > 1 || drawing.bounds.y + drawing.bounds.h > 1)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["drawings", index, "bounds"],
+          message: "node-relative drawing bounds must stay inside the target node",
+        });
+      }
+      for (const nodeId of drawingNodeRefs(drawing)) {
+        if (!nodeIds.has(nodeId))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["drawings", index],
+            message: `unknown drawing node "${nodeId}"`,
           });
       }
     });

@@ -13,6 +13,9 @@
   --vc-white: #ffffff;
   --vc-line: #dce4ed;
   --vc-muted: #6b7e94;
+  --vc-success: #2f9f6e;
+  --vc-warning: #d38f21;
+  --vc-danger: #dc2626;
   --vc-mono: "IBM Plex Mono", ui-monospace, monospace;
   --vc-body: "Manrope", system-ui, sans-serif;
   --vc-display: "Unbounded", var(--vc-body);
@@ -308,6 +311,66 @@
   inset: 0;
   overflow: visible;
   pointer-events: none;
+}
+.vc-drawings {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.vc-drawing {
+  --vc-drawing-color: var(--vc-accent);
+  fill: none;
+  stroke: var(--vc-drawing-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.vc-drawing-neutral {
+  --vc-drawing-color: var(--vc-muted);
+}
+.vc-drawing-info {
+  --vc-drawing-color: var(--vc-accent);
+}
+.vc-drawing-success {
+  --vc-drawing-color: var(--vc-success);
+}
+.vc-drawing-warning {
+  --vc-drawing-color: var(--vc-warning);
+}
+.vc-drawing-danger {
+  --vc-drawing-color: var(--vc-danger);
+}
+.vc-drawing-highlight {
+  fill: color-mix(in srgb, var(--vc-drawing-color) 20%, transparent);
+  stroke: color-mix(in srgb, var(--vc-drawing-color) 65%, transparent);
+}
+.vc-drawing-badge rect,
+.vc-drawing-callout circle {
+  fill: var(--vc-drawing-color);
+  stroke: var(--vc-white);
+  stroke-width: 2;
+}
+.vc-drawing-badge text,
+.vc-drawing-callout-number {
+  fill: var(--vc-white);
+  stroke: none;
+  font: 750 13px / 1 var(--vc-body);
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.vc-drawing-callout-text {
+  fill: var(--vc-ink);
+  stroke: var(--vc-white);
+  stroke-width: 5;
+  paint-order: stroke;
+  font: 650 14px / 1.3 var(--vc-body);
+  dominant-baseline: middle;
+}
+.vc-drawing-arrow-marker path {
+  fill: context-stroke;
+  stroke: none;
 }
 .vc-edge path {
   fill: none;

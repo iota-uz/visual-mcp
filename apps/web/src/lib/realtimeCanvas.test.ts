@@ -54,6 +54,7 @@ function doc(): CanvasDoc {
         route: { type: "orthogonal" },
       },
     ],
+    drawings: [],
   };
 }
 

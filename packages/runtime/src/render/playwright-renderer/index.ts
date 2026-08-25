@@ -99,6 +99,8 @@ export interface RenderFileResult {
 export type CanvasSnapshotTarget =
   | { type: "canvas" }
   | { type: "node"; nodeId: string }
+  | { type: "group"; groupId: string }
+  | { type: "stage"; stageId: string }
   | { type: "region"; x: number; y: number; width: number; height: number };
 
 export interface SnapshotCanvasOptions {
@@ -201,27 +203,47 @@ export async function snapshotCanvas(
       let contentOverflow = false;
       if (options.target.type === "canvas") {
         clip = worldBox;
-      } else if (options.target.type === "node") {
+      } else if (
+        options.target.type === "node" ||
+        options.target.type === "group" ||
+        options.target.type === "stage"
+      ) {
+        const targetType = options.target.type;
+        const targetId =
+          targetType === "node"
+            ? options.target.nodeId
+            : targetType === "group"
+              ? options.target.groupId
+              : options.target.stageId;
+        const attribute =
+          targetType === "node"
+            ? "data-node-id"
+            : targetType === "group"
+              ? "data-group-id"
+              : "data-stage-id";
         // Attribute values are compared in the page instead of interpolated into a CSS selector,
-        // so arbitrary valid node ids cannot escape the selector.
-        const nodeBox = await page.locator("[data-node-id]").evaluateAll((nodes, nodeId) => {
-          const match = nodes.find(
-            (candidate) => candidate.getAttribute("data-node-id") === nodeId,
-          );
-          if (!match) return null;
-          const rect = match.getBoundingClientRect();
-          const element = match as HTMLElement;
-          return {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-            overflow:
-              element.scrollWidth > element.clientWidth ||
-              element.scrollHeight > element.clientHeight,
-          };
-        }, options.target.nodeId);
-        if (!nodeBox) throw new Error(`node_not_found: ${options.target.nodeId}`);
+        // so arbitrary valid ids cannot escape the selector.
+        const nodeBox = await page.locator(`[${attribute}]`).evaluateAll(
+          (nodes, args) => {
+            const match = nodes.find(
+              (candidate) => candidate.getAttribute(args.attribute) === args.targetId,
+            );
+            if (!match) return null;
+            const rect = match.getBoundingClientRect();
+            const element = match as HTMLElement;
+            return {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+              overflow:
+                element.scrollWidth > element.clientWidth ||
+                element.scrollHeight > element.clientHeight,
+            };
+          },
+          { attribute, targetId },
+        );
+        if (!nodeBox) throw new Error(`${targetType}_not_found: ${targetId}`);
         contentOverflow = nodeBox.overflow;
         const padding = options.padding ?? 24;
         clip = {

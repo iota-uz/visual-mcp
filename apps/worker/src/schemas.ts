@@ -100,6 +100,8 @@ export type RenderResponse = z.infer<typeof RenderResponseSchema>;
 export const SnapshotTargetSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("canvas") }),
   z.object({ type: z.literal("node"), nodeId: z.string().min(1) }),
+  z.object({ type: z.literal("group"), groupId: z.string().min(1) }),
+  z.object({ type: z.literal("stage"), stageId: z.string().min(1) }),
   z.object({
     type: z.literal("region"),
     x: z.number().nonnegative(),

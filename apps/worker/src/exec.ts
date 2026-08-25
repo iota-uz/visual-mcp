@@ -18,6 +18,11 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   error?: string;
+  canvas?: {
+    commitRequested: boolean;
+    operations: unknown[];
+    createdNodeIds: string[];
+  };
   artifacts: ExecArtifactResult[];
 }
 

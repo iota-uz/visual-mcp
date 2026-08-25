@@ -467,6 +467,32 @@ test("an empty permissions list denies every feature explicitly", () => {
     "camera &#39;none&#39;; microphone &#39;none&#39;; geolocation &#39;none&#39;; clipboard-write &#39;none&#39;",
   );
 });
+test("drawing annotations resolve node-local coordinates in the shared renderer", () => {
+  const doc = fixture();
+  doc.drawings = [
+    {
+      id: "focus",
+      kind: "rect",
+      bounds: { type: "node", nodeId: "a", x: 0.25, y: 0.25, w: 0.5, h: 0.5, clip: true },
+      style: { preset: "danger", strokeWidth: 4, opacity: 1, dashed: false },
+    },
+    {
+      id: "point",
+      kind: "callout",
+      at: { type: "node", nodeId: "a", x: 0.5, y: 0.5 },
+      text: "Review this",
+      number: 1,
+      style: { preset: "warning", strokeWidth: 4, opacity: 1, dashed: false },
+    },
+  ];
+  const html = renderCanvas(layoutCanvas(doc)).html;
+  assert.match(html, /data-drawing-id="focus"/);
+  assert.match(html, /x="130" y="120" width="60" height="40"/);
+  assert.match(html, /clip-path="url\(#vc-drawing-clip-focus\)"/);
+  assert.match(html, /<clipPath id="vc-drawing-clip-focus">/);
+  assert.match(html, /data-drawing-id="point"/);
+  assert.match(html, /Review this/);
+});
 test("snapping lines a dragged rect up with its neighbours on both axes", () => {
   const neighbour = { x: 100, y: 100, w: 200, h: 100 };
   // Four units shy of sharing a left edge and three shy of sharing a top one.

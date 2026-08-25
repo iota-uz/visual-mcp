@@ -103,16 +103,21 @@ interface WorkerResultMessage {
   stdout: string;
   stderr: string;
   error?: string;
+  canvas?: RunCodeOutput["canvas"];
 }
 
 /**
  * Transpiles `code` (JS or TS) to plain CommonJS JS the worker's `vm`
- * context can execute. Type errors are *not* checked (transpileModule is
- * a syntax-only, per-file transform — matching `run_code`'s "execute
- * quickly" contract rather than a full project type-check).
+ * context can execute. The source is wrapped in an async function before
+ * transpilation, so ordinary top-level await works without requiring every
+ * MCP caller to repeat an async-IIFE. Type errors are *not* checked
+ * (transpileModule is a syntax-only, per-file transform — matching
+ * `run_code`'s "execute quickly" contract rather than a full project
+ * type-check).
  */
 function transpileToCommonJs(code: string): string {
-  const result = ts.transpileModule(code, {
+  const wrapped = `(async () => {\n${code}\n})()`;
+  const result = ts.transpileModule(wrapped, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
@@ -204,6 +209,7 @@ export function runCode(
         stdout: msg.stdout ?? "",
         stderr: msg.stderr ?? "",
         ...(msg.error !== undefined ? { error: msg.error } : {}),
+        ...(msg.canvas !== undefined ? { canvas: msg.canvas } : {}),
       });
     });
 

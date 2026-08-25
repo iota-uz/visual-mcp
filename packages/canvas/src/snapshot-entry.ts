@@ -6,6 +6,8 @@ import type { CanvasDoc } from "./types.js";
 export type CanvasSnapshotTarget =
   | { type: "canvas" }
   | { type: "node"; nodeId: string }
+  | { type: "group"; groupId: string }
+  | { type: "stage"; stageId: string }
   | { type: "region"; x: number; y: number; width: number; height: number };
 
 /** Builds the immutable, target-aware HTML consumed by every snapshot renderer. */
@@ -24,6 +26,13 @@ export function canvasSnapshotEntryHtml(
       ? (node) => {
           if (target.type === "canvas") return true;
           if (target.type === "node") return node.id === target.nodeId;
+          if (target.type === "stage") return node.stageId === target.stageId;
+          if (target.type === "group") {
+            return (
+              doc.groups.find((group) => group.id === target.groupId)?.nodeIds.includes(node.id) ??
+              false
+            );
+          }
           return (
             node.x < target.x + target.width &&
             node.x + node.w > target.x &&

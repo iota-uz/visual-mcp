@@ -127,6 +127,37 @@ test("snapshotCanvas captures one node with padding at the requested scale", asy
   }
 });
 
+test("snapshotCanvas captures addressable groups and stages", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-containers-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:900px;height:600px}.target{position:absolute;box-sizing:border-box}.group{left:80px;top:70px;width:260px;height:180px;background:#16a34a}.stage{left:420px;top:120px;width:320px;height:240px;background:#2563eb}</style><div class="vc-world"><div class="target group" data-group-id="evidence"></div><div class="target stage" data-stage-id="review"></div></div>`,
+      "utf8",
+    );
+    for (const target of [
+      { type: "group" as const, groupId: "evidence", width: 280, height: 200 },
+      { type: "stage" as const, stageId: "review", width: 340, height: 260 },
+    ]) {
+      const outputPath = path.join(dir, "output", `${target.type}.png`);
+      const result = await snapshotCanvas({
+        entrypoint,
+        outputPath,
+        workspaceRoot: dir,
+        target,
+        padding: 10,
+      });
+      assert.deepEqual([result.width, result.height], [target.width, target.height]);
+      assert.deepEqual((await fs.readFile(outputPath)).subarray(0, 8), PNG_MAGIC);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshotCanvas automatically downsizes oversized embed captures below 4 MiB", async () => {
   const dir = await mkFixtureDir("pw-snapshot-downscale-");
   try {

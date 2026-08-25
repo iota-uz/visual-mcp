@@ -30,4 +30,18 @@ describe("public PNG embed URLs", () => {
       "?v=6&scale=2",
     );
   });
+
+  it("supports addressable groups/stages and an unpinned revision cache-buster", () => {
+    process.env.SPA_ORIGIN = "https://canvas.iota.uz";
+    expect(
+      embedPngUrl(
+        "share",
+        { type: "group", group_id: "fallback" },
+        { revision: 8, scale: 2, padding: 24 },
+      ),
+    ).toBe("https://canvas.iota.uz/s/share/_embed/group/fallback.png?rev=8&scale=2&padding=24");
+    expect(pngEmbedTargetUrl("share", { type: "stage", stage_id: "manual-entry" })).toBe(
+      "https://canvas.iota.uz/s/share?stage=manual-entry",
+    );
+  });
 });

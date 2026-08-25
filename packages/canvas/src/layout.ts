@@ -1,5 +1,6 @@
 import type {
   CanvasDoc,
+  CanvasDrawing,
   CanvasEdge,
   CanvasFile,
   CanvasGroup,
@@ -117,6 +118,7 @@ export interface DeleteNodesResult {
   removedNodeIds: string[];
   /** Edges that referenced a removed node at either end. */
   removedEdgeIds: string[];
+  removedDrawingIds: string[];
   /** Groups left with no members at all. */
   removedGroupIds: string[];
   /**
@@ -154,15 +156,31 @@ export function deleteNodes(doc: CanvasDoc, nodeIds: readonly string[]): DeleteN
     if (members.length === 0) removedGroupIds.push(group.id);
     else groups.push({ ...group, nodeIds: members });
   }
+  const drawingNodeIds = (drawing: CanvasDrawing): string[] => {
+    const point = (value: { type: string; nodeId?: string }) =>
+      value.type === "point" || !value.nodeId ? [] : [value.nodeId];
+    if ("bounds" in drawing) return drawing.bounds.type === "node" ? [drawing.bounds.nodeId] : [];
+    if ("from" in drawing) return [...point(drawing.from), ...point(drawing.to)];
+    if ("points" in drawing) return drawing.points.flatMap(point);
+    return point(drawing.at);
+  };
+  const removedDrawingIds: string[] = [];
+  const drawings = doc.drawings.filter((drawing) => {
+    const orphaned = drawingNodeIds(drawing).some((nodeId) => removing.has(nodeId));
+    if (orphaned) removedDrawingIds.push(drawing.id);
+    return !orphaned;
+  });
   return {
     doc: {
       ...doc,
       nodes: doc.nodes.filter((node) => !removing.has(node.id)) as CanvasDoc["nodes"],
       edges,
       groups,
+      drawings,
     },
     removedNodeIds: doc.nodes.filter((node) => removing.has(node.id)).map((node) => node.id),
     removedEdgeIds,
+    removedDrawingIds,
     removedGroupIds,
     changedGroups,
   };
@@ -179,6 +197,7 @@ export function deleteNodes(doc: CanvasDoc, nodeIds: readonly string[]): DeleteN
 export interface NodeRestorePayload {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  drawings?: CanvasDrawing[];
   groups?: CanvasGroup[];
   interactions?: PrototypeInteraction[];
   start?: PrototypeTarget;
@@ -210,6 +229,11 @@ export function restoreNodes(doc: CanvasDoc, payload: NodeRestorePayload): Canva
         nodeIds.has(edge.target.nodeId),
     ),
   ];
+  const existingDrawings = new Set(doc.drawings.map((drawing) => drawing.id));
+  const drawings = [
+    ...doc.drawings,
+    ...(payload.drawings ?? []).filter((drawing) => !existingDrawings.has(drawing.id)),
+  ];
 
   const groups = [...doc.groups];
   for (const group of payload.groups ?? []) {
@@ -220,7 +244,7 @@ export function restoreNodes(doc: CanvasDoc, payload: NodeRestorePayload): Canva
     if (index < 0) groups.push(restored);
     else groups[index] = restored;
   }
-  return { ...doc, nodes, edges, groups };
+  return { ...doc, nodes, edges, groups, drawings };
 }
 
 /**
@@ -335,6 +359,9 @@ export function deleteNodesFromFile(
     undo: {
       nodes: page.doc.nodes.filter((node) => removed.has(node.id)),
       edges: page.doc.edges.filter((edge) => result.removedEdgeIds.includes(edge.id)),
+      drawings: page.doc.drawings.filter((drawing) =>
+        result.removedDrawingIds.includes(drawing.id),
+      ),
       groups: result.changedGroups,
       interactions: removedInteractions,
       start: clearedStart ? file.prototype.start : undefined,
