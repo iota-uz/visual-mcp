@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
 import type * as comments from "../comments.js";
 import type * as crons from "../crons.js";
+import type * as embeds from "../embeds.js";
 import type * as http from "../http.js";
 import type * as lib_artifactInfo from "../lib/artifactInfo.js";
 import type * as lib_assetRef from "../lib/assetRef.js";
@@ -23,6 +24,8 @@ import type * as lib_bytes from "../lib/bytes.js";
 import type * as lib_canvasRefs from "../lib/canvasRefs.js";
 import type * as lib_devAuth from "../lib/devAuth.js";
 import type * as lib_embedCard from "../lib/embedCard.js";
+import type * as lib_embedPlaceholder from "../lib/embedPlaceholder.js";
+import type * as lib_embedRateLimit from "../lib/embedRateLimit.js";
 import type * as lib_hash from "../lib/hash.js";
 import type * as lib_objectStore from "../lib/objectStore.js";
 import type * as lib_purge from "../lib/purge.js";
@@ -50,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   canvases: typeof canvases;
   comments: typeof comments;
   crons: typeof crons;
+  embeds: typeof embeds;
   http: typeof http;
   "lib/artifactInfo": typeof lib_artifactInfo;
   "lib/assetRef": typeof lib_assetRef;
@@ -59,6 +63,8 @@ declare const fullApi: ApiFromModules<{
   "lib/canvasRefs": typeof lib_canvasRefs;
   "lib/devAuth": typeof lib_devAuth;
   "lib/embedCard": typeof lib_embedCard;
+  "lib/embedPlaceholder": typeof lib_embedPlaceholder;
+  "lib/embedRateLimit": typeof lib_embedRateLimit;
   "lib/hash": typeof lib_hash;
   "lib/objectStore": typeof lib_objectStore;
   "lib/purge": typeof lib_purge;
@@ -100,4 +106,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
+};

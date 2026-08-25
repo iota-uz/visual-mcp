@@ -130,6 +130,11 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     await ctx.db.delete(row._id);
   }
 
+  for await (const row of ctx.db
+    .query("canvasEmbeds")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id)))
+    await ctx.db.delete(row._id);
+
   const renders = await ctx.db
     .query("renders")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))

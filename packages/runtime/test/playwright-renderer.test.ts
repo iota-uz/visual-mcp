@@ -127,6 +127,34 @@ test("snapshotCanvas captures one node with padding at the requested scale", asy
   }
 });
 
+test("snapshotCanvas automatically downsizes oversized embed captures below 4 MiB", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-downscale-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{width:5000px;height:1000px;background:linear-gradient(90deg,#111827,#2563eb,#f59e0b)}</style><div class="vc-world"></div>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "downscaled.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "canvas" },
+      scale: 2,
+    });
+    const bytes = await fs.readFile(outputPath);
+    assert.equal(result.downscaled, true);
+    assert.ok(Math.max(result.width, result.height) <= 4096);
+    assert.ok(bytes.length <= 4 * 1024 * 1024);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshotCanvas captures exact world-coordinate regions and rejects outside regions", async () => {
   const dir = await mkFixtureDir("pw-snapshot-region-");
   try {

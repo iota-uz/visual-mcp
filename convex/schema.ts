@@ -200,6 +200,9 @@ export default defineSchema({
     cssStorageId: v.optional(v.id("_storage")),
     entryStorageId: v.optional(v.id("_storage")),
     iframeEntrypoints: v.array(v.string()),
+    // Set only after this immutable checkpoint has actually been public.
+    // Historical embed URLs must never expose an unpublished checkpoint.
+    publishedAt: v.optional(v.number()),
   }).index("by_canvas_version", ["canvasId", "version"]),
 
   // Immutable source manifest for a CanvasDoc version. Current canvasFiles
@@ -247,6 +250,27 @@ export default defineSchema({
     .index("by_version_cacheKey", ["versionId", "cacheKey"])
     .index("by_canvas", ["canvasId"])
     .index("by_createdAt", ["createdAt"]),
+
+  // Durable public-embed cache metadata. PNG bytes live under the `embeds/`
+  // prefix in the private S3_ASSET bucket and are only streamed after a live
+  // share-slug check; they are separate from ephemeral Convex snapshots.
+  canvasEmbeds: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    cacheKey: v.string(),
+    status: v.union(v.literal("pending"), v.literal("ready")),
+    objectKey: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
+    size: v.optional(v.number()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    downscaled: v.optional(v.boolean()),
+    renderStartedAt: v.number(),
+    renderDurationMs: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_version_cacheKey", ["versionId", "cacheKey"])
+    .index("by_canvas", ["canvasId"]),
 
   iframeCapabilities: defineTable({
     token: v.string(),

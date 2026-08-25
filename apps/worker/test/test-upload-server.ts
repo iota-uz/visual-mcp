@@ -5,12 +5,14 @@ export interface RecordedUpload {
   path: string;
   bytes: Buffer;
   contentType: string | undefined;
+  method: string | undefined;
 }
 
 export interface TestUploadServer {
   baseUrl: string;
   uploads: RecordedUpload[];
   putUrl(id: string): string;
+  objectPutUrl(id: string): string;
   close(): Promise<void>;
 }
 
@@ -22,16 +24,23 @@ export async function startTestUploadServer(): Promise<TestUploadServer> {
     // Real Convex upload URLs only accept POST (StorageWriter.generateUploadUrl's
     // doc comment) — enforcing that here is what would have caught the
     // PUT-vs-POST bug in upload.ts before it ever reached a real deployment.
-    if (req.method !== "POST") {
+    const expectsPut = req.url?.startsWith("/object/") === true;
+    const expectedMethod = expectsPut ? "PUT" : "POST";
+    if (req.method !== expectedMethod) {
       res.writeHead(405, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: `expected POST, got ${req.method}` }));
+      res.end(JSON.stringify({ error: `expected ${expectedMethod}, got ${req.method}` }));
       return;
     }
     const chunks: Buffer[] = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
       const bytes = Buffer.concat(chunks);
-      uploads.push({ path: req.url ?? "", bytes, contentType: req.headers["content-type"] });
+      uploads.push({
+        path: req.url ?? "",
+        bytes,
+        contentType: req.headers["content-type"],
+        method: req.method,
+      });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ storageId: req.url }));
     });
@@ -45,6 +54,7 @@ export async function startTestUploadServer(): Promise<TestUploadServer> {
     baseUrl,
     uploads,
     putUrl: (id: string) => `${baseUrl}/${id}`,
+    objectPutUrl: (id: string) => `${baseUrl}/object/${id}`,
     close: () =>
       new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve())),

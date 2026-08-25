@@ -14,6 +14,8 @@ describe("lean MCP server instructions", () => {
     expect(instructions).toMatch(/production-grade/i);
     expect(instructions).toMatch(/canvas_save/i);
     expect(instructions).toMatch(/canvas_snapshot/i);
+    expect(instructions).toMatch(/canvas_embed/i);
+    expect(instructions).toMatch(/canvas\.iota\.uz/i);
     expect(instructions).toMatch(/correct defects, and snapshot again/i);
     expect(instructions).toMatch(/loading, empty, error, success/i);
     expect(instructions).toMatch(/internal instructions or metadata/i);

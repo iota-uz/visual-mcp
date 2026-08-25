@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, test } from "node:test";
 import { disposeD2Renderer } from "@visual-canvas/runtime/render/diagrams/index.js";
 import { handleRender } from "../src/render.js";
@@ -77,11 +78,18 @@ test("handleSnapshot: node target uploads a bounded PNG with metadata", async ()
       target: { type: "node", nodeId: "phone" },
       padding: 10,
       scale: 1,
-      upload: { putUrl: uploadServer.putUrl("snapshot.png") },
+      upload: { putUrl: uploadServer.objectPutUrl("snapshot.png"), method: "PUT" },
     });
     assert.deepEqual([result.width, result.height], [140, 120]);
     assert.equal(result.mimeType, "image/png");
     assert.equal(result.uploadStatus, 200);
+    assert.equal(uploadServer.uploads[0]?.method, "PUT");
+    assert.equal(
+      result.contentHash,
+      createHash("sha256")
+        .update(uploadServer.uploads[0]?.bytes ?? Buffer.alloc(0))
+        .digest("hex"),
+    );
     assert.deepEqual(
       uploadServer.uploads[0]?.bytes.subarray(0, 4),
       Buffer.from([0x89, 0x50, 0x4e, 0x47]),

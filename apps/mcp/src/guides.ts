@@ -1,5 +1,5 @@
 export interface McpGuide {
-  id: "authoring" | "production-ui" | "device-frames" | "assets";
+  id: "authoring" | "production-ui" | "device-frames" | "assets" | "embeds";
   title: string;
   description: string;
   text: string;
@@ -28,6 +28,18 @@ Micro-edits advance \`draft_revision\`; checkpoint at meaningful milestones. Pub
 ## Delivery
 
 Use the returned URLs. \`canvas_url\` is the signed-in viewer, \`present_url\` is immersive canvas playback, and \`share_url\` exists only for public canvases. Never construct URLs.`,
+  },
+  {
+    id: "embeds",
+    title: "Public PNG embeds",
+    description: "Published-only node, region, and canvas images for trackers and documents.",
+    text: `# Public PNG embeds
+
+Use \`canvas_embed\` when another system needs an image URL or ready-to-paste Markdown without PNG bytes in the MCP conversation. It supports a complete native/HTML canvas and native canvas nodes or regions. Every returned image and target URL uses \`canvas.iota.uz\`.
+
+Embeds expose only immutable published checkpoints. An unpublished draft never changes public image bytes; the tool reports \`unpublished_changes\` until the next publish. By default \`pin_version=false\`, so the stable URL resolves the newest published checkpoint and re-renders after a later publish. Set \`pin_version=true\` only when the external record must preserve the exact historical image.
+
+Public sharing is mandatory. \`canvas_not_shared\` means sharing must be enabled before a usable URL can be returned. Revoking or replacing the share slug makes every old endpoint request return 404 even when its PNG remains in the embed cache. Public PNGs are capped at 4 MiB and may be downscaled automatically.`,
   },
   {
     id: "production-ui",

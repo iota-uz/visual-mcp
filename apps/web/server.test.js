@@ -37,6 +37,24 @@ async function fixtureServer(metadataBySlug) {
       png.writeUInt32BE(328, 20);
       return new Response(png, { headers: { "content-type": "image/png" } });
     }
+    if (parsed.pathname.includes("/_embed/")) {
+      if (parsed.pathname.includes("/missing/")) return new Response("Not found", { status: 404 });
+      if (init?.headers?.get("if-none-match") === '"embed-hash"') {
+        return new Response(null, { status: 304, headers: { etag: '"embed-hash"' } });
+      }
+      return new Response(Buffer.from([137, 80, 78, 71]), {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "cache-control": parsed.searchParams.has("v")
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=60, must-revalidate",
+          etag: '"embed-hash"',
+          "x-embed-downscaled": "1",
+          "set-cookie": "must-not-pass=1",
+        },
+      });
+    }
     const slug = decodeURIComponent(parsed.pathname.slice("/social/".length));
     const entry = metadataBySlug[slug];
     const metadata = typeof entry === "function" ? entry(parsed) : entry;
@@ -151,4 +169,21 @@ describe("crawler-facing public share HTML", () => {
       expect((await fetch(`${origin}/s/${slug}/_social/preview.png?v=1`)).status).toBe(404);
     },
   );
+});
+
+describe("public embed image proxy", () => {
+  it("serves embeds on the web origin and preserves cache validators without cookies", async () => {
+    const origin = await fixtureServer({});
+    const url = `${origin}/s/live/_embed/node/c-rear.png?page=mobile&scale=2`;
+    const response = await fetch(url);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60, must-revalidate");
+    expect(response.headers.get("etag")).toBe('"embed-hash"');
+    expect(response.headers.get("x-embed-downscaled")).toBe("1");
+    expect(response.headers.get("set-cookie")).toBeNull();
+
+    const conditional = await fetch(url, { headers: { "if-none-match": '"embed-hash"' } });
+    expect(conditional.status).toBe(304);
+  });
 });

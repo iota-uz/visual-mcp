@@ -621,6 +621,13 @@ async function publishCanvas(
     note: "Published",
     source,
   });
+  if (canvas.publishedVersionId) {
+    const previouslyPublished = await ctx.db.get(canvas.publishedVersionId);
+    if (previouslyPublished && previouslyPublished.publishedAt === undefined) {
+      await ctx.db.patch(previouslyPublished._id, { publishedAt: Date.now() });
+    }
+  }
+  await ctx.db.patch(checkpoint.versionId, { publishedAt: Date.now() });
   await ctx.db.patch(args.canvasId, {
     visibility: "public",
     publicSlug,
@@ -1521,6 +1528,15 @@ export const commitSaveContent = internalMutation({
       });
     }
     if (!checkpoint) throw new Error("Unable to establish a stable canvas checkpoint");
+    if (publishRequested) {
+      if (canvas.publishedVersionId) {
+        const previouslyPublished = await ctx.db.get(canvas.publishedVersionId);
+        if (previouslyPublished && previouslyPublished.publishedAt === undefined) {
+          await ctx.db.patch(previouslyPublished._id, { publishedAt: Date.now() });
+        }
+      }
+      await ctx.db.patch(checkpoint.versionId, { publishedAt: Date.now() });
+    }
     await ctx.db.patch(canvas._id, {
       ...metadataPatch,
       draftRevision,

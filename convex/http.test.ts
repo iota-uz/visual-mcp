@@ -234,6 +234,45 @@ describe("GET /s/:slug", () => {
     expect(res.status).toBe(400);
   });
 
+  test("validates PNG embed parameters before starting a render", async () => {
+    const t = convexTest(schema, modules);
+    await seedPublicCanvasWithArtifact(t);
+    expect((await t.fetch("/s/pub-slug-123/_embed/canvas.png?scale=3")).status).toBe(400);
+    expect((await t.fetch("/s/pub-slug-123/_embed/region/0-0-0-100.png?scale=2")).status).toBe(400);
+    expect(
+      (await t.fetch("/s/pub-slug-123/_embed/region/0-0-10000-10000.png?scale=2")).status,
+    ).toBe(400);
+    expect((await t.fetch("/s/pub-slug-123/_embed/canvas.png?v=999")).status).toBe(404);
+  });
+
+  test("never resolves unpublished historical checkpoints for public embeds", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId } = await seedPublicCanvasWithArtifact(t);
+    const unpublishedVersionId = await t.run(async (ctx) => {
+      const canvas = await ctx.db.get(canvasId);
+      if (!canvas) throw new Error("missing canvas");
+      return ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 2,
+        createdBy: canvas.createdBy,
+        iframeEntrypoints: [],
+      });
+    });
+    expect(
+      await t.query(internal.embeds.resolvePublicContext, {
+        publicSlug: "pub-slug-123",
+        version: 2,
+      }),
+    ).toBeNull();
+    await t.run((ctx) => ctx.db.patch(canvasId, { publishedVersionId: unpublishedVersionId }));
+    await expect(
+      t.query(internal.embeds.resolvePublicContext, {
+        publicSlug: "pub-slug-123",
+        version: 2,
+      }),
+    ).resolves.toMatchObject({ version: 2 });
+  });
+
   test("serves an explicit relPath under the slug instead of the primary artifact", async () => {
     const t = convexTest(schema, modules);
     await seedPublicCanvasWithArtifact(t);

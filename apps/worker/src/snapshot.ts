@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { snapshotCanvas } from "@visual-canvas/runtime/render/playwright-renderer/index.js";
 import { resolveWorkspacePath } from "@visual-canvas/runtime/sandbox/path-guard.js";
 import { hydrate } from "@visual-canvas/runtime/storage/workspace.js";
@@ -23,12 +24,16 @@ export async function handleSnapshot(req: SnapshotRequest): Promise<SnapshotResp
       themeJson: req.themeJson,
     });
     const stats = await stat(outputPath);
-    const upload = await uploadFile(req.upload.putUrl, outputPath, "image/png");
+    const contentHash = createHash("sha256")
+      .update(await readFile(outputPath))
+      .digest("hex");
+    const upload = await uploadFile(req.upload.putUrl, outputPath, "image/png", req.upload.method);
     return {
       size: stats.size,
       width: rendered.width,
       height: rendered.height,
       mimeType: "image/png",
+      contentHash,
       uploadStatus: upload.status,
       uploadBody: upload.body,
       unresolvedRefs: rendered.unresolvedRefs,

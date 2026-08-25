@@ -32,6 +32,7 @@ export type SignedSource = z.infer<typeof SignedSourceSchema>;
 
 export const SignedUploadSchema = z.object({
   putUrl: z.string().min(1),
+  method: z.enum(["POST", "PUT"]).default("POST"),
 });
 export type SignedUpload = z.infer<typeof SignedUploadSchema>;
 
@@ -127,6 +128,7 @@ export const SnapshotResponseSchema = z.object({
   width: z.number(),
   height: z.number(),
   mimeType: z.literal("image/png"),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   uploadStatus: z.number(),
   uploadBody: z.unknown(),
   unresolvedRefs: z.array(z.string()),

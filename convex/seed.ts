@@ -501,6 +501,7 @@ export const write = internalMutation({
         docStorageId: input.docStorageId,
         entryStorageId: input.entry?.storageId,
         iframeEntrypoints: [],
+        publishedAt: input.publicSlug ? input.updatedAt : undefined,
       });
       await ctx.db.patch(canvasId, {
         currentVersionId: versionId,

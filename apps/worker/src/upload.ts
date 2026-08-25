@@ -6,20 +6,18 @@ export interface UploadResult {
 }
 
 /**
- * POSTs a file's bytes to a pre-signed, single-use upload URL — Convex's
- * `ctx.storage.generateUploadUrl()` contract requires POST, not PUT (see
- * convex/StorageWriter.generateUploadUrl's doc comment: "The client should
- * make a POST request to this URL with the file as the body"). The response
- * body is forwarded as-is (parsed as JSON when possible) rather than
- * interpreted here — Convex's upload endpoint shape is the caller's
- * concern, not this credential-free worker's (PLAN.md section 3).
+ * Uploads bytes through a caller-provided signed URL. Convex Storage uses
+ * POST; cached embed PNGs in the private asset S3 bucket use PUT. The method
+ * is part of the signed-upload contract so the credential-free worker
+ * supports both without learning either backend's credentials.
  */
 export async function uploadFile(
   putUrl: string,
   absolutePath: string,
   contentType: string,
+  method: "POST" | "PUT" = "POST",
 ): Promise<UploadResult> {
-  return uploadBytes(putUrl, await readFile(absolutePath), contentType);
+  return uploadBytes(putUrl, await readFile(absolutePath), contentType, method);
 }
 
 /** Same contract as `uploadFile`, for bytes that were never written to disk (e.g. a thumbnail). */
@@ -27,9 +25,10 @@ export async function uploadBytes(
   putUrl: string,
   bytes: Buffer | Uint8Array,
   contentType: string,
+  method: "POST" | "PUT" = "POST",
 ): Promise<UploadResult> {
   const res = await fetch(putUrl, {
-    method: "POST",
+    method,
     headers: { "content-type": contentType },
     body: bytes,
   });

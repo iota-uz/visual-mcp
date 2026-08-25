@@ -44,10 +44,10 @@ import {
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
 import { describeIssues } from "@visual-canvas/canvas/issues.js";
-import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
+import { deleteNodesFromFile, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
-import { renderCanvas } from "@visual-canvas/canvas/render.js";
+import { canvasSnapshotEntryHtml } from "@visual-canvas/canvas/snapshot-entry.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { Theme, ThemeOverride } from "@visual-canvas/canvas/themes.js";
 import { THEME_IDS } from "@visual-canvas/canvas/themes.js";
@@ -82,8 +82,10 @@ import { slugify } from "./lib/slug.js";
 import {
   canvasUrl,
   embedCardUrl,
+  embedPngUrl,
   embedTargetUrl,
   githubEmbedMarkdown,
+  pngEmbedTargetUrl,
   shareUrl,
 } from "./lib/urls.js";
 import { callWorker, extractStorageId, getWorkerConfig } from "./lib/worker.js";
@@ -106,7 +108,8 @@ type WarningCode =
   | "truncated"
   | "render_failed"
   | "quota_near_limit"
-  | "upload_pool_exhausted";
+  | "upload_pool_exhausted"
+  | "unpublished_changes";
 
 interface Warning {
   code: WarningCode;
@@ -415,6 +418,7 @@ const WarningSchema = z.object({
     "render_failed",
     "quota_near_limit",
     "upload_pool_exhausted",
+    "unpublished_changes",
   ]),
   message: z.string(),
   path: z.string().optional(),
@@ -993,6 +997,125 @@ const SnapshotInputSchema = z
     }
   });
 
+const EmbedInputSchema = z
+  .object({
+    ref: z.string(),
+    page_id: z.string().optional().describe("Page id; defaults to defaultPageId."),
+    target: SnapshotTargetSchema.default({ type: "canvas" }),
+    scale: z.union([z.literal(1), z.literal(2)]).default(2),
+    padding: z.number().int().min(0).max(256).optional(),
+    pin_version: z
+      .boolean()
+      .default(false)
+      .describe("Pin to the latest published version. Defaults false so the image updates."),
+  })
+  .strict();
+
+const PublicEmbedSchema = z.object({
+  image_url: z.string().url(),
+  target_url: z.string().url(),
+  markdown: z.string(),
+  resolved_version: z.number().int().positive(),
+  pinned_version: z.number().int().positive().optional(),
+});
+
+type PngEmbedMetadata = z.infer<typeof PublicEmbedSchema>;
+
+async function publicEmbedMetadata(
+  ctx: ActionCtx,
+  input: z.infer<typeof EmbedInputSchema>,
+  required: boolean,
+): Promise<{
+  embed: PngEmbedMetadata;
+  warnings: Warning[];
+  pageId: string;
+} | null> {
+  const context = await ctx.runQuery(internal.embeds.resolveContextByRef, { ref: input.ref });
+  if (!context) {
+    if (!required) return null;
+    const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: input.ref });
+    if (!detail) throw new Error(`canvas_not_found: No canvas found for ref "${input.ref}".`);
+    throw new Error("canvas_not_shared: Enable public sharing before requesting an embed URL.");
+  }
+  if (context.kind !== "canvas" && context.kind !== "html") {
+    if (!required) return null;
+    throw new Error("unsupported_canvas_kind: PNG embeds support kind=canvas and kind=html.");
+  }
+  if (context.kind === "html" && input.target.type !== "canvas") {
+    if (!required) return null;
+    throw new Error("unsupported_embed_target: HTML artifacts support only target=canvas.");
+  }
+  let pageId = "artifact";
+  let alt = context.title;
+  if (context.kind === "canvas") {
+    if (!context.docStorageId) {
+      if (!required) return null;
+      throw new Error("embed_unavailable: Published CanvasDoc is unavailable.");
+    }
+    const blob = await ctx.storage.get(context.docStorageId);
+    if (!blob) {
+      if (!required) return null;
+      throw new Error("embed_unavailable: Published CanvasDoc storage object is unavailable.");
+    }
+    const file = CanvasFileSchema.parse(JSON.parse(await blob.text()));
+    const page = resolveCanvasPage(file, input.page_id);
+    if (input.page_id && page.id !== input.page_id) {
+      if (!required) return null;
+      throw new Error(`page_not_found: ${input.page_id}`);
+    }
+    pageId = page.id;
+    if (input.target.type === "node") {
+      const nodeId = input.target.node_id;
+      const node = page.doc.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) {
+        if (!required) return null;
+        throw new Error(`node_not_found: ${input.target.node_id}`);
+      }
+      alt = node.caption.title?.trim() || node.id;
+    }
+  }
+  const scale = input.scale ?? 2;
+  if (
+    input.target.type === "region" &&
+    input.target.width * scale * (input.target.height * scale) > 40_000_000
+  ) {
+    throw new Error("invalid_region: Region exceeds the 40 megapixel render limit.");
+  }
+  const padding = input.padding ?? (input.target.type === "node" ? 24 : 0);
+  const version = input.pin_version ? context.version : undefined;
+  const imageUrl = embedPngUrl(context.publicSlug, input.target, {
+    pageId: context.kind === "canvas" ? pageId : undefined,
+    version,
+    scale,
+    padding,
+  });
+  const targetUrl = pngEmbedTargetUrl(
+    context.publicSlug,
+    input.target,
+    context.kind === "canvas" ? pageId : undefined,
+  );
+  const markdown = githubEmbedMarkdown(alt, imageUrl, targetUrl);
+  if (!imageUrl || !targetUrl || !markdown) return null;
+  return {
+    embed: {
+      image_url: imageUrl,
+      target_url: targetUrl,
+      markdown,
+      resolved_version: context.version,
+      pinned_version: input.pin_version ? context.version : undefined,
+    },
+    warnings: context.unpublishedChanges
+      ? [
+          {
+            code: "unpublished_changes",
+            message: `The embed shows published version ${context.version}; newer draft changes are not public yet.`,
+          },
+        ]
+      : [],
+    pageId,
+  };
+}
+
 interface RenderedArtifact {
   path: string;
   format: string;
@@ -1208,7 +1331,13 @@ async function prepareSaveDoc(
   }
   const doc = parsedDoc.data;
   const docJson = JSON.stringify(doc);
-  const entry = canvasEntryHtml(resolveCanvasPage(doc).doc, "", undefined, theme);
+  const entry = canvasSnapshotEntryHtml(
+    resolveCanvasPage(doc).doc,
+    "",
+    undefined,
+    theme,
+    THEME_CSS,
+  );
   const docBytes = new TextEncoder().encode(docJson);
   const entryBytes = new TextEncoder().encode(entry);
   const storageId = await ctx.storage.store(new Blob([docBytes], { type: "application/json" }));
@@ -1317,39 +1446,6 @@ function pageSlug(title: string): string {
     .replace(/^-|-$/g, "")
     .slice(0, 64);
   return base || "page";
-}
-
-function canvasEntryHtml(
-  doc: CanvasDoc,
-  compiledCss = "",
-  snapshotTarget?:
-    | { type: "canvas" }
-    | { type: "node"; nodeId: string }
-    | { type: "region"; x: number; y: number; width: number; height: number },
-  theme?: Theme,
-): string {
-  const positioned = layoutCanvas(doc);
-  const { html } = renderCanvas(positioned, {
-    theme,
-    iframeLoading: "eager",
-    shouldLoadIframe: snapshotTarget
-      ? (node) => {
-          if (snapshotTarget.type === "canvas") return true;
-          if (snapshotTarget.type === "node") return node.id === snapshotTarget.nodeId;
-          return (
-            node.x < snapshotTarget.x + snapshotTarget.width &&
-            node.x + node.w > snapshotTarget.x &&
-            node.y < snapshotTarget.y + snapshotTarget.height &&
-            node.y + node.h > snapshotTarget.y
-          );
-        }
-      : undefined,
-  });
-  return (
-    '<!doctype html><html><head><meta charset="utf-8" />' +
-    `<style>html,body{margin:0;padding:0}</style><style>${THEME_CSS}</style>` +
-    `<style>${compiledCss}</style></head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`
-  );
 }
 
 /* ------------------------------------------------------------------------
@@ -3778,6 +3874,41 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       }),
   );
 
+  /* --- canvas_embed --------------------------------------------------- */
+  server.registerTool(
+    "canvas_embed",
+    {
+      title: "Create public canvas embed",
+      description:
+        "Returns a canvas.iota.uz PNG URL and ready-to-paste linked Markdown for the latest " +
+        "published canvas, node, or region without putting image bytes in the MCP response. " +
+        "URLs update after the next publish unless pin_version=true. Draft content is never exposed.",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      inputSchema: EmbedInputSchema,
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        page_id: z.string(),
+        target: SnapshotTargetSchema,
+        embed: PublicEmbedSchema,
+        warnings: z.array(WarningSchema),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const metadata = await publicEmbedMetadata(ctx, input, true);
+        if (!metadata) throw new Error("embed_unavailable: Unable to construct embed metadata.");
+        return result({
+          status: "ok",
+          ref: input.ref,
+          page_id: metadata.pageId,
+          target: input.target,
+          embed: metadata.embed,
+          warnings: metadata.warnings,
+        });
+      }),
+  );
+
   /* --- canvas_snapshot ------------------------------------------------ */
   server.registerTool(
     "canvas_snapshot",
@@ -3806,6 +3937,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         download_url: z.string().optional(),
         cached: z.boolean(),
         warnings: z.array(z.string()),
+        embed: PublicEmbedSchema.optional(),
         diagnostics: z.object({
           unresolved_refs: z.array(z.string()),
           unresolved_resources: z.array(
@@ -3981,7 +4113,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               ? await ctx.storage.get(context.cssStorageId)
               : null;
             const entryBytes = new TextEncoder().encode(
-              canvasEntryHtml(doc, cssBlob ? await cssBlob.text() : "", normalizedTarget),
+              canvasSnapshotEntryHtml(
+                doc,
+                cssBlob ? await cssBlob.text() : "",
+                normalizedTarget,
+                undefined,
+                THEME_CSS,
+              ),
             );
             temporaryEntryStorageId = await ctx.storage.store(
               new Blob([entryBytes], { type: "text/html" }),
@@ -4174,9 +4312,38 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             }
           }
         }
+        const embedMetadata = isNativeCanvas
+          ? await publicEmbedMetadata(
+              ctx,
+              {
+                ref,
+                page_id: pageId,
+                target,
+                scale: input.scale ?? 2,
+                padding: input.padding,
+                pin_version: false,
+              },
+              false,
+            )
+          : target.type === "canvas"
+            ? await publicEmbedMetadata(
+                ctx,
+                {
+                  ref,
+                  target,
+                  scale: input.scale ?? 2,
+                  padding: input.padding,
+                  pin_version: false,
+                },
+                false,
+              )
+            : null;
         const warnings = tooLargeToInline
           ? [...new Set([...snapshot.warnings, "snapshot_too_large"])]
-          : snapshot.warnings;
+          : [...snapshot.warnings];
+        if (embedMetadata) {
+          warnings.push(...embedMetadata.warnings.map((warning) => warning.code));
+        }
         const metadata = {
           status: tooLargeToInline ? ("partial" as const) : snapshot.status,
           ref,
@@ -4192,7 +4359,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           inline: !tooLargeToInline,
           download_url: downloadUrl,
           cached,
-          warnings,
+          warnings: [...new Set(warnings)],
+          embed: embedMetadata?.embed,
           diagnostics: {
             unresolved_refs: snapshot.diagnostics.unresolvedRefs,
             unresolved_resources: snapshot.diagnostics.unresolvedDetails.map((detail) => ({

@@ -228,6 +228,38 @@ export function createAppServer({
         response.writeHead(405, { allow: "GET, HEAD" }).end();
         return;
       }
+      const embedImage =
+        /^\/s\/([^/]+)\/_embed\/(?:canvas\.png|node\/[^/]+\.png|region\/[^/]+\.png)$/.exec(
+          url.pathname,
+        );
+      if (embedImage) {
+        const upstreamUrl = new URL(`${url.pathname}${url.search}`, siteOrigin);
+        const upstreamHeaders = new Headers({ accept: "image/png", "accept-encoding": "identity" });
+        const ifNoneMatch = request.headers["if-none-match"];
+        if (typeof ifNoneMatch === "string") upstreamHeaders.set("if-none-match", ifNoneMatch);
+        const upstream = await fetchImpl(upstreamUrl, { method: "GET", headers: upstreamHeaders });
+        const responseHeaders = {};
+        for (const name of [
+          "content-type",
+          "content-disposition",
+          "cache-control",
+          "etag",
+          "x-embed-downscaled",
+          "x-content-type-options",
+          "cross-origin-resource-policy",
+          "access-control-allow-origin",
+        ]) {
+          const value = upstream.headers.get(name);
+          if (value) responseHeaders[name] = value;
+        }
+        response.writeHead(upstream.status, responseHeaders);
+        if (request.method === "HEAD" || !upstream.body || upstream.status === 304) {
+          response.end();
+          return;
+        }
+        await pipeline(Readable.fromWeb(upstream.body), response);
+        return;
+      }
       const socialImage = /^\/s\/([^/]+)\/_social\/preview\.png$/.exec(url.pathname);
       if (socialImage) {
         const slug = decodeURIComponent(socialImage[1]);

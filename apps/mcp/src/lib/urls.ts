@@ -13,6 +13,45 @@ export type PublicEmbedTarget =
   | { kind: "canvas" }
   | { kind: "node"; id: string }
   | { kind: "artifact"; id: string };
+export type PublicPngEmbedTarget =
+  | { type: "canvas" }
+  | { type: "node"; node_id: string }
+  | { type: "region"; x: number; y: number; width: number; height: number };
+
+export function embedPngUrl(
+  slug: string | null | undefined,
+  target: PublicPngEmbedTarget,
+  options: { pageId?: string; scale?: 1 | 2; padding?: number; version?: number } = {},
+): string | null {
+  if (!slug) return null;
+  const base = `/s/${encodeURIComponent(slug)}/_embed/`;
+  const path =
+    target.type === "canvas"
+      ? `${base}canvas.png`
+      : target.type === "node"
+        ? `${base}node/${encodeURIComponent(target.node_id)}.png`
+        : `${base}region/${target.x}-${target.y}-${target.width}-${target.height}.png`;
+  // Public embeds intentionally stay on the product origin. Tracker image
+  // proxies must never receive a deployment-specific *.convex.site URL.
+  const url = new URL(path, origin("SPA_ORIGIN"));
+  if (options.pageId) url.searchParams.set("page", options.pageId);
+  if (options.version !== undefined) url.searchParams.set("v", String(options.version));
+  if (options.scale !== undefined) url.searchParams.set("scale", String(options.scale));
+  if (options.padding !== undefined) url.searchParams.set("padding", String(options.padding));
+  return url.toString();
+}
+
+export function pngEmbedTargetUrl(
+  slug: string | null | undefined,
+  target: PublicPngEmbedTarget,
+  pageId?: string,
+): string | null {
+  if (!slug) return null;
+  const url = new URL(`/s/${encodeURIComponent(slug)}`, origin("SPA_ORIGIN"));
+  if (pageId) url.searchParams.set("page", pageId);
+  if (target.type === "node") url.searchParams.set("node", target.node_id);
+  return url.toString();
+}
 export function embedCardUrl(
   slug: string | null | undefined,
   target: PublicEmbedTarget = { kind: "canvas" },
