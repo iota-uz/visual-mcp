@@ -232,7 +232,7 @@ export function renderDeviceFrame(options: RenderDeviceFrameOptions): string {
       ? `<div class="vc-device-status"><span>${escapeText(options.time ?? "09:42")}</span>${STATUS_ICONS}</div>`
       : "";
   const toolbar = safariToolbar(preset, url);
-  const content = `<div class="vc-device-content"><div class="vc-iframe-viewport" style="width:${options.viewport.width}px;height:${options.viewport.height}px">${options.screenContent}</div></div>`;
+  const content = `<div class="vc-device-content" data-snapshot-content><div class="vc-iframe-viewport" style="width:${options.viewport.width}px;height:${options.viewport.height}px">${options.screenContent}</div></div>`;
   const stack =
     preset.toolbarPlacement === "top"
       ? `${status}${toolbar}${content}`

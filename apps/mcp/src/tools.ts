@@ -967,6 +967,13 @@ const SnapshotTargetSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const SnapshotClipSchema = z
+  .enum(["frame", "content"])
+  .default("frame")
+  .describe(
+    "frame captures the complete node including device/browser chrome; content clips to the inner iframe or image viewport.",
+  );
+
 const SnapshotInputSchema = z
   .object({
     ref: z.string().optional(),
@@ -975,6 +982,7 @@ const SnapshotInputSchema = z
     page_id: z.string().optional().describe("Page id; defaults to defaultPageId."),
     expected_version: z.number().int().nonnegative().optional(),
     expected_draft_revision: z.number().int().nonnegative().optional(),
+    clip: SnapshotClipSchema,
     padding: z.number().int().min(0).max(256).optional(),
     scale: z.union([z.literal(1), z.literal(2)]).optional(),
     refresh: z.boolean().optional().describe("Bypass an existing successful snapshot cache entry."),
@@ -997,6 +1005,13 @@ const SnapshotInputSchema = z
         message: "ref_id already identifies the node; omit target.",
       });
     }
+    if (input.clip === "content" && !input.ref_id && input.target?.type !== "node") {
+      check.addIssue({
+        code: "custom",
+        path: ["clip"],
+        message: "clip=content supports only a node target or ref_id.",
+      });
+    }
   });
 
 const EmbedInputSchema = z
@@ -1004,6 +1019,7 @@ const EmbedInputSchema = z
     ref: z.string(),
     page_id: z.string().optional().describe("Page id; defaults to defaultPageId."),
     target: SnapshotTargetSchema.default({ type: "canvas" }),
+    clip: SnapshotClipSchema,
     scale: z.union([z.literal(1), z.literal(2)]).default(2),
     padding: z.number().int().min(0).max(256).optional(),
     pin_version: z
@@ -1011,7 +1027,16 @@ const EmbedInputSchema = z
       .default(false)
       .describe("Pin to the latest published version. Defaults false so the image updates."),
   })
-  .strict();
+  .strict()
+  .superRefine((input, check) => {
+    if (input.clip === "content" && input.target.type !== "node") {
+      check.addIssue({
+        code: "custom",
+        path: ["clip"],
+        message: "clip=content supports only target.type=node.",
+      });
+    }
+  });
 
 const PublicEmbedSchema = z.object({
   image_url: z.string().url(),
@@ -1113,6 +1138,11 @@ async function publicEmbedMetadata(
         if (await targetExistsInDraft("node", nodeId)) throw staleTargetError("Node", nodeId);
         throw new Error(`node_not_found: ${input.target.node_id}`);
       }
+      if (input.clip === "content" && node.kind === "native") {
+        throw new Error(
+          `content_clip_unavailable: Node "${nodeId}" has native content; clip=content requires an iframe or image node.`,
+        );
+      }
       alt = node.caption.title?.trim() || node.id;
     } else if (input.target.type === "group") {
       const groupId = input.target.group_id;
@@ -1141,7 +1171,8 @@ async function publicEmbedMetadata(
   ) {
     throw new Error("invalid_region: Region exceeds the 40 megapixel render limit.");
   }
-  const padding = input.padding ?? (input.target.type === "canvas" ? 0 : 24);
+  const padding =
+    input.padding ?? (input.clip === "content" || input.target.type === "canvas" ? 0 : 24);
   const version = input.pin_version ? context.version : undefined;
   const imageUrl = embedPngUrl(context.publicSlug, input.target, {
     pageId: context.kind === "canvas" ? pageId : undefined,
@@ -1149,6 +1180,7 @@ async function publicEmbedMetadata(
     revision: input.pin_version ? undefined : context.version,
     scale,
     padding,
+    clip: input.clip,
   });
   const targetUrl = pngEmbedTargetUrl(
     context.publicSlug,
@@ -3953,7 +3985,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Returns a canvas.iota.uz PNG URL and ready-to-paste linked Markdown for the latest " +
         "published canvas, node, group, stage, or region without putting image bytes in the MCP response. " +
-        "URLs update after the next publish unless pin_version=true. Draft content is never exposed.",
+        "For iframe/image nodes, clip=content captures only the inner viewport without device/browser chrome. " +
+        "URLs update after the next public canvas_checkpoint unless pin_version=true. Draft content is never exposed.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: EmbedInputSchema,
       outputSchema: z.object({
@@ -3961,6 +3994,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         ref: z.string(),
         page_id: z.string(),
         target: SnapshotTargetSchema,
+        clip: z.enum(["frame", "content"]),
         embed: PublicEmbedSchema,
         warnings: z.array(WarningSchema),
       }),
@@ -3974,6 +4008,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           ref: input.ref,
           page_id: metadata.pageId,
           target: input.target,
+          clip: input.clip,
           embed: metadata.embed,
           warnings: metadata.warnings,
         });
@@ -3987,7 +4022,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       title: "Snapshot canvas selection",
       description:
         "Returns a PNG image block for a complete HTML artifact or for a native canvas, node, group, stage, or exact world-coordinate " +
-        "region. Pass a copied ref_id to see that native node immediately. The capture is rendered from " +
+        "region. For iframe/image nodes, clip=content captures only the inner viewport without device/browser chrome. " +
+        "Pass a copied ref_id to see that native node immediately. The capture is rendered from " +
         "the current durable draft revision, not from transient browser state. PNGs above 5 MB " +
         "are not inlined; use download_url or the suggested smaller regions/scale.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -4000,6 +4036,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         draft_revision: z.number().int().nonnegative(),
         page_id: z.string(),
         target: SnapshotTargetSchema,
+        clip: z.enum(["frame", "content"]),
         mime_type: z.literal("image/png"),
         width: z.number(),
         height: z.number(),
@@ -4100,9 +4137,15 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           workerEntrypoint = htmlSource.relPath;
         }
         if (target.type === "node" && doc) {
-          if (!resolveElementSelection(doc, target.node_id)) {
+          const node = doc.nodes.find((candidate) => candidate.id === target.node_id);
+          if (!node || !resolveElementSelection(doc, target.node_id)) {
             throw new Error(
               `node_not_found: node "${target.node_id}" does not exist at version ${context.version}.`,
+            );
+          }
+          if (input.clip === "content" && node.kind === "native") {
+            throw new Error(
+              `content_clip_unavailable: Node "${target.node_id}" has native content; clip=content requires an iframe or image node.`,
             );
           }
         }
@@ -4119,7 +4162,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           }
         }
 
-        const padding = input.padding ?? (target.type === "canvas" ? 0 : 24);
+        const padding =
+          input.padding ?? (input.clip === "content" || target.type === "canvas" ? 0 : 24);
         const scale = input.scale ?? 1;
         const normalizedTarget =
           target.type === "node"
@@ -4137,6 +4181,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             draftRevision: context.draftRevision,
             pageId,
             target: normalizedTarget,
+            clip: input.clip,
             padding,
             scale,
             theme,
@@ -4258,6 +4303,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                     sources,
                     entrypoint: workerEntrypoint,
                     target: normalizedTarget,
+                    clip: input.clip,
                     padding,
                     scale,
                     readinessTimeoutMs: input.timeout_ms,
@@ -4408,6 +4454,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 ref,
                 page_id: pageId,
                 target,
+                clip: input.clip,
                 scale: input.scale ?? 2,
                 padding: input.padding,
                 pin_version: false,
@@ -4420,6 +4467,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 {
                   ref,
                   target,
+                  clip: input.clip,
                   scale: input.scale ?? 2,
                   padding: input.padding,
                   pin_version: false,
@@ -4441,6 +4489,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           draft_revision: context.draftRevision,
           page_id: pageId,
           target,
+          clip: input.clip,
           mime_type: snapshot.mimeType,
           width: snapshot.width,
           height: snapshot.height,

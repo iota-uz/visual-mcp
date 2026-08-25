@@ -31,6 +31,17 @@ describe("public PNG embed URLs", () => {
     );
   });
 
+  it("adds content clipping only when explicitly requested", () => {
+    process.env.SPA_ORIGIN = "https://canvas.iota.uz";
+    expect(
+      embedPngUrl(
+        "share",
+        { type: "node", node_id: "screen" },
+        { scale: 2, padding: 0, clip: "content" },
+      ),
+    ).toBe("https://canvas.iota.uz/s/share/_embed/node/screen.png?scale=2&padding=0&clip=content");
+  });
+
   it("supports addressable groups/stages and an unpinned revision cache-buster", () => {
     process.env.SPA_ORIGIN = "https://canvas.iota.uz";
     expect(

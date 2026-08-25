@@ -36,5 +36,5 @@ const STATUS_ICONS = `<span class="vc-phone-status-icons" aria-hidden="true">
 
 /** Canvas-owned phone shell. `screenContent` is the iframe or its placeholder. */
 export function renderPhoneFrame(screenContent: string, time: string, scale: number): string {
-  return `<div class="vc-phone-shell" style="--vc-phone-scale:${scale}"><div class="vc-phone-screen"><div class="vc-phone-status"><span>${time}</span>${STATUS_ICONS}</div><div class="vc-phone-content"><div class="vc-iframe-viewport" style="width:${PHONE_FRAME.contentWidth}px;height:${PHONE_FRAME.contentHeight}px">${screenContent}</div></div></div></div>`;
+  return `<div class="vc-phone-shell" style="--vc-phone-scale:${scale}"><div class="vc-phone-screen"><div class="vc-phone-status"><span>${time}</span>${STATUS_ICONS}</div><div class="vc-phone-content" data-snapshot-content><div class="vc-iframe-viewport" style="width:${PHONE_FRAME.contentWidth}px;height:${PHONE_FRAME.contentHeight}px">${screenContent}</div></div></div></div>`;
 }

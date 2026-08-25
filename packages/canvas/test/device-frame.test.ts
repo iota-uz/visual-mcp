@@ -176,6 +176,7 @@ test("renderCanvas puts the shell inside the node and keeps the screen interacti
   assert.match(html, /vc-shape-iframe-device/);
   assert.match(html, /vc-frame-device/);
   assert.match(html, /vc-device-shell/);
+  assert.match(html, /vc-device-content" data-snapshot-content/);
   assert.match(html, /<iframe[^>]+src="\/src\/screens\/landing\.html"/);
   assert.match(html, /acme\.example/);
 });

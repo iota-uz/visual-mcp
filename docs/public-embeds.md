@@ -4,6 +4,12 @@ Public embeds are served from `https://canvas.iota.uz/s/{shareSlug}/_embed/*`.
 The web origin streams the Convex HTTP response without redirects, cookies, or
 `Set-Cookie`; MCP must never return a `*.convex.site` embed URL.
 
+Node endpoints accept `clip=content` for iframe and image nodes. The renderer
+uses the actual inner viewport's transformed DOM bounds, preserving its aspect
+ratio while excluding the node caption, phone/browser chrome, and default
+outer padding. `clip=frame` is the default. Content clipping is rejected for
+canvas, group, stage, region, and native-content targets.
+
 ## Storage
 
 Rendered PNGs use the existing private asset bucket configured with
@@ -24,7 +30,7 @@ return 404 even though the cached object may still exist in the bucket.
 - `v=N` is accepted only for a checkpoint known to have been published and
   returns `Cache-Control: public, max-age=31536000, immutable`.
 - The internal key includes canvas id, published version, Page, target, scale,
-  padding, and renderer version. Thus the same unpinned URL causes a cold render
+  clip mode, padding, and renderer version. Thus the same unpinned URL causes a cold render
   after the next published checkpoint while draft-only edits remain invisible.
 - The worker hashes final PNG bytes for `ETag`; matching `If-None-Match` returns
   304. It compresses and downsizes any PNG over 4 MiB and the endpoint adds

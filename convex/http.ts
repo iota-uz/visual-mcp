@@ -184,6 +184,7 @@ type EmbedRequest = {
   pageId?: string;
   version?: number;
   scale: 1 | 2;
+  clip: "frame" | "content";
   padding: number;
 };
 
@@ -258,8 +259,21 @@ function parseEmbedRequest(segments: string[], url: URL): EmbedRequest | Respons
   const rawScale = url.searchParams.get("scale");
   const scale = rawScale === null ? 2 : Number(rawScale);
   if (scale !== 1 && scale !== 2) return embedBadRequest("Invalid scale; expected 1 or 2");
+  const rawClip = url.searchParams.get("clip");
+  const clip = rawClip === null ? "frame" : rawClip;
+  if (clip !== "frame" && clip !== "content") {
+    return embedBadRequest("Invalid clip; expected frame or content");
+  }
+  if (clip === "content" && target.type !== "node") {
+    return embedBadRequest("clip=content supports only node targets");
+  }
   const rawPadding = url.searchParams.get("padding");
-  const padding = rawPadding === null ? (target.type === "canvas" ? 0 : 24) : Number(rawPadding);
+  const padding =
+    rawPadding === null
+      ? clip === "content" || target.type === "canvas"
+        ? 0
+        : 24
+      : Number(rawPadding);
   if (!Number.isInteger(padding) || padding < 0 || padding > 256) {
     return embedBadRequest("Invalid padding; expected an integer from 0 to 256");
   }
@@ -273,7 +287,7 @@ function parseEmbedRequest(segments: string[], url: URL): EmbedRequest | Respons
   ) {
     return embedBadRequest("Region exceeds the 40 megapixel render limit");
   }
-  return { target, targetLabel, pageId, version, scale, padding };
+  return { target, targetLabel, pageId, version, scale, clip, padding };
 }
 
 function embedHeaders(pinned: boolean, etag?: string, downscaled = false): Headers {
@@ -389,8 +403,12 @@ async function renderPublicEmbed(
       if (request.pageId && page.id !== request.pageId) throw new Error("page_not_found");
       if (request.target.type === "node") {
         const nodeId = request.target.nodeId;
-        if (!page.doc.nodes.some((node) => node.id === nodeId)) {
+        const node = page.doc.nodes.find((candidate) => candidate.id === nodeId);
+        if (!node) {
           throw new Error("node_not_found");
+        }
+        if (request.clip === "content" && node.kind === "native") {
+          throw new Error("content_clip_unavailable");
         }
       } else if (request.target.type === "group") {
         const groupId = request.target.groupId;
@@ -442,6 +460,7 @@ async function renderPublicEmbed(
         sources,
         entrypoint,
         target: request.target,
+        clip: request.clip,
         padding: request.padding,
         scale: request.scale,
         readinessTimeoutMs: 15_000,
@@ -505,7 +524,11 @@ async function publicEmbedAddressExists(
   if (request.pageId && page.id !== request.pageId) return false;
   if (request.target.type === "node") {
     const nodeId = request.target.nodeId;
-    return page.doc.nodes.some((node) => node.id === nodeId);
+    const node = page.doc.nodes.find((candidate) => candidate.id === nodeId);
+    if (request.clip === "content" && node?.kind === "native") {
+      throw new Error("content_clip_unavailable");
+    }
+    return node !== undefined;
   }
   if (request.target.type === "group") {
     const groupId = request.target.groupId;
@@ -548,6 +571,7 @@ async function handlePublicEmbed(
       version: context.version,
       pageId: embed.pageId ?? "default",
       target: embed.target,
+      clip: embed.clip,
       scale: embed.scale,
       padding: embed.padding,
     }),
@@ -580,6 +604,11 @@ async function handlePublicEmbed(
       return embedNotFound();
     }
   } catch (error) {
+    if (error instanceof Error && error.message === "content_clip_unavailable") {
+      return embedBadRequest(
+        "clip=content requires an iframe or image node with an inner content viewport",
+      );
+    }
     console.error("canvas_embed", {
       shareSlug: publicSlug,
       version: context.version,
@@ -742,6 +771,11 @@ async function handlePublicEmbed(
         durationMs: Date.now() - startedAt,
       });
       return embedNotFound();
+    }
+    if (message === "content_clip_unavailable") {
+      return embedBadRequest(
+        "clip=content requires an iframe or image node with an inner content viewport",
+      );
     }
     console.error("canvas_embed", {
       shareSlug: publicSlug,

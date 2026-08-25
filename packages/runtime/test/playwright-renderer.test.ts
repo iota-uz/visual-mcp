@@ -127,6 +127,61 @@ test("snapshotCanvas captures one node with padding at the requested scale", asy
   }
 });
 
+test("snapshotCanvas clips to a node's inner content viewport without frame chrome", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-content-");
+  try {
+    const srcDir = path.join(dir, "src");
+    await fs.mkdir(srcDir, { recursive: true });
+    const entrypoint = path.join(srcDir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:700px;height:500px;background:#eee}.vc-node{position:absolute;left:100px;top:80px;width:320px;height:240px;background:#111827}.screen{position:absolute;left:40px;top:60px;width:180px;height:100px;background:#16a34a}</style><div class="vc-world"><div class="vc-node" data-node-id="browser"><div class="screen" data-snapshot-content></div></div></div>`,
+      "utf8",
+    );
+    const outputPath = path.join(dir, "output", "content.png");
+    const result = await snapshotCanvas({
+      entrypoint,
+      outputPath,
+      workspaceRoot: dir,
+      target: { type: "node", nodeId: "browser" },
+      clip: "content",
+      scale: 2,
+    });
+    assert.deepEqual([result.width, result.height], [360, 200]);
+    const pixel = await sharp(await fs.readFile(outputPath))
+      .extract({ left: 10, top: 10, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    assert.deepEqual([...pixel.subarray(0, 3)], [22, 163, 74]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("snapshotCanvas rejects content clipping when a node has no content viewport", async () => {
+  const dir = await mkFixtureDir("pw-snapshot-content-missing-");
+  try {
+    const entrypoint = path.join(dir, "canvas.html");
+    await fs.writeFile(
+      entrypoint,
+      `<!doctype html><style>.vc-world{width:300px;height:200px}.vc-node{width:100px;height:80px}</style><div class="vc-world"><div class="vc-node" data-node-id="native"></div></div>`,
+      "utf8",
+    );
+    await assert.rejects(
+      snapshotCanvas({
+        entrypoint,
+        outputPath: path.join(dir, "output", "content.png"),
+        workspaceRoot: dir,
+        target: { type: "node", nodeId: "native" },
+        clip: "content",
+      }),
+      /content_clip_unavailable/,
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshotCanvas captures addressable groups and stages", async () => {
   const dir = await mkFixtureDir("pw-snapshot-containers-");
   try {

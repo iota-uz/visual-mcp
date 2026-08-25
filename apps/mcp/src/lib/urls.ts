@@ -27,6 +27,7 @@ export function embedPngUrl(
     pageId?: string;
     scale?: 1 | 2;
     padding?: number;
+    clip?: "frame" | "content";
     version?: number;
     revision?: number;
   } = {},
@@ -51,6 +52,7 @@ export function embedPngUrl(
   if (options.revision !== undefined) url.searchParams.set("rev", String(options.revision));
   if (options.scale !== undefined) url.searchParams.set("scale", String(options.scale));
   if (options.padding !== undefined) url.searchParams.set("padding", String(options.padding));
+  if (options.clip === "content") url.searchParams.set("clip", "content");
   return url.toString();
 }
 

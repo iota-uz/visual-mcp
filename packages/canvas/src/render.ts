@@ -140,7 +140,7 @@ function iframeBody(
             time: node.frame.time,
             scale: deviceFrameScale(node.frame.preset, node.w, node.h, node.viewport.height),
           })
-        : `<div class="vc-iframe-viewport" style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
+        : `<div class="vc-iframe-viewport" data-snapshot-content style="width:${node.viewport.width}px;height:${node.viewport.height}px">${frame}</div>`;
   // Both shells draw their own rounded body, so the clip layer must not add
   // a second corner radius over the bezel.
   const radius =
@@ -166,7 +166,7 @@ function imageBody(
    * renders exactly as it always did. `decoding=async` keeps a large
    * screenshot off the main thread either way.
    */
-  return `<div class="vc-image-viewport"><img src="${escapeHtml(url)}" alt="${escapeHtml(node.alt)}" decoding="async" style="object-fit:${node.fit};object-position:${position}" /><p class="vc-image-failure" aria-hidden="true">Image couldn’t be loaded.</p></div>`;
+  return `<div class="vc-image-viewport" data-snapshot-content><img src="${escapeHtml(url)}" alt="${escapeHtml(node.alt)}" decoding="async" style="object-fit:${node.fit};object-position:${position}" /><p class="vc-image-failure" aria-hidden="true">Image couldn’t be loaded.</p></div>`;
 }
 /*
  * Eight handles, not the one south-east dot this used to carry. With only

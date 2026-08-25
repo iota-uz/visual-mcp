@@ -111,18 +111,29 @@ export const SnapshotTargetSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const SnapshotRequestSchema = z.object({
-  sources: z.array(SignedSourceSchema),
-  entrypoint: z.string().min(1),
-  target: SnapshotTargetSchema,
-  padding: z.number().int().min(0).max(256).optional(),
-  scale: z.union([z.literal(1), z.literal(2)]).optional(),
-  readinessTimeoutMs: z.number().int().positive().max(30_000).optional(),
-  upload: SignedUploadSchema,
-  themeTailwindCss: z.string().optional(),
-  themeRuntimeCss: z.string().optional(),
-  themeJson: z.string().optional(),
-});
+export const SnapshotRequestSchema = z
+  .object({
+    sources: z.array(SignedSourceSchema),
+    entrypoint: z.string().min(1),
+    target: SnapshotTargetSchema,
+    clip: z.enum(["frame", "content"]).optional(),
+    padding: z.number().int().min(0).max(256).optional(),
+    scale: z.union([z.literal(1), z.literal(2)]).optional(),
+    readinessTimeoutMs: z.number().int().positive().max(30_000).optional(),
+    upload: SignedUploadSchema,
+    themeTailwindCss: z.string().optional(),
+    themeRuntimeCss: z.string().optional(),
+    themeJson: z.string().optional(),
+  })
+  .superRefine((request, check) => {
+    if (request.clip === "content" && request.target.type !== "node") {
+      check.addIssue({
+        code: "custom",
+        path: ["clip"],
+        message: "clip=content supports only target.type=node",
+      });
+    }
+  });
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
 
 export const SnapshotResponseSchema = z.object({

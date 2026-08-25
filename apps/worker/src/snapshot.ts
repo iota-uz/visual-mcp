@@ -15,6 +15,7 @@ export async function handleSnapshot(req: SnapshotRequest): Promise<SnapshotResp
       entrypoint,
       outputPath,
       target: req.target,
+      clip: req.clip,
       padding: req.padding,
       scale: req.scale,
       readinessTimeoutMs: req.readinessTimeoutMs,

@@ -107,6 +107,7 @@ export interface SnapshotCanvasOptions {
   entrypoint: string;
   outputPath: string;
   target: CanvasSnapshotTarget;
+  clip?: "frame" | "content";
   padding?: number;
   scale?: 1 | 2;
   readinessTimeoutMs?: number;
@@ -201,6 +202,9 @@ export async function snapshotCanvas(
 
       let clip: { x: number; y: number; width: number; height: number };
       let contentOverflow = false;
+      if (options.clip === "content" && options.target.type !== "node") {
+        throw new Error("content_clip_requires_node: clip=content supports only node targets");
+      }
       if (options.target.type === "canvas") {
         clip = worldBox;
       } else if (
@@ -228,24 +232,33 @@ export async function snapshotCanvas(
             const match = nodes.find(
               (candidate) => candidate.getAttribute(args.attribute) === args.targetId,
             );
-            if (!match) return null;
-            const rect = match.getBoundingClientRect();
-            const element = match as HTMLElement;
+            if (!match) return { status: "not_found" as const };
+            const capture = args.contentOnly
+              ? match.querySelector<HTMLElement>("[data-snapshot-content]")
+              : (match as HTMLElement);
+            if (!capture) return { status: "content_unavailable" as const };
+            const rect = capture.getBoundingClientRect();
             return {
+              status: "ok" as const,
               x: rect.x,
               y: rect.y,
               width: rect.width,
               height: rect.height,
               overflow:
-                element.scrollWidth > element.clientWidth ||
-                element.scrollHeight > element.clientHeight,
+                capture.scrollWidth > capture.clientWidth ||
+                capture.scrollHeight > capture.clientHeight,
             };
           },
-          { attribute, targetId },
+          { attribute, targetId, contentOnly: options.clip === "content" },
         );
-        if (!nodeBox) throw new Error(`${targetType}_not_found: ${targetId}`);
+        if (nodeBox.status === "not_found") throw new Error(`${targetType}_not_found: ${targetId}`);
+        if (nodeBox.status === "content_unavailable") {
+          throw new Error(
+            `content_clip_unavailable: node "${targetId}" has no frame or image content viewport`,
+          );
+        }
         contentOverflow = nodeBox.overflow;
-        const padding = options.padding ?? 24;
+        const padding = options.padding ?? (options.clip === "content" ? 0 : 24);
         clip = {
           x: Math.max(0, nodeBox.x - padding),
           y: Math.max(0, nodeBox.y - padding),
