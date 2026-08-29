@@ -47,13 +47,13 @@ describe("private agent gateway", () => {
     const objectResponse = await t.fetch(
       "/agent-gateway",
       request({
-        operation: "query",
-        name: "assets:objectKeyReferenced",
-        args: { objectKey: "blobs/sha256/aa/unreferenced" },
+        operation: "mutation",
+        name: "assets:acquireObjectLease",
+        args: { objectKey: "blobs/sha256/aa/gateway", leaseId: "gateway-lease" },
       }),
     );
     expect(objectResponse.status).toBe(200);
-    await expect(objectResponse.json()).resolves.toEqual({ result: false });
+    await expect(objectResponse.json()).resolves.toEqual({ result: null });
 
     const createdBy = await t.run((ctx) =>
       ctx.db.insert("users", { email: "agent@iota.uz", name: "Agent", lastSeenAt: 0 }),

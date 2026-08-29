@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { requireAssetObjectLease } from "./lib/assetObjects";
 import { formatAssetRef, parseAssetRef } from "./lib/assetRef";
 import {
   ASSET_MAX_BYTES,
@@ -259,6 +260,7 @@ export const commitAssetVersion = internalMutation({
     originalFilename: v.string(),
     sourceType: v.union(v.literal("upload"), v.literal("url"), v.literal("canvas-import")),
     sourceUrl: v.optional(v.string()),
+    objectLeaseId: v.optional(v.string()),
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -266,6 +268,7 @@ export const commitAssetVersion = internalMutation({
     revision: v.number(),
   }),
   handler: async (ctx, args) => {
+    const objectLease = await requireAssetObjectLease(ctx, args.objectKey, args.objectLeaseId);
     const existing =
       args.scope === "personal"
         ? await ctx.db
@@ -328,22 +331,103 @@ export const commitAssetVersion = internalMutation({
       sourceUrl: args.sourceUrl,
       createdBy: args.ownerUserId,
     });
+    if (objectLease) await ctx.db.delete(objectLease._id);
     await ctx.db.patch(assetId, { updatedAt: now });
     if (args.uploadId) await ctx.db.delete(args.uploadId);
     return { assetId, versionId, revision };
   },
 });
 
-/** Checks whether immutable asset metadata already retains an object-store key. */
-export const objectKeyReferenced = internalQuery({
-  args: { objectKey: v.string() },
+/** Acquires a durable preparation lease before object storage is inspected. */
+export const acquireObjectLease = internalMutation({
+  args: { objectKey: v.string(), leaseId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const claim = await ctx.db
+      .query("assetObjectDeletionClaims")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
+      .unique();
+    if (claim) throw new Error("Asset object cleanup is in progress; retry the save");
+    const existing = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_leaseId", (q) => q.eq("leaseId", args.leaseId))
+      .unique();
+    if (existing) {
+      if (existing.objectKey !== args.objectKey) throw new Error("Asset object lease mismatch");
+      return null;
+    }
+    await ctx.db.insert("assetObjectLeases", {
+      objectKey: args.objectKey,
+      leaseId: args.leaseId,
+      createdAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/** Releases a preparation lease when object materialization itself fails. */
+export const releaseObjectLease = internalMutation({
+  args: { objectKey: v.string(), leaseId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const lease = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_leaseId", (q) => q.eq("leaseId", args.leaseId))
+      .unique();
+    if (lease?.objectKey === args.objectKey) await ctx.db.delete(lease._id);
+    return null;
+  },
+});
+
+/**
+ * Releases the caller's lease and atomically claims deletion only when no
+ * revision or other in-flight preparation can retain the object.
+ */
+export const claimObjectDeletion = internalMutation({
+  args: { objectKey: v.string(), leaseId: v.string(), claimId: v.string() },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const version = await ctx.db
+    const existingClaim = await ctx.db
+      .query("assetObjectDeletionClaims")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
+      .unique();
+    if (existingClaim) return existingClaim.claimId === args.claimId;
+    const lease = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_leaseId", (q) => q.eq("leaseId", args.leaseId))
+      .unique();
+    if (!lease || lease.objectKey !== args.objectKey) return false;
+    await ctx.db.delete(lease._id);
+    const reference = await ctx.db
       .query("assetVersions")
       .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
       .first();
-    return version !== null;
+    if (reference) return false;
+    const otherLease = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
+      .first();
+    if (otherLease) return false;
+    await ctx.db.insert("assetObjectDeletionClaims", {
+      objectKey: args.objectKey,
+      claimId: args.claimId,
+      createdAt: Date.now(),
+    });
+    return true;
+  },
+});
+
+/** Releases a deletion claim after the external delete succeeds or aborts. */
+export const finishObjectDeletion = internalMutation({
+  args: { objectKey: v.string(), claimId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const claim = await ctx.db
+      .query("assetObjectDeletionClaims")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
+      .unique();
+    if (claim?.claimId === args.claimId) await ctx.db.delete(claim._id);
+    return null;
   },
 });
 
@@ -381,6 +465,30 @@ async function ensureObject(key: string, bytes: Uint8Array, mimeType: string) {
   else if (!existing.ok) throw new Error(`Unable to inspect object: HTTP ${existing.status}`);
 }
 
+/** Deletes a failed preparation while holding the durable Convex deletion claim. */
+async function discardPreparedObject(
+  ctx: ActionCtx,
+  objectKey: string,
+  leaseId: string,
+  claimId: string,
+): Promise<void> {
+  const claimed: boolean = await ctx.runMutation(internal.assets.claimObjectDeletion, {
+    objectKey,
+    leaseId,
+    claimId,
+  });
+  if (!claimed) return;
+  try {
+    await deleteObject(objectKey);
+  } finally {
+    const finished: null = await ctx.runMutation(internal.assets.finishObjectDeletion, {
+      objectKey,
+      claimId,
+    });
+    void finished;
+  }
+}
+
 export async function persistAsset(
   ctx: ActionCtx,
   input: {
@@ -402,9 +510,26 @@ export async function persistAsset(
 ): Promise<PersistedAsset> {
   const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
   const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
-  await ensureObject(objectKey, validated.bytes, validated.mimeType);
-  const committed: { assetId: Id<"assets">; versionId: Id<"assetVersions">; revision: number } =
-    await ctx.runMutation(internal.assets.commitAssetVersion, {
+  const objectLeaseId = crypto.randomUUID();
+  const cleanupClaimId = crypto.randomUUID();
+  const acquired: null = await ctx.runMutation(internal.assets.acquireObjectLease, {
+    objectKey,
+    leaseId: objectLeaseId,
+  });
+  void acquired;
+  try {
+    await ensureObject(objectKey, validated.bytes, validated.mimeType);
+  } catch (error) {
+    const released: null = await ctx.runMutation(internal.assets.releaseObjectLease, {
+      objectKey,
+      leaseId: objectLeaseId,
+    });
+    void released;
+    throw error;
+  }
+  let committed: { assetId: Id<"assets">; versionId: Id<"assetVersions">; revision: number };
+  try {
+    committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
       uploadId: input.uploadId,
       scope: input.scope,
       ownerUserId: input.ownerUserId,
@@ -422,7 +547,14 @@ export async function persistAsset(
       originalFilename: input.filename,
       sourceType: input.sourceType,
       sourceUrl: input.sourceUrl,
+      objectLeaseId,
     });
+  } catch (error) {
+    await discardPreparedObject(ctx, objectKey, objectLeaseId, cleanupClaimId).catch(
+      () => undefined,
+    );
+    throw error;
+  }
   return {
     ...committed,
     assetRef: formatAssetRef({

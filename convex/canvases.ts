@@ -31,6 +31,7 @@ import {
   type QueryCtx,
   query,
 } from "./_generated/server";
+import { requireAssetObjectLease } from "./lib/assetObjects";
 import { formatAssetRef } from "./lib/assetRef";
 import { ASSET_MIME_TYPES, type AssetKind } from "./lib/assetSecurity";
 import { requireIotaIdentity } from "./lib/auth";
@@ -1140,6 +1141,7 @@ const SaveFileChangeValidator = v.union(
     originalFilename: v.string(),
     slug: v.string(),
     name: v.string(),
+    objectLeaseId: v.optional(v.string()),
   }),
   v.object({ type: v.literal("delete"), path: v.string() }),
 );
@@ -1194,8 +1196,10 @@ async function promoteWorkspaceAsset(
     originalFilename: string;
     slug: string;
     name: string;
+    objectLeaseId?: string;
   },
 ): Promise<PromotedAsset> {
+  const objectLease = await requireAssetObjectLease(ctx, args.objectKey, args.objectLeaseId);
   const boundAsset = args.currentBinding ? await ctx.db.get(args.currentBinding.assetId) : null;
   const reusable =
     boundAsset?.scope === "workspace" &&
@@ -1252,6 +1256,7 @@ async function promoteWorkspaceAsset(
         sourceType: "canvas-import",
         createdBy: args.createdBy,
       });
+  if (objectLease) await ctx.db.delete(objectLease._id);
   return {
     path: args.path,
     assetId,
@@ -1534,6 +1539,7 @@ export const commitSaveContent = internalMutation({
           originalFilename: change.originalFilename,
           slug: change.slug,
           name: change.name,
+          objectLeaseId: change.objectLeaseId,
         });
         if (sourceStorageId) {
           await ctx.db.insert("canvasAssetPromotions", {

@@ -52,15 +52,14 @@ export async function fetchAssetImport(raw: string) {
   }
 }
 
-/** Materializes a content-addressed object and reports whether this call created it. */
-async function ensureObject(key: string, bytes: Uint8Array, mimeType: string): Promise<boolean> {
+/** Materializes a content-addressed object while its Convex lease is active. */
+async function ensureObject(key: string, bytes: Uint8Array, mimeType: string): Promise<void> {
   const existing = await headObject(key);
   if (existing.status === 404) {
     await putObject(key, bytes, mimeType);
-    return true;
+    return;
   }
   if (!existing.ok) throw new Error(`Unable to inspect object: HTTP ${existing.status}`);
-  return false;
 }
 
 export type PreparedAssetObject = {
@@ -70,7 +69,8 @@ export type PreparedAssetObject = {
   size: number;
   kind: AssetKind;
   originalFilename: string;
-  createdObject: boolean;
+  objectLeaseId: string;
+  cleanupClaimId: string;
 };
 
 /**
@@ -79,13 +79,27 @@ export type PreparedAssetObject = {
  * create the workspace asset and its canvas binding in the same transaction.
  */
 export async function prepareAssetObject(input: {
+  ctx: ActionCtx;
   filename: string;
   rawBytes: Uint8Array;
   declaredMime: string;
 }): Promise<PreparedAssetObject> {
   const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
   const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
-  const createdObject = await ensureObject(objectKey, validated.bytes, validated.mimeType);
+  const objectLeaseId = crypto.randomUUID();
+  const cleanupClaimId = crypto.randomUUID();
+  await input.ctx.runMutation(internal.assets.acquireObjectLease, {
+    objectKey,
+    leaseId: objectLeaseId,
+  });
+  try {
+    await ensureObject(objectKey, validated.bytes, validated.mimeType);
+  } catch (error) {
+    await input.ctx
+      .runMutation(internal.assets.releaseObjectLease, { objectKey, leaseId: objectLeaseId })
+      .catch(() => undefined);
+    throw error;
+  }
   return {
     objectKey,
     contentHash: validated.contentHash,
@@ -93,24 +107,34 @@ export async function prepareAssetObject(input: {
     size: validated.bytes.byteLength,
     kind: validated.kind,
     originalFilename: input.filename,
-    createdObject,
+    objectLeaseId,
+    cleanupClaimId,
   };
 }
 
 /**
- * Removes an object created during preparation only when no immutable asset
- * revision references it. Pre-existing content-addressed objects are never
- * candidates for failed-save cleanup.
+ * Atomically releases the preparation lease and claims deletion only when no
+ * revision or other in-flight preparation retains the key. The durable claim
+ * prevents an asset-version insert from racing the external delete.
  */
 export async function discardPreparedAssetObject(
   ctx: ActionCtx,
   prepared: PreparedAssetObject,
 ): Promise<void> {
-  if (!prepared.createdObject) return;
-  const referenced = await ctx.runQuery(internal.assets.objectKeyReferenced, {
+  const claimed = await ctx.runMutation(internal.assets.claimObjectDeletion, {
     objectKey: prepared.objectKey,
+    leaseId: prepared.objectLeaseId,
+    claimId: prepared.cleanupClaimId,
   });
-  if (!referenced) await deleteObject(prepared.objectKey);
+  if (!claimed) return;
+  try {
+    await deleteObject(prepared.objectKey);
+  } finally {
+    await ctx.runMutation(internal.assets.finishObjectDeletion, {
+      objectKey: prepared.objectKey,
+      claimId: prepared.cleanupClaimId,
+    });
+  }
 }
 
 export async function persistAsset(
@@ -133,6 +157,7 @@ export async function persistAsset(
   },
 ) {
   const prepared = await prepareAssetObject({
+    ctx,
     filename: input.filename,
     rawBytes: input.rawBytes,
     declaredMime: input.declaredMime,
@@ -157,6 +182,7 @@ export async function persistAsset(
       originalFilename: input.filename,
       sourceType: input.sourceType,
       sourceUrl: input.sourceUrl,
+      objectLeaseId: prepared.objectLeaseId,
     });
   } catch (error) {
     await discardPreparedAssetObject(ctx, prepared).catch(() => undefined);

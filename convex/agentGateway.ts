@@ -6,6 +6,8 @@ type GatewayFunction = FunctionReference<"query" | "mutation", "internal">;
 
 const FUNCTIONS: Record<string, GatewayFunction> = {
   "assets:archiveByRef": internal.assets.archiveByRef,
+  "assets:acquireObjectLease": internal.assets.acquireObjectLease,
+  "assets:claimObjectDeletion": internal.assets.claimObjectDeletion,
   "assets:commitAssetVersion": internal.assets.commitAssetVersion,
   "assets:createUploads": internal.assets.createUploads,
   "assets:getUpload": internal.assets.getUpload,
@@ -13,7 +15,8 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "assets:getWorkspaceBySlug": internal.assets.getWorkspaceBySlug,
   "assets:listInternal": internal.assets.listInternal,
   "assets:moveByRef": internal.assets.moveByRef,
-  "assets:objectKeyReferenced": internal.assets.objectKeyReferenced,
+  "assets:finishObjectDeletion": internal.assets.finishObjectDeletion,
+  "assets:releaseObjectLease": internal.assets.releaseObjectLease,
   "assets:resolveRef": internal.assets.resolveRef,
   "assets:restoreByRef": internal.assets.restoreByRef,
   "canvases:attachCanvasRender": internal.canvases.attachCanvasRender,
@@ -59,7 +62,6 @@ const QUERIES = new Set([
   "assets:getWorkspace",
   "assets:getWorkspaceBySlug",
   "assets:listInternal",
-  "assets:objectKeyReferenced",
   "assets:resolveRef",
   "canvases:changedPathsSinceVersion",
   "canvases:currentDocStorageByRef",

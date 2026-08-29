@@ -7,7 +7,7 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 describe("Asset Library bindings", () => {
-  test("finds object-store keys retained by immutable revisions", async () => {
+  test("serializes object cleanup with asset-version creation", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) =>
       ctx.db.insert("users", {
@@ -16,6 +16,43 @@ describe("Asset Library bindings", () => {
         lastSeenAt: 0,
       }),
     );
+    const objectKey = "blobs/sha256/aa/serialized";
+    await t.mutation(internal.assets.acquireObjectLease, {
+      objectKey,
+      leaseId: "cleanup-lease",
+    });
+    await expect(
+      t.mutation(internal.assets.claimObjectDeletion, {
+        objectKey,
+        leaseId: "cleanup-lease",
+        claimId: "cleanup-claim",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      t.mutation(internal.assets.commitAssetVersion, {
+        scope: "personal",
+        ownerUserId: userId,
+        slug: "blocked",
+        name: "Blocked",
+        tags: [],
+        kind: "image",
+        objectKey,
+        contentHash: "serialized",
+        mimeType: "image/png",
+        size: 1,
+        originalFilename: "serialized.png",
+        sourceType: "upload",
+      }),
+    ).rejects.toThrow(/cleanup is in progress/);
+
+    await t.mutation(internal.assets.finishObjectDeletion, {
+      objectKey,
+      claimId: "cleanup-claim",
+    });
+    await t.mutation(internal.assets.acquireObjectLease, {
+      objectKey,
+      leaseId: "commit-lease",
+    });
     await t.mutation(internal.assets.commitAssetVersion, {
       scope: "personal",
       ownerUserId: userId,
@@ -23,22 +60,23 @@ describe("Asset Library bindings", () => {
       name: "Retained",
       tags: [],
       kind: "image",
-      objectKey: "blobs/sha256/aa/retained",
-      contentHash: "retained",
+      objectKey,
+      contentHash: "serialized",
       mimeType: "image/png",
       size: 1,
-      originalFilename: "retained.png",
+      originalFilename: "serialized.png",
       sourceType: "upload",
+      objectLeaseId: "commit-lease",
     });
-
+    await t.mutation(internal.assets.acquireObjectLease, {
+      objectKey,
+      leaseId: "late-cleanup-lease",
+    });
     await expect(
-      t.query(internal.assets.objectKeyReferenced, {
-        objectKey: "blobs/sha256/aa/retained",
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      t.query(internal.assets.objectKeyReferenced, {
-        objectKey: "blobs/sha256/bb/unreferenced",
+      t.mutation(internal.assets.claimObjectDeletion, {
+        objectKey,
+        leaseId: "late-cleanup-lease",
+        claimId: "late-cleanup-claim",
       }),
     ).resolves.toBe(false);
   });

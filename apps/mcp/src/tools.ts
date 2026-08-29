@@ -775,6 +775,7 @@ type PreparedSaveChange =
       originalFilename: string;
       slug: string;
       name: string;
+      objectLeaseId: string;
     }
   | { type: "delete"; path: string };
 
@@ -958,6 +959,7 @@ async function prepareSaveFiles(
         const originalFilename = relPath.split("/").pop() || "asset";
         const baseName = originalFilename.replace(/\.[^.]+$/, "") || originalFilename;
         const prepared = await prepareAssetObject({
+          ctx,
           filename: originalFilename,
           rawBytes: bytes,
           declaredMime: mime,
@@ -975,6 +977,7 @@ async function prepareSaveFiles(
           originalFilename,
           slug: slugify(baseName),
           name: baseName,
+          objectLeaseId: prepared.objectLeaseId,
         });
         filesWritten.push({ path: displayPath, size_bytes: prepared.size });
         continue;

@@ -116,6 +116,23 @@ export default defineSchema({
     .index("by_content_hash", ["contentHash"])
     .index("by_objectKey", ["objectKey"]),
 
+  // A preparation lease keeps failed-save cleanup from deleting an object
+  // another in-flight save is about to reference. Deletion claims serialize
+  // the external S3 delete with every asset-version insertion.
+  assetObjectLeases: defineTable({
+    objectKey: v.string(),
+    leaseId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_objectKey", ["objectKey"])
+    .index("by_leaseId", ["leaseId"]),
+
+  assetObjectDeletionClaims: defineTable({
+    objectKey: v.string(),
+    claimId: v.string(),
+    createdAt: v.number(),
+  }).index("by_objectKey", ["objectKey"]),
+
   assetUploads: defineTable({
     scope: v.union(v.literal("personal"), v.literal("workspace")),
     ownerUserId: v.optional(v.id("users")),
