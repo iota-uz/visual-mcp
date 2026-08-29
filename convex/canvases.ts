@@ -1180,7 +1180,7 @@ async function collisionSafeAssetSlug(
   throw new Error(`Unable to allocate an asset slug for ${requested}`);
 }
 
-async function promoteWorkspaceAsset(
+export async function promoteWorkspaceAsset(
   ctx: MutationCtx,
   args: {
     canvas: Doc<"canvases">;

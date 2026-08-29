@@ -36,6 +36,7 @@ import type * as lib_theme from "../lib/theme.js";
 import type * as lib_tokenFormat from "../lib/tokenFormat.js";
 import type * as lib_urls from "../lib/urls.js";
 import type * as lib_worker from "../lib/worker.js";
+import type * as migrations from "../migrations.js";
 import type * as seed from "../seed.js";
 import type * as tokens from "../tokens.js";
 import type * as users from "../users.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   "lib/tokenFormat": typeof lib_tokenFormat;
   "lib/urls": typeof lib_urls;
   "lib/worker": typeof lib_worker;
+  migrations: typeof migrations;
   seed: typeof seed;
   tokens: typeof tokens;
   users: typeof users;
@@ -110,4 +112,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
 };

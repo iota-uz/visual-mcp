@@ -167,6 +167,33 @@ export default defineSchema({
     .index("by_source_storage_id", ["sourceStorageId"])
     .index("by_canvas", ["canvasId"]),
 
+  // Durable staging for the one-time migration from legacy canvas-local
+  // /assets files to reusable workspace assets. The stateful migrations
+  // component removes each row when its matching canvas file is converted.
+  legacyCanvasAssetPreparations: defineTable({
+    canvasFileId: v.id("canvasFiles"),
+    canvasId: v.id("canvases"),
+    relPath: v.string(),
+    objectKey: v.string(),
+    contentHash: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    kind: v.union(
+      v.literal("image"),
+      v.literal("svg"),
+      v.literal("font"),
+      v.literal("video"),
+      v.literal("data"),
+    ),
+    originalFilename: v.string(),
+    slug: v.string(),
+    name: v.string(),
+    objectLeaseId: v.string(),
+    preparedAt: v.number(),
+  })
+    .index("by_canvasFileId", ["canvasFileId"])
+    .index("by_canvas", ["canvasId"]),
+
   canvasVersionAssets: defineTable({
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),

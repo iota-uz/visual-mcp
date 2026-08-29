@@ -31,6 +31,7 @@
   "dependencies": {
     "@auth/core": "^0.41.3",
     "@convex-dev/auth": "^0.0.95",
+    "@convex-dev/migrations": "^0.3.6",
     "@convex-dev/rate-limiter": "^0.3.2",
     "aws4fetch": "^1.0.20",
     "convex": "1.45.0"
