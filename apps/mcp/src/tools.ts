@@ -1,6 +1,7 @@
 /**
- * The MCP surface is split between canvas lifecycle, incremental editing,
- * and the reusable Asset Library.
+ * The MCP surface covers canvas lifecycle, incremental editing, and reusable
+ * media. Supported media written under /assets is promoted to the workspace
+ * library automatically; explicit asset tools cover library-only work.
  *
  * v1's tools mirrored the data model one verb at a time — create_workspace,
  * create_canvas, write_file, render_file, publish_canvas, get_canvas — so
@@ -72,7 +73,13 @@ import {
 import { z } from "zod";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 import type { ActionCtx } from "../../../convex/_generated/server.js";
-import { fetchAssetImport, persistAsset } from "./assets.js";
+import {
+  discardPreparedAssetObject,
+  fetchAssetImport,
+  type PreparedAssetObject,
+  persistAsset,
+  prepareAssetObject,
+} from "./assets.js";
 import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
 import { MCP_GUIDES } from "./guides.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
@@ -587,7 +594,7 @@ const FileInputSchema = z
       .string()
       .optional()
       .describe(
-        "storageId returned by canvas_upload_url. The way to attach large or binary files.",
+        "storageId returned by canvas_upload_url. Supported media at /assets paths becomes a reusable workspace asset automatically.",
       ),
     asset_ref: z
       .string()
@@ -742,15 +749,55 @@ function scanNodeOverlaps(
   return warnings;
 }
 
+type PreparedSaveChange =
+  | {
+      type: "write";
+      path: string;
+      storageId: Id<"_storage">;
+      size: number;
+      contentHash: string;
+    }
+  | {
+      type: "asset";
+      path: string;
+      assetId: Id<"assets">;
+      assetVersionId: Id<"assetVersions">;
+    }
+  | {
+      type: "promote";
+      path: string;
+      sourceStorageId?: Id<"_storage">;
+      objectKey: string;
+      contentHash: string;
+      mimeType: string;
+      size: number;
+      kind: "image" | "svg" | "font" | "video" | "data";
+      originalFilename: string;
+      slug: string;
+      name: string;
+      objectLeaseId: string;
+    }
+  | { type: "delete"; path: string };
+
+type PreparedFileResult = {
+  path: string;
+  size_bytes: number;
+  asset_ref?: string;
+};
+
+function reusableMime(path: string, contentType?: string): string | null {
+  if (!path.startsWith("/assets/")) return null;
+  const supplied = contentType?.split(";")[0]?.trim().toLowerCase();
+  const inferred = inferArtifactInfo(path).mime.split(";")[0]?.trim().toLowerCase();
+  const mime = supplied && supplied !== "application/octet-stream" ? supplied : inferred;
+  return mime && mime in ASSET_MIME_TYPES ? mime : null;
+}
+
 /**
- * Resolves all `FileInput`s to immutable blobs/bindings without changing the
- * canvas. `commitSaveContent` consumes the returned batch transactionally.
- *
- * The three input modes exist because the alternatives all failed in
- * practice: `text` alone forced a 3.5MB document through a JSON-RPC argument
- * (which meant hand-rolling a raw HTTP call to get it in at all), and there
- * was no binary path whatsoever, so images had to be base64-inlined into the
- * HTML — tripling the payload and burning the caller's context.
+ * Resolves all `FileInput`s without changing the canvas. Supported media
+ * under /assets is validated and copied into content-addressed object
+ * storage; `commitSaveContent` creates the workspace asset, immutable
+ * revision, and canvas binding in the same database transaction.
  */
 async function prepareSaveFiles(
   ctx: ActionCtx,
@@ -758,45 +805,17 @@ async function prepareSaveFiles(
   userId: Id<"users">,
   files: FileInput[],
 ): Promise<{
-  changes: Array<
-    | {
-        type: "write";
-        path: string;
-        storageId: Id<"_storage">;
-        size: number;
-        contentHash: string;
-      }
-    | {
-        type: "asset";
-        path: string;
-        assetId: Id<"assets">;
-        assetVersionId: Id<"assetVersions">;
-      }
-    | { type: "delete"; path: string }
-  >;
-  filesWritten: Array<{ path: string; size_bytes: number }>;
+  changes: PreparedSaveChange[];
+  filesWritten: PreparedFileResult[];
   writtenText: Array<{ path: string; text: string }>;
   stored: Id<"_storage">[];
+  preparedAssets: PreparedAssetObject[];
 }> {
-  const changes: Array<
-    | {
-        type: "write";
-        path: string;
-        storageId: Id<"_storage">;
-        size: number;
-        contentHash: string;
-      }
-    | {
-        type: "asset";
-        path: string;
-        assetId: Id<"assets">;
-        assetVersionId: Id<"assetVersions">;
-      }
-    | { type: "delete"; path: string }
-  > = [];
-  const filesWritten: Array<{ path: string; size_bytes: number }> = [];
+  const changes: PreparedSaveChange[] = [];
+  const filesWritten: PreparedFileResult[] = [];
   const writtenText: Array<{ path: string; text: string }> = [];
   const stored: Id<"_storage">[] = [];
+  const preparedAssets: PreparedAssetObject[] = [];
   try {
     for (const file of files) {
       const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
@@ -832,15 +851,42 @@ async function prepareSaveFiles(
           assetId: asset.assetId,
           assetVersionId: asset.assetVersionId,
         });
-        filesWritten.push({ path: displayPath, size_bytes: asset.size });
+        filesWritten.push({
+          path: displayPath,
+          size_bytes: asset.size,
+          asset_ref: asset.assetRef,
+        });
         continue;
       }
 
-      let storageId: Id<"_storage">;
+      let storageId: Id<"_storage"> | undefined;
       let size: number;
       let contentHash: string;
+      let bytes: Uint8Array | undefined;
+      let mime: string | null;
       if (file.upload_id) {
         storageId = file.upload_id as Id<"_storage">;
+        if (displayPath.startsWith("/assets/")) {
+          const replay = await ctx.runQuery(internal.canvases.promotedUploadReplay, {
+            canvasId,
+            path: displayPath,
+            sourceStorageId: storageId,
+          });
+          if (replay) {
+            changes.push({
+              type: "asset",
+              path: displayPath,
+              assetId: replay.assetId,
+              assetVersionId: replay.assetVersionId,
+            });
+            filesWritten.push({
+              path: displayPath,
+              size_bytes: replay.size,
+              asset_ref: replay.assetRef,
+            });
+            continue;
+          }
+        }
         const attachment = await ctx.runQuery(internal.canvases.storageAttachment, { storageId });
         const isReplay =
           attachment?.scope === "file" &&
@@ -858,34 +904,97 @@ async function prepareSaveFiles(
             path: displayPath,
           });
           if (!existing) throw new Error(`Unable to resolve replayed upload ${displayPath}`);
-          size = existing.size;
-          contentHash = existing.contentHash;
-        } else {
-          const metadata = await ctx.storage.getMetadata(storageId);
-          if (!metadata) {
-            throw new Error(
-              `upload_id "${file.upload_id}" does not exist. Upload bytes first, then pass the returned storageId.`,
-            );
+          changes.push({
+            type: "write",
+            path: displayPath,
+            storageId,
+            size: existing.size,
+            contentHash: existing.contentHash,
+          });
+          filesWritten.push({ path: displayPath, size_bytes: existing.size });
+          continue;
+        }
+        const metadata = await ctx.storage.getMetadata(storageId);
+        if (!metadata) {
+          throw new Error(
+            `upload_id "${file.upload_id}" does not exist. Upload bytes first, then pass the returned storageId.`,
+          );
+        }
+        size = metadata.size;
+        contentHash = metadata.sha256;
+        mime = reusableMime(displayPath, metadata.contentType ?? undefined);
+        if (mime) {
+          if (metadata.size > ASSET_MAX_BYTES) {
+            throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
           }
-          size = metadata.size;
-          contentHash = metadata.sha256;
+          const blob = await ctx.storage.get(storageId);
+          if (!blob) throw new Error(`Unable to read uploaded bytes for ${displayPath}`);
+          bytes = new Uint8Array(await blob.arrayBuffer());
         }
       } else {
         const text = file.text as string;
-        const bytes = new TextEncoder().encode(text);
-        const { mime } = inferArtifactInfo(relPath);
-        storageId = await ctx.storage.store(new Blob([bytes], { type: mime }));
-        stored.push(storageId);
+        bytes = new TextEncoder().encode(text);
+        const inferred = inferArtifactInfo(relPath).mime;
         size = bytes.byteLength;
         contentHash = await sha256Hex(text);
         writtenText.push({ path: displayPath, text });
+        mime = reusableMime(displayPath, inferred);
+        if (!mime) {
+          storageId = await ctx.storage.store(
+            new Blob(
+              [
+                bytes.buffer.slice(
+                  bytes.byteOffset,
+                  bytes.byteOffset + bytes.byteLength,
+                ) as ArrayBuffer,
+              ],
+              { type: inferred },
+            ),
+          );
+          stored.push(storageId);
+        }
       }
+
+      if (mime && bytes) {
+        const originalFilename = relPath.split("/").pop() || "asset";
+        const baseName = originalFilename.replace(/\.[^.]+$/, "") || originalFilename;
+        const prepared = await prepareAssetObject({
+          ctx,
+          filename: originalFilename,
+          rawBytes: bytes,
+          declaredMime: mime,
+        });
+        preparedAssets.push(prepared);
+        changes.push({
+          type: "promote",
+          path: displayPath,
+          sourceStorageId: file.upload_id ? storageId : undefined,
+          objectKey: prepared.objectKey,
+          contentHash: prepared.contentHash,
+          mimeType: prepared.mimeType,
+          size: prepared.size,
+          kind: prepared.kind,
+          originalFilename,
+          slug: slugify(baseName),
+          name: baseName,
+          objectLeaseId: prepared.objectLeaseId,
+        });
+        filesWritten.push({ path: displayPath, size_bytes: prepared.size });
+        continue;
+      }
+
+      if (!storageId) throw new Error(`Unable to store ${displayPath}`);
       changes.push({ type: "write", path: displayPath, storageId, size, contentHash });
       filesWritten.push({ path: displayPath, size_bytes: size });
     }
-    return { changes, filesWritten, writtenText, stored };
+    return { changes, filesWritten, writtenText, stored, preparedAssets };
   } catch (error) {
-    await Promise.all(stored.map((storageId) => ctx.storage.delete(storageId)));
+    await Promise.all([
+      ...stored.map((storageId) => ctx.storage.delete(storageId)),
+      ...preparedAssets.map((prepared) =>
+        discardPreparedAssetObject(ctx, prepared).catch(() => undefined),
+      ),
+    ]);
     throw error;
   }
 }
@@ -1681,7 +1790,9 @@ const SaveOutputSchema = z.object({
       github_markdown: z.string(),
     })
     .nullable(),
-  files_written: z.array(z.object({ path: z.string(), size_bytes: z.number() })),
+  files_written: z.array(
+    z.object({ path: z.string(), size_bytes: z.number(), asset_ref: z.string().optional() }),
+  ),
   artifacts: z.array(
     z.object({
       path: z.string(),
@@ -1955,6 +2066,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           changed: boolean;
           draftRevision: number;
           dirty: boolean;
+          promotedAssets: Array<{
+            path: string;
+            assetId: Id<"assets">;
+            assetVersionId: Id<"assetVersions">;
+            revision: number;
+            assetRef: string;
+          }>;
         } | null = null;
         try {
           preparedFiles = await prepareSaveFiles(
@@ -2014,6 +2132,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
               ctx.storage.delete(storageId).catch(() => undefined),
             ),
           );
+          await Promise.all(
+            (preparedFiles?.preparedAssets ?? []).map((prepared) =>
+              discardPreparedAssetObject(ctx, prepared).catch(() => undefined),
+            ),
+          );
           if (upserted.created) {
             await ctx
               .runMutation(internal.canvases.removeByRef, {
@@ -2026,7 +2149,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           throw error;
         }
 
-        const filesWritten = preparedFiles?.filesWritten ?? [];
+        const promotedRefByPath = new Map(
+          (committed?.promotedAssets ?? []).map((asset) => [asset.path, asset.assetRef]),
+        );
+        const filesWritten = (preparedFiles?.filesWritten ?? []).map((file) => ({
+          ...file,
+          asset_ref: file.asset_ref ?? promotedRefByPath.get(file.path),
+        }));
         const writtenText = preparedFiles?.writtenText ?? [];
 
         // --- unresolved-reference scan, before rendering ---
@@ -5576,11 +5705,12 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   server.registerTool(
     "canvas_upload_url",
     {
-      title: "Get an upload URL",
+      title: "Upload files for a canvas save",
       description:
-        "Returns short-lived URLs for uploading one or up to 50 canvas files out of band. POST " +
-        "each file's raw bytes, read storageId from each JSON response, then pass those values as " +
-        "files[].upload_id in one canvas_save. This keeps bytes out of the conversation.",
+        "Returns short-lived URLs for uploading one or up to 50 files out of band. POST each " +
+        "file's raw bytes, read storageId from each JSON response, then pass those values as " +
+        "files[].upload_id in one canvas_save. Supported media at /assets paths becomes reusable " +
+        "workspace assets automatically; /src source and /output artifacts remain canvas-local.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.union([
         z
@@ -5633,7 +5763,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             })),
           ),
           instructions:
-            'POST each file to upload_url with its Content-Type. Each response is {"storageId":"..."}; pass each value as upload_id at the matching path in one canvas_save.',
+            'POST each file to upload_url with its Content-Type. Each response is {"storageId":"..."}; pass each value as upload_id at the matching path in one canvas_save. Supported /assets media is added to the workspace library automatically.',
         });
       }),
   );

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { internal } from "./_generated/api";
 import { sha256Hex } from "./lib/hash";
 import schema from "./schema";
 
@@ -39,6 +40,43 @@ describe("private agent gateway", () => {
       request({ operation: "query", name: "users:listMine", args: {} }),
     );
     expect(response.status).toBe(404);
+  });
+
+  test("exposes asset cleanup and promoted upload lookups to the MCP gateway", async () => {
+    const t = convexTest(schema, modules);
+    const objectResponse = await t.fetch(
+      "/agent-gateway",
+      request({
+        operation: "mutation",
+        name: "assets:acquireObjectLease",
+        args: { objectKey: "blobs/sha256/aa/gateway", leaseId: "gateway-lease" },
+      }),
+    );
+    expect(objectResponse.status).toBe(200);
+    await expect(objectResponse.json()).resolves.toEqual({ result: null });
+
+    const createdBy = await t.run((ctx) =>
+      ctx.db.insert("users", { email: "agent@iota.uz", name: "Agent", lastSeenAt: 0 }),
+    );
+    const { canvasId } = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "sandbox/replay-check",
+      createdBy,
+    });
+    const sourceStorageId = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["staged"], { type: "image/png" })),
+    );
+
+    const response = await t.fetch(
+      "/agent-gateway",
+      request({
+        operation: "query",
+        name: "canvases:promotedUploadReplay",
+        args: { canvasId, path: "/assets/staged.png", sourceStorageId },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ result: null });
   });
 
   test("validates MCP bearer hashes and returns only the principal", async () => {

@@ -35,7 +35,7 @@ immutable `asset://` refs.
 | `canvas_find` | Cursor-paginates and searches workspaces, canvases, and CanvasDoc node text. |
 | `canvas_delete` | Archives a workspace/canvas by default or purges it explicitly. Individual files/artifacts have no archive state and require `path` plus `purge:true`. |
 | `canvas_run` | Executes resource-limited JS/TS against canvas files; `/output` becomes artifacts. |
-| `canvas_upload_url` | Batch (up to 50) per-canvas out-of-band upload manifest; finalize all returned storage IDs in one `canvas_save`. |
+| `canvas_upload_url` | Batch (up to 50) out-of-band upload manifest; finalize all returned storage IDs in one `canvas_save`. Supported media saved under `/assets` automatically becomes reusable workspace assets. |
 | `asset_list` / `asset_get` | Cursor-paginates reusable personal/workspace media; `asset_get` can return image content directly to the model. |
 | `asset_upload_url` / `asset_finalize` | Batch (up to 50) direct-to-S3 upload and per-item resumable finalize results. |
 | `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
@@ -44,13 +44,13 @@ immutable `asset://` refs.
 | `asset_delete` | Archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
 | `asset_restore` | Restores an archived asset to its original library without uploading bytes or changing immutable versions and bindings. |
 
-Canvas-private `/assets` files and the reusable Asset Library are distinct on purpose: `canvas_upload_url` only stages files for one canvas, while `asset_upload_url` creates reusable Library items. Both return an `uploads` manifest with an explicit HTTP method; follow that method instead of assuming the protocols are interchangeable.
+Supported media saved under `/assets` is workspace-reusable by default: `canvas_save` creates an immutable workspace asset revision, pins it at the requested canvas path, and returns its `asset_ref`. `/src` source and `/output` artifacts remain canvas-local. Use `asset_upload_url` only when adding media directly to a personal/workspace library without a canvas, and use `asset_ref` to pin existing library media without uploading bytes again. Upload manifests always declare their HTTP method.
 
 ### CanvasFile v3 Pages, prototype, and CanvasDoc v2 worlds
 
 Native canvases write `CanvasFile` version 3. It contains one or more ordered Pages, each with a stable id and its own CanvasDoc v2 world, plus one canvas-level prototype whose interactions may cross Pages. Checkpoints and restore always cover the whole file. Signed and public links focus a Page with `?page=<id>`; Present uses `/c/:canvasId/present` or `/s/:slug/present` and stable `page`/`node` parameters.
 
-CanvasDoc v2 uses explicit `world` and `rect` geometry and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to a canvas file or Asset Library binding, support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the file via `canvas_save({ kind: "canvas", doc: canvasFile, files })`. External iframe URLs and `allow-same-origin` are rejected.
+CanvasDoc v2 uses explicit `world` and `rect` geometry and anchor-to-anchor edges. A node is structured `native` content, a local interactive `iframe`, or a static `image`. Image nodes point to reusable media pinned under `/assets` (or canvas-local source under `/src`), support `contain|cover|fill|none`, focal position, and required alt text—so screenshot galleries do not need wrapper HTML or iframe readiness. Iframe entrypoints are restricted to `/src/screens/*.html`, use hash routes, fixed viewports, typed sandbox/Permissions Policy values, and are uploaded atomically with the file via `canvas_save({ kind: "canvas", doc: canvasFile, files })`. External iframe URLs and `allow-same-origin` are rejected.
 
 Draft writes are durable and concurrency-safe through `draft_revision`; they do not become visible Versions. Use `canvas_checkpoint` or the UI’s **Create checkpoint** action for meaningful milestones. Publishing always checkpoints first. Newer draft work remains private until the next checkpoint; on an already-public canvas that checkpoint also advances public readers, share previews, and embeds.
 

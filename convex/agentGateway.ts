@@ -6,6 +6,8 @@ type GatewayFunction = FunctionReference<"query" | "mutation", "internal">;
 
 const FUNCTIONS: Record<string, GatewayFunction> = {
   "assets:archiveByRef": internal.assets.archiveByRef,
+  "assets:acquireObjectLease": internal.assets.acquireObjectLease,
+  "assets:claimObjectDeletion": internal.assets.claimObjectDeletion,
   "assets:commitAssetVersion": internal.assets.commitAssetVersion,
   "assets:createUploads": internal.assets.createUploads,
   "assets:getUpload": internal.assets.getUpload,
@@ -13,6 +15,8 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "assets:getWorkspaceBySlug": internal.assets.getWorkspaceBySlug,
   "assets:listInternal": internal.assets.listInternal,
   "assets:moveByRef": internal.assets.moveByRef,
+  "assets:finishObjectDeletion": internal.assets.finishObjectDeletion,
+  "assets:releaseObjectLease": internal.assets.releaseObjectLease,
   "assets:resolveRef": internal.assets.resolveRef,
   "assets:restoreByRef": internal.assets.restoreByRef,
   "canvases:attachCanvasRender": internal.canvases.attachCanvasRender,
@@ -36,6 +40,7 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "canvases:listSourcesForVersion": internal.canvases.listSourcesForVersion,
   "canvases:logRender": internal.canvases.logRender,
   "canvases:putSnapshotCache": internal.canvases.putSnapshotCache,
+  "canvases:promotedUploadReplay": internal.canvases.promotedUploadReplay,
   "canvases:recordExecArtifacts": internal.canvases.recordExecArtifacts,
   "canvases:removeByRef": internal.canvases.removeByRef,
   "canvases:snapshotContextByRef": internal.canvases.snapshotContextByRef,
@@ -72,6 +77,7 @@ const QUERIES = new Set([
   "canvases:listAssetBindingPaths",
   "canvases:listFilesForCanvas",
   "canvases:listSourcesForVersion",
+  "canvases:promotedUploadReplay",
   "canvases:snapshotContextByRef",
   "canvases:storageAttachment",
   "embeds:resolveContextByRef",

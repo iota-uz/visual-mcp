@@ -80,6 +80,11 @@ export default defineSchema({
     ),
     searchText: v.string(),
     createdBy: v.id("users"),
+    // Set for assets created implicitly by a canvas /assets/** write. These
+    // fields are provenance only: the asset belongs to the workspace and
+    // remains reusable even if the originating canvas is later archived.
+    originCanvasId: v.optional(v.id("canvases")),
+    originPath: v.optional(v.string()),
     updatedAt: v.number(),
     archivedAt: v.optional(v.number()),
   })
@@ -87,6 +92,7 @@ export default defineSchema({
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
     .index("by_owner_slug", ["ownerUserId", "slug"])
     .index("by_workspace_slug", ["workspaceId", "slug"])
+    .index("by_origin_canvas_and_path", ["originCanvasId", "originPath"])
     .searchIndex("search_text", {
       searchField: "searchText",
       filterFields: ["scope", "ownerUserId", "workspaceId", "kind"],
@@ -107,7 +113,25 @@ export default defineSchema({
     createdBy: v.id("users"),
   })
     .index("by_asset_revision", ["assetId", "revision"])
-    .index("by_content_hash", ["contentHash"]),
+    .index("by_content_hash", ["contentHash"])
+    .index("by_objectKey", ["objectKey"]),
+
+  // A preparation lease keeps failed-save cleanup from deleting an object
+  // another in-flight save is about to reference. Deletion claims serialize
+  // the external S3 delete with every asset-version insertion.
+  assetObjectLeases: defineTable({
+    objectKey: v.string(),
+    leaseId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_objectKey", ["objectKey"])
+    .index("by_leaseId", ["leaseId"]),
+
+  assetObjectDeletionClaims: defineTable({
+    objectKey: v.string(),
+    claimId: v.string(),
+    createdAt: v.number(),
+  }).index("by_objectKey", ["objectKey"]),
 
   assetUploads: defineTable({
     scope: v.union(v.literal("personal"), v.literal("workspace")),
@@ -130,6 +154,18 @@ export default defineSchema({
   })
     .index("by_canvas_path", ["canvasId", "logicalPath"])
     .index("by_asset", ["assetId"]),
+
+  // Idempotency ledger for canvas_upload_url handles promoted into reusable
+  // assets. Multiple staging handles may resolve to one immutable revision.
+  canvasAssetPromotions: defineTable({
+    sourceStorageId: v.id("_storage"),
+    canvasId: v.id("canvases"),
+    logicalPath: v.string(),
+    assetId: v.id("assets"),
+    assetVersionId: v.id("assetVersions"),
+  })
+    .index("by_source_storage_id", ["sourceStorageId"])
+    .index("by_canvas", ["canvasId"]),
 
   canvasVersionAssets: defineTable({
     canvasId: v.id("canvases"),

@@ -85,6 +85,294 @@ describe("canvases.create", () => {
   });
 });
 
+describe("canvas asset promotion", () => {
+  test("rejects canvas-local writes under /assets", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "No local assets",
+      kind: "html",
+      createdBy,
+    });
+    const storageId = await seedStorage(t, "body {} ");
+
+    await expect(
+      t.mutation(internal.canvases.commitSaveContent, {
+        canvasId,
+        createdBy,
+        changes: [
+          {
+            type: "write",
+            path: "/assets/theme.css",
+            storageId,
+            size: 8,
+            contentHash: "theme",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/Canvas-local \/assets files are unsupported/);
+  });
+
+  test("turns /assets uploads into pinned workspace assets and appends revisions", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Promotions",
+      kind: "canvas",
+      createdBy,
+    });
+    const firstUpload = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["first"], { type: "image/png" })),
+    );
+    const first = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 0,
+      createdBy,
+      changes: [
+        {
+          type: "promote",
+          path: "/assets/logo.png",
+          sourceStorageId: firstUpload,
+          objectKey: "blobs/sha256/aa/first",
+          contentHash: "first",
+          mimeType: "image/png",
+          size: 5,
+          kind: "image",
+          originalFilename: "logo.png",
+          slug: "logo",
+          name: "Logo",
+        },
+      ],
+    });
+    expect(first).toMatchObject({ version: 1, changed: true });
+    expect(first.promotedAssets).toHaveLength(1);
+    const promoted = first.promotedAssets[0];
+    if (!promoted) throw new Error("missing promoted asset");
+    const firstState = await t.run(async (ctx) => ({
+      asset: await ctx.db.get(promoted.assetId),
+      version: await ctx.db.get(promoted.assetVersionId),
+      binding: await ctx.db
+        .query("canvasAssetBindings")
+        .withIndex("by_canvas_path", (q) =>
+          q.eq("canvasId", canvasId).eq("logicalPath", "/assets/logo.png"),
+        )
+        .unique(),
+      localFile: await ctx.db
+        .query("canvasFiles")
+        .withIndex("by_canvas_relPath", (q) =>
+          q.eq("canvasId", canvasId).eq("relPath", "/assets/logo.png"),
+        )
+        .unique(),
+      stagedBlob: await ctx.storage.get(firstUpload),
+    }));
+    expect(firstState.asset).toMatchObject({
+      scope: "workspace",
+      workspaceId,
+      originCanvasId: canvasId,
+      originPath: "/assets/logo.png",
+    });
+    expect(firstState.version).toMatchObject({
+      revision: 1,
+      sourceType: "canvas-import",
+    });
+    expect(firstState.binding).toMatchObject({
+      assetId: promoted.assetId,
+      assetVersionId: promoted.assetVersionId,
+    });
+    expect(firstState.localFile).toBeNull();
+    expect(firstState.stagedBlob).toBeNull();
+
+    expect(
+      await t.query(internal.canvases.promotedUploadReplay, {
+        canvasId,
+        path: "/assets/logo.png",
+        sourceStorageId: firstUpload,
+      }),
+    ).toMatchObject({
+      assetId: promoted.assetId,
+      assetVersionId: promoted.assetVersionId,
+      revision: 1,
+      size: 5,
+    });
+
+    await expect(
+      t.mutation(internal.canvases.commitSaveContent, {
+        canvasId,
+        expectedVersion: 1,
+        expectedDraftRevision: 1,
+        createdBy,
+        changes: [
+          {
+            type: "promote",
+            path: "/assets/other.png",
+            sourceStorageId: firstUpload,
+            objectKey: "blobs/sha256/aa/first",
+            contentHash: "first",
+            mimeType: "image/png",
+            size: 5,
+            kind: "image",
+            originalFilename: "logo.png",
+            slug: "logo",
+            name: "Logo",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/already promoted at another canvas path/);
+
+    const duplicateUpload = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["first"], { type: "image/png" })),
+    );
+    const duplicate = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 1,
+      expectedDraftRevision: 1,
+      createdBy,
+      changes: [
+        {
+          type: "promote",
+          path: "/assets/logo.png",
+          sourceStorageId: duplicateUpload,
+          objectKey: "blobs/sha256/aa/first",
+          contentHash: "first",
+          mimeType: "image/png",
+          size: 5,
+          kind: "image",
+          originalFilename: "logo.png",
+          slug: "logo",
+          name: "Logo",
+        },
+      ],
+    });
+    expect(duplicate).toMatchObject({ changed: false, draftRevision: 1 });
+    expect(duplicate.promotedAssets[0]).toMatchObject({
+      assetId: promoted.assetId,
+      assetVersionId: promoted.assetVersionId,
+      revision: 1,
+    });
+    for (const sourceStorageId of [firstUpload, duplicateUpload]) {
+      expect(
+        await t.query(internal.canvases.promotedUploadReplay, {
+          canvasId,
+          path: "/assets/logo.png",
+          sourceStorageId,
+        }),
+      ).toMatchObject({ assetVersionId: promoted.assetVersionId, revision: 1 });
+    }
+
+    const secondUpload = await t.run((ctx) =>
+      ctx.storage.store(new Blob(["second"], { type: "image/png" })),
+    );
+    const second = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 1,
+      expectedDraftRevision: 1,
+      createdBy,
+      changes: [
+        {
+          type: "promote",
+          path: "/assets/logo.png",
+          sourceStorageId: secondUpload,
+          objectKey: "blobs/sha256/bb/second",
+          contentHash: "second",
+          mimeType: "image/png",
+          size: 6,
+          kind: "image",
+          originalFilename: "logo.png",
+          slug: "logo",
+          name: "Logo",
+        },
+      ],
+    });
+    expect(second.promotedAssets[0]).toMatchObject({ assetId: promoted.assetId, revision: 2 });
+    if (!first.versionId) throw new Error("missing initial checkpoint");
+    const firstVersionId = first.versionId;
+    const firstCheckpointBinding = await t.run((ctx) =>
+      ctx.db
+        .query("canvasVersionAssets")
+        .withIndex("by_version_path", (q) =>
+          q.eq("versionId", firstVersionId).eq("logicalPath", "/assets/logo.png"),
+        )
+        .unique(),
+    );
+    expect(firstCheckpointBinding?.assetVersionId).toBe(promoted.assetVersionId);
+    expect(second.promotedAssets[0]?.assetVersionId).not.toBe(promoted.assetVersionId);
+  });
+
+  test("does not turn a colliding slug or explicit binding into the same asset", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const explicit = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      ownerUserId: createdBy,
+      workspaceId,
+      workspaceSlug: "workspace",
+      slug: "logo",
+      name: "Shared logo",
+      tags: [],
+      kind: "image",
+      objectKey: "blobs/shared",
+      contentHash: "shared",
+      mimeType: "image/png",
+      size: 6,
+      originalFilename: "logo.png",
+      sourceType: "upload",
+    });
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Collision",
+      kind: "canvas",
+      createdBy,
+    });
+    await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 0,
+      createdBy,
+      changes: [
+        {
+          type: "asset",
+          path: "/assets/logo.png",
+          assetId: explicit.assetId,
+          assetVersionId: explicit.versionId,
+        },
+      ],
+    });
+    const promoted = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 1,
+      expectedDraftRevision: 1,
+      createdBy,
+      changes: [
+        {
+          type: "promote",
+          path: "/assets/logo.png",
+          objectKey: "blobs/new",
+          contentHash: "new",
+          mimeType: "image/png",
+          size: 3,
+          kind: "image",
+          originalFilename: "logo.png",
+          slug: "logo",
+          name: "Logo",
+        },
+      ],
+    });
+    expect(promoted.promotedAssets[0]?.assetId).not.toBe(explicit.assetId);
+    const promotedResult = promoted.promotedAssets[0];
+    if (!promotedResult) throw new Error("missing promoted asset");
+    const promotedAsset = await t.run((ctx) => ctx.db.get(promotedResult.assetId));
+    expect(promotedAsset?.slug).not.toBe("logo");
+    expect(promotedAsset).toMatchObject({
+      originCanvasId: canvasId,
+      originPath: "/assets/logo.png",
+    });
+  });
+});
+
 describe("viewer artifact selection", () => {
   test("an HTML canvas opens its HTML artifact when a PNG is primary", async () => {
     const t = convexTest(schema, modules);

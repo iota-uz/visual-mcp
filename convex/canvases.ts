@@ -19,7 +19,7 @@ import {
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import { resolveTheme } from "@visual-canvas/runtime/render/themes/index.js";
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -31,6 +31,9 @@ import {
   type QueryCtx,
   query,
 } from "./_generated/server";
+import { requireAssetObjectLease } from "./lib/assetObjects";
+import { formatAssetRef } from "./lib/assetRef";
+import { ASSET_MIME_TYPES, type AssetKind } from "./lib/assetSecurity";
 import { requireIotaIdentity } from "./lib/auth";
 import { findCanvasByRef, findWorkspaceByRef, resolveOrCreateCanvas } from "./lib/canvasRefs";
 import { sha256HexBytes } from "./lib/hash";
@@ -57,6 +60,14 @@ const KindValidator = v.union(
   v.literal("html"),
   v.literal("image"),
   v.literal("pdf"),
+);
+
+const AssetKindValidator = v.union(
+  v.literal("image"),
+  v.literal("svg"),
+  v.literal("font"),
+  v.literal("video"),
+  v.literal("data"),
 );
 
 function renderCanvasEntry(doc: ReturnType<typeof CanvasDocSchema.parse>, theme?: Theme): string {
@@ -1118,8 +1129,147 @@ const SaveFileChangeValidator = v.union(
     assetId: v.id("assets"),
     assetVersionId: v.id("assetVersions"),
   }),
+  v.object({
+    type: v.literal("promote"),
+    path: v.string(),
+    sourceStorageId: v.optional(v.id("_storage")),
+    objectKey: v.string(),
+    contentHash: v.string(),
+    mimeType: v.string(),
+    size: v.number(),
+    kind: AssetKindValidator,
+    originalFilename: v.string(),
+    slug: v.string(),
+    name: v.string(),
+    objectLeaseId: v.optional(v.string()),
+  }),
   v.object({ type: v.literal("delete"), path: v.string() }),
 );
+
+type SaveFileChange = Infer<typeof SaveFileChangeValidator>;
+type AppliedSaveFileChange = Exclude<SaveFileChange, { type: "promote" }>;
+
+type PromotedAsset = {
+  path: string;
+  assetId: Id<"assets">;
+  assetVersionId: Id<"assetVersions">;
+  revision: number;
+  assetRef: string;
+};
+
+async function collisionSafeAssetSlug(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  requested: string,
+  canvasId: Id<"canvases">,
+): Promise<string> {
+  const base = slugify(requested);
+  const available = async (slug: string) =>
+    !(await ctx.db
+      .query("assets")
+      .withIndex("by_workspace_slug", (q) => q.eq("workspaceId", workspaceId).eq("slug", slug))
+      .unique());
+  if (await available(base)) return base;
+  const canvasSuffix = String(canvasId).slice(-8).toLowerCase();
+  const suffixedBase = `${base.slice(0, Math.max(1, 51 - canvasSuffix.length))}-${canvasSuffix}`;
+  if (await available(suffixedBase)) return suffixedBase;
+  for (let suffix = 2; suffix <= 500; suffix += 1) {
+    const candidate = `${suffixedBase.slice(0, 57 - String(suffix).length)}-${suffix}`;
+    if (await available(candidate)) return candidate;
+  }
+  throw new Error(`Unable to allocate an asset slug for ${requested}`);
+}
+
+async function promoteWorkspaceAsset(
+  ctx: MutationCtx,
+  args: {
+    canvas: Doc<"canvases">;
+    workspaceSlug: string;
+    createdBy: Id<"users">;
+    path: string;
+    currentBinding?: Doc<"canvasAssetBindings">;
+    objectKey: string;
+    contentHash: string;
+    mimeType: string;
+    size: number;
+    kind: AssetKind;
+    originalFilename: string;
+    slug: string;
+    name: string;
+    objectLeaseId?: string;
+  },
+): Promise<PromotedAsset> {
+  const objectLease = await requireAssetObjectLease(ctx, args.objectKey, args.objectLeaseId);
+  const boundAsset = args.currentBinding ? await ctx.db.get(args.currentBinding.assetId) : null;
+  const reusable =
+    boundAsset?.scope === "workspace" &&
+    boundAsset.workspaceId === args.canvas.workspaceId &&
+    boundAsset.originCanvasId === args.canvas._id &&
+    boundAsset.originPath === args.path
+      ? boundAsset
+      : null;
+  const now = Date.now();
+  const assetId =
+    reusable?._id ??
+    (await ctx.db.insert("assets", {
+      scope: "workspace",
+      workspaceId: args.canvas.workspaceId,
+      slug: await collisionSafeAssetSlug(ctx, args.canvas.workspaceId, args.slug, args.canvas._id),
+      name: args.name,
+      tags: [],
+      kind: args.kind,
+      searchText: [args.name, args.slug, args.originalFilename].join(" "),
+      createdBy: args.createdBy,
+      originCanvasId: args.canvas._id,
+      originPath: args.path,
+      updatedAt: now,
+    }));
+  if (reusable) {
+    await ctx.db.patch(reusable._id, {
+      name: args.name,
+      kind: args.kind,
+      searchText: [args.name, reusable.slug, args.originalFilename].join(" "),
+      archivedAt: undefined,
+      updatedAt: now,
+    });
+  }
+  const latest = await ctx.db
+    .query("assetVersions")
+    .withIndex("by_asset_revision", (q) => q.eq("assetId", assetId))
+    .order("desc")
+    .first();
+  const sameRevision =
+    latest?.contentHash === args.contentHash &&
+    latest.mimeType === args.mimeType &&
+    latest.size === args.size;
+  const revision = sameRevision ? latest.revision : (latest?.revision ?? 0) + 1;
+  const assetVersionId = sameRevision
+    ? latest._id
+    : await ctx.db.insert("assetVersions", {
+        assetId,
+        revision,
+        objectKey: args.objectKey,
+        contentHash: args.contentHash,
+        mimeType: args.mimeType,
+        size: args.size,
+        originalFilename: args.originalFilename,
+        sourceType: "canvas-import",
+        createdBy: args.createdBy,
+      });
+  if (objectLease) await ctx.db.delete(objectLease._id);
+  return {
+    path: args.path,
+    assetId,
+    assetVersionId,
+    revision,
+    assetRef: formatAssetRef({
+      scope: "workspace",
+      workspaceSlug: args.workspaceSlug,
+      slug: reusable?.slug ?? (await ctx.db.get(assetId))?.slug ?? slugify(args.slug),
+      revision,
+    }),
+  };
+}
 
 type CheckpointSource = {
   docStorageId?: Id<"_storage">;
@@ -1250,12 +1400,23 @@ export const commitSaveContent = internalMutation({
     draftRevision: v.number(),
     dirty: v.boolean(),
     changed: v.boolean(),
+    promotedAssets: v.array(
+      v.object({
+        path: v.string(),
+        assetId: v.id("assets"),
+        assetVersionId: v.id("assetVersions"),
+        revision: v.number(),
+        assetRef: v.string(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const canvasBrand = validateThemeOverride(args.metadata?.canvasBrand);
     const workspaceBrand = validateThemeOverride(args.metadata?.workspaceBrand);
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
+    const workspace = await ctx.db.get(canvas.workspaceId);
+    if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
     const current = canvas.currentVersionId ? await ctx.db.get(canvas.currentVersionId) : null;
     const previousVersion = current?.version ?? 0;
     if (args.expectedVersion !== undefined && previousVersion !== args.expectedVersion) {
@@ -1288,24 +1449,117 @@ export const commitSaveContent = internalMutation({
     }
     const fileByPath = new Map(currentFiles.map((file) => [file.relPath, file]));
     const bindingByPath = new Map(currentBindings.map((binding) => [binding.logicalPath, binding]));
-    const normalizedChanges = args.changes.map((change) => ({
+    const requestedChanges: SaveFileChange[] = args.changes.map((change) => ({
       ...change,
       path: normalizeCanvasPath(change.path, "write", "path").displayPath,
     }));
     const changedPaths = new Set<string>();
-    for (const change of normalizedChanges) {
+    for (const change of requestedChanges) {
       if (changedPaths.has(change.path))
         throw new Error(`canvas_save changes ${change.path} twice`);
       changedPaths.add(change.path);
-      if (change.type === "asset") {
+      if (change.type === "asset" || change.type === "promote") {
         if (!change.path.startsWith("/assets/")) {
           throw new Error("Asset bindings must live under /assets/");
         }
+      }
+      if (change.type === "write" && change.path.startsWith("/assets/")) {
+        throw new Error(
+          "Canvas-local /assets files are unsupported; promote reusable media or write source under /src/",
+        );
+      }
+      if (change.type === "asset") {
         const asset = await ctx.db.get(change.assetId);
         const revision = await ctx.db.get(change.assetVersionId);
         if (!asset || !revision || revision.assetId !== asset._id) {
           throw new Error(`Invalid asset revision for ${change.path}`);
         }
+      }
+      if (change.type === "promote") {
+        const expectedKind = ASSET_MIME_TYPES[change.mimeType as keyof typeof ASSET_MIME_TYPES];
+        if (expectedKind !== change.kind) {
+          throw new Error(`Invalid promoted asset MIME type or kind for ${change.path}`);
+        }
+        if (change.size <= 0 || !change.objectKey || !change.contentHash) {
+          throw new Error(`Invalid promoted asset metadata for ${change.path}`);
+        }
+      }
+    }
+
+    const normalizedChanges: AppliedSaveFileChange[] = [];
+    const promotedAssets: PromotedAsset[] = [];
+    for (const change of requestedChanges) {
+      if (change.type !== "promote") {
+        normalizedChanges.push(change);
+        continue;
+      }
+      const sourceStorageId = change.sourceStorageId;
+      const replay = sourceStorageId
+        ? await ctx.db
+            .query("canvasAssetPromotions")
+            .withIndex("by_source_storage_id", (q) => q.eq("sourceStorageId", sourceStorageId))
+            .unique()
+        : null;
+      if (replay && (replay.canvasId !== canvas._id || replay.logicalPath !== change.path)) {
+        throw new Error(`upload_id is already promoted at another canvas path`);
+      }
+      let promoted: PromotedAsset;
+      if (replay) {
+        const [asset, version] = await Promise.all([
+          ctx.db.get(replay.assetId),
+          ctx.db.get(replay.assetVersionId),
+        ]);
+        if (!asset || !version || version.assetId !== asset._id) {
+          throw new Error(`Promoted upload history is unavailable for ${change.path}`);
+        }
+        promoted = {
+          path: change.path,
+          assetId: asset._id,
+          assetVersionId: version._id,
+          revision: version.revision,
+          assetRef: formatAssetRef({
+            scope: "workspace",
+            workspaceSlug: workspace.slug,
+            slug: asset.slug,
+            revision: version.revision,
+          }),
+        };
+      } else {
+        promoted = await promoteWorkspaceAsset(ctx, {
+          canvas,
+          workspaceSlug: workspace.slug,
+          createdBy: args.createdBy,
+          path: change.path,
+          currentBinding: bindingByPath.get(change.path),
+          objectKey: change.objectKey,
+          contentHash: change.contentHash,
+          mimeType: change.mimeType,
+          size: change.size,
+          kind: change.kind,
+          originalFilename: change.originalFilename,
+          slug: change.slug,
+          name: change.name,
+          objectLeaseId: change.objectLeaseId,
+        });
+        if (sourceStorageId) {
+          await ctx.db.insert("canvasAssetPromotions", {
+            sourceStorageId,
+            canvasId: canvas._id,
+            logicalPath: change.path,
+            assetId: promoted.assetId,
+            assetVersionId: promoted.assetVersionId,
+          });
+        }
+      }
+      promotedAssets.push(promoted);
+      normalizedChanges.push({
+        type: "asset",
+        path: change.path,
+        assetId: promoted.assetId,
+        assetVersionId: promoted.assetVersionId,
+      });
+      if (sourceStorageId) {
+        await ctx.storage.delete(sourceStorageId).catch(() => undefined);
       }
     }
 
@@ -1370,8 +1624,6 @@ export const commitSaveContent = internalMutation({
     if (nextVisibility !== canvas.visibility) metadataPatch.visibility = nextVisibility;
     if (nextPublicSlug !== canvas.publicSlug) metadataPatch.publicSlug = nextPublicSlug;
     const metadataChanged = Object.keys(metadataPatch).length > 0;
-    const workspace = await ctx.db.get(canvas.workspaceId);
-    if (!workspace) throw new Error(`Canvas ${canvas._id} points at a missing workspace`);
     const workspaceBrandChanged =
       args.metadata?.workspaceBrand !== undefined &&
       JSON.stringify(workspaceBrand) !== JSON.stringify(workspace.brand);
@@ -1405,6 +1657,7 @@ export const commitSaveContent = internalMutation({
         draftRevision: previousDraftRevision,
         dirty: canvas.draftEditCount > 0,
         changed: false,
+        promotedAssets,
       };
     }
 
@@ -1576,6 +1829,7 @@ export const commitSaveContent = internalMutation({
       draftRevision,
       dirty: !mustCheckpoint && draftEditCount > 0,
       changed,
+      promotedAssets,
     };
   },
 });
@@ -3587,6 +3841,72 @@ export const storageAttachment = internalQuery({
       };
     }
     return null;
+  },
+});
+
+/** Resolves a deleted canvas-upload staging handle after a successful promotion. */
+export const promotedUploadReplay = internalQuery({
+  args: {
+    canvasId: v.id("canvases"),
+    path: v.string(),
+    sourceStorageId: v.id("_storage"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      assetId: v.id("assets"),
+      assetVersionId: v.id("assetVersions"),
+      assetRef: v.string(),
+      revision: v.number(),
+      size: v.number(),
+      contentHash: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const path = normalizeCanvasPath(args.path, "write", "path").displayPath;
+    const promotion = await ctx.db
+      .query("canvasAssetPromotions")
+      .withIndex("by_source_storage_id", (q) => q.eq("sourceStorageId", args.sourceStorageId))
+      .unique();
+    if (!promotion || promotion.canvasId !== args.canvasId || promotion.logicalPath !== path)
+      return null;
+    const version = await ctx.db.get(promotion.assetVersionId);
+    if (!version) return null;
+    const [canvas, asset, binding] = await Promise.all([
+      ctx.db.get(args.canvasId),
+      ctx.db.get(version.assetId),
+      ctx.db
+        .query("canvasAssetBindings")
+        .withIndex("by_canvas_path", (q) => q.eq("canvasId", args.canvasId).eq("logicalPath", path))
+        .unique(),
+    ]);
+    if (
+      !canvas ||
+      !asset ||
+      asset.scope !== "workspace" ||
+      asset.workspaceId !== canvas.workspaceId ||
+      asset.originCanvasId !== canvas._id ||
+      asset.originPath !== path ||
+      binding?.assetId !== asset._id ||
+      binding.assetVersionId !== version._id
+    ) {
+      return null;
+    }
+    const workspace = await ctx.db.get(canvas.workspaceId);
+    if (!workspace) return null;
+    return {
+      assetId: asset._id,
+      assetVersionId: version._id,
+      assetRef: formatAssetRef({
+        scope: "workspace",
+        workspaceSlug: workspace.slug,
+        slug: asset.slug,
+        revision: version.revision,
+      }),
+      revision: version.revision,
+      size: version.size,
+      contentHash: version.contentHash,
+    };
   },
 });
 

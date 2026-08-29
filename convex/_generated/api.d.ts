@@ -17,6 +17,7 @@ import type * as crons from "../crons.js";
 import type * as embeds from "../embeds.js";
 import type * as http from "../http.js";
 import type * as lib_artifactInfo from "../lib/artifactInfo.js";
+import type * as lib_assetObjects from "../lib/assetObjects.js";
 import type * as lib_assetRef from "../lib/assetRef.js";
 import type * as lib_assetSecurity from "../lib/assetSecurity.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   embeds: typeof embeds;
   http: typeof http;
   "lib/artifactInfo": typeof lib_artifactInfo;
+  "lib/assetObjects": typeof lib_assetObjects;
   "lib/assetRef": typeof lib_assetRef;
   "lib/assetSecurity": typeof lib_assetSecurity;
   "lib/auth": typeof lib_auth;

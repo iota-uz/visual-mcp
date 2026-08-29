@@ -155,9 +155,9 @@ Screens select on one click and activate on double-click or Enter; Escape exits 
     description: "Canvas files, uploads, Asset Library reuse, security, and unresolved references.",
     text: `# Files and assets
 
-Canvas-private writable roots are \`/src\`, \`/assets\`, and \`/output\`; \`/cache\` is temporary and read-only. Reference local media with root-relative paths. Save small text inline. For binary or large content, request upload URLs (up to 50), follow each returned method and Content-Type, then pass each \`upload_id\` in one atomic save.
+Writable roots are \`/src\`, \`/assets\`, and \`/output\`; \`/cache\` is temporary and read-only. Reference local media with root-relative paths. Supported images, SVG, fonts, video, and JSON saved under \`/assets\` automatically become reusable workspace assets and are pinned to the canvas as immutable revisions. The save returns each \`asset_ref\`. Source under \`/src\` and generated files under \`/output\` remain canvas-local. Save small text inline. For binary or large content, request upload URLs (up to 50), follow each returned method and Content-Type, then pass each \`upload_id\` in one atomic save.
 
-The Asset Library is for cross-canvas reuse and is separate from private canvas files. Search with \`asset_list\`, inspect with \`asset_get(include_preview=true)\`, upload/finalize in batches, import HTTPS sources, and attach immutable revisions under \`/assets\`. Moving an asset changes library scope without rewriting existing pinned bindings; deleting archives it. SVG is trusted internal workspace content and must be preserved byte-for-byte. Audio is not supported.
+Search reusable media with \`asset_list\`, inspect with \`asset_get(include_preview=true)\`, and attach an existing immutable revision with \`asset_ref\` at an \`/assets\` path. Use \`asset_upload_url\`/\`asset_finalize\` only to add media directly to a library without a canvas, and \`asset_import\` for HTTPS sources. Moving an asset changes library scope without rewriting existing pinned bindings; deleting archives it. SVG is trusted internal workspace content and must be preserved byte-for-byte. Audio is not supported.
 
 Treat unresolved references as broken output: fix or attach every missing image, font, stylesheet, script, or data file before delivery.`,
   },
