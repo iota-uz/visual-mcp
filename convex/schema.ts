@@ -113,7 +113,8 @@ export default defineSchema({
     createdBy: v.id("users"),
   })
     .index("by_asset_revision", ["assetId", "revision"])
-    .index("by_content_hash", ["contentHash"]),
+    .index("by_content_hash", ["contentHash"])
+    .index("by_objectKey", ["objectKey"]),
 
   assetUploads: defineTable({
     scope: v.union(v.literal("personal"), v.literal("workspace")),

@@ -7,6 +7,42 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 describe("Asset Library bindings", () => {
+  test("finds object-store keys retained by immutable revisions", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        email: "objects@iota.uz",
+        name: "Objects",
+        lastSeenAt: 0,
+      }),
+    );
+    await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "personal",
+      ownerUserId: userId,
+      slug: "retained",
+      name: "Retained",
+      tags: [],
+      kind: "image",
+      objectKey: "blobs/sha256/aa/retained",
+      contentHash: "retained",
+      mimeType: "image/png",
+      size: 1,
+      originalFilename: "retained.png",
+      sourceType: "upload",
+    });
+
+    await expect(
+      t.query(internal.assets.objectKeyReferenced, {
+        objectKey: "blobs/sha256/aa/retained",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      t.query(internal.assets.objectKeyReferenced, {
+        objectKey: "blobs/sha256/bb/unreferenced",
+      }),
+    ).resolves.toBe(false);
+  });
+
   test("listInternal exposes a resumable cursor instead of silently truncating", async () => {
     const t = convexTest(schema, modules);
     const { userId } = await t.run(async (ctx) => ({

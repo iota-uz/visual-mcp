@@ -42,8 +42,19 @@ describe("private agent gateway", () => {
     expect(response.status).toBe(404);
   });
 
-  test("exposes promoted upload replay lookup to the MCP gateway", async () => {
+  test("exposes asset cleanup and promoted upload lookups to the MCP gateway", async () => {
     const t = convexTest(schema, modules);
+    const objectResponse = await t.fetch(
+      "/agent-gateway",
+      request({
+        operation: "query",
+        name: "assets:objectKeyReferenced",
+        args: { objectKey: "blobs/sha256/aa/unreferenced" },
+      }),
+    );
+    expect(objectResponse.status).toBe(200);
+    await expect(objectResponse.json()).resolves.toEqual({ result: false });
+
     const createdBy = await t.run((ctx) =>
       ctx.db.insert("users", { email: "agent@iota.uz", name: "Agent", lastSeenAt: 0 }),
     );

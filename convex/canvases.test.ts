@@ -199,6 +199,30 @@ describe("canvas asset promotion", () => {
       size: 5,
     });
 
+    await expect(
+      t.mutation(internal.canvases.commitSaveContent, {
+        canvasId,
+        expectedVersion: 1,
+        expectedDraftRevision: 1,
+        createdBy,
+        changes: [
+          {
+            type: "promote",
+            path: "/assets/other.png",
+            sourceStorageId: firstUpload,
+            objectKey: "blobs/sha256/aa/first",
+            contentHash: "first",
+            mimeType: "image/png",
+            size: 5,
+            kind: "image",
+            originalFilename: "logo.png",
+            slug: "logo",
+            name: "Logo",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/already promoted at another canvas path/);
+
     const duplicateUpload = await t.run((ctx) =>
       ctx.storage.store(new Blob(["first"], { type: "image/png" })),
     );

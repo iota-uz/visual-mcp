@@ -52,10 +52,15 @@ export async function fetchAssetImport(raw: string) {
   }
 }
 
-async function ensureObject(key: string, bytes: Uint8Array, mimeType: string) {
+/** Materializes a content-addressed object and reports whether this call created it. */
+async function ensureObject(key: string, bytes: Uint8Array, mimeType: string): Promise<boolean> {
   const existing = await headObject(key);
-  if (existing.status === 404) await putObject(key, bytes, mimeType);
-  else if (!existing.ok) throw new Error(`Unable to inspect object: HTTP ${existing.status}`);
+  if (existing.status === 404) {
+    await putObject(key, bytes, mimeType);
+    return true;
+  }
+  if (!existing.ok) throw new Error(`Unable to inspect object: HTTP ${existing.status}`);
+  return false;
 }
 
 export type PreparedAssetObject = {
@@ -65,6 +70,7 @@ export type PreparedAssetObject = {
   size: number;
   kind: AssetKind;
   originalFilename: string;
+  createdObject: boolean;
 };
 
 /**
@@ -79,7 +85,7 @@ export async function prepareAssetObject(input: {
 }): Promise<PreparedAssetObject> {
   const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
   const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
-  await ensureObject(objectKey, validated.bytes, validated.mimeType);
+  const createdObject = await ensureObject(objectKey, validated.bytes, validated.mimeType);
   return {
     objectKey,
     contentHash: validated.contentHash,
@@ -87,7 +93,24 @@ export async function prepareAssetObject(input: {
     size: validated.bytes.byteLength,
     kind: validated.kind,
     originalFilename: input.filename,
+    createdObject,
   };
+}
+
+/**
+ * Removes an object created during preparation only when no immutable asset
+ * revision references it. Pre-existing content-addressed objects are never
+ * candidates for failed-save cleanup.
+ */
+export async function discardPreparedAssetObject(
+  ctx: ActionCtx,
+  prepared: PreparedAssetObject,
+): Promise<void> {
+  if (!prepared.createdObject) return;
+  const referenced = await ctx.runQuery(internal.assets.objectKeyReferenced, {
+    objectKey: prepared.objectKey,
+  });
+  if (!referenced) await deleteObject(prepared.objectKey);
 }
 
 export async function persistAsset(
@@ -114,25 +137,31 @@ export async function persistAsset(
     rawBytes: input.rawBytes,
     declaredMime: input.declaredMime,
   });
-  const committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
-    uploadId: input.uploadId,
-    scope: input.scope,
-    ownerUserId: input.ownerUserId,
-    workspaceId: input.workspaceId,
-    workspaceSlug: input.workspaceSlug,
-    slug: input.slug,
-    name: input.name,
-    description: input.description,
-    tags: input.tags,
-    kind: prepared.kind,
-    objectKey: prepared.objectKey,
-    contentHash: prepared.contentHash,
-    mimeType: prepared.mimeType,
-    size: prepared.size,
-    originalFilename: input.filename,
-    sourceType: input.sourceType,
-    sourceUrl: input.sourceUrl,
-  });
+  let committed: { assetId: Id<"assets">; versionId: Id<"assetVersions">; revision: number };
+  try {
+    committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
+      uploadId: input.uploadId,
+      scope: input.scope,
+      ownerUserId: input.ownerUserId,
+      workspaceId: input.workspaceId,
+      workspaceSlug: input.workspaceSlug,
+      slug: input.slug,
+      name: input.name,
+      description: input.description,
+      tags: input.tags,
+      kind: prepared.kind,
+      objectKey: prepared.objectKey,
+      contentHash: prepared.contentHash,
+      mimeType: prepared.mimeType,
+      size: prepared.size,
+      originalFilename: input.filename,
+      sourceType: input.sourceType,
+      sourceUrl: input.sourceUrl,
+    });
+  } catch (error) {
+    await discardPreparedAssetObject(ctx, prepared).catch(() => undefined);
+    throw error;
+  }
   return {
     ...committed,
     assetRef: assetRef({

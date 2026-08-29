@@ -334,6 +334,19 @@ export const commitAssetVersion = internalMutation({
   },
 });
 
+/** Checks whether immutable asset metadata already retains an object-store key. */
+export const objectKeyReferenced = internalQuery({
+  args: { objectKey: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const version = await ctx.db
+      .query("assetVersions")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", args.objectKey))
+      .first();
+    return version !== null;
+  },
+});
+
 export async function fetchAssetImport(
   raw: string,
 ): Promise<{ bytes: Uint8Array; mimeType: string; finalUrl: string }> {

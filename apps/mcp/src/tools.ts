@@ -73,7 +73,13 @@ import {
 import { z } from "zod";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 import type { ActionCtx } from "../../../convex/_generated/server.js";
-import { fetchAssetImport, persistAsset, prepareAssetObject } from "./assets.js";
+import {
+  discardPreparedAssetObject,
+  fetchAssetImport,
+  type PreparedAssetObject,
+  persistAsset,
+  prepareAssetObject,
+} from "./assets.js";
 import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
 import { MCP_GUIDES } from "./guides.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
@@ -802,11 +808,13 @@ async function prepareSaveFiles(
   filesWritten: PreparedFileResult[];
   writtenText: Array<{ path: string; text: string }>;
   stored: Id<"_storage">[];
+  preparedAssets: PreparedAssetObject[];
 }> {
   const changes: PreparedSaveChange[] = [];
   const filesWritten: PreparedFileResult[] = [];
   const writtenText: Array<{ path: string; text: string }> = [];
   const stored: Id<"_storage">[] = [];
+  const preparedAssets: PreparedAssetObject[] = [];
   try {
     for (const file of files) {
       const { relPath, displayPath } = normalizeCanvasPath(file.path, "write", "path");
@@ -915,6 +923,9 @@ async function prepareSaveFiles(
         contentHash = metadata.sha256;
         mime = reusableMime(displayPath, metadata.contentType ?? undefined);
         if (mime) {
+          if (metadata.size > ASSET_MAX_BYTES) {
+            throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
+          }
           const blob = await ctx.storage.get(storageId);
           if (!blob) throw new Error(`Unable to read uploaded bytes for ${displayPath}`);
           bytes = new Uint8Array(await blob.arrayBuffer());
@@ -951,6 +962,7 @@ async function prepareSaveFiles(
           rawBytes: bytes,
           declaredMime: mime,
         });
+        preparedAssets.push(prepared);
         changes.push({
           type: "promote",
           path: displayPath,
@@ -972,9 +984,14 @@ async function prepareSaveFiles(
       changes.push({ type: "write", path: displayPath, storageId, size, contentHash });
       filesWritten.push({ path: displayPath, size_bytes: size });
     }
-    return { changes, filesWritten, writtenText, stored };
+    return { changes, filesWritten, writtenText, stored, preparedAssets };
   } catch (error) {
-    await Promise.all(stored.map((storageId) => ctx.storage.delete(storageId)));
+    await Promise.all([
+      ...stored.map((storageId) => ctx.storage.delete(storageId)),
+      ...preparedAssets.map((prepared) =>
+        discardPreparedAssetObject(ctx, prepared).catch(() => undefined),
+      ),
+    ]);
     throw error;
   }
 }
@@ -2110,6 +2127,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           await Promise.all(
             [...(preparedFiles?.stored ?? []), ...(preparedDoc?.stored ?? [])].map((storageId) =>
               ctx.storage.delete(storageId).catch(() => undefined),
+            ),
+          );
+          await Promise.all(
+            (preparedFiles?.preparedAssets ?? []).map((prepared) =>
+              discardPreparedAssetObject(ctx, prepared).catch(() => undefined),
             ),
           );
           if (upserted.created) {
