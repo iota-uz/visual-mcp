@@ -785,8 +785,10 @@ atomic multi-file patch, and `canvas_doc_patch` edits CanvasDoc entities by stab
 Every successful operation creates an immutable canvas snapshot and uses optimistic
 `expected_version`/content-hash checks.
 
-Reusable media lives in a personal or workspace Asset Library. Convex stores metadata,
-permissions, revisions and canvas bindings; one private S3-compatible Railway bucket stores
-validated immutable objects. Canvas versions pin exact asset revisions. Asset
-updates never propagate implicitly, and public/private viewers can only resolve objects
-present in their version manifest.
+Reusable media lives in a personal or workspace Asset Library. Supported media saved to a
+canvas under `/assets/**` is created in that canvas's workspace library automatically and pinned
+back to the requested path; `/src/**` source and `/output/**` artifacts remain canvas-local.
+Convex stores metadata, provenance, permissions, revisions, idempotent upload mappings and canvas
+bindings; one private S3-compatible Railway bucket stores validated immutable objects. Canvas
+versions pin exact asset revisions. Asset updates never propagate implicitly, and public/private
+viewers can only resolve objects present in their version manifest.

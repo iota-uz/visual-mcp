@@ -26,8 +26,18 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -36,6 +46,11 @@ const LIVE_ENV = join(ROOT, ".env.local");
 const WEB_ENV = join(ROOT, "apps/web/.env.local");
 const SEED_EMAIL = "agent@iota.uz";
 const SEED_MCP_TOKEN = "vct_localdevagenttoken0000000000000000";
+const LOCAL_ASSET_PORT = 3213;
+const LOCAL_ASSET_BUCKET = "visual-canvas-agent";
+const LOCAL_ASSET_ENDPOINT = `http://127.0.0.1:${LOCAL_ASSET_PORT}`;
+const LOCAL_ASSET_ACCESS_KEY = "visual-canvas-local";
+const LOCAL_ASSET_SECRET_KEY = "visual-canvas-local-secret";
 
 const argv = process.argv.slice(2);
 const serve = !argv.includes("--no-serve");
@@ -169,6 +184,15 @@ const wanted = {
   // and Convex refuses to push while it is unset; there is no Google sign-in
   // on this backend for it to be the audience of.
   GOOGLE_OAUTH_CLIENT_ID: "unused.local.invalid",
+  // A tiny S3-compatible server owned by this process backs reusable media.
+  // It accepts signed requests but intentionally does not verify their local
+  // development credentials. Production always uses the Railway bucket.
+  S3_ASSET_ENDPOINT: LOCAL_ASSET_ENDPOINT,
+  S3_ASSET_BUCKET: LOCAL_ASSET_BUCKET,
+  S3_ASSET_ACCESS_KEY_ID: LOCAL_ASSET_ACCESS_KEY,
+  S3_ASSET_SECRET_ACCESS_KEY: LOCAL_ASSET_SECRET_KEY,
+  S3_ASSET_REGION: "local",
+  S3_ASSET_URL_STYLE: "path",
 };
 
 for (const [name, value] of Object.entries(wanted)) {
@@ -239,6 +263,73 @@ function stopStrayBackend(url) {
 }
 stopStrayBackend(convexUrl);
 
+// ---------------------------------------------------------- local asset S3
+
+const assetRoot = mkdtempSync(join(tmpdir(), "visual-canvas-agent-assets-"));
+const assetServer = createServer((request, response) => {
+  try {
+    const url = new URL(request.url || "/", LOCAL_ASSET_ENDPOINT);
+    const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (parts.shift() !== LOCAL_ASSET_BUCKET || parts.length === 0 || parts.includes("..")) {
+      response.writeHead(404).end();
+      return;
+    }
+    const filePath = resolve(assetRoot, ...parts);
+    if (!filePath.startsWith(`${resolve(assetRoot)}/`)) {
+      response.writeHead(400).end();
+      return;
+    }
+    const metadataPath = `${filePath}.meta.json`;
+    response.setHeader("access-control-allow-origin", "*");
+    if (request.method === "PUT") {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.on("end", () => {
+        const body = Buffer.concat(chunks);
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, body);
+        writeFileSync(
+          metadataPath,
+          JSON.stringify({
+            contentType: request.headers["content-type"] || "application/octet-stream",
+          }),
+        );
+        response.writeHead(200, { etag: `"local-${body.byteLength}"` }).end();
+      });
+      return;
+    }
+    if (request.method === "DELETE") {
+      rmSync(filePath, { force: true });
+      rmSync(metadataPath, { force: true });
+      response.writeHead(204).end();
+      return;
+    }
+    if (request.method === "GET" || request.method === "HEAD") {
+      if (!existsSync(filePath)) {
+        response.writeHead(404).end();
+        return;
+      }
+      const metadata = existsSync(metadataPath)
+        ? JSON.parse(readFileSync(metadataPath, "utf8"))
+        : { contentType: "application/octet-stream" };
+      response.writeHead(200, {
+        "content-type": metadata.contentType,
+        "content-length": statSync(filePath).size,
+        "cache-control": "public, max-age=31536000, immutable",
+      });
+      response.end(request.method === "HEAD" ? undefined : readFileSync(filePath));
+      return;
+    }
+    response.writeHead(405).end();
+  } catch (error) {
+    response.writeHead(500, { "content-type": "text/plain" }).end(String(error));
+  }
+});
+await new Promise((resolveListening, reject) => {
+  assetServer.once("error", reject);
+  assetServer.listen(LOCAL_ASSET_PORT, "127.0.0.1", resolveListening);
+});
+
 // `--run` seeds once the push lands. Vite is spawned separately rather than
 // through `--start`: the two flags share one slot in `convex dev`'s step 3,
 // and seeding is the one that has to happen before the browser arrives.
@@ -289,6 +380,14 @@ const guard = setInterval(restoreLiveEnv, 500);
 guard.unref?.();
 
 const children = [spawn("npx", devArgs, { cwd: ROOT, stdio: "inherit" })];
+const localAssetEnv = {
+  S3_ASSET_ENDPOINT: LOCAL_ASSET_ENDPOINT,
+  S3_ASSET_BUCKET: LOCAL_ASSET_BUCKET,
+  S3_ASSET_ACCESS_KEY_ID: LOCAL_ASSET_ACCESS_KEY,
+  S3_ASSET_SECRET_ACCESS_KEY: LOCAL_ASSET_SECRET_KEY,
+  S3_ASSET_REGION: "local",
+  S3_ASSET_URL_STYLE: "path",
+};
 children.push(
   spawn("npm", ["run", "dev", "-w", "apps/mcp"], {
     cwd: ROOT,
@@ -299,6 +398,7 @@ children.push(
       CONVEX_SITE_URL: convexSiteUrl,
       SPA_ORIGIN: "http://localhost:5173",
       AGENT_GATEWAY_SECRET: gatewaySecret,
+      ...localAssetEnv,
     },
   }),
 );
@@ -313,12 +413,16 @@ if (serve)
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     for (const child of children) child.kill(signal);
+    assetServer.close();
+    rmSync(assetRoot, { recursive: true, force: true });
   });
 }
 for (const child of children) {
   child.on("exit", (code) => {
     clearInterval(guard);
     restoreLiveEnv();
+    assetServer.close();
+    rmSync(assetRoot, { recursive: true, force: true });
     for (const other of children) {
       if (other !== child) other.kill("SIGTERM");
     }

@@ -2549,7 +2549,7 @@ export function CanvasPage() {
           {canvasAssets === undefined ? (
             <p className="muted">Loading assets…</p>
           ) : canvasAssets.length === 0 ? (
-            <p className="muted">No library assets are pinned to this canvas.</p>
+            <p className="muted">No reusable workspace assets are used by this canvas.</p>
           ) : (
             <ul className="canvas-asset-list">
               {canvasAssets.map((asset) => (

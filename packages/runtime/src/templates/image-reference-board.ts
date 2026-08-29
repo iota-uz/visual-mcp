@@ -32,7 +32,7 @@ export const imageReferenceBoardTemplate: Template = {
   description:
     "CanvasDoc v2 static screenshot gallery using native image nodes without iframe wrappers or readiness waits.",
   expectedInputs: {
-    images: "canvas files or pinned Asset Library revisions under /assets",
+    images: "workspace-reusable asset revisions pinned automatically under /assets",
     layout: "explicit image rects, fit and focalPosition",
     accessibility: "meaningful alt text",
   },

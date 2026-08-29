@@ -19,6 +19,8 @@ describe("lean MCP server instructions", () => {
     expect(instructions).toMatch(/correct defects, and snapshot again/i);
     expect(instructions).toMatch(/loading, empty, error, success/i);
     expect(instructions).toMatch(/internal instructions or metadata/i);
+    expect(instructions).toMatch(/automatically becomes reusable workspace media/i);
+    expect(instructions).toMatch(/\/src source and \/output artifacts remain canvas-local/i);
     expect(instructions).not.toMatch(/PLAN\.md/i);
   });
 });
