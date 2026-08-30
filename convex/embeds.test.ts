@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import type { WorkId } from "@convex-dev/workpool";
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { internal } from "./_generated/api";
@@ -79,6 +80,10 @@ describe("published embed context and cache", () => {
         canvasId: seeded.canvasId,
         versionId: seeded.versionId,
         cacheKey: "key",
+        target: { type: "canvas" },
+        clip: "frame",
+        scale: 2,
+        padding: 0,
         status: "ready",
         objectKey: "embeds/object.png",
         contentHash: "abc",
@@ -88,7 +93,10 @@ describe("published embed context and cache", () => {
         downscaled: false,
         renderStartedAt: 1,
         renderDurationMs: 50,
+        desiredGeneration: 1,
+        completedGeneration: 1,
         createdAt: 1,
+        updatedAt: 1,
       }),
     );
     await expect(
@@ -140,5 +148,42 @@ describe("published embed context and cache", () => {
     await expect(
       t.query(internal.embeds.resolvePublicContext, { publicSlug: "public-flow" }),
     ).resolves.toMatchObject({ version: 7, docStorageId: version7.docStorageId });
+  });
+
+  test("keeps the last successful image when a refresh fails", async () => {
+    const t = convexTest(schema, modules);
+    const seeded = await seedPublishedCanvas(t);
+    const embedId = await t.run((ctx) =>
+      ctx.db.insert("canvasEmbeds", {
+        canvasId: seeded.canvasId,
+        versionId: seeded.versionId,
+        cacheKey: "failed-refresh",
+        target: { type: "canvas" },
+        clip: "frame",
+        scale: 1,
+        padding: 0,
+        status: "updating",
+        objectKey: "embeds/last-good.png",
+        desiredGeneration: 2,
+        completedGeneration: 1,
+        attemptObjectKey: "embeds/attempt.png",
+        workId: "work-1",
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    await t.mutation(internal.embeds.renderCompleted, {
+      workId: "work-1" as WorkId,
+      context: { embedId, generation: 2, attemptObjectKey: "embeds/attempt.png" },
+      result: { kind: "failed", error: "worker exploded" },
+    });
+    const row = await t.run((ctx) => ctx.db.get(embedId));
+    expect(row).toMatchObject({
+      status: "error",
+      objectKey: "embeds/last-good.png",
+      completedGeneration: 1,
+      desiredGeneration: 2,
+      errorText: "worker exploded",
+    });
   });
 });

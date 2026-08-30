@@ -600,6 +600,70 @@ async function waitForCanvasReadiness(
 ): Promise<{ status: "ready" | "partial"; warnings: string[] }> {
   const count = await page.locator(".vc-kind-iframe iframe").count();
   if (count === 0) return { status: "ready", warnings: [] };
+  // Worker snapshots hydrate iframe sources directly, outside the public
+  // HTTP route that injects the viewer readiness bridge. Inspect those
+  // same-origin frames ourselves so a healthy screen does not burn the full
+  // timeout twice and get treated as an uncacheable partial render.
+  const directReadiness = await page.locator("html[data-visual-canvas-worker-readiness]").count();
+  const handles = directReadiness
+    ? await page.locator(".vc-kind-iframe iframe").elementHandles()
+    : [];
+  await Promise.all(
+    handles.map(async (handle) => {
+      const owner = await handle.evaluateHandle((iframe) =>
+        (iframe as Element).closest(".vc-kind-iframe"),
+      );
+      const current = await owner.evaluate((node) =>
+        node instanceof HTMLElement ? node.dataset.iframeReadiness : undefined,
+      );
+      if (["ready", "partial", "failed"].includes(current ?? "")) return;
+      const frame = await handle.contentFrame();
+      if (!frame) return;
+      try {
+        await Promise.race([
+          frame.evaluate(async () => {
+            const screenReady = (window as Window & { visualCanvasScreenReady?: Promise<unknown> })
+              .visualCanvasScreenReady;
+            await Promise.all([
+              document.fonts?.ready ?? Promise.resolve(),
+              Promise.all(
+                [...document.images].map((image) =>
+                  image.complete
+                    ? Promise.resolve()
+                    : new Promise<void>((resolve, reject) => {
+                        image.addEventListener("load", () => resolve(), { once: true });
+                        image.addEventListener(
+                          "error",
+                          () => reject(new Error(`image failed: ${image.currentSrc || image.src}`)),
+                          { once: true },
+                        );
+                      }),
+                ),
+              ),
+              screenReady ?? Promise.resolve(),
+            ]);
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("iframe readiness timed out")), timeoutMs),
+          ),
+        ]);
+        await owner.evaluate((node) => {
+          if (node instanceof HTMLElement) node.dataset.iframeReadiness = "ready";
+        });
+      } catch (error) {
+        await owner.evaluate(
+          (node, message) => {
+            if (!(node instanceof HTMLElement)) return;
+            node.dataset.iframeReadiness = "partial";
+            node.dataset.iframeReadinessDetail = message;
+          },
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        await owner.dispose();
+      }
+    }),
+  );
   try {
     await page.waitForFunction(
       () => {

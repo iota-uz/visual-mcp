@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { sha256Hex } from "./lib/hash";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -71,7 +72,7 @@ describe("GET /s/:slug", () => {
         size: (overrides.body ?? "<h1>hi</h1>").length,
         storageId,
       });
-      return { canvasId, storageId };
+      return { canvasId, versionId, storageId };
     });
   }
 
@@ -245,6 +246,47 @@ describe("GET /s/:slug", () => {
       (await t.fetch("/s/pub-slug-123/_embed/region/0-0-10000-10000.png?scale=2")).status,
     ).toBe(400);
     expect((await t.fetch("/s/pub-slug-123/_embed/canvas.png?v=999")).status).toBe(404);
+  });
+
+  test("returns a non-image 202 while a cold preview is queued", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, versionId } = await seedPublicCanvasWithArtifact(t);
+    const cacheKey = await sha256Hex(
+      JSON.stringify({
+        renderer: 5,
+        canvasId,
+        version: 1,
+        pageId: "default",
+        target: { type: "canvas" },
+        clip: "frame",
+        scale: 1,
+        padding: 0,
+      }),
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("canvasEmbeds", {
+        canvasId,
+        versionId,
+        cacheKey,
+        target: { type: "canvas" },
+        clip: "frame",
+        scale: 1,
+        padding: 0,
+        status: "queued",
+        desiredGeneration: 1,
+        attemptObjectKey: "embeds/attempt.png",
+        workId: "work-1",
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    const response = await t.fetch("/s/pub-slug-123/_embed/canvas.png?scale=1");
+    expect(response.status).toBe(202);
+    expect(response.headers.get("content-type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-embed-status")).toBe("queued");
+    expect(response.headers.get("retry-after")).toBe("3");
+    expect(await response.text()).toContain("being prepared");
   });
 
   test("never resolves unpublished historical checkpoints for public embeds", async () => {

@@ -10,6 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { RenameForm } from "../components/RenameForm";
 import { ListSkeleton } from "../components/Skeleton";
+import { type StaticRenderState, StaticRenderStatus } from "../components/StaticRenderStatus";
 import { toastError, useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
 import { Disclosure } from "../components/ui/Disclosure";
@@ -159,6 +160,7 @@ interface RecentCanvas {
   title: string;
   kind: string;
   thumbnail_url: string | null;
+  static_render_status: StaticRenderState;
 }
 
 interface WorkspaceSummary {
@@ -190,6 +192,10 @@ function LaneThumb({ canvas }: { canvas: RecentCanvas }) {
           ) : (
             <KindIcon size={18} strokeWidth={1.5} aria-hidden="true" />
           )}
+          <StaticRenderStatus
+            state={canvas.static_render_status}
+            className="workspace-lane-render-status"
+          />
         </span>
         <span className="workspace-lane-thumb-title">{canvas.title}</span>
       </Link>

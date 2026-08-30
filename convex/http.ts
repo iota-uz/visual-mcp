@@ -1,14 +1,9 @@
 import { CanvasFileSchema, resolveCanvasPage } from "@visual-canvas/canvas";
-import {
-  type CanvasSnapshotTarget,
-  canvasSnapshotEntryHtml,
-} from "@visual-canvas/canvas/snapshot-entry.js";
-import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
+import type { CanvasSnapshotTarget } from "@visual-canvas/canvas/snapshot-entry.js";
 import type { Theme } from "@visual-canvas/canvas/themes.js";
 import {
   compileThemeToCssVariables,
-  compileThemeToTailwindV4,
-  resolveTheme,
+  type resolveTheme,
 } from "@visual-canvas/runtime/render/themes/index.js";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
@@ -20,9 +15,8 @@ import { handleAgentGateway } from "./agentGateway";
 // bearer AuthInfo.
 import { auth as convexAuth } from "./auth";
 import { renderEmbedCard } from "./lib/embedCard";
-import { embedPlaceholderPng } from "./lib/embedPlaceholder";
 import { sha256Hex } from "./lib/hash";
-import { deleteObject, getObject, presignObject } from "./lib/objectStore";
+import { getObject, presignObject } from "./lib/objectStore";
 
 const http = httpRouter();
 
@@ -290,33 +284,46 @@ function parseEmbedRequest(segments: string[], url: URL): EmbedRequest | Respons
   return { target, targetLabel, pageId, version, scale, clip, padding };
 }
 
-function embedHeaders(pinned: boolean, etag?: string, downscaled = false): Headers {
+function embedHeaders(_pinned: boolean, etag?: string, downscaled = false): Headers {
   const headers = new Headers({
     "content-type": "image/png",
     "content-disposition": 'inline; filename="visual-canvas-embed.png"',
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "cross-origin",
     "access-control-allow-origin": "*",
-    "cache-control": pinned
-      ? "public, max-age=31536000, immutable"
-      : "public, max-age=60, must-revalidate",
+    // A pinned canvas version can still consume the canonical live component
+    // bundle. Revalidation is therefore required even when `v` is present.
+    "cache-control": "public, max-age=60, must-revalidate",
   });
   if (etag) headers.set("etag", `"${etag}"`);
   if (downscaled) headers.set("x-embed-downscaled", "1");
   return headers;
 }
 
-function transientEmbedResponse(): Response {
-  return new Response(new Blob([embedPlaceholderPng()], { type: "image/png" }), {
-    status: 200,
-    headers: {
-      "content-type": "image/png",
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
-      "cross-origin-resource-policy": "cross-origin",
-      "access-control-allow-origin": "*",
-    },
+function pendingEmbedResponse(
+  status: "queued" | "updating" | "stale" | "error" | "rate_limited",
+  retryAfter?: number,
+): Response {
+  const httpStatus = status === "rate_limited" ? 429 : status === "error" ? 503 : 202;
+  const headers = new Headers({
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-embed-status": status,
+    "cross-origin-resource-policy": "cross-origin",
+    "access-control-allow-origin": "*",
   });
+  if (retryAfter !== undefined)
+    headers.set("retry-after", String(Math.max(1, Math.ceil(retryAfter / 1_000))));
+  else if (httpStatus === 202) headers.set("retry-after", "3");
+  return new Response(
+    status === "rate_limited"
+      ? "Preview preparation is rate limited. Retry later."
+      : status === "error"
+        ? "Preview preparation failed. Request preparation again to retry."
+        : "Preview is being prepared.",
+    { status: httpStatus, headers },
+  );
 }
 
 type PublicEmbedContext = {
@@ -335,151 +342,6 @@ type PublicEmbedContext = {
   canvasBrand?: Parameters<typeof resolveTheme>[2];
   workspaceBrand?: Parameters<typeof resolveTheme>[1];
 };
-
-type WorkerSnapshotResult = {
-  size: number;
-  width: number;
-  height: number;
-  mimeType: "image/png";
-  contentHash: string;
-  uploadStatus: number;
-  readiness: { status: "ready" | "partial"; warnings: string[] };
-  downscaled: boolean;
-};
-
-async function callSnapshotWorker(body: unknown): Promise<WorkerSnapshotResult> {
-  const rawUrl = process.env.WORKER_URL;
-  const token = process.env.WORKER_TOKEN;
-  if (!rawUrl || !token) throw new Error("render worker is not configured");
-  const origin = rawUrl.includes("://") ? rawUrl : `http://${rawUrl}:8080`;
-  const response = await fetch(`${origin.replace(/\/$/, "")}/snapshot`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
-  const result = (await response.json().catch(() => null)) as WorkerSnapshotResult | null;
-  if (!response.ok || !result) throw new Error(`snapshot worker failed (${response.status})`);
-  if (result.uploadStatus < 200 || result.uploadStatus >= 300) {
-    throw new Error(`snapshot upload failed (${result.uploadStatus})`);
-  }
-  return result;
-}
-
-async function renderPublicEmbed(
-  ctx: ActionCtx,
-  context: PublicEmbedContext,
-  request: EmbedRequest,
-  objectKey: string,
-): Promise<WorkerSnapshotResult> {
-  if (context.kind !== "canvas" && context.kind !== "html") {
-    throw new Error("unsupported_canvas_kind");
-  }
-  const resolvedFiles = await Promise.all(
-    context.files.map(async (file) => {
-      const getUrl = await ctx.storage.getUrl(file.storageId);
-      return getUrl ? { relPath: file.relPath, getUrl } : null;
-    }),
-  );
-  const sources = [
-    ...resolvedFiles.filter(
-      (source): source is { relPath: string; getUrl: string } => source !== null,
-    ),
-    ...(await Promise.all(
-      context.assets.map(async (asset) => ({
-        relPath: asset.relPath,
-        getUrl: await presignObject(asset.objectKey, "GET", 3600),
-      })),
-    )),
-  ];
-  let entrypoint: string;
-  let temporaryEntryStorageId: Id<"_storage"> | undefined;
-  try {
-    if (context.kind === "canvas") {
-      if (!context.docStorageId) throw new Error("published CanvasDoc is unavailable");
-      const docBlob = await ctx.storage.get(context.docStorageId);
-      if (!docBlob) throw new Error("published CanvasDoc storage object is unavailable");
-      const file = CanvasFileSchema.parse(JSON.parse(await docBlob.text()));
-      const page = resolveCanvasPage(file, request.pageId);
-      if (request.pageId && page.id !== request.pageId) throw new Error("page_not_found");
-      if (request.target.type === "node") {
-        const nodeId = request.target.nodeId;
-        const node = page.doc.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node) {
-          throw new Error("node_not_found");
-        }
-        if (request.clip === "content" && node.kind === "native") {
-          throw new Error("content_clip_unavailable");
-        }
-      } else if (request.target.type === "group") {
-        const groupId = request.target.groupId;
-        if (!page.doc.groups.some((group) => group.id === groupId)) {
-          throw new Error("group_not_found");
-        }
-      } else if (request.target.type === "stage") {
-        const stageId = request.target.stageId;
-        if (!page.doc.stages.some((stage) => stage.id === stageId)) {
-          throw new Error("stage_not_found");
-        }
-      }
-      const cssBlob = context.cssStorageId ? await ctx.storage.get(context.cssStorageId) : null;
-      const entry = canvasSnapshotEntryHtml(
-        page.doc,
-        cssBlob ? await cssBlob.text() : "",
-        request.target,
-        undefined,
-        THEME_CSS,
-      );
-      temporaryEntryStorageId = await ctx.storage.store(new Blob([entry], { type: "text/html" }));
-      const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
-      if (!getUrl) throw new Error("unable to stage published canvas entrypoint");
-      entrypoint = "/src/__embed.html";
-      sources.push({ relPath: entrypoint, getUrl });
-    } else {
-      if (request.pageId) throw new Error("page_not_found");
-      if (request.target.type !== "canvas") throw new Error("unsupported_snapshot_target");
-      const html = context.files.find((file) => file.relPath.endsWith(".html"));
-      if (html) {
-        entrypoint = html.relPath;
-      } else if (context.entryStorageId) {
-        const getUrl = await ctx.storage.getUrl(context.entryStorageId);
-        if (!getUrl) throw new Error("published HTML entrypoint is unavailable");
-        entrypoint = "/src/index.html";
-        sources.push({ relPath: entrypoint, getUrl });
-      } else {
-        throw new Error("published HTML entrypoint is unavailable");
-      }
-    }
-    const theme = resolveTheme(
-      context.themeId ?? "clean-saas",
-      context.workspaceBrand,
-      context.canvasBrand,
-    );
-    let result: WorkerSnapshotResult | undefined;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      result = await callSnapshotWorker({
-        sources,
-        entrypoint,
-        target: request.target,
-        clip: request.clip,
-        padding: request.padding,
-        scale: request.scale,
-        readinessTimeoutMs: 15_000,
-        upload: { putUrl: await presignObject(objectKey, "PUT", 900), method: "PUT" },
-        themeTailwindCss: compileThemeToTailwindV4(theme),
-        themeRuntimeCss: compileThemeToCssVariables(theme),
-        themeJson: JSON.stringify(theme),
-      });
-      if (result.readiness.status === "ready") break;
-      if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!result) throw new Error("snapshot worker returned no result");
-    return result;
-  } finally {
-    if (temporaryEntryStorageId) {
-      await ctx.storage.delete(temporaryEntryStorageId).catch(() => undefined);
-    }
-  }
-}
 
 function embedNotFound(): Response {
   return new Response("Not found", {
@@ -566,7 +428,7 @@ async function handlePublicEmbed(
   }
   const cacheKey = await sha256Hex(
     JSON.stringify({
-      renderer: 4,
+      renderer: 5,
       canvasId: context.canvasId,
       version: context.version,
       pageId: embed.pageId ?? "default",
@@ -578,7 +440,7 @@ async function handlePublicEmbed(
   );
   const lookupArgs = { publicSlug, versionId: context.versionId, cacheKey };
   let ready = await ctx.runQuery(internal.embeds.getReady, lookupArgs);
-  if (ready) {
+  if (ready?.status === "ready") {
     const response = await readyEmbedResponse(rawRequest, ready, pinned);
     if (response) {
       console.info("canvas_embed", {
@@ -618,176 +480,50 @@ async function handlePublicEmbed(
       error: error instanceof Error ? error.message : String(error),
       durationMs: Date.now() - startedAt,
     });
-    return transientEmbedResponse();
+    return pendingEmbedResponse("error");
   }
 
-  const objectKey = `embeds/${context.canvasId}/v${context.version}/${cacheKey}.png`;
-  let claim: { status: "claimed" | "pending" | "rate_limited"; retryAfter?: number };
+  let preparation: {
+    status: "ready" | "queued" | "updating" | "stale" | "error" | "rate_limited";
+    retryAfter?: number;
+  };
   try {
-    claim = await ctx.runMutation(internal.embeds.claimColdRender, {
+    preparation = await ctx.runMutation(internal.embeds.requestPreparation, {
       publicSlug,
       canvasId: context.canvasId,
       versionId: context.versionId,
       cacheKey,
-      objectKey,
-      now: Date.now(),
-      force: ready !== null,
+      pageId: embed.pageId,
+      target: embed.target,
+      clip: embed.clip,
+      scale: embed.scale,
+      padding: embed.padding,
+      enforceRateLimit: true,
     });
-  } catch {
-    return embedNotFound();
-  }
-  if (claim.status === "pending") {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      ready = await ctx.runQuery(internal.embeds.getReady, lookupArgs);
-      if (!ready) continue;
-      const response = await readyEmbedResponse(rawRequest, ready, pinned);
-      if (response) {
-        console.info("canvas_embed", {
-          shareSlug: publicSlug,
-          version: context.version,
-          target: embed.targetLabel,
-          cacheHit: true,
-          outcome: "joined_pending_render",
-          durationMs: Date.now() - startedAt,
-        });
-        return response;
-      }
-    }
-    console.warn("canvas_embed", {
-      shareSlug: publicSlug,
-      version: context.version,
-      target: embed.targetLabel,
-      cacheHit: false,
-      outcome: "pending_timeout",
-      durationMs: Date.now() - startedAt,
-    });
-    return transientEmbedResponse();
-  }
-  if (claim.status === "rate_limited") {
-    console.warn("canvas_embed", {
-      shareSlug: publicSlug,
-      version: context.version,
-      target: embed.targetLabel,
-      cacheHit: false,
-      outcome: "rate_limited",
-      durationMs: Date.now() - startedAt,
-    });
-    return transientEmbedResponse();
-  }
-
-  try {
-    const rendered = await renderPublicEmbed(ctx, context, embed, objectKey);
-    if (rendered.readiness.status === "partial") {
-      // Chromium still produced a useful board/stage capture. Serve it for this
-      // request, but never promote it into the durable embed cache: a later
-      // request should retry iframe readiness and replace it with a complete PNG.
-      const currentContext = (await ctx.runQuery(internal.embeds.resolvePublicContext, {
-        publicSlug,
-        version: context.version,
-      })) as PublicEmbedContext | null;
-      if (!currentContext || currentContext.versionId !== context.versionId) {
-        await ctx.runMutation(internal.embeds.abandonColdRender, {
-          versionId: context.versionId,
-          cacheKey,
-          objectKey,
-        });
-        await deleteObject(objectKey).catch(() => undefined);
-        return embedNotFound();
-      }
-      const object = await getObject(objectKey);
-      if (!object.ok) throw new Error("partial rendered embed object is unavailable");
-      const bytes = await object.arrayBuffer();
-      await ctx.runMutation(internal.embeds.abandonColdRender, {
-        versionId: context.versionId,
-        cacheKey,
-        objectKey,
-      });
-      await deleteObject(objectKey).catch(() => undefined);
-      const headers = embedHeaders(false, rendered.contentHash, rendered.downscaled);
-      headers.set("cache-control", "no-store");
-      headers.set("x-embed-partial", "1");
-      console.warn("canvas_embed", {
-        shareSlug: publicSlug,
-        version: context.version,
-        target: embed.targetLabel,
-        cacheHit: false,
-        outcome: "partial_render",
-        downscaled: rendered.downscaled,
-        warnings: rendered.readiness.warnings,
-        renderDurationMs: Date.now() - startedAt,
-        durationMs: Date.now() - startedAt,
-      });
-      return new Response(bytes, { status: 200, headers });
-    }
-    await ctx.runMutation(internal.embeds.finishColdRender, {
-      versionId: context.versionId,
-      cacheKey,
-      objectKey,
-      contentHash: rendered.contentHash,
-      size: rendered.size,
-      width: rendered.width,
-      height: rendered.height,
-      downscaled: rendered.downscaled,
-      renderDurationMs: Date.now() - startedAt,
-    });
-    // Re-resolve the share after the expensive render. A share revoked while
-    // Chromium was running must not leak the just-produced bytes.
-    const finished = await ctx.runQuery(internal.embeds.getReady, lookupArgs);
-    if (!finished) return embedNotFound();
-    const response = await readyEmbedResponse(rawRequest, finished, pinned);
-    if (!response) throw new Error("rendered embed object is unavailable");
-    console.info("canvas_embed", {
-      shareSlug: publicSlug,
-      version: context.version,
-      target: embed.targetLabel,
-      cacheHit: false,
-      downscaled: rendered.downscaled,
-      renderDurationMs: Date.now() - startedAt,
-      durationMs: Date.now() - startedAt,
-    });
-    return response;
   } catch (error) {
-    await ctx.runMutation(internal.embeds.abandonColdRender, {
-      versionId: context.versionId,
-      cacheKey,
-      objectKey,
-    });
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      message === "page_not_found" ||
-      message === "node_not_found" ||
-      message === "group_not_found" ||
-      message === "stage_not_found" ||
-      message === "unsupported_snapshot_target" ||
-      message === "unsupported_canvas_kind"
-    ) {
-      console.warn("canvas_embed", {
-        shareSlug: publicSlug,
-        version: context.version,
-        target: embed.targetLabel,
-        cacheHit: false,
-        outcome: "not_found",
-        durationMs: Date.now() - startedAt,
-      });
-      return embedNotFound();
-    }
-    if (message === "content_clip_unavailable") {
-      return embedBadRequest(
-        "clip=content requires an iframe or image node with an inner content viewport",
-      );
-    }
-    console.error("canvas_embed", {
-      shareSlug: publicSlug,
-      version: context.version,
-      target: embed.targetLabel,
-      cacheHit: false,
-      outcome: "render_failed",
-      error: message,
-      durationMs: Date.now() - startedAt,
-    });
-    return transientEmbedResponse();
+    return error instanceof Error && error.message.includes("embed_not_found")
+      ? embedNotFound()
+      : pendingEmbedResponse("error");
   }
+  if (preparation.status === "ready") {
+    ready = await ctx.runQuery(internal.embeds.getReady, lookupArgs);
+    if (ready) {
+      const response = await readyEmbedResponse(rawRequest, ready, pinned);
+      if (response) return response;
+    }
+  }
+  if ((preparation.status === "stale" || preparation.status === "error") && ready) {
+    const response = await readyEmbedResponse(rawRequest, ready, false);
+    if (response) {
+      response.headers.set("x-embed-status", preparation.status);
+      response.headers.set("cache-control", "public, max-age=30, must-revalidate");
+      return response;
+    }
+  }
+  return pendingEmbedResponse(
+    preparation.status === "ready" ? "error" : preparation.status,
+    preparation.retryAfter,
+  );
 }
 
 function embedCardHeaders(pinned: boolean): Headers {

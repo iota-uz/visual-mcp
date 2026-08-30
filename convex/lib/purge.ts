@@ -140,6 +140,16 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id)))
     await ctx.db.delete(row._id);
 
+  for await (const row of ctx.db
+    .query("canvasRenderRecipes")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id)))
+    await ctx.db.delete(row._id);
+
+  for await (const row of ctx.db
+    .query("canvasComponentUsages")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id)))
+    await ctx.db.delete(row._id);
+
   const renders = await ctx.db
     .query("renders")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
@@ -189,6 +199,22 @@ export async function purgeWorkspace(
     const totals = await purgeCanvas(ctx, canvas);
     bytesReclaimed += totals.bytesReclaimed;
     blobsDeleted += totals.blobsDeleted;
+  }
+
+  const components = await ctx.db
+    .query("components")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    .collect();
+  for (const component of components) {
+    for await (const row of ctx.db
+      .query("componentDependencies")
+      .withIndex("by_component", (q) => q.eq("componentId", component._id)))
+      await ctx.db.delete(row._id);
+    for await (const row of ctx.db
+      .query("componentDependencies")
+      .withIndex("by_dependency", (q) => q.eq("dependencyId", component._id)))
+      await ctx.db.delete(row._id);
+    await ctx.db.delete(component._id);
   }
 
   await ctx.db.delete(workspace._id);

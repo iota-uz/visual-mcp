@@ -28,15 +28,37 @@ return 404 even though the cached object may still exist in the bucket.
 - An unpinned URL has no `v`, resolves the latest published checkpoint, and
   returns `Cache-Control: public, max-age=60, must-revalidate`.
 - `v=N` is accepted only for a checkpoint known to have been published and
-  returns `Cache-Control: public, max-age=31536000, immutable`.
+  pins canvas content to that checkpoint. It still revalidates every 60
+  seconds because canonical iframe components are live and are deliberately
+  not version-pinned.
 - The internal key includes canvas id, published version, Page, target, scale,
   clip mode, padding, and renderer version. Thus the same unpinned URL causes a cold render
   after the next published checkpoint while draft-only edits remain invisible.
 - The worker hashes final PNG bytes for `ETag`; matching `If-None-Match` returns
   304. It compresses and downsizes any PNG over 4 MiB and the endpoint adds
   `X-Embed-Downscaled: 1`.
-- Only cold misses consume the per-share-slug rate limit. A successful capture
-  with incomplete iframe readiness is returned as the real PNG with
-  `X-Embed-Partial: 1` and `Cache-Control: no-store`, and is not promoted into
-  the durable cache so the next request retries. A worker/browser failure that
-  produces no PNG returns the static unavailable-preview PNG with `no-store`.
+- Only anonymous cold misses consume the per-share-slug rate limit. MCP batch
+  preparation is authenticated and can enqueue up to 50 targets in one call.
+- Cold work runs in a durable queue with three render slots and retries. A cold
+  URL returns `202 text/plain`, `Cache-Control: no-store`, `Retry-After`, and
+  `X-Embed-Status: queued|updating`; it never returns a placeholder image under
+  `200`. Rate limiting returns `429` with the same retry contract.
+- A PNG is promoted to the durable cache only after the worker reports complete
+  iframe readiness. Wide nodes use the same object cache as every other target.
+  Repeated reads stream the stored bytes and use their content hash as `ETag`.
+- Component changes mark existing bytes stale and enqueue one coalesced refresh.
+  While it runs, the last successful image remains available with
+  `X-Embed-Status: stale`. A failed refresh keeps those bytes and exposes
+  `X-Embed-Status: error`; an authenticated `canvas_embed` call can retry it.
+
+## MCP preparation
+
+`canvas_embed` accepts `targets` with 1–50 canvas, node, group, stage, or region
+specifications. Its `embeds[]` result contains the supported URL, linked
+Markdown, resolved version, and `preparation_status` for every target. Call it
+again until all requested entries report `ready`, then paste the returned URLs
+into GitHub, Notion, Slack, or another non-retrying consumer.
+
+With `pin_version: false` (the default), the URL contains no `v` parameter and
+therefore follows the latest published checkpoint. With `pin_version: true`,
+the URL includes `v=N` and remains attached to that published checkpoint.

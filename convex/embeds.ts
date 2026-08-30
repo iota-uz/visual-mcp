@@ -1,8 +1,26 @@
+import { vOnCompleteArgs } from "@convex-dev/workpool";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { findCanvasByRef } from "./lib/canvasRefs";
 import { embedRateLimiter } from "./lib/embedRateLimit";
+import { renderWorkpool } from "./lib/renderWorkpool";
+import { recomputeCanvasStaticRenderState } from "./lib/staticRenderState";
 import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
+
+export const EmbedTargetValidator = v.union(
+  v.object({ type: v.literal("canvas") }),
+  v.object({ type: v.literal("node"), nodeId: v.string() }),
+  v.object({ type: v.literal("group"), groupId: v.string() }),
+  v.object({ type: v.literal("stage"), stageId: v.string() }),
+  v.object({
+    type: v.literal("region"),
+    x: v.number(),
+    y: v.number(),
+    width: v.number(),
+    height: v.number(),
+  }),
+);
 
 const PublicEmbedContextValidator = v.union(
   v.null(),
@@ -134,6 +152,14 @@ const ReadyEmbedValidator = v.union(
     height: v.number(),
     downscaled: v.boolean(),
     renderDurationMs: v.number(),
+    status: v.union(
+      v.literal("ready"),
+      v.literal("queued"),
+      v.literal("updating"),
+      v.literal("stale"),
+      v.literal("error"),
+    ),
+    errorText: v.optional(v.string()),
   }),
 );
 
@@ -174,8 +200,7 @@ export const getReady = internalQuery({
       )
       .unique();
     if (
-      row?.status !== "ready" ||
-      !row.objectKey ||
+      !row?.objectKey ||
       !row.contentHash ||
       row.size === undefined ||
       row.width === undefined ||
@@ -191,25 +216,38 @@ export const getReady = internalQuery({
       height: row.height,
       downscaled: row.downscaled ?? false,
       renderDurationMs: row.renderDurationMs ?? 0,
+      status: row.status,
+      errorText: row.errorText,
     };
   },
 });
 
-export const claimColdRender = internalMutation({
+export const requestPreparation = internalMutation({
   args: {
     publicSlug: v.string(),
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),
     cacheKey: v.string(),
-    objectKey: v.string(),
-    now: v.number(),
-    force: v.optional(v.boolean()),
+    pageId: v.optional(v.string()),
+    target: EmbedTargetValidator,
+    clip: v.union(v.literal("frame"), v.literal("content")),
+    scale: v.union(v.literal(1), v.literal(2)),
+    padding: v.number(),
+    enforceRateLimit: v.boolean(),
   },
   returns: v.object({
-    status: v.union(v.literal("claimed"), v.literal("pending"), v.literal("rate_limited")),
+    status: v.union(
+      v.literal("ready"),
+      v.literal("queued"),
+      v.literal("updating"),
+      v.literal("stale"),
+      v.literal("error"),
+      v.literal("rate_limited"),
+    ),
     retryAfter: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
+    const now = Date.now();
     const canvas = await ctx.db.get(args.canvasId);
     const version = await ctx.db.get(args.versionId);
     const latest = canvas?.publishedVersionId ? await ctx.db.get(canvas.publishedVersionId) : null;
@@ -232,52 +270,149 @@ export const claimColdRender = internalMutation({
         q.eq("versionId", args.versionId).eq("cacheKey", args.cacheKey),
       )
       .unique();
-    if (!args.force && existing?.status === "ready") return { status: "pending" as const };
     if (
-      !args.force &&
-      existing?.status === "pending" &&
-      existing.renderStartedAt > args.now - 30_000
+      existing?.status === "ready" &&
+      existing.completedGeneration === existing.desiredGeneration
     ) {
-      return { status: "pending" as const };
+      return { status: "ready" as const };
     }
-    const limited = await embedRateLimiter.limit(ctx, "coldEmbedRender", {
-      key: args.publicSlug,
-    });
-    if (!limited.ok) {
-      return { status: "rate_limited" as const, retryAfter: limited.retryAfter };
+    if (
+      existing?.workId &&
+      (existing.status === "queued" ||
+        existing.status === "updating" ||
+        existing.status === "stale")
+    ) {
+      return { status: existing.status };
     }
+    if (args.enforceRateLimit) {
+      const limited = await embedRateLimiter.limit(ctx, "coldEmbedRender", {
+        key: args.publicSlug,
+      });
+      if (!limited.ok) {
+        return { status: "rate_limited" as const, retryAfter: limited.retryAfter };
+      }
+    }
+
+    const generation = existing?.desiredGeneration ?? 1;
+    const attemptObjectKey = `embeds/${args.canvasId}/v${version.version}/${args.cacheKey}/g${generation}-${now}.png`;
+    const embedId = existing
+      ? existing._id
+      : await ctx.db.insert("canvasEmbeds", {
+          canvasId: args.canvasId,
+          versionId: args.versionId,
+          cacheKey: args.cacheKey,
+          pageId: args.pageId,
+          target: args.target,
+          clip: args.clip,
+          scale: args.scale,
+          padding: args.padding,
+          status: "queued",
+          desiredGeneration: generation,
+          attemptObjectKey,
+          createdAt: now,
+          updatedAt: now,
+        });
     if (existing) {
       await ctx.db.patch(existing._id, {
-        status: "pending",
-        objectKey: args.objectKey,
-        contentHash: undefined,
-        size: undefined,
-        width: undefined,
-        height: undefined,
-        downscaled: undefined,
-        renderStartedAt: args.now,
-        renderDurationMs: undefined,
-      });
-    } else {
-      await ctx.db.insert("canvasEmbeds", {
-        canvasId: args.canvasId,
-        versionId: args.versionId,
-        cacheKey: args.cacheKey,
-        status: "pending",
-        objectKey: args.objectKey,
-        renderStartedAt: args.now,
-        createdAt: args.now,
+        pageId: args.pageId,
+        target: args.target,
+        clip: args.clip,
+        scale: args.scale,
+        padding: args.padding,
+        status: existing.objectKey ? "stale" : "queued",
+        attemptObjectKey,
+        errorText: undefined,
+        updatedAt: now,
       });
     }
-    return { status: "claimed" as const };
+    const workId = await renderWorkpool.enqueueAction(
+      ctx,
+      internal.embedRender.run,
+      { embedId, generation, attemptObjectKey },
+      {
+        onComplete: internal.embeds.renderCompleted,
+        context: { embedId, generation, attemptObjectKey },
+      },
+    );
+    await ctx.db.patch(embedId, {
+      workId,
+      status: existing?.objectKey ? "stale" : "queued",
+      updatedAt: now,
+    });
+    await recomputeCanvasStaticRenderState(ctx, args.canvasId);
+    return { status: existing?.objectKey ? ("stale" as const) : ("queued" as const) };
   },
 });
 
-export const finishColdRender = internalMutation({
+export const markUpdating = internalMutation({
   args: {
-    versionId: v.id("canvasVersions"),
-    cacheKey: v.string(),
-    objectKey: v.string(),
+    embedId: v.id("canvasEmbeds"),
+    generation: v.number(),
+    attemptObjectKey: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.embedId);
+    if (
+      !row ||
+      row.desiredGeneration !== args.generation ||
+      row.attemptObjectKey !== args.attemptObjectKey
+    ) {
+      return false;
+    }
+    await ctx.db.patch(row._id, {
+      status: "updating",
+      renderStartedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await recomputeCanvasStaticRenderState(ctx, row.canvasId);
+    return true;
+  },
+});
+
+export const getRenderJob = internalQuery({
+  args: { embedId: v.id("canvasEmbeds"), generation: v.number(), attemptObjectKey: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      context: PublicEmbedContextValidator,
+      pageId: v.optional(v.string()),
+      target: EmbedTargetValidator,
+      clip: v.union(v.literal("frame"), v.literal("content")),
+      scale: v.union(v.literal(1), v.literal(2)),
+      padding: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.embedId);
+    if (
+      !row ||
+      row.desiredGeneration !== args.generation ||
+      row.attemptObjectKey !== args.attemptObjectKey
+    ) {
+      return null;
+    }
+    const canvas = await ctx.db.get(row.canvasId);
+    const version = await ctx.db.get(row.versionId);
+    if (!canvas || !version) return null;
+    const context = await contextForCanvas(ctx, canvas, version.version);
+    if (!context) return null;
+    return {
+      context,
+      pageId: row.pageId,
+      target: row.target,
+      clip: row.clip,
+      scale: row.scale,
+      padding: row.padding,
+    };
+  },
+});
+
+export const finishRender = internalMutation({
+  args: {
+    embedId: v.id("canvasEmbeds"),
+    generation: v.number(),
+    attemptObjectKey: v.string(),
     contentHash: v.string(),
     size: v.number(),
     width: v.number(),
@@ -285,39 +420,87 @@ export const finishColdRender = internalMutation({
     downscaled: v.boolean(),
     renderDurationMs: v.number(),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("canvasEmbeds")
-      .withIndex("by_version_cacheKey", (q) =>
-        q.eq("versionId", args.versionId).eq("cacheKey", args.cacheKey),
-      )
-      .unique();
-    if (!row || row.objectKey !== args.objectKey) return null;
+    const row = await ctx.db.get(args.embedId);
+    if (
+      !row ||
+      row.desiredGeneration !== args.generation ||
+      row.attemptObjectKey !== args.attemptObjectKey
+    )
+      return false;
     await ctx.db.patch(row._id, {
       status: "ready",
+      objectKey: args.attemptObjectKey,
       contentHash: args.contentHash,
       size: args.size,
       width: args.width,
       height: args.height,
       downscaled: args.downscaled,
       renderDurationMs: args.renderDurationMs,
+      completedGeneration: args.generation,
+      attemptObjectKey: undefined,
+      workId: undefined,
+      errorText: undefined,
+      updatedAt: Date.now(),
     });
-    return null;
+    await recomputeCanvasStaticRenderState(ctx, row.canvasId);
+    return true;
   },
 });
 
-export const abandonColdRender = internalMutation({
-  args: { versionId: v.id("canvasVersions"), cacheKey: v.string(), objectKey: v.string() },
+const RenderCompletionContextValidator = v.object({
+  embedId: v.id("canvasEmbeds"),
+  generation: v.number(),
+  attemptObjectKey: v.string(),
+});
+
+export const renderCompleted = internalMutation({
+  args: vOnCompleteArgs(RenderCompletionContextValidator),
   returns: v.null(),
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("canvasEmbeds")
-      .withIndex("by_version_cacheKey", (q) =>
-        q.eq("versionId", args.versionId).eq("cacheKey", args.cacheKey),
-      )
-      .unique();
-    if (row?.status === "pending" && row.objectKey === args.objectKey) await ctx.db.delete(row._id);
+    const row = await ctx.db.get(args.context.embedId);
+    if (!row) return null;
+
+    // Coalesce any number of publishes that happened while this render was
+    // running into exactly one follow-up for the newest desired generation.
+    if (row.desiredGeneration > args.context.generation) {
+      const generation = row.desiredGeneration;
+      const attemptObjectKey = `embeds/${row.canvasId}/coalesced/g${generation}-${Date.now()}-${row._id}.png`;
+      const workId = await renderWorkpool.enqueueAction(
+        ctx,
+        internal.embedRender.run,
+        { embedId: row._id, generation, attemptObjectKey },
+        {
+          onComplete: internal.embeds.renderCompleted,
+          context: { embedId: row._id, generation, attemptObjectKey },
+        },
+      );
+      await ctx.db.patch(row._id, {
+        status: row.objectKey ? "stale" : "queued",
+        attemptObjectKey,
+        workId,
+        errorText: undefined,
+        updatedAt: Date.now(),
+      });
+      await recomputeCanvasStaticRenderState(ctx, row.canvasId);
+      return null;
+    }
+    if (args.result.kind === "success") return null;
+    if (
+      row.desiredGeneration !== args.context.generation ||
+      row.attemptObjectKey !== args.context.attemptObjectKey
+    )
+      return null;
+    await ctx.db.patch(row._id, {
+      status: "error",
+      errorText:
+        args.result.kind === "failed" ? args.result.error.slice(0, 2_000) : "Render canceled",
+      attemptObjectKey: undefined,
+      workId: undefined,
+      updatedAt: Date.now(),
+    });
+    await recomputeCanvasStaticRenderState(ctx, row.canvasId);
     return null;
   },
 });

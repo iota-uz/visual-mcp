@@ -75,6 +75,7 @@ async function listWorkspaces(ctx: QueryCtx) {
           title: c.title,
           kind: c.kind,
           thumbnail_url: c.thumbnailId ? await ctx.storage.getUrl(c.thumbnailId) : null,
+          static_render_status: c.staticRenderStatus ?? "ready",
         })),
       );
 

@@ -76,6 +76,11 @@ export function useMutation(reference: unknown) {
   };
 }
 
+// Actions have the same inert viewing-mode behavior as mutations. Exporting
+// the hook keeps lazily loaded routes importable even when the current page
+// never invokes their action.
+export const useAction = useMutation;
+
 export function useConvexAuth() {
   return { isLoading: false, isAuthenticated: true };
 }

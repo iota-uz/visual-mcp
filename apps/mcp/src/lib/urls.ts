@@ -29,7 +29,6 @@ export function embedPngUrl(
     padding?: number;
     clip?: "frame" | "content";
     version?: number;
-    revision?: number;
   } = {},
 ): string | null {
   if (!slug) return null;
@@ -49,7 +48,6 @@ export function embedPngUrl(
   const url = new URL(path, origin("SPA_ORIGIN"));
   if (options.pageId) url.searchParams.set("page", options.pageId);
   if (options.version !== undefined) url.searchParams.set("v", String(options.version));
-  if (options.revision !== undefined) url.searchParams.set("rev", String(options.revision));
   if (options.scale !== undefined) url.searchParams.set("scale", String(options.scale));
   if (options.padding !== undefined) url.searchParams.set("padding", String(options.padding));
   if (options.clip === "content") url.searchParams.set("clip", "content");

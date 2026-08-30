@@ -308,6 +308,8 @@ function toSummary(c: Doc<"canvases">) {
     public_slug: c.publicSlug,
     theme_id: c.themeId ?? "clean-saas",
     brand_override: c.brand,
+    static_render_status: c.staticRenderStatus ?? "ready",
+    static_render_error: c.staticRenderError,
     updated_at: c.updatedAt,
   };
 }
@@ -462,7 +464,7 @@ async function getCanvas(
     cssStorageId = mode === "draft" ? canvas.draftCssStorageId : currentVersion.cssStorageId;
     version = currentVersion.version;
     if (canvas.kind === "canvas") {
-      const [files, assets] = await Promise.all([
+      const [files, assets, componentUsages] = await Promise.all([
         mode === "draft"
           ? ctx.db
               .query("canvasFiles")
@@ -481,6 +483,10 @@ async function getCanvas(
               .query("canvasVersionAssets")
               .withIndex("by_version_path", (q) => q.eq("versionId", currentVersionId))
               .take(500),
+        ctx.db
+          .query("canvasComponentUsages")
+          .withIndex("by_version", (q) => q.eq("versionId", currentVersionId))
+          .take(1_000),
       ]);
       const entrypoints = new Set(
         mode === "draft" ? canvas.draftIframeEntrypoints : currentVersion.iframeEntrypoints,
@@ -496,24 +502,35 @@ async function getCanvas(
         ...assets.map((asset) => `${asset.logicalPath}:${asset.assetVersionId}`),
       ];
       iframeRevisions = Object.fromEntries(
-        [...entrypoints].map((entrypoint) => {
-          const entrypointFile = files.find((file) => file.relPath === entrypoint);
-          const manifest = [
-            ...sharedResources,
-            `${entrypoint}:${entrypointFile?.contentHash ?? "missing"}`,
-          ]
-            .sort()
-            .join("\n");
-          // Entry points get independent identities. Shared JS/CSS/assets are
-          // conservative dependencies, but editing one screen HTML no longer
-          // invalidates every iframe in the canvas.
-          let hash = 2166136261;
-          for (let index = 0; index < manifest.length; index += 1) {
-            hash ^= manifest.charCodeAt(index);
-            hash = Math.imul(hash, 16777619);
-          }
-          return [entrypoint, `${manifest.length.toString(36)}-${(hash >>> 0).toString(36)}`];
-        }),
+        await Promise.all(
+          [...entrypoints].map(async (entrypoint) => {
+            const entrypointFile = files.find((file) => file.relPath === entrypoint);
+            const componentGenerations = await Promise.all(
+              componentUsages
+                .filter((usage) => usage.entrypoint === entrypoint)
+                .map(async (usage) => {
+                  const component = await ctx.db.get(usage.componentId);
+                  return `${usage.componentId}:${component?.publishedGeneration ?? "missing"}`;
+                }),
+            );
+            const manifest = [
+              ...sharedResources,
+              ...componentGenerations,
+              `${entrypoint}:${entrypointFile?.contentHash ?? "missing"}`,
+            ]
+              .sort()
+              .join("\n");
+            // Entry points get independent identities. Shared JS/CSS/assets are
+            // conservative dependencies, but editing one screen HTML no longer
+            // invalidates every iframe in the canvas.
+            let hash = 2166136261;
+            for (let index = 0; index < manifest.length; index += 1) {
+              hash ^= manifest.charCodeAt(index);
+              hash = Math.imul(hash, 16777619);
+            }
+            return [entrypoint, `${manifest.length.toString(36)}-${(hash >>> 0).toString(36)}`];
+          }),
+        ),
       );
     }
   }
@@ -1343,6 +1360,10 @@ async function createCheckpointFromDraft(
       searchText: node.searchText,
     });
   }
+  await ctx.scheduler.runAfter(0, internal.components.syncVersionUsages, {
+    canvasId: args.canvasId,
+    versionId,
+  });
   return { versionId, version };
 }
 
@@ -2525,8 +2546,21 @@ export const attachCanvasRender = internalMutation({
     storageId: v.id("_storage"),
     thumbnailStorageId: v.optional(v.id("_storage")),
     primary: v.optional(v.boolean()),
+    recipeId: v.optional(v.id("canvasRenderRecipes")),
+    recipeGeneration: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    if (args.recipeId !== undefined) {
+      const recipe = await ctx.db.get(args.recipeId);
+      if (
+        !recipe ||
+        recipe.canvasId !== args.canvasId ||
+        recipe.versionId !== args.versionId ||
+        recipe.desiredGeneration !== args.recipeGeneration
+      ) {
+        throw new Error("Background render was superseded");
+      }
+    }
     const canvas = await ctx.db.get(args.canvasId);
     if (!canvas) throw new Error(`Unknown canvas: ${args.canvasId}`);
     const version = await ctx.db.get(args.versionId);
@@ -2568,6 +2602,71 @@ export const attachCanvasRender = internalMutation({
     }
 
     return { artifact };
+  },
+});
+
+export const upsertRenderRecipe = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    outputPath: v.string(),
+    entrypoint: v.string(),
+    route: v.optional(v.string()),
+    format: v.union(v.literal("png"), v.literal("svg"), v.literal("pdf"), v.literal("html")),
+    primary: v.boolean(),
+    viewport: v.optional(
+      v.object({
+        width: v.number(),
+        height: v.number(),
+        deviceScaleFactor: v.optional(v.number()),
+      }),
+    ),
+    pdf: v.optional(
+      v.object({
+        format: v.optional(v.union(v.literal("A4"), v.literal("A3"), v.literal("Letter"))),
+        orientation: v.optional(v.union(v.literal("portrait"), v.literal("landscape"))),
+        printBackground: v.optional(v.boolean()),
+        displayHeaderFooter: v.optional(v.boolean()),
+        headerTemplate: v.optional(v.string()),
+        footerTemplate: v.optional(v.string()),
+        margin: v.optional(
+          v.object({
+            top: v.optional(v.string()),
+            right: v.optional(v.string()),
+            bottom: v.optional(v.string()),
+            left: v.optional(v.string()),
+          }),
+        ),
+      }),
+    ),
+  },
+  returns: v.id("canvasRenderRecipes"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("canvasRenderRecipes")
+      .withIndex("by_canvas_outputPath", (q) =>
+        q.eq("canvasId", args.canvasId).eq("outputPath", args.outputPath),
+      )
+      .unique();
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...args,
+        status: "ready",
+        completedGeneration: existing.desiredGeneration,
+        errorText: undefined,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return ctx.db.insert("canvasRenderRecipes", {
+      ...args,
+      status: "ready",
+      desiredGeneration: 1,
+      completedGeneration: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
   },
 });
 

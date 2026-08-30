@@ -39,6 +39,17 @@ async function fixtureServer(metadataBySlug) {
     }
     if (parsed.pathname.includes("/_embed/")) {
       if (parsed.pathname.includes("/missing/")) return new Response("Not found", { status: 404 });
+      if (parsed.searchParams.has("pending")) {
+        return new Response("Preview is being prepared.", {
+          status: 202,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "cache-control": "no-store",
+            "retry-after": "3",
+            "x-embed-status": "queued",
+          },
+        });
+      }
       if (init?.headers?.get("if-none-match") === '"embed-hash"') {
         return new Response(null, { status: 304, headers: { etag: '"embed-hash"' } });
       }
@@ -172,6 +183,16 @@ describe("crawler-facing public share HTML", () => {
 });
 
 describe("public embed image proxy", () => {
+  it("preserves an explicit non-image queued response", async () => {
+    const origin = await fixtureServer({});
+    const response = await fetch(`${origin}/s/live/_embed/canvas.png?pending=1`);
+    expect(response.status).toBe(202);
+    expect(response.headers.get("content-type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("3");
+    expect(response.headers.get("x-embed-status")).toBe("queued");
+  });
+
   it("serves embeds on the web origin and preserves cache validators without cookies", async () => {
     const origin = await fixtureServer({});
     const url = `${origin}/s/live/_embed/node/c-rear.png?page=mobile&scale=2`;
@@ -187,14 +208,14 @@ describe("public embed image proxy", () => {
     expect(conditional.status).toBe(304);
   });
 
-  it.each([
-    "/s/live/_embed/group/fallback.png?rev=8",
-    "/s/live/_embed/stage/manual-entry.png?scale=2",
-  ])("proxies addressable composition %s", async (path) => {
-    const origin = await fixtureServer({});
-    const response = await fetch(`${origin}${path}`);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("image/png");
-    expect(response.headers.get("set-cookie")).toBeNull();
-  });
+  it.each(["/s/live/_embed/group/fallback.png", "/s/live/_embed/stage/manual-entry.png?scale=2"])(
+    "proxies addressable composition %s",
+    async (path) => {
+      const origin = await fixtureServer({});
+      const response = await fetch(`${origin}${path}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+      expect(response.headers.get("set-cookie")).toBeNull();
+    },
+  );
 });

@@ -6,6 +6,7 @@ import { api } from "../../../../convex/_generated/api";
 import { CopyButton } from "../components/CopyButton";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
+import { StaticRenderStatus } from "../components/StaticRenderStatus";
 import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
@@ -94,6 +95,7 @@ export function PublicCanvasPage() {
           </h1>
           <span className="canvas-command-state">
             {canvas.version !== undefined && <span>v{canvas.version}</span>}
+            <StaticRenderStatus state={canvas.static_render_status} />
           </span>
         </div>
         <div className="canvas-command-actions">

@@ -1123,18 +1123,13 @@ const SnapshotInputSchema = z
     }
   });
 
-const EmbedInputSchema = z
+const EmbedTargetInputSchema = z
   .object({
-    ref: z.string(),
     page_id: z.string().optional().describe("Page id; defaults to defaultPageId."),
     target: SnapshotTargetSchema.default({ type: "canvas" }),
     clip: SnapshotClipSchema,
     scale: z.union([z.literal(1), z.literal(2)]).default(2),
     padding: z.number().int().min(0).max(256).optional(),
-    pin_version: z
-      .boolean()
-      .default(false)
-      .describe("Pin to the latest published version. Defaults false so the image updates."),
   })
   .strict()
   .superRefine((input, check) => {
@@ -1147,6 +1142,22 @@ const EmbedInputSchema = z
     }
   });
 
+export const EmbedInputSchema = z
+  .object({
+    ref: z.string(),
+    pin_version: z
+      .boolean()
+      .default(false)
+      .describe("Pin to the latest published version. Defaults false so the image updates."),
+    targets: z.array(EmbedTargetInputSchema).min(1).max(50),
+  })
+  .strict();
+
+type SingleEmbedInput = z.infer<typeof EmbedTargetInputSchema> & {
+  ref: string;
+  pin_version: boolean;
+};
+
 const PublicEmbedSchema = z.object({
   image_url: z.string().url(),
   target_url: z.string().url(),
@@ -1155,16 +1166,26 @@ const PublicEmbedSchema = z.object({
   pinned_version: z.number().int().positive().optional(),
 });
 
+const PreparedPublicEmbedSchema = PublicEmbedSchema.extend({
+  preparation_status: z.enum(["ready", "queued", "updating", "stale", "error"]),
+  retry_after_ms: z.number().int().positive().optional(),
+});
+
 type PngEmbedMetadata = z.infer<typeof PublicEmbedSchema>;
 
 async function publicEmbedMetadata(
   ctx: ActionCtx,
-  input: z.infer<typeof EmbedInputSchema>,
+  input: SingleEmbedInput,
   required: boolean,
+  prepare = false,
 ): Promise<{
   embed: PngEmbedMetadata;
   warnings: Warning[];
   pageId: string;
+  preparation?: {
+    status: "ready" | "queued" | "updating" | "stale" | "error";
+    retryAfter?: number;
+  };
 } | null> {
   const context = await ctx.runQuery(internal.embeds.resolveContextByRef, { ref: input.ref });
   if (!context) {
@@ -1286,7 +1307,6 @@ async function publicEmbedMetadata(
   const imageUrl = embedPngUrl(context.publicSlug, input.target, {
     pageId: context.kind === "canvas" ? pageId : undefined,
     version,
-    revision: input.pin_version ? undefined : context.version,
     scale,
     padding,
     clip: input.clip,
@@ -1298,6 +1318,48 @@ async function publicEmbedMetadata(
   );
   const markdown = githubEmbedMarkdown(alt, imageUrl, targetUrl);
   if (!imageUrl || !targetUrl || !markdown) return null;
+  let preparation:
+    | { status: "ready" | "queued" | "updating" | "stale" | "error"; retryAfter?: number }
+    | undefined;
+  if (prepare) {
+    const target =
+      input.target.type === "node"
+        ? ({ type: "node", nodeId: input.target.node_id } as const)
+        : input.target.type === "group"
+          ? ({ type: "group", groupId: input.target.group_id } as const)
+          : input.target.type === "stage"
+            ? ({ type: "stage", stageId: input.target.stage_id } as const)
+            : input.target;
+    const cacheKey = await sha256Hex(
+      JSON.stringify({
+        renderer: 5,
+        canvasId: context.canvasId,
+        version: context.version,
+        pageId: context.kind === "canvas" ? pageId : "default",
+        target,
+        clip: input.clip,
+        scale,
+        padding,
+      }),
+    );
+    const requested = await ctx.runMutation(internal.embeds.requestPreparation, {
+      publicSlug: context.publicSlug,
+      canvasId: context.canvasId,
+      versionId: context.versionId,
+      cacheKey,
+      pageId: context.kind === "canvas" ? pageId : undefined,
+      target,
+      clip: input.clip,
+      scale,
+      padding,
+      enforceRateLimit: false,
+    });
+    preparation = {
+      status: requested.status === "rate_limited" ? "queued" : requested.status,
+      retryAfter:
+        requested.retryAfter ?? (requested.status === "ready" ? undefined : 3_000),
+    };
+  }
   return {
     embed: {
       image_url: imageUrl,
@@ -1315,6 +1377,7 @@ async function publicEmbedMetadata(
         ]
       : [],
     pageId,
+    preparation,
   };
 }
 
@@ -1325,6 +1388,14 @@ interface RenderedArtifact {
   size_bytes: number;
   mime_type: string;
   raw_url: string | null;
+}
+
+async function syncComponentUsages(
+  ctx: ActionCtx,
+  canvasId: Id<"canvases">,
+  versionId: Id<"canvasVersions">,
+): Promise<void> {
+  await ctx.runAction(internal.components.syncVersionUsages, { canvasId, versionId });
 }
 
 /** Derives an output path when the caller didn't name one. */
@@ -1450,6 +1521,33 @@ async function performRender(
         primary: workerResult.readiness?.status === "partial" ? false : spec.primary,
       });
       recorded = { artifact: attached.artifact };
+      await ctx.runMutation(internal.canvases.upsertRenderRecipe, {
+        canvasId,
+        versionId,
+        outputPath: workerResult.relPath,
+        entrypoint,
+        route: spec.target.type === "file" ? spec.target.route : undefined,
+        format: spec.format,
+        primary: spec.primary ?? attached.artifact.role === "primary",
+        viewport: spec.viewport
+          ? {
+              width: spec.viewport.width,
+              height: spec.viewport.height,
+              deviceScaleFactor: spec.viewport.device_scale_factor,
+            }
+          : undefined,
+        pdf: spec.pdf
+          ? {
+              format: spec.pdf.format,
+              orientation: spec.pdf.orientation,
+              printBackground: spec.pdf.print_background,
+              displayHeaderFooter: spec.pdf.display_header_footer,
+              headerTemplate: spec.pdf.header_template,
+              footerTemplate: spec.pdf.footer_template,
+              margin: spec.pdf.margin,
+            }
+          : undefined,
+      });
     } catch (err) {
       await ctx.storage.delete(storageId);
       if (thumbnailStorageId) await ctx.storage.delete(thumbnailStorageId);
@@ -2184,6 +2282,9 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         if ((input.renders?.length ?? 0) > 0 && !renderVersionId) {
           renderVersionId =
             (await ctx.runQuery(internal.canvases.currentVersion, { canvasId }))?.versionId ?? null;
+        }
+        if (renderVersionId) {
+          await syncComponentUsages(ctx, canvasId, renderVersionId);
         }
         for (const spec of input.renders ?? []) {
           if (!renderVersionId) {
@@ -3230,6 +3331,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           note: input.note,
           expectedDraftRevision: input.expected_draft_revision,
         });
+        await syncComponentUsages(ctx, checkpoint.canvasId, checkpoint.versionId);
         return result({
           status: "ok" as const,
           ref: input.ref,
@@ -4112,8 +4214,8 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Create public canvas embed",
       description:
-        "Returns a canvas.iota.uz PNG URL and ready-to-paste linked Markdown for the latest " +
-        "published canvas, node, group, stage, or region without putting image bytes in the MCP response. " +
+        "Prepares up to 50 public previews and returns canvas.iota.uz PNG URLs plus ready-to-paste linked Markdown for the latest " +
+        "published canvas, nodes, groups, stages, or regions without putting image bytes in the MCP response. " +
         "For iframe/image nodes, clip=content captures only the inner viewport without device/browser chrome. " +
         "URLs update after the next public canvas_checkpoint unless pin_version=true. Draft content is never exposed.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -4121,25 +4223,46 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       outputSchema: z.object({
         status: z.literal("ok"),
         ref: z.string(),
-        page_id: z.string(),
-        target: SnapshotTargetSchema,
-        clip: z.enum(["frame", "content"]),
-        embed: PublicEmbedSchema,
+        embeds: z.array(
+          z.object({
+            page_id: z.string(),
+            target: SnapshotTargetSchema,
+            clip: z.enum(["frame", "content"]),
+            embed: PreparedPublicEmbedSchema,
+          }),
+        ),
         warnings: z.array(WarningSchema),
       }),
     },
     async (input) =>
       runTool(async () => {
-        const metadata = await publicEmbedMetadata(ctx, input, true);
-        if (!metadata) throw new Error("embed_unavailable: Unable to construct embed metadata.");
+        const embeds = [];
+        const warnings: Warning[] = [];
+        for (const target of input.targets) {
+          const metadata = await publicEmbedMetadata(
+            ctx,
+            { ...target, ref: input.ref, pin_version: input.pin_version },
+            true,
+            true,
+          );
+          if (!metadata) throw new Error("embed_unavailable: Unable to construct embed metadata.");
+          warnings.push(...metadata.warnings);
+          embeds.push({
+            page_id: metadata.pageId,
+            target: target.target,
+            clip: target.clip,
+            embed: {
+              ...metadata.embed,
+              preparation_status: metadata.preparation?.status ?? "error",
+              retry_after_ms: metadata.preparation?.retryAfter,
+            },
+          });
+        }
         return result({
           status: "ok",
           ref: input.ref,
-          page_id: metadata.pageId,
-          target: input.target,
-          clip: input.clip,
-          embed: metadata.embed,
-          warnings: metadata.warnings,
+          embeds,
+          warnings,
         });
       }),
   );

@@ -6,6 +6,7 @@ import { api } from "../../../../convex/_generated/api";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { CardGridSkeleton } from "../components/Skeleton";
+import { type StaticRenderState, StaticRenderStatus } from "../components/StaticRenderStatus";
 import { ButtonLink } from "../components/ui/Button";
 import { RefChip } from "../components/ui/CopyableValue";
 import { kindIcon } from "../lib/canvasKind";
@@ -34,6 +35,7 @@ interface GalleryCanvas {
   visibility: "private" | "public";
   updated_at: number;
   thumbnail_url: string | null;
+  static_render_status: StaticRenderState;
 }
 
 function CanvasCard({ canvas, workspaceSlug }: { canvas: GalleryCanvas; workspaceSlug: string }) {
@@ -65,6 +67,7 @@ function CanvasCard({ canvas, workspaceSlug }: { canvas: GalleryCanvas; workspac
           )}
           <span className="canvas-card-kind">{canvas.kind}</span>
           {canvas.visibility === "public" && <span className="canvas-card-shared">Shared</span>}
+          <StaticRenderStatus state={canvas.static_render_status} />
         </span>
         <span className="canvas-card-title">{canvas.title}</span>
         <span className="canvas-card-meta">

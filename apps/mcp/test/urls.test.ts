@@ -42,15 +42,11 @@ describe("public PNG embed URLs", () => {
     ).toBe("https://canvas.iota.uz/s/share/_embed/node/screen.png?scale=2&padding=0&clip=content");
   });
 
-  it("supports addressable groups/stages and an unpinned revision cache-buster", () => {
+  it("supports addressable groups/stages without pinning an unpinned URL", () => {
     process.env.SPA_ORIGIN = "https://canvas.iota.uz";
     expect(
-      embedPngUrl(
-        "share",
-        { type: "group", group_id: "fallback" },
-        { revision: 8, scale: 2, padding: 24 },
-      ),
-    ).toBe("https://canvas.iota.uz/s/share/_embed/group/fallback.png?rev=8&scale=2&padding=24");
+      embedPngUrl("share", { type: "group", group_id: "fallback" }, { scale: 2, padding: 24 }),
+    ).toBe("https://canvas.iota.uz/s/share/_embed/group/fallback.png?scale=2&padding=24");
     expect(pngEmbedTargetUrl("share", { type: "stage", stage_id: "manual-entry" })).toBe(
       "https://canvas.iota.uz/s/share?stage=manual-entry",
     );

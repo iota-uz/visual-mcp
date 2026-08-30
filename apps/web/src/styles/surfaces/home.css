@@ -99,6 +99,7 @@
 }
 
 .workspace-lane-frame {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,6 +110,14 @@
   background: var(--app-paper);
   color: var(--app-muted);
   transition: border-color var(--app-duration-fast) var(--app-ease-out);
+}
+
+.workspace-lane-render-status {
+  position: absolute;
+  left: 0.3rem;
+  bottom: 0.3rem;
+  padding: 0.25rem;
+  font-size: 0;
 }
 
 .workspace-lane-frame img {

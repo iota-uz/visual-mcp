@@ -20,6 +20,28 @@ import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
 // Auth support tables still use this row id for sessions and accounts.
 const { users: _authUsers, ...authSupportTables } = authTables;
 
+const EmbedTargetValidator = v.union(
+  v.object({ type: v.literal("canvas") }),
+  v.object({ type: v.literal("node"), nodeId: v.string() }),
+  v.object({ type: v.literal("group"), groupId: v.string() }),
+  v.object({ type: v.literal("stage"), stageId: v.string() }),
+  v.object({
+    type: v.literal("region"),
+    x: v.number(),
+    y: v.number(),
+    width: v.number(),
+    height: v.number(),
+  }),
+);
+
+const StaticRenderStatusValidator = v.union(
+  v.literal("ready"),
+  v.literal("queued"),
+  v.literal("updating"),
+  v.literal("stale"),
+  v.literal("error"),
+);
+
 export default defineSchema({
   ...authSupportTables,
 
@@ -233,6 +255,9 @@ export default defineSchema({
     // not observe later draft changes or unrelated checkpoints.
     publishedVersionId: v.optional(v.id("canvasVersions")),
     thumbnailId: v.optional(v.id("_storage")),
+    staticRenderStatus: v.optional(StaticRenderStatusValidator),
+    staticRenderError: v.optional(v.string()),
+    staticRenderUpdatedAt: v.optional(v.number()),
     // Running total of live storage blobs this canvas has ever caused to be
     // stored (artifacts + canvasFiles writes), minus what sweepCacheTtl has
     // actually deleted. Backs the quota in canvases.ts — see that file's
@@ -321,18 +346,103 @@ export default defineSchema({
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),
     cacheKey: v.string(),
-    status: v.union(v.literal("pending"), v.literal("ready")),
+    pageId: v.optional(v.string()),
+    target: EmbedTargetValidator,
+    clip: v.union(v.literal("frame"), v.literal("content")),
+    scale: v.union(v.literal(1), v.literal(2)),
+    padding: v.number(),
+    status: StaticRenderStatusValidator,
     objectKey: v.optional(v.string()),
     contentHash: v.optional(v.string()),
     size: v.optional(v.number()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     downscaled: v.optional(v.boolean()),
-    renderStartedAt: v.number(),
+    desiredGeneration: v.number(),
+    completedGeneration: v.optional(v.number()),
+    attemptObjectKey: v.optional(v.string()),
+    workId: v.optional(v.string()),
+    errorText: v.optional(v.string()),
+    renderStartedAt: v.optional(v.number()),
     renderDurationMs: v.optional(v.number()),
     createdAt: v.number(),
+    updatedAt: v.number(),
   })
     .index("by_version_cacheKey", ["versionId", "cacheKey"])
+    .index("by_canvas", ["canvasId"]),
+
+  canvasRenderRecipes: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    outputPath: v.string(),
+    entrypoint: v.string(),
+    route: v.optional(v.string()),
+    format: v.union(v.literal("png"), v.literal("svg"), v.literal("pdf"), v.literal("html")),
+    primary: v.boolean(),
+    viewport: v.optional(
+      v.object({
+        width: v.number(),
+        height: v.number(),
+        deviceScaleFactor: v.optional(v.number()),
+      }),
+    ),
+    pdf: v.optional(
+      v.object({
+        format: v.optional(v.union(v.literal("A4"), v.literal("A3"), v.literal("Letter"))),
+        orientation: v.optional(v.union(v.literal("portrait"), v.literal("landscape"))),
+        printBackground: v.optional(v.boolean()),
+        displayHeaderFooter: v.optional(v.boolean()),
+        headerTemplate: v.optional(v.string()),
+        footerTemplate: v.optional(v.string()),
+        margin: v.optional(
+          v.object({
+            top: v.optional(v.string()),
+            right: v.optional(v.string()),
+            bottom: v.optional(v.string()),
+            left: v.optional(v.string()),
+          }),
+        ),
+      }),
+    ),
+    status: StaticRenderStatusValidator,
+    desiredGeneration: v.number(),
+    completedGeneration: v.optional(v.number()),
+    workId: v.optional(v.string()),
+    errorText: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_canvas_outputPath", ["canvasId", "outputPath"])
+    .index("by_version", ["versionId"])
+    .index("by_canvas", ["canvasId"]),
+
+  components: defineTable({
+    workspaceId: v.id("workspaces"),
+    slug: v.string(),
+    name: v.string(),
+    contentHash: v.string(),
+    publishedGeneration: v.number(),
+    updatedAt: v.number(),
+    archivedAt: v.optional(v.number()),
+  })
+    .index("by_workspace_slug", ["workspaceId", "slug"])
+    .index("by_workspace", ["workspaceId"]),
+
+  componentDependencies: defineTable({
+    componentId: v.id("components"),
+    dependencyId: v.id("components"),
+  })
+    .index("by_component", ["componentId"])
+    .index("by_dependency", ["dependencyId"]),
+
+  canvasComponentUsages: defineTable({
+    canvasId: v.id("canvases"),
+    versionId: v.id("canvasVersions"),
+    entrypoint: v.string(),
+    componentId: v.id("components"),
+  })
+    .index("by_component", ["componentId"])
+    .index("by_version", ["versionId"])
     .index("by_canvas", ["canvasId"]),
 
   iframeCapabilities: defineTable({

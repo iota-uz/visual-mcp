@@ -56,6 +56,50 @@
   font-size: var(--app-text-xs);
 }
 
+.static-render-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  width: max-content;
+  max-width: calc(100% - 1rem);
+  padding: 0.24rem 0.42rem;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--app-white) 92%, transparent);
+  color: var(--app-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgb(15 23 42 / 10%);
+}
+
+.static-render-status-updating svg {
+  animation: static-render-spin 1.4s linear infinite;
+}
+
+.static-render-status-error {
+  color: var(--app-danger);
+}
+
+.canvas-card-frame > .static-render-status {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 2;
+}
+
+@keyframes static-render-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .static-render-status-updating svg {
+    animation: none;
+  }
+}
+
 .canvas-card-kind,
 .canvas-card-shared {
   position: absolute;

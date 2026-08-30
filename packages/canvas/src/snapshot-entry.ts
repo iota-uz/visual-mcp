@@ -43,7 +43,7 @@ export function canvasSnapshotEntryHtml(
       : undefined,
   });
   return (
-    '<!doctype html><html><head><meta charset="utf-8" />' +
+    '<!doctype html><html data-visual-canvas-worker-readiness><head><meta charset="utf-8" />' +
     `<style>html,body{margin:0;padding:0}</style><style>${themeCss}</style>` +
     `<style>${compiledCss}</style></head><body>${html}<script>addEventListener('message',function(e){if(!e.data||e.data.type!=='visual-canvas:readiness')return;for(const f of document.querySelectorAll('.vc-kind-iframe iframe'))if(f.contentWindow===e.source){const n=f.closest('.vc-kind-iframe');n.dataset.iframeReadiness=e.data.state;n.dataset.iframeReadinessDetail=typeof e.data.detail==='string'?e.data.detail:'';break}})</script></body></html>`
   );
