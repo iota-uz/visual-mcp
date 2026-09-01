@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { internal } from "./_generated/api";
@@ -77,6 +78,74 @@ describe("private agent gateway", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ result: null });
+  });
+
+  test("exposes public embed preparation to the MCP gateway", async () => {
+    const t = convexTest(schema, modules);
+    workpoolTest.register(t, "renderWorkpool");
+    const { canvasId, versionId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "owner@iota.uz",
+        name: "Owner",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "workspace",
+        name: "Workspace",
+        createdBy: userId,
+      });
+      const canvasId = await ctx.db.insert("canvases", {
+        workspaceId,
+        slug: "flow",
+        title: "Flow",
+        kind: "canvas",
+        visibility: "public",
+        publicSlug: "public-flow",
+        draftRevision: 0,
+        draftEditCount: 0,
+        draftUpdatedAt: 0,
+        draftIframeEntrypoints: [],
+        storageBytesUsed: 0,
+        createdBy: userId,
+        updatedAt: 0,
+      });
+      const versionId = await ctx.db.insert("canvasVersions", {
+        canvasId,
+        version: 1,
+        createdBy: userId,
+        iframeEntrypoints: [],
+        publishedAt: 1,
+      });
+      await ctx.db.patch(canvasId, {
+        currentVersionId: versionId,
+        publishedVersionId: versionId,
+      });
+      return { canvasId, versionId };
+    });
+
+    const response = await t.fetch(
+      "/agent-gateway",
+      request({
+        operation: "mutation",
+        name: "embeds:requestPreparation",
+        args: {
+          publicSlug: "public-flow",
+          canvasId,
+          versionId,
+          cacheKey: "gateway-embed",
+          target: { type: "canvas" },
+          clip: "frame",
+          scale: 1,
+          padding: 0,
+          enforceRateLimit: false,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: { status: "queued" },
+    });
   });
 
   test("validates MCP bearer hashes and returns only the principal", async () => {

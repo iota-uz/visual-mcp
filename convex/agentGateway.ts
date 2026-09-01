@@ -46,6 +46,7 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "canvases:snapshotContextByRef": internal.canvases.snapshotContextByRef,
   "canvases:storageAttachment": internal.canvases.storageAttachment,
   "canvases:upsertByRef": internal.canvases.upsertByRef,
+  "embeds:requestPreparation": internal.embeds.requestPreparation,
   "embeds:resolveContextByRef": internal.embeds.resolveContextByRef,
   "comments:complete": internal.comments.complete,
   "comments:create": internal.comments.create,

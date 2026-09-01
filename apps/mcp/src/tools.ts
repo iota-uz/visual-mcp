@@ -1356,8 +1356,7 @@ async function publicEmbedMetadata(
     });
     preparation = {
       status: requested.status === "rate_limited" ? "queued" : requested.status,
-      retryAfter:
-        requested.retryAfter ?? (requested.status === "ready" ? undefined : 3_000),
+      retryAfter: requested.retryAfter ?? (requested.status === "ready" ? undefined : 3_000),
     };
   }
   return {
