@@ -1,12 +1,26 @@
 [
   { "query": "Create a new product dashboard", "expected": "canvas_save" },
-  { "query": "Replace one exact heading in the existing HTML", "expected": "canvas_edit" },
-  { "query": "Change three source files atomically", "expected": "canvas_apply_patch" },
+  {
+    "query": "Replace exact strings in three existing source files atomically",
+    "expected": "canvas_edit"
+  },
+  {
+    "query": "Apply this Codex Begin Patch with add, move, and delete operations",
+    "expected": "canvas_apply_patch"
+  },
   { "query": "Move this CanvasDoc node to x 40 y 80", "expected": "canvas_doc_patch" },
   { "query": "Move these five nodes left together", "expected": "canvas_nodes_move" },
   { "query": "Delete the selected nodes and their edges", "expected": "canvas_nodes_delete" },
   { "query": "Show me the canvas after that edit", "expected": "canvas_snapshot" },
   { "query": "Read the canvas metadata and current files", "expected": "canvas_get" },
+  {
+    "query": "Read these five source files and return their current hashes",
+    "expected": "canvas_file_get"
+  },
+  {
+    "query": "Search this canvas's source files for the literal identifier checkoutTotal",
+    "expected": "canvas_file_search"
+  },
   { "query": "Find dashboards about claims", "expected": "canvas_find" },
   { "query": "Upload this large PNG without base64", "expected": "canvas_upload_url" },
   { "query": "Create an immutable milestone", "expected": "canvas_checkpoint" },

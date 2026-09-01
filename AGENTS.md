@@ -12,6 +12,19 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Decision records
+
+When a change locks in a lasting architecture or product decision, add a record
+in the same change: `adr/<area>/<slug>.md` plus one line in the root `ADR.md`
+index. Before changing behavior, read the records for that area and search
+`applies_to` for the paths being edited.
+
+`ADR.md` is append-only. Do not rewrite history when a decision changes: add a
+new record with `supersedes`, mark the old record `superseded` or `reversed`,
+and link both directions. Never invent a decider or rationale; use `unknown`
+when the evidence does not say. Full format and lifecycle rules are in
+`.claude/rules/adr.md`.
+
 ## Branch policy
 
 Make changes only on the `main` branch unless the user explicitly requests a

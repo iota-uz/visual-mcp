@@ -2,12 +2,19 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { catalogMetrics, longContextFiller, transformToolMetadata } from "./routing-catalog.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const cases = JSON.parse(await readFile(join(root, "routing-cases.json"), "utf8"));
 const args = new Set(process.argv.slice(2));
 const providerArg = process.argv.find((value) => value.startsWith("--provider="));
+const descriptionVariantArg = process.argv.find((value) =>
+  value.startsWith("--description-variant="),
+);
+const contextCharsArg = process.argv.find((value) => value.startsWith("--context-chars="));
 const providers = providerArg ? [providerArg.split("=")[1]] : ["codex", "claude"];
+const descriptionVariant = descriptionVariantArg?.split("=")[1] ?? "current";
+const contextChars = Number(contextCharsArg?.split("=")[1] ?? 0);
 const live = args.has("--live");
 const siteUrl = process.env.VISUAL_CANVAS_EVAL_URL ?? "http://127.0.0.1:3213";
 const token = process.env.VISUAL_CANVAS_EVAL_TOKEN ?? "vct_localdevagenttoken0000000000000000";
@@ -55,7 +62,8 @@ async function listToolMetadata() {
 }
 
 function routingPrompt(toolMetadata) {
-  return `Evaluate the following exact Visual Canvas tool names and descriptions. Do not invent aliases and do not call a tool. For each case choose exactly one name from this catalog, or null when Visual Canvas should not be used. Return only a JSON array of objects with id and predicted.\nTOOLS:\n${JSON.stringify(toolMetadata)}\nCASES:\n${JSON.stringify(cases.map((item, id) => ({ id, query: item.query })))}`;
+  const filler = longContextFiller(contextChars);
+  return `Evaluate the following exact Visual Canvas tool names and descriptions. Do not invent aliases and do not call a tool. For each case choose exactly one name from this catalog, or null when Visual Canvas should not be used. Return only a JSON array of objects with id and predicted.\nTOOLS:\n${JSON.stringify(toolMetadata)}\n${filler ? `LONG-CONTEXT DISTRACTOR:\n${filler}\n` : ""}CASES:\n${JSON.stringify(cases.map((item, id) => ({ id, query: item.query })))}`;
 }
 
 async function runProvider(provider, toolMetadata) {
@@ -137,7 +145,7 @@ function extractAnswer(provider, text) {
 }
 
 await mkdir(runDir, { recursive: true });
-const toolMetadata = await listToolMetadata();
+const toolMetadata = transformToolMetadata(await listToolMetadata(), descriptionVariant);
 const results = [];
 for (const provider of providers) {
   const tracePath = join(runDir, `${provider}.jsonl`);
@@ -189,6 +197,9 @@ const report = {
   schema_version: 1,
   run_id: runId,
   generated_at: new Date().toISOString(),
+  description_variant: descriptionVariant,
+  context_characters: contextChars,
+  catalog: catalogMetrics(toolMetadata),
   thresholds: { recall: 0.9, negative_precision: 0.95 },
   results,
   passed: results.every((item) => item.passed),
