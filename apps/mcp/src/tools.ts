@@ -80,7 +80,8 @@ import {
   persistAsset,
   prepareAssetObject,
 } from "./assets.js";
-import { applyExactEdit, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
+import { applyExactFileEdits, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
+import { projectTextFile, searchText } from "./fileTools.js";
 import { MCP_GUIDES } from "./guides.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
 import { sha256Hex, sha256HexBytes } from "./lib/hash.js";
@@ -1094,6 +1095,12 @@ const SnapshotInputSchema = z
     clip: SnapshotClipSchema,
     padding: z.number().int().min(0).max(256).optional(),
     scale: z.union([z.literal(1), z.literal(2)]).optional(),
+    response_mode: z
+      .enum(["inline", "link"])
+      .default("inline")
+      .describe(
+        "inline returns a PNG image block when it fits; link returns metadata and a short-lived download_url only.",
+      ),
     refresh: z.boolean().optional().describe("Bypass an existing successful snapshot cache entry."),
     timeout_ms: z
       .number()
@@ -1122,6 +1129,55 @@ const SnapshotInputSchema = z
       });
     }
   });
+
+const SnapshotOutputSchema = z
+  .object({
+    status: z.enum(["ok", "partial"]),
+    ref: z.string(),
+    ref_id: z.string().optional(),
+    version: z.number(),
+    draft_revision: z.number().int().nonnegative(),
+    page_id: z.string(),
+    target: SnapshotTargetSchema,
+    clip: z.enum(["frame", "content"]),
+    mime_type: z.literal("image/png"),
+    width: z.number(),
+    height: z.number(),
+    size_bytes: z.number(),
+    inline: z.boolean(),
+    download_url: z.string().optional(),
+    cached: z.boolean(),
+    warnings: z.array(z.string()),
+    diagnostics: z
+      .object({
+        unresolved_refs: z.array(z.string()),
+        unresolved_resources: z.array(
+          z.object({
+            ref: z.string(),
+            resource_type: z.string(),
+            reason: z.string(),
+            error: z.string().optional(),
+          }),
+        ),
+        readiness: z.object({
+          status: z.enum(["ready", "partial"]),
+          warnings: z.array(z.string()),
+        }),
+        attempts: z.number().int().positive(),
+        suggested_regions: z.array(
+          z.object({
+            type: z.literal("region"),
+            x: z.number(),
+            y: z.number(),
+            width: z.number().positive(),
+            height: z.number().positive(),
+          }),
+        ),
+        regions_truncated: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
 
 const EmbedTargetInputSchema = z
   .object({
@@ -2429,32 +2485,47 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   server.registerTool(
     "canvas_edit",
     {
-      title: "Edit one canvas file",
+      title: "Edit canvas files",
       description:
-        "Edits one UTF-8 workspace file using the same exact old_string/new_string contract as " +
-        "Claude Code and OpenCode. The match must be unique unless replace_all is explicit. " +
-        "Updates the durable draft and rejects stale version, draft revision, or hash values.",
+        "Atomically applies one or more exact old_string/new_string edits to UTF-8 canvas files. " +
+        "Edits run in array order, so later edits may target text produced earlier in the same " +
+        "file. Every match must be unique unless replace_all is explicit; one failure rolls back " +
+        "the batch. Pass each current content hash to allow a safe rebase after an unrelated version change.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
           ref: RefArg,
-          file_path: z.string(),
-          old_string: z.string(),
-          new_string: z.string(),
-          replace_all: z.boolean().optional(),
+          edits: z
+            .array(
+              z
+                .object({
+                  path: z.string(),
+                  old_string: z.string(),
+                  new_string: z.string(),
+                  replace_all: z.boolean().optional(),
+                  expected_hash: z.string().optional(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(50),
           expected_version: z.number().int().nonnegative(),
           expected_draft_revision: z.number().int().nonnegative().optional(),
-          expected_hash: z.string().optional(),
           note: z.string().optional(),
         })
         .strict(),
       outputSchema: z.object({
         status: z.literal("ok"),
         ref: z.string(),
-        file_path: z.string(),
-        replacements: z.number().int().positive(),
-        previous_hash: z.string(),
-        content_hash: z.string(),
+        files: z.array(
+          z.object({
+            path: z.string(),
+            replacements: z.number().int().positive(),
+            previous_hash: z.string(),
+            content_hash: z.string(),
+          }),
+        ),
+        total_replacements: z.number().int().positive(),
         requested_version: z.number().int().nonnegative(),
         previous_version: z.number().int().nonnegative(),
         version: z.number().int().positive(),
@@ -2466,68 +2537,102 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     },
     async (input) =>
       runTool(async () => {
-        const source = await loadEditableFile(ctx, input.ref, input.file_path);
-        if (
-          input.expected_hash &&
-          input.expected_hash.replace(/^sha256:/, "") !== source.contentHash
-        ) {
-          throw new Error(
-            `hash_conflict: expected ${input.expected_hash}, current ${source.contentHash}`,
-          );
+        const paths = [...new Set(input.edits.map((edit) => edit.path))];
+        const sources = await Promise.all(
+          paths.map((path) => loadEditableFile(ctx, input.ref, path)),
+        );
+        const first = sources[0];
+        if (!first) throw new Error("edits must not be empty");
+        if (sources.some((source) => source.canvasId !== first.canvasId)) {
+          throw new Error("canvas_mismatch: all edits must target files in one canvas");
         }
-        if (source.version !== input.expected_version && !input.expected_hash) {
+        if (sources.some((source) => source.version !== first.version)) {
+          throw new Error("version_changed: files were not read from one canvas version; retry.");
+        }
+        const sourceByPath = new Map(sources.map((source) => [source.path, source]));
+        const inputPathToSource = new Map(
+          paths.map((path, index) => [path, sources[index] as (typeof sources)[number]]),
+        );
+        for (const edit of input.edits) {
+          const source = inputPathToSource.get(edit.path);
+          if (!source) throw new Error(`file_not_found: ${edit.path}`);
+          if (
+            edit.expected_hash &&
+            edit.expected_hash.replace(/^sha256:/, "") !== source.contentHash
+          ) {
+            throw new Error(
+              `hash_conflict: ${JSON.stringify({ path: source.path, expected_hash: edit.expected_hash, current_hash: source.contentHash })}`,
+            );
+          }
+        }
+        if (
+          first.version !== input.expected_version &&
+          input.edits.some((edit) => !edit.expected_hash)
+        ) {
           const changedPaths = await ctx.runQuery(internal.canvases.changedPathsSinceVersion, {
-            canvasId: source.canvasId,
+            canvasId: first.canvasId,
             expectedVersion: input.expected_version,
           });
           throw new Error(
-            `version_conflict: ${JSON.stringify({ expected_version: input.expected_version, current_version: source.version, changed_paths_since: changedPaths, retryable: true, retryable_with_expected_hash: true })}`,
+            `version_conflict: ${JSON.stringify({ expected_version: input.expected_version, current_version: first.version, changed_paths_since: changedPaths, retryable: true, retryable_with_expected_hash: true })}`,
           );
         }
-        const edited = applyExactEdit(source.content, {
-          oldString: input.old_string,
-          newString: input.new_string,
-          replaceAll: input.replace_all,
-        });
+        const edited = applyExactFileEdits(
+          new Map(sources.map((source) => [source.path, source.content])),
+          input.edits.map((edit) => ({
+            path: inputPathToSource.get(edit.path)?.path ?? edit.path,
+            oldString: edit.old_string,
+            newString: edit.new_string,
+            replaceAll: edit.replace_all,
+          })),
+        );
         const committed = await commitPreparedFileChanges(
           ctx,
           principal,
-          source.canvasId,
-          source.version,
+          first.canvasId,
+          first.version,
           input.expected_draft_revision,
-          [
-            {
-              type: "write",
-              path: source.path,
-              expectedHash: source.contentHash,
-              content: edited.content,
-            },
-          ],
+          edited.map((file) => ({
+            type: "write" as const,
+            path: file.path,
+            expectedHash: sourceByPath.get(file.path)?.contentHash,
+            content: file.content,
+          })),
           input.note,
         );
-        const contentHash = committed.files[0]?.content_hash;
-        if (!contentHash) throw new Error("canvas_edit committed without a content hash");
-        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: source.canvasId });
+        const committedByPath = new Map(committed.files.map((file) => [file.path, file]));
+        const files = edited.map((file) => {
+          const source = sourceByPath.get(file.path);
+          const contentHash = committedByPath.get(file.path)?.content_hash;
+          if (!source || !contentHash) {
+            throw new Error(`canvas_edit committed ${file.path} without a content hash`);
+          }
+          return {
+            path: file.path,
+            replacements: file.replacements,
+            previous_hash: source.contentHash,
+            content_hash: contentHash,
+          };
+        });
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: first.canvasId });
         return result({
           status: "ok",
           ref: input.ref,
-          file_path: source.path,
-          replacements: edited.replacements,
-          previous_hash: source.contentHash,
-          content_hash: contentHash,
+          files,
+          total_replacements: files.reduce((sum, file) => sum + file.replacements, 0),
           requested_version: input.expected_version,
-          previous_version: source.version,
+          previous_version: first.version,
           version: committed.version,
           draft_revision: committed.draftRevision,
           dirty: committed.dirty,
-          rebased: source.version !== input.expected_version,
+          rebased: first.version !== input.expected_version,
           recommendations:
             detail?.canvas.kind === "canvas" || detail?.canvas.kind === "html"
               ? await changedFileSnapshotRecommendations(ctx, {
                   ref: input.ref,
                   version: committed.version,
                   draftRevision: committed.draftRevision,
-                  paths: [source.path],
+                  paths: files.map((file) => file.path),
                 })
               : [],
         });
@@ -4283,54 +4388,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "region. For iframe/image nodes, clip=content captures only the inner viewport without device/browser chrome. " +
         "Pass a copied ref_id to see that native node immediately. The capture is rendered from " +
         "the current durable draft revision, not from transient browser state. PNGs above 5 MB " +
-        "are not inlined; use download_url or the suggested smaller regions/scale.",
+        "are not inlined; choose response_mode=link to avoid image tokens for inspection that only needs a URL.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: SnapshotInputSchema,
-      outputSchema: z.object({
-        status: z.enum(["ok", "partial"]),
-        ref: z.string(),
-        ref_id: z.string().optional(),
-        version: z.number(),
-        draft_revision: z.number().int().nonnegative(),
-        page_id: z.string(),
-        target: SnapshotTargetSchema,
-        clip: z.enum(["frame", "content"]),
-        mime_type: z.literal("image/png"),
-        width: z.number(),
-        height: z.number(),
-        size_bytes: z.number(),
-        inline: z.boolean(),
-        download_url: z.string().optional(),
-        cached: z.boolean(),
-        warnings: z.array(z.string()),
-        embed: PublicEmbedSchema.optional(),
-        diagnostics: z.object({
-          unresolved_refs: z.array(z.string()),
-          unresolved_resources: z.array(
-            z.object({
-              ref: z.string(),
-              resource_type: z.string(),
-              reason: z.string(),
-              error: z.string().optional(),
-            }),
-          ),
-          readiness: z.object({
-            status: z.enum(["ready", "partial"]),
-            warnings: z.array(z.string()),
-          }),
-          attempts: z.number().int().positive(),
-          suggested_regions: z.array(
-            z.object({
-              type: z.literal("region"),
-              x: z.number(),
-              y: z.number(),
-              width: z.number().positive(),
-              height: z.number().positive(),
-            }),
-          ),
-          regions_truncated: z.boolean(),
-        }),
-      }),
+      outputSchema: SnapshotOutputSchema,
     },
     async (input) =>
       runTool(async () => {
@@ -4637,15 +4698,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         if (!snapshot || !blob) throw new Error("snapshot_failed: snapshot bytes are unavailable.");
         const MAX_INLINE_SNAPSHOT_BYTES = 5 * 1024 * 1024;
         const tooLargeToInline = snapshot.size > MAX_INLINE_SNAPSHOT_BYTES;
-        const bytes = tooLargeToInline ? null : new Uint8Array(await blob.arrayBuffer());
-        if (tooLargeToInline && snapshot.status === "partial") {
-          // Partial captures are never returned by getSnapshotCache, but a
-          // large response still needs a cleanup-owned row so its download
-          // URL remains valid until the ordinary snapshot TTL sweep.
-          await ctx.runMutation(internal.canvases.putSnapshotCache, {
+        const linkOnly = input.response_mode === "link";
+        const requiresDownload = tooLargeToInline || linkOnly;
+        const bytes = requiresDownload ? null : new Uint8Array(await blob.arrayBuffer());
+        if (requiresDownload && snapshot.status === "partial") {
+          // Partial captures are never returned by getSnapshotCache. A link
+          // response still needs one deterministic cleanup-owned row so its
+          // URL remains valid without accumulating one row per retry.
+          snapshot = await ctx.runMutation(internal.canvases.putSnapshotCache, {
             canvasId: context.canvasId,
             versionId: context.versionId,
-            cacheKey: `${cacheKey}:download:${crypto.randomUUID()}`,
+            cacheKey: `${cacheKey}:download`,
             storageId: snapshot.storageId,
             size: snapshot.size,
             width: snapshot.width,
@@ -4655,10 +4718,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             diagnostics: snapshot.diagnostics,
           });
         }
-        const downloadUrl = tooLargeToInline
+        const downloadUrl = requiresDownload
           ? ((await ctx.storage.getUrl(snapshot.storageId)) ?? undefined)
           : undefined;
-        if (!cached && snapshot.status === "partial" && !tooLargeToInline) {
+        if (!cached && snapshot.status === "partial" && !requiresDownload) {
           // Transient readiness failures must not become a 24-hour cache
           // artifact. The bytes have already been materialized for this
           // response, so the worker upload can be discarded immediately.
@@ -4705,41 +4768,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             }
           }
         }
-        const embedMetadata = isNativeCanvas
-          ? await publicEmbedMetadata(
-              ctx,
-              {
-                ref,
-                page_id: pageId,
-                target,
-                clip: input.clip,
-                scale: input.scale ?? 2,
-                padding: input.padding,
-                pin_version: false,
-              },
-              false,
-            )
-          : target.type === "canvas"
-            ? await publicEmbedMetadata(
-                ctx,
-                {
-                  ref,
-                  target,
-                  clip: input.clip,
-                  scale: input.scale ?? 2,
-                  padding: input.padding,
-                  pin_version: false,
-                },
-                false,
-              )
-            : null;
         const warnings = tooLargeToInline
           ? [...new Set([...snapshot.warnings, "snapshot_too_large"])]
           : [...snapshot.warnings];
-        if (embedMetadata) {
-          warnings.push(...embedMetadata.warnings.map((warning) => warning.code));
-        }
-        const metadata = {
+        const metadata = SnapshotOutputSchema.parse({
           status: tooLargeToInline ? ("partial" as const) : snapshot.status,
           ref,
           ref_id: canonicalRefId,
@@ -4752,11 +4784,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           width: snapshot.width,
           height: snapshot.height,
           size_bytes: snapshot.size,
-          inline: !tooLargeToInline,
+          inline: !requiresDownload,
           download_url: downloadUrl,
           cached,
           warnings: [...new Set(warnings)],
-          embed: embedMetadata?.embed,
           diagnostics: {
             unresolved_refs: snapshot.diagnostics.unresolvedRefs,
             unresolved_resources: snapshot.diagnostics.unresolvedDetails.map((detail) => ({
@@ -4773,7 +4804,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             suggested_regions: suggestedRegions,
             regions_truncated: regionsTruncated,
           },
-        };
+        });
         return {
           content: [
             { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
@@ -4849,13 +4880,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
             check.addIssue({
               code: "custom",
               message: "Pass exactly one of ref or ref_id.",
-            });
-          }
-          if (input.doc_projection && !input.include?.includes("doc")) {
-            check.addIssue({
-              code: "custom",
-              path: ["doc_projection"],
-              message: 'doc_projection requires include:["doc"].',
             });
           }
           const hasCursor = Boolean(
@@ -4967,7 +4991,26 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           pagination: z
             .record(
               z.string(),
-              z.object({ is_done: z.boolean(), next_cursor: z.string().nullable() }),
+              z.object({
+                is_done: z.boolean(),
+                next_request: z
+                  .object({
+                    ref: z.string(),
+                    include: z.array(z.enum(["files", "artifacts", "versions", "renders"])),
+                    pagination: z
+                      .object({
+                        limit: z.number().int().positive(),
+                        expected_version: z.number().int().nonnegative(),
+                        files_cursor: z.string().optional(),
+                        artifacts_cursor: z.string().optional(),
+                        versions_cursor: z.string().optional(),
+                        renders_cursor: z.string().optional(),
+                      })
+                      .strict(),
+                  })
+                  .strict()
+                  .nullable(),
+              }),
             )
             .optional(),
         })
@@ -4979,6 +5022,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const ref = elementRef?.canvasRef ?? input.ref;
         if (!ref) throw new Error("Pass exactly one of ref or ref_id.");
         const include = new Set(input.include ?? []);
+        if (input.doc_projection) include.add("doc");
         const needsDoc =
           include.has("doc") || elementRef !== null || input.doc_projection !== undefined;
         const detail = await ctx.runQuery(internal.canvases.detailByRef, {
@@ -5137,11 +5181,12 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           { page: unknown[]; isDone: boolean; continueCursor: string }
         >;
 
+        const canonicalRef = detail.workspace_slug
+          ? `${detail.workspace_slug}/${detail.canvas.slug}`
+          : detail.canvas.canvas_id;
         return result({
           canvas: {
-            ref: detail.workspace_slug
-              ? `${detail.workspace_slug}/${detail.canvas.slug}`
-              : detail.canvas.canvas_id,
+            ref: canonicalRef,
             canvas_id: detail.canvas.canvas_id,
             title: detail.canvas.title,
             description: detail.canvas.description,
@@ -5211,9 +5256,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                     facet,
                     {
                       is_done: facetPages[facet].isDone,
-                      next_cursor: facetPages[facet].isDone
+                      next_request: facetPages[facet].isDone
                         ? null
-                        : facetPages[facet].continueCursor,
+                        : {
+                            ref: canonicalRef,
+                            include: [facet],
+                            pagination: {
+                              limit: input.pagination?.limit ?? 50,
+                              expected_version: detail.canvas.version ?? 0,
+                              [`${facet}_cursor`]: facetPages[facet].continueCursor,
+                            },
+                          },
                     },
                   ]),
                 )
@@ -5222,11 +5275,61 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       }),
   );
 
-  const FileGetOutputSchema = z.object({
-    status: z.literal("ok"),
-    ref: z.string(),
+  const FileReadRequestSchema = z
+    .object({
+      path: z.string(),
+      start_line: z.number().int().positive().optional(),
+      end_line: z.number().int().positive().optional(),
+      start_byte: z.number().int().nonnegative().optional(),
+      end_byte: z.number().int().positive().optional(),
+    })
+    .strict()
+    .superRefine((input, check) => {
+      const hasLines = input.start_line !== undefined || input.end_line !== undefined;
+      const hasBytes = input.start_byte !== undefined || input.end_byte !== undefined;
+      if (hasLines && hasBytes) {
+        check.addIssue({ code: "custom", message: "Choose either lines or bytes, not both." });
+      }
+      if (input.end_line !== undefined && input.start_line === undefined) {
+        check.addIssue({
+          code: "custom",
+          path: ["start_line"],
+          message: "start_line is required when end_line is set.",
+        });
+      }
+      if (input.end_byte !== undefined && input.start_byte === undefined) {
+        check.addIssue({
+          code: "custom",
+          path: ["start_byte"],
+          message: "start_byte is required when end_byte is set.",
+        });
+      }
+      if (
+        input.start_line !== undefined &&
+        input.end_line !== undefined &&
+        input.end_line < input.start_line
+      ) {
+        check.addIssue({
+          code: "custom",
+          path: ["end_line"],
+          message: "end_line must be greater than or equal to start_line.",
+        });
+      }
+      if (
+        input.start_byte !== undefined &&
+        input.end_byte !== undefined &&
+        input.end_byte <= input.start_byte
+      ) {
+        check.addIssue({
+          code: "custom",
+          path: ["end_byte"],
+          message: "end_byte must be greater than start_byte.",
+        });
+      }
+    });
+
+  const FileProjectionOutputSchema = z.object({
     path: z.string(),
-    version: z.number(),
     size_bytes: z.number(),
     content_hash: z.string(),
     encoding: z.enum(["utf-8", "base64"]),
@@ -5243,10 +5346,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
   server.registerTool(
     "canvas_file_get",
     {
-      title: "Read one canvas file",
+      title: "Read canvas files",
       description:
-        "Reads one UTF-8 canvas source file with its current version and content hash. Use line " +
-        "or byte ranges for large files instead of canvas_run or a full canvas_get. Ranges are " +
+        "Reads up to 20 UTF-8 canvas source files in one bounded call with current version and content hashes. Use line " +
+        "or byte ranges for large files instead of repeated calls or a full canvas_get. Ranges are " +
         "zero-copy response projections: line numbers are 1-based and inclusive; byte offsets " +
         "are 0-based with an exclusive end. Full/line content is UTF-8; exact byte ranges are " +
         "base64 so offsets may safely split a multibyte character. Check the encoding field.",
@@ -5254,118 +5357,200 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       inputSchema: z
         .object({
           ref: RefArg,
-          path: z.string(),
-          start_line: z.number().int().positive().optional(),
-          end_line: z.number().int().positive().optional(),
-          start_byte: z.number().int().nonnegative().optional(),
-          end_byte: z.number().int().positive().optional(),
+          requests: z.array(FileReadRequestSchema).min(1).max(20),
         })
-        .strict()
-        .superRefine((input, check) => {
-          const hasLines = input.start_line !== undefined || input.end_line !== undefined;
-          const hasBytes = input.start_byte !== undefined || input.end_byte !== undefined;
-          if (hasLines && hasBytes) {
-            check.addIssue({
-              code: "custom",
-              message: "Choose either a line range or a byte range, not both.",
-            });
-          }
-          if (input.end_line !== undefined && input.start_line === undefined) {
-            check.addIssue({
-              code: "custom",
-              path: ["start_line"],
-              message: "start_line is required when end_line is set.",
-            });
-          }
-          if (input.end_byte !== undefined && input.start_byte === undefined) {
-            check.addIssue({
-              code: "custom",
-              path: ["start_byte"],
-              message: "start_byte is required when end_byte is set.",
-            });
-          }
-          if (
-            input.start_line !== undefined &&
-            input.end_line !== undefined &&
-            input.end_line < input.start_line
-          ) {
-            check.addIssue({
-              code: "custom",
-              path: ["end_line"],
-              message: "end_line must be greater than or equal to start_line.",
-            });
-          }
-          if (
-            input.start_byte !== undefined &&
-            input.end_byte !== undefined &&
-            input.end_byte <= input.start_byte
-          ) {
-            check.addIssue({
-              code: "custom",
-              path: ["end_byte"],
-              message: "end_byte must be greater than start_byte.",
-            });
-          }
-        }),
-      outputSchema: FileGetOutputSchema,
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        version: z.number(),
+        response_bytes: z.number().int().nonnegative(),
+        files: z.array(FileProjectionOutputSchema),
+      }),
     },
     async (input) =>
       runTool(async () => {
-        const source = await loadEditableFile(ctx, input.ref, input.path);
-        const bytes = new TextEncoder().encode(source.content);
-        const MAX_RESPONSE_BYTES = 128 * 1024;
-        let content = source.content;
-        let kind: "full" | "lines" | "bytes" = "full";
-        let start = 0;
-        let end = bytes.byteLength;
-        let total = bytes.byteLength;
-        let truncated = false;
-        let encoding: "utf-8" | "base64" = "utf-8";
-
-        if (input.start_line !== undefined) {
-          kind = "lines";
-          const lines = source.content.split("\n");
-          start = input.start_line;
-          end = Math.min(input.end_line ?? input.start_line + 199, lines.length);
-          total = lines.length;
-          content = lines.slice(start - 1, end).join("\n");
-          truncated = end < lines.length;
-        } else if (input.start_byte !== undefined) {
-          kind = "bytes";
-          start = Math.min(input.start_byte, bytes.byteLength);
-          const maxRawBytes = Math.floor(MAX_RESPONSE_BYTES / 4) * 3;
-          end = Math.min(input.end_byte ?? start + maxRawBytes, bytes.byteLength);
-          total = bytes.byteLength;
-          if (end - start > maxRawBytes) {
-            throw new Error(
-              `range_too_large: base64 byte ranges are capped at ${maxRawBytes} raw bytes; request a smaller range.`,
-            );
-          }
-          encoding = "base64";
-          content = base64Bytes(bytes.slice(start, end));
-          truncated = end < bytes.byteLength;
-        } else if (bytes.byteLength > MAX_RESPONSE_BYTES) {
-          throw new Error(
-            `file_too_large: ${source.path} is ${bytes.byteLength} bytes. Request start_line/end_line or start_byte/end_byte; one response is capped at ${MAX_RESPONSE_BYTES} bytes.`,
-          );
+        const MAX_FILE_RESPONSE_BYTES = 128 * 1024;
+        const MAX_TOTAL_RESPONSE_BYTES = 512 * 1024;
+        const sources = await Promise.all(
+          input.requests.map((request) => loadEditableFile(ctx, input.ref, request.path)),
+        );
+        const first = sources[0];
+        if (!first) throw new Error("requests must not be empty");
+        if (sources.some((source) => source.version !== first.version)) {
+          throw new Error("version_changed: files were not read from one canvas version; retry.");
         }
-
-        if (new TextEncoder().encode(content).byteLength > MAX_RESPONSE_BYTES) {
+        const files = sources.map((source, index) => {
+          const request = input.requests[index];
+          if (!request) throw new Error("request_projection_mismatch");
+          const projection = projectTextFile(
+            source.content,
+            {
+              startLine: request.start_line,
+              endLine: request.end_line,
+              startByte: request.start_byte,
+              endByte: request.end_byte,
+            },
+            MAX_FILE_RESPONSE_BYTES,
+          );
+          return {
+            path: source.path,
+            size_bytes: new TextEncoder().encode(source.content).byteLength,
+            content_hash: source.contentHash,
+            encoding: projection.encoding,
+            content: projection.content,
+            range: projection.range,
+            truncated: projection.truncated,
+            responseBytes: projection.responseBytes,
+          };
+        });
+        const responseBytes = files.reduce((sum, file) => sum + file.responseBytes, 0);
+        if (responseBytes > MAX_TOTAL_RESPONSE_BYTES) {
           throw new Error(
-            `range_too_large: requested content exceeds ${MAX_RESPONSE_BYTES} bytes; request a smaller range.`,
+            `response_too_large: projected content is ${responseBytes} bytes; one batch is capped at ${MAX_TOTAL_RESPONSE_BYTES} bytes.`,
           );
         }
 
         return result({
           status: "ok",
           ref: input.ref,
-          path: source.path,
-          version: source.version,
-          size_bytes: bytes.byteLength,
-          content_hash: source.contentHash,
-          encoding,
-          content,
-          range: { kind, start, end, total },
+          version: first.version,
+          response_bytes: responseBytes,
+          files: files.map(({ responseBytes: _responseBytes, ...file }) => file),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "canvas_file_search",
+    {
+      title: "Search canvas files",
+      description:
+        "Searches current UTF-8 canvas source files for a literal string and returns bounded line matches. " +
+        "Use this to locate text or identifiers before canvas_file_get or canvas_edit; it does not search canvas titles or CanvasDoc nodes.",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          query: z.string().min(1).max(1_000),
+          case_sensitive: z.boolean().default(false),
+          path_prefixes: z.array(z.string()).min(1).max(20).optional(),
+          context_lines: z.number().int().min(0).max(5).default(0),
+          max_matches: z.number().int().positive().max(200).default(50),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        ref: z.string(),
+        version: z.number().int().nonnegative(),
+        query: z.string(),
+        matches: z.array(
+          z.object({
+            path: z.string(),
+            line: z.number().int().positive(),
+            column: z.number().int().positive(),
+            preview: z.string(),
+          }),
+        ),
+        scanned_files: z.number().int().nonnegative(),
+        scanned_bytes: z.number().int().nonnegative(),
+        skipped: z.array(
+          z.object({
+            path: z.string(),
+            reason: z.literal("binary_file"),
+          }),
+        ),
+        truncated: z.boolean(),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const detail = await ctx.runQuery(internal.canvases.detailByRef, {
+          ref: input.ref,
+          includeFiles: true,
+        });
+        if (!detail) throw new Error(`canvas_not_found: No canvas found for ref "${input.ref}".`);
+        const candidates = (detail.files ?? []).filter(
+          (file) =>
+            /\.(?:html?|css|m?js|cjs|jsx|tsx?|json|md|txt|svg|xml|ya?ml|d2)$/i.test(file.path) &&
+            (!input.path_prefixes ||
+              input.path_prefixes.some((prefix) => file.path.startsWith(prefix))),
+        );
+        const MAX_SCANNED_FILES = 100;
+        const MAX_SCANNED_BYTES = 2 * 1024 * 1024;
+        const SEARCH_BATCH_SIZE = 8;
+        const matches: Array<{ path: string; line: number; column: number; preview: string }> = [];
+        const skipped: Array<{ path: string; reason: "binary_file" }> = [];
+        let scannedFiles = 0;
+        let scannedBytes = 0;
+        let loadedBudgetBytes = 0;
+        let truncated = candidates.length > MAX_SCANNED_FILES;
+        const limitedCandidates = candidates.slice(0, MAX_SCANNED_FILES);
+        candidateBatches: for (let offset = 0; offset < limitedCandidates.length; ) {
+          if (matches.length >= input.max_matches) {
+            truncated = true;
+            break;
+          }
+          const chunk: (typeof limitedCandidates)[number][] = [];
+          let chunkBytes = 0;
+          while (offset < limitedCandidates.length && chunk.length < SEARCH_BATCH_SIZE) {
+            const candidate = limitedCandidates[offset];
+            if (!candidate) break;
+            if (loadedBudgetBytes + chunkBytes + candidate.size_bytes > MAX_SCANNED_BYTES) {
+              truncated = true;
+              break;
+            }
+            chunk.push(candidate);
+            chunkBytes += candidate.size_bytes;
+            offset += 1;
+          }
+          if (chunk.length === 0) break;
+          loadedBudgetBytes += chunkBytes;
+          const loaded = await Promise.all(
+            chunk.map(async (candidate) => {
+              try {
+                return {
+                  candidate,
+                  source: await loadEditableFile(ctx, input.ref, candidate.path),
+                };
+              } catch (error) {
+                if (error instanceof Error && error.message.startsWith("binary_file:")) {
+                  return { candidate, source: null };
+                }
+                throw error;
+              }
+            }),
+          );
+          for (const { candidate, source } of loaded) {
+            if (!source) {
+              skipped.push({ path: candidate.path, reason: "binary_file" });
+              continue;
+            }
+            if (matches.length >= input.max_matches) {
+              truncated = true;
+              break candidateBatches;
+            }
+            scannedFiles += 1;
+            scannedBytes += candidate.size_bytes;
+            const remaining = input.max_matches - matches.length;
+            matches.push(
+              ...searchText(source.content, input.query, {
+                caseSensitive: input.case_sensitive,
+                contextLines: input.context_lines,
+                maxMatches: remaining,
+              }).map((match) => ({ path: source.path, ...match })),
+            );
+          }
+        }
+        return result({
+          status: "ok",
+          ref: input.ref,
+          version: detail.canvas.version ?? 0,
+          query: input.query,
+          matches,
+          scanned_files: scannedFiles,
+          scanned_bytes: scannedBytes,
+          skipped,
           truncated,
         });
       }),

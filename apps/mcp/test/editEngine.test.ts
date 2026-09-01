@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyExactEdit, parseApplyPatch, prepareApplyPatch } from "../src/editEngine.js";
+import {
+  applyExactEdit,
+  applyExactFileEdits,
+  parseApplyPatch,
+  prepareApplyPatch,
+} from "../src/editEngine.js";
 
 describe("applyExactEdit", () => {
   it("requires a unique exact match", () => {
@@ -17,6 +22,34 @@ describe("applyExactEdit", () => {
       content: "y y",
       replacements: 2,
     });
+  });
+});
+
+describe("applyExactFileEdits", () => {
+  it("applies ordered edits across files and reports one result per path", () => {
+    const result = applyExactFileEdits(
+      new Map([
+        ["/src/a.txt", "one two three"],
+        ["/src/b.txt", "alpha beta"],
+      ]),
+      [
+        { path: "/src/a.txt", oldString: "two", newString: "TWO" },
+        { path: "/src/b.txt", oldString: "beta", newString: "BETA" },
+        { path: "/src/a.txt", oldString: "three", newString: "THREE" },
+      ],
+    );
+    expect(result).toEqual([
+      { path: "/src/a.txt", content: "one TWO THREE", replacements: 2 },
+      { path: "/src/b.txt", content: "alpha BETA", replacements: 1 },
+    ]);
+  });
+
+  it("fails the whole batch when any exact edit is invalid", () => {
+    expect(() =>
+      applyExactFileEdits(new Map([["/src/a.txt", "one"]]), [
+        { path: "/src/a.txt", oldString: "missing", newString: "new" },
+      ]),
+    ).toThrow(/old_string_not_found/);
   });
 });
 

@@ -9,6 +9,16 @@ export interface ExactEditResult {
   replacements: number;
 }
 
+export interface ExactFileEdit extends ExactEditInput {
+  path: string;
+}
+
+export interface ExactFileEditResult {
+  path: string;
+  content: string;
+  replacements: number;
+}
+
 export function applyExactEdit(content: string, input: ExactEditInput): ExactEditResult {
   if (input.oldString.length === 0) throw new Error("old_string must not be empty");
   if (input.oldString === input.newString)
@@ -38,6 +48,27 @@ export function applyExactEdit(content: string, input: ExactEditInput): ExactEdi
       content.slice(0, index) + input.newString + content.slice(index + input.oldString.length),
     replacements: 1,
   };
+}
+
+export function applyExactFileEdits(
+  files: ReadonlyMap<string, string>,
+  edits: readonly ExactFileEdit[],
+): ExactFileEditResult[] {
+  if (edits.length === 0) throw new Error("edits must not be empty");
+  const working = new Map(files);
+  const replacements = new Map<string, number>();
+  for (const edit of edits) {
+    const content = working.get(edit.path);
+    if (content === undefined) throw new Error(`file_not_found: ${edit.path}`);
+    const applied = applyExactEdit(content, edit);
+    working.set(edit.path, applied.content);
+    replacements.set(edit.path, (replacements.get(edit.path) ?? 0) + applied.replacements);
+  }
+  return [...replacements].map(([path, count]) => ({
+    path,
+    content: working.get(path) as string,
+    replacements: count,
+  }));
 }
 
 type PatchOperation =

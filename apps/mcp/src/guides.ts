@@ -23,11 +23,11 @@ Use the loop: understand intent → read relevant canvas/template/theme context 
 
 ## Addressing and reads
 
-Use one stable ref, preferably \`workspace-slug/canvas-slug\`. A canvas id, returned URL, public slug, canvas:// URI, or complete element ref is also accepted. Keep file paths in \`path\`, never in the ref. Start existing work with \`canvas_get\`; use projections and pagination for large canvases, and \`canvas_file_get\` for exact file content.
+Use one stable ref, preferably \`workspace-slug/canvas-slug\`. A canvas id, returned URL, public slug, canvas:// URI, or complete element ref is also accepted. Keep file paths in \`path\`, never in the ref. Start existing work with \`canvas_get\`; a doc projection includes the doc automatically, pagination returns a complete next request, \`canvas_file_search\` locates source text, and \`canvas_file_get\` reads up to 20 exact file projections in one call.
 
 ## Writes
 
-\`canvas_save\` upserts atomically by ref. A CanvasFile v3 owns ordered Pages of CanvasDoc v2 plus one prototype. Files, assets, checkpoints, visibility, and sharing remain canvas-level. Use \`canvas_edit\` for one exact replacement, \`canvas_apply_patch\` for atomic multi-file edits, and \`canvas_doc_patch\` for typed graph operations. Use page/prototype tools for those structures and batch node tools for multi-selection moves/deletes. Read first and pass expected version, draft revision, and file hashes. On conflict, reread; hash-backed file edits may safely rebase when their targets are unchanged.
+\`canvas_save\` upserts atomically by ref. A CanvasFile v3 owns ordered Pages of CanvasDoc v2 plus one prototype. Files, assets, checkpoints, visibility, and sharing remain canvas-level. Use \`canvas_edit\` for an ordered atomic batch of exact replacements, \`canvas_apply_patch\` for Codex-style add/update/move/delete patches, and \`canvas_doc_patch\` for typed graph operations. Use page/prototype tools for those structures and batch node tools for multi-selection moves/deletes. Read first and pass expected version, draft revision, and file hashes. On conflict, reread; hash-backed file edits may safely rebase when their targets are unchanged.
 
 Micro-edits advance \`draft_revision\`; checkpoint at meaningful milestones. Publishing checkpoints the complete draft. A metadata-only save should not trigger visual QA. For visual edits, follow returned snapshot arguments and confirm the same draft revision before refining.
 

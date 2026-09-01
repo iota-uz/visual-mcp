@@ -1,0 +1,50 @@
+# ADR — Architecture & Product Decision Records
+
+<!--
+Git records what changed. This append-only ledger records why durable product
+and architecture choices exist, so later optimization does not silently undo
+them. Records live in adr/<area>/<slug>.md and are newest first per area.
+
+Add a record in the same change as a lasting decision. Supersede; never rewrite
+or delete history. Full rules: .claude/rules/adr.md
+-->
+
+## mcp
+
+- **Файловые MCP-операции пакетируются внутри одной задачи, а поиск остаётся отдельным инструментом** — [запись](adr/mcp/bounded-batch-file-operations.md) · accepted · 2026-09-01 (агентский аудит и запрос сопровождающего)
+- **Общий контракт маршрутизации повторяется в каждом описании инструмента ради свежести контекста** — [запись](adr/mcp/repeated-routing-contract-for-context-freshness.md) · accepted · 2026-08-23 (`12e0d20`, подтверждено сопровождающим 2026-09-01)
+- **MCP сохраняет task-shaped инструменты и progressive disclosure** — [запись](adr/mcp/task-shaped-tools-and-progressive-disclosure.md) · accepted · 2026-08-23 (`12e0d20`)
+- **Стабильный ref, идемпотентное сохранение и явные guards образуют контракт записи** — [запись](adr/mcp/stable-refs-idempotency-and-concurrency-guards.md) · accepted · 2026-08-14 (`335551a`, `bb844dc`)
+
+## canvas
+
+- **CanvasFile v3 разделяет долговечный draft, именованные checkpoints и опубликованную ревизию** — [запись](adr/canvas/drafts-checkpoints-and-published-revisions.md) · accepted · 2026-08-21 (`b0fa76a`, `3cce739`)
+
+## assets
+
+- **Медиа из `/assets` становится переиспользуемым, SVG доверяется, audio не поддерживается** — [запись](adr/assets/unified-assets-and-media-boundaries.md) · accepted · 2026-08-29 (`4b2b09a`, `bbf7703`)
+
+## sharing
+
+- **Публичное встраивание — статическая PNG-карточка со ссылкой, а не iframe-viewer** — [запись](adr/sharing/static-preview-cards-not-embedded-viewers.md) · accepted · 2026-08-25 (`d67a728`)
+
+## auth
+
+- **Доступ ограничен организацией, права общие внутри неё, MCP tokens живут 90 дней** — [запись](adr/auth/org-wide-access-and-expiring-mcp-tokens.md) · accepted · 2026-08-14 (`55dd64a`, `9a73635`)
+
+## platform
+
+- **Convex хранит данные и обслуживает BFF, а stateless MCP работает в Railway** — [запись](adr/platform/convex-bff-railway-mcp-boundary.md) · accepted · 2026-08-23 (`688d884`)
+- **`run_code` сохраняет `node:vm` и network egress как принятый риск** — [запись](adr/platform/run-code-network-risk-is-accepted.md) · accepted · 2026-08-09 (`9a73635`)
+- **Продукт использует hosted remote MCP; локальный stdio runtime удалён** — [запись](adr/platform/hosted-remote-mcp-only.md) · accepted · 2026-08-09 (`0bf0e03`, `9a73635`)
+
+## product
+
+- **Агент авторит CanvasDoc и артефакты двух форматов, человек получает сфокусированный редактор** — [запись](adr/product/agent-authored-dual-format-canvas.md) · accepted · 2026-08-09 (`9a73635`)
+
+## process
+
+- **Решения ведутся в append-only ADR ledger, отдельном от истории реализации** — [запись](adr/process/architecture-decisions-ledger.md) · accepted · 2026-09-01 (запрос сопровождающего)
+- **Convex публикуется только после сборки workspace-пакетов** — [запись](adr/process/build-packages-before-convex-push.md) · accepted · 2026-08-23 (`ad825c6`)
+- **Агенты проверяют продукт на изолированном локальном стеке, не на live deployment** — [запись](adr/process/isolated-local-agent-stack.md) · accepted · 2026-08-19 (`ab375fd`)
+- **Green-field изменения заменяют старую модель целиком, если совместимость не запрошена** — [запись](adr/process/greenfield-no-compatibility-by-default.md) · accepted · 2026-08-19 (`96f6f6f`, `aa89089`)
