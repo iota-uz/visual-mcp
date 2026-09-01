@@ -40,7 +40,7 @@ return 404 even though the cached object may still exist in the bucket.
 - Only anonymous cold misses consume the per-share-slug rate limit. MCP batch
   preparation is authenticated and can enqueue up to 50 targets in one call.
 - Cold work runs in a durable queue with three render slots and retries. A cold
-  URL returns `202 text/plain`, `Cache-Control: no-store`, `Retry-After`, and
+  URL returns `202 text/plain`, `Cache-Control: no-store`, `Retry-After: 3`, and
   `X-Embed-Status: queued|updating`; it never returns a placeholder image under
   `200`. Rate limiting returns `429` with the same retry contract.
 - A PNG is promoted to the durable cache only after the worker reports complete
@@ -53,8 +53,10 @@ return 404 even though the cached object may still exist in the bucket.
 
 ## MCP preparation
 
-`canvas_embed` accepts `targets` with 1–50 canvas, node, group, stage, or region
-specifications. Its `embeds[]` result contains the supported URL, linked
+`canvas_embed` requires a `targets` array with 1–50 canvas, node, group, stage,
+or region specifications. `page_id`, `target`, `clip`, `scale`, and `padding`
+belong inside each `targets[]` item; the former flat top-level target fields are
+rejected. Its `embeds[]` result contains the supported URL, linked
 Markdown, resolved version, and `preparation_status` for every target. Call it
 again until all requested entries report `ready`, then paste the returned URLs
 into GitHub, Notion, Slack, or another non-retrying consumer.

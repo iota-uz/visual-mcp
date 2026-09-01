@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { EmbedInputSchema } from "../src/tools.js";
 
 describe("canvas_embed batch input", () => {
@@ -20,5 +21,17 @@ describe("canvas_embed batch input", () => {
       clip: "frame" as const,
     }));
     expect(() => EmbedInputSchema.parse({ ref: "osago/flow", targets })).toThrow();
+  });
+
+  it("publishes the required nested targets contract in JSON Schema", () => {
+    const schema = z.toJSONSchema(EmbedInputSchema);
+    expect(schema.required).toContain("targets");
+    expect(schema.properties?.targets).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 50,
+    });
+    expect(schema.properties?.targets?.description).toContain("inside each targets[] item");
+    expect(schema.additionalProperties).toBe(false);
   });
 });

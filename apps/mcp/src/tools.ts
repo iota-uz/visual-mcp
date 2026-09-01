@@ -1149,7 +1149,13 @@ export const EmbedInputSchema = z
       .boolean()
       .default(false)
       .describe("Pin to the latest published version. Defaults false so the image updates."),
-    targets: z.array(EmbedTargetInputSchema).min(1).max(50),
+    targets: z
+      .array(EmbedTargetInputSchema)
+      .min(1)
+      .max(50)
+      .describe(
+        "Required batch of 1-50 preview specifications. Put page_id, target, clip, scale, and padding inside each targets[] item; the former flat top-level target fields are rejected.",
+      ),
   })
   .strict();
 
@@ -4215,6 +4221,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       description:
         "Prepares up to 50 public previews and returns canvas.iota.uz PNG URLs plus ready-to-paste linked Markdown for the latest " +
         "published canvas, nodes, groups, stages, or regions without putting image bytes in the MCP response. " +
+        "Pass every page_id, target, clip, scale, and padding inside a required targets[] item; flat top-level target fields are not accepted. " +
         "For iframe/image nodes, clip=content captures only the inner viewport without device/browser chrome. " +
         "URLs update after the next public canvas_checkpoint unless pin_version=true. Draft content is never exposed.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
