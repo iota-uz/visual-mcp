@@ -4702,13 +4702,13 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         const requiresDownload = tooLargeToInline || linkOnly;
         const bytes = requiresDownload ? null : new Uint8Array(await blob.arrayBuffer());
         if (requiresDownload && snapshot.status === "partial") {
-          // Partial captures are never returned by getSnapshotCache, but a
-          // large response still needs a cleanup-owned row so its download
-          // URL remains valid until the ordinary snapshot TTL sweep.
-          await ctx.runMutation(internal.canvases.putSnapshotCache, {
+          // Partial captures are never returned by getSnapshotCache. A link
+          // response still needs one deterministic cleanup-owned row so its
+          // URL remains valid without accumulating one row per retry.
+          snapshot = await ctx.runMutation(internal.canvases.putSnapshotCache, {
             canvasId: context.canvasId,
             versionId: context.versionId,
-            cacheKey: `${cacheKey}:download:${crypto.randomUUID()}`,
+            cacheKey: `${cacheKey}:download`,
             storageId: snapshot.storageId,
             size: snapshot.size,
             width: snapshot.width,
@@ -5454,6 +5454,12 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         ),
         scanned_files: z.number().int().nonnegative(),
         scanned_bytes: z.number().int().nonnegative(),
+        skipped: z.array(
+          z.object({
+            path: z.string(),
+            reason: z.literal("binary_file"),
+          }),
+        ),
         truncated: z.boolean(),
       }),
     },
@@ -5472,30 +5478,69 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         );
         const MAX_SCANNED_FILES = 100;
         const MAX_SCANNED_BYTES = 2 * 1024 * 1024;
+        const SEARCH_BATCH_SIZE = 8;
         const matches: Array<{ path: string; line: number; column: number; preview: string }> = [];
+        const skipped: Array<{ path: string; reason: "binary_file" }> = [];
         let scannedFiles = 0;
         let scannedBytes = 0;
+        let loadedBudgetBytes = 0;
         let truncated = candidates.length > MAX_SCANNED_FILES;
-        for (const candidate of candidates.slice(0, MAX_SCANNED_FILES)) {
-          if (
-            matches.length >= input.max_matches ||
-            scannedBytes + candidate.size_bytes > MAX_SCANNED_BYTES
-          ) {
+        const limitedCandidates = candidates.slice(0, MAX_SCANNED_FILES);
+        candidateBatches: for (let offset = 0; offset < limitedCandidates.length; ) {
+          if (matches.length >= input.max_matches) {
             truncated = true;
             break;
           }
-          const source = await loadEditableFile(ctx, input.ref, candidate.path);
-          scannedFiles += 1;
-          scannedBytes += candidate.size_bytes;
-          const remaining = input.max_matches - matches.length;
-          matches.push(
-            ...searchText(source.content, input.query, {
-              caseSensitive: input.case_sensitive,
-              contextLines: input.context_lines,
-              maxMatches: remaining,
-            }).map((match) => ({ path: source.path, ...match })),
+          const chunk: (typeof limitedCandidates)[number][] = [];
+          let chunkBytes = 0;
+          while (offset < limitedCandidates.length && chunk.length < SEARCH_BATCH_SIZE) {
+            const candidate = limitedCandidates[offset];
+            if (!candidate) break;
+            if (loadedBudgetBytes + chunkBytes + candidate.size_bytes > MAX_SCANNED_BYTES) {
+              truncated = true;
+              break;
+            }
+            chunk.push(candidate);
+            chunkBytes += candidate.size_bytes;
+            offset += 1;
+          }
+          if (chunk.length === 0) break;
+          loadedBudgetBytes += chunkBytes;
+          const loaded = await Promise.all(
+            chunk.map(async (candidate) => {
+              try {
+                return {
+                  candidate,
+                  source: await loadEditableFile(ctx, input.ref, candidate.path),
+                };
+              } catch (error) {
+                if (error instanceof Error && error.message.startsWith("binary_file:")) {
+                  return { candidate, source: null };
+                }
+                throw error;
+              }
+            }),
           );
-          if (matches.length >= input.max_matches) truncated = true;
+          for (const { candidate, source } of loaded) {
+            if (!source) {
+              skipped.push({ path: candidate.path, reason: "binary_file" });
+              continue;
+            }
+            if (matches.length >= input.max_matches) {
+              truncated = true;
+              break candidateBatches;
+            }
+            scannedFiles += 1;
+            scannedBytes += candidate.size_bytes;
+            const remaining = input.max_matches - matches.length;
+            matches.push(
+              ...searchText(source.content, input.query, {
+                caseSensitive: input.case_sensitive,
+                contextLines: input.context_lines,
+                maxMatches: remaining,
+              }).map((match) => ({ path: source.path, ...match })),
+            );
+          }
         }
         return result({
           status: "ok",
@@ -5505,6 +5550,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           matches,
           scanned_files: scannedFiles,
           scanned_bytes: scannedBytes,
+          skipped,
           truncated,
         });
       }),

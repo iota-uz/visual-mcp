@@ -27,7 +27,7 @@ Use one stable ref, preferably \`workspace-slug/canvas-slug\`. A canvas id, retu
 
 ## Writes
 
-\`canvas_save\` upserts atomically by ref. A CanvasFile v3 owns ordered Pages of CanvasDoc v2 plus one prototype. Files, assets, checkpoints, visibility, and sharing remain canvas-level. Use \`canvas_edit\` for an ordered atomic batch of exact replacements, \`canvas_apply_patch\` for Codex-style add/move/delete patches, and \`canvas_doc_patch\` for typed graph operations. Use page/prototype tools for those structures and batch node tools for multi-selection moves/deletes. Read first and pass expected version, draft revision, and file hashes. On conflict, reread; hash-backed file edits may safely rebase when their targets are unchanged.
+\`canvas_save\` upserts atomically by ref. A CanvasFile v3 owns ordered Pages of CanvasDoc v2 plus one prototype. Files, assets, checkpoints, visibility, and sharing remain canvas-level. Use \`canvas_edit\` for an ordered atomic batch of exact replacements, \`canvas_apply_patch\` for Codex-style add/update/move/delete patches, and \`canvas_doc_patch\` for typed graph operations. Use page/prototype tools for those structures and batch node tools for multi-selection moves/deletes. Read first and pass expected version, draft revision, and file hashes. On conflict, reread; hash-backed file edits may safely rebase when their targets are unchanged.
 
 Micro-edits advance \`draft_revision\`; checkpoint at meaningful milestones. Publishing checkpoints the complete draft. A metadata-only save should not trigger visual QA. For visual edits, follow returned snapshot arguments and confirm the same draft revision before refining.
 

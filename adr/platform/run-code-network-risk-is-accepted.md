@@ -28,8 +28,9 @@ security boundary. В актуальном разделе accepted risks PLAN д
 
 Сохранить текущую семантику `run_code`, включая network egress, как осознанный
 риск. Основная mitigation — credential-free worker: без Convex deploy key и
-storage keys, только короткоживущие URLs для одного canvas, плюс timeout,
-memory limits и throwaway workspace.
+storage keys. При этом source URLs из Convex storage стабильны и не привязаны к
+одному job или canvas, а asset URLs подписываются на 3600 секунд. Остальные
+ограничения — timeout, memory limits и throwaway workspace.
 
 ## Обоснование
 

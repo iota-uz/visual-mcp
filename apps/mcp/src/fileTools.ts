@@ -45,6 +45,11 @@ export function projectTextFile(
   if (request.startLine !== undefined) {
     kind = "lines";
     const lines = content.split("\n");
+    if (request.startLine > lines.length) {
+      throw new Error(
+        `range_out_of_bounds: start_line ${request.startLine} exceeds the file length of ${lines.length} lines.`,
+      );
+    }
     start = request.startLine;
     end = Math.min(request.endLine ?? request.startLine + 199, lines.length);
     total = lines.length;
@@ -52,7 +57,12 @@ export function projectTextFile(
     truncated = end < lines.length;
   } else if (request.startByte !== undefined) {
     kind = "bytes";
-    start = Math.min(request.startByte, bytes.byteLength);
+    if (request.startByte >= bytes.byteLength) {
+      throw new Error(
+        `range_out_of_bounds: start_byte ${request.startByte} is outside the file size of ${bytes.byteLength} bytes.`,
+      );
+    }
+    start = request.startByte;
     const maxRawBytes = Math.floor(maxResponseBytes / 4) * 3;
     end = Math.min(request.endByte ?? start + maxRawBytes, bytes.byteLength);
     total = bytes.byteLength;

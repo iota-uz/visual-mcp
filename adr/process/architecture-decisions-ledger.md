@@ -13,8 +13,7 @@ applies_to:
   - .claude/rules/adr.md
 tags: [process, adr, agents]
 refs:
-  - ~/Projects/eai/granite/ADR.md
-  - ~/Projects/eai/granite/.claude/rules/adr.md
+  - unknown
 supersedes: []
 superseded_by: []
 ---

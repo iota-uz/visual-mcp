@@ -99,6 +99,7 @@ describe("Railway MCP service", () => {
     expect(byName.get("canvas_edit")?.inputSchema.properties).toHaveProperty("edits");
     expect(byName.get("canvas_edit")?.inputSchema.properties).not.toHaveProperty("file_path");
     expect(byName.get("canvas_file_get")?.inputSchema.properties).toHaveProperty("requests");
+    expect(byName.get("canvas_file_search")?.outputSchema.properties).toHaveProperty("skipped");
     expect(byName.get("canvas_snapshot")?.inputSchema.properties).toHaveProperty("response_mode");
     expect(byName.get("canvas_snapshot")?.outputSchema.properties).not.toHaveProperty("embed");
   });

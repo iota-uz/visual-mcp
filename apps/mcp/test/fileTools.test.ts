@@ -21,6 +21,15 @@ describe("projectTextFile", () => {
   it("rejects an unbounded oversized response", () => {
     expect(() => projectTextFile("x".repeat(20), {}, 10)).toThrow("file_too_large");
   });
+
+  it("rejects starting offsets beyond the file", () => {
+    expect(() => projectTextFile("one\ntwo", { startLine: 3 }, 1024)).toThrow(
+      "range_out_of_bounds: start_line",
+    );
+    expect(() => projectTextFile("hello", { startByte: 5 }, 1024)).toThrow(
+      "range_out_of_bounds: start_byte",
+    );
+  });
 });
 
 describe("searchText", () => {
