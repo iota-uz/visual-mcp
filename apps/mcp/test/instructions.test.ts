@@ -13,6 +13,8 @@ describe("lean MCP server instructions", () => {
     const instructions = buildInstructions();
     expect(instructions).toMatch(/production-grade/i);
     expect(instructions).toMatch(/canvas_save/i);
+    expect(instructions).toContain("canvas_save({ref,html})");
+    expect(instructions).toContain("Do not stage generated HTML on local disk");
     expect(instructions).toMatch(/canvas_snapshot/i);
     expect(instructions).toMatch(/canvas_embed/i);
     expect(instructions).toMatch(/canvas\.iota\.uz/i);

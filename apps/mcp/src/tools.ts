@@ -17,8 +17,8 @@
  *   - Writes are idempotent. A retried call updates; it does not mint
  *     `osago-2`.
  *   - Every result carries fully-qualified URLs (../lib/urls.ts).
- *   - Bytes stay out of JSON-RPC. `canvas_upload_url` hands back a URL the
- *     client POSTs to directly; only the handle travels in the tool call.
+ *   - Generated HTML travels directly in MCP calls. Upload URLs are for
+ *     existing files and media, not a prerequisite for text authoring.
  *   - Nothing fails silently. `status: "partial"` plus a typed `warnings[]`
  *     reports renders that failed, assets that did not resolve, lists that
  *     were truncated, and upserts that landed on someone else's canvas.
@@ -83,6 +83,7 @@ import { applyExactFileEdits, type PreparedPatchChange, prepareApplyPatch } from
 import { projectTextFile, searchText } from "./fileTools.js";
 import type { AgentContext } from "./gateway.js";
 import { MCP_GUIDES } from "./guides.js";
+import { expandHtmlAuthoring, HtmlSchema, ScreensSchema, ViewportSchema } from "./htmlAuthoring.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
 import { sha256Hex, sha256HexBytes } from "./lib/hash.js";
 import { deleteObject, getObject, presignObject } from "./lib/objectStore.js";
@@ -622,7 +623,9 @@ const FileInputSchema = z
       .string()
       .max(1_000_000)
       .optional()
-      .describe("Inline UTF-8 content up to 1 MB. Use upload_id for larger files."),
+      .describe(
+        "Author source text directly here (up to 1,000,000 characters). Split large generated HTML into screens; use uploads for existing files/media.",
+      ),
     upload_id: z
       .string()
       .optional()
@@ -2147,7 +2150,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         "Creates or updates a canvas and returns its URLs. This one call does everything: it " +
         "creates the workspace and canvas if they don't exist, writes files, renders, and " +
         "publishes. Addressed by ref, so calling it twice with the same ref updates rather than " +
-        "duplicating — safe to retry. Author kind=canvas with `doc`; author html/image/pdf with " +
+        "duplicating — safe to retry. For HTML, pass html directly or screens:[{id,html}]; " +
+        "the server creates source paths and a viewable kind=canvas layout. Share top-level html across routes. " +
+        "No local files, shell, or upload needed. Shorthand replaces pages/prototype; use canvas_edit for small edits. " +
+        "For custom geometry author kind=canvas with `doc`; author html/image/pdf artifacts with " +
         "`files` + `renders`. Note that saving a `doc` also writes a generated preview page to " +
         "the reserved path /src/__canvas.html.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -2175,6 +2181,11 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                 "prototype:{start?,interactions}}. The complete multi-page file is saved " +
                 `atomically as a durable draft. ${frameGuide()}`,
             ),
+          html: HtmlSchema.optional(),
+          screens: ScreensSchema.optional(),
+          viewport: ViewportSchema.optional().describe(
+            "HTML screen viewport; defaults to 1280×800. Individual screens may override.",
+          ),
           files: z.array(FileInputSchema).max(500).optional(),
           renders: z.array(RenderInputSchema).max(4).optional(),
           visibility: z
@@ -2202,8 +2213,17 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         .strict(),
       outputSchema: SaveOutputSchema,
     },
-    async (input) =>
-      runCanvasSave(input.ref)(async () => {
+    async (rawInput) =>
+      runCanvasSave(rawInput.ref)(async () => {
+        const authored = expandHtmlAuthoring(rawInput);
+        const input = authored
+          ? {
+              ...rawInput,
+              kind: "canvas" as const,
+              doc: authored.doc,
+              files: [...authored.files, ...(rawInput.files ?? [])],
+            }
+          : rawInput;
         const warnings: Warning[] = [];
         const recommendations: Recommendation[] = [];
 
@@ -6041,6 +6061,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
     {
       title: "Upload files for a canvas save",
       description:
+        "For existing files and media. Author generated HTML directly with canvas_save html/screens/files[].text; do not stage it on local disk. " +
         "Returns short-lived URLs for uploading one or up to 50 files out of band. POST each " +
         "file's raw bytes, read storageId from each JSON response, then pass those values as " +
         "files[].upload_id in one canvas_save. Supported media at /assets paths becomes reusable " +
