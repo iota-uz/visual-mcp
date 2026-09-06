@@ -1,11 +1,14 @@
-import { describe, expect, test } from "vitest";
-import type { ActionCtx } from "../../../convex/_generated/server.js";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { AgentContext } from "../src/gateway.js";
 import { createApp } from "../src/index.js";
 
 const headers = {
   "content-type": "application/json",
   accept: "application/json, text/event-stream",
 };
+
+beforeEach(() => vi.stubEnv("SPA_ORIGIN", "https://canvas.example"));
+afterEach(() => vi.unstubAllEnvs());
 
 function gateway(authenticated = true) {
   return {
@@ -23,7 +26,7 @@ function gateway(authenticated = true) {
         runQuery: async () => null,
         runMutation: async () => null,
         storage: {},
-      }) as unknown as ActionCtx,
+      }) as unknown as AgentContext,
   } as never;
 }
 
@@ -102,5 +105,187 @@ describe("Railway MCP service", () => {
     expect(byName.get("canvas_file_search")?.outputSchema.properties).toHaveProperty("skipped");
     expect(byName.get("canvas_snapshot")?.inputSchema.properties).toHaveProperty("response_mode");
     expect(byName.get("canvas_snapshot")?.outputSchema.properties).not.toHaveProperty("embed");
+  });
+
+  test("checkpoints through the gateway without requiring a direct Convex action", async () => {
+    const context = {
+      runQuery: async () => null,
+      runMutation: async () => ({
+        canvasId: "canvas",
+        versionId: "version",
+        version: 2,
+        draftRevision: 7,
+        dirty: false,
+        published: true,
+      }),
+      storage: {},
+    } as unknown as AgentContext;
+    const checkpointGateway = {
+      ...gateway(),
+      actionContext: () => context,
+    } as never;
+
+    const response = await createApp(checkpointGateway).request("/mcp", {
+      method: "POST",
+      headers: { ...headers, authorization: "Bearer valid" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "canvas_checkpoint", arguments: { ref: "workspace/canvas" } },
+      }),
+    });
+    const payload = parseMcpResponse(await response.text()) as {
+      result: { isError?: boolean; structuredContent?: Record<string, unknown> };
+    };
+
+    expect(payload.result.isError, JSON.stringify(payload)).not.toBe(true);
+    expect(payload.result.structuredContent).toMatchObject({
+      status: "ok",
+      ref: "workspace/canvas",
+      version: 2,
+      draft_revision: 7,
+    });
+  });
+
+  test("saves through the gateway without requiring a direct Convex action", async () => {
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        canvasId: "canvas",
+        workspaceSlug: "workspace",
+        canvasSlug: "canvas",
+        created: true,
+        overwroteOtherAuthor: false,
+        themeId: "clean-saas",
+      })
+      .mockResolvedValueOnce({
+        versionId: "version",
+        version: 1,
+        previousVersion: 0,
+        changed: true,
+        draftRevision: 1,
+        dirty: false,
+        promotedAssets: [],
+      });
+    const context = {
+      runQuery: async () => ({
+        canvas: {
+          kind: "canvas",
+          title: "Canvas",
+          version: 1,
+          draft_revision: 1,
+          dirty: false,
+          visibility: "private",
+          public_slug: undefined,
+          thumbnail_url: null,
+        },
+        storage: { used_bytes: 1, quota_bytes: 1_000_000 },
+      }),
+      runMutation,
+      storage: {
+        store: async () => "storage",
+        delete: async () => null,
+      },
+    } as unknown as AgentContext;
+    const saveGateway = { ...gateway(), actionContext: () => context } as never;
+
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: {
+        name: "canvas_save",
+        arguments: {
+          ref: "workspace/canvas",
+          kind: "canvas",
+          title: "Canvas",
+          doc: {
+            version: 3,
+            defaultPageId: "page",
+            pages: [
+              {
+                id: "page",
+                title: "Page",
+                order: 0,
+                doc: {
+                  version: 2,
+                  title: "Page",
+                  world: { width: 1280, height: 800 },
+                  lanes: [],
+                  stages: [],
+                  labels: [],
+                  nodes: [],
+                  groups: [],
+                  edges: [],
+                },
+              },
+            ],
+            prototype: { interactions: [] },
+          },
+        },
+      },
+    });
+    const response = await createApp(saveGateway).request("/mcp", {
+      method: "POST",
+      headers: { ...headers, authorization: "Bearer valid" },
+      body,
+    });
+    const payload = parseMcpResponse(await response.text()) as {
+      result: { isError?: boolean; structuredContent?: Record<string, unknown> };
+    };
+
+    expect(payload.result.isError, JSON.stringify(payload)).not.toBe(true);
+    expect(payload.result.structuredContent).toMatchObject({
+      status: "ok",
+      ref: "workspace/canvas",
+      version: 1,
+      draft_revision: 1,
+    });
+
+    runMutation
+      .mockReset()
+      .mockResolvedValueOnce({
+        canvasId: "canvas",
+        workspaceSlug: "workspace",
+        canvasSlug: "canvas",
+        created: false,
+        overwroteOtherAuthor: false,
+        themeId: "clean-saas",
+      })
+      .mockResolvedValueOnce({
+        versionId: "version",
+        version: 1,
+        previousVersion: 1,
+        changed: false,
+        draftRevision: 1,
+        dirty: false,
+        promotedAssets: [],
+      });
+    context.runQuery = async () => {
+      throw new Error("gateway_unavailable: detail lookup failed");
+    };
+    const failedResponse = await createApp(saveGateway).request("/mcp", {
+      method: "POST",
+      headers: { ...headers, authorization: "Bearer valid" },
+      body,
+    });
+    const failedPayload = parseMcpResponse(await failedResponse.text()) as {
+      result: { isError?: boolean; content: Array<{ type: string; text: string }> };
+    };
+    const failure = JSON.parse(failedPayload.result.content[0]?.text ?? "null");
+
+    expect(failedPayload.result.isError).toBe(true);
+    expect(failure).toMatchObject({
+      status: "error",
+      error: {
+        code: "gateway_unavailable",
+        operation: "canvas_save",
+        write_outcome: "unknown",
+      },
+      recovery: {
+        suggested_tool: { name: "canvas_get", arguments: { ref: "workspace/canvas" } },
+      },
+    });
   });
 });

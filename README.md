@@ -20,6 +20,20 @@ Canvas tools use one `ref`: a canvas id, public slug, returned canvas/share
 URL, `canvas://` URI, or `workspace-slug/canvas-slug`. Asset tools use
 immutable `asset://` refs.
 
+Author HTML directly in a single MCP call; no local file or shell is needed:
+
+```js
+canvas_save({ref: "demo/app", html: "<main><h1>Hello</h1></main>"})
+```
+
+This creates a viewable `kind=canvas` with one screen. For multiple screens,
+pass `screens: [{id, html}]`. To avoid repeating a shared app shell, send `html`
+once and use `screens: [{id: "home", route: "#/home"}, {id: "settings", route: "#/settings"}]`.
+Paths and layout are generated on the server; the default viewport is 1280×800.
+Shorthand replaces the complete pages/prototype. Use `canvas_edit` for incremental
+source edits and `doc` + `files[].text` for custom geometry. Uploads are for
+media and existing files. Details: `canvas://guides/authoring`.
+
 | Tool | Purpose |
 | --- | --- |
 | `canvas_save` | Creates or updates the durable working draft atomically. The first save creates v1; later edits advance `draft_revision` without filling checkpoint history. |

@@ -4,6 +4,12 @@ import type { ActionCtx } from "../../../convex/_generated/server.js";
 
 type GatewayResponse<T> = { result: T } | { error: string };
 
+/**
+ * Operations the Railway MCP runtime can perform through the agent gateway.
+ * This intentionally excludes direct action calls and scheduling.
+ */
+export type AgentContext = Pick<ActionCtx, "runQuery" | "runMutation" | "storage">;
+
 export class AgentGateway {
   readonly #url: string;
   readonly #secret: string;
@@ -38,7 +44,7 @@ export class AgentGateway {
     }>("authenticate", { tokenHash });
   }
 
-  actionContext(): ActionCtx {
+  actionContext(): AgentContext {
     const run = <T>(
       operation: "query" | "mutation",
       fn: FunctionReference<"query" | "mutation">,
@@ -75,9 +81,11 @@ export class AgentGateway {
       },
     };
     return {
-      runQuery: (fn: FunctionReference<"query">, args: unknown) => run("query", fn, args),
-      runMutation: (fn: FunctionReference<"mutation">, args: unknown) => run("mutation", fn, args),
-      storage,
-    } as unknown as ActionCtx;
+      runQuery: ((fn: FunctionReference<"query">, args: unknown) =>
+        run("query", fn, args)) as AgentContext["runQuery"],
+      runMutation: ((fn: FunctionReference<"mutation">, args: unknown) =>
+        run("mutation", fn, args)) as AgentContext["runMutation"],
+      storage: storage as unknown as AgentContext["storage"],
+    };
   }
 }

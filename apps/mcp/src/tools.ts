@@ -17,8 +17,8 @@
  *   - Writes are idempotent. A retried call updates; it does not mint
  *     `osago-2`.
  *   - Every result carries fully-qualified URLs (../lib/urls.ts).
- *   - Bytes stay out of JSON-RPC. `canvas_upload_url` hands back a URL the
- *     client POSTs to directly; only the handle travels in the tool call.
+ *   - Generated HTML travels directly in MCP calls. Upload URLs are for
+ *     existing files and media, not a prerequisite for text authoring.
  *   - Nothing fails silently. `status: "partial"` plus a typed `warnings[]`
  *     reports renders that failed, assets that did not resolve, lists that
  *     were truncated, and upserts that landed on someone else's canvas.
@@ -72,7 +72,6 @@ import {
 } from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
 import type { Id } from "../../../convex/_generated/dataModel.js";
-import type { ActionCtx } from "../../../convex/_generated/server.js";
 import {
   discardPreparedAssetObject,
   fetchAssetImport,
@@ -82,7 +81,9 @@ import {
 } from "./assets.js";
 import { applyExactFileEdits, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
 import { projectTextFile, searchText } from "./fileTools.js";
+import type { AgentContext } from "./gateway.js";
 import { MCP_GUIDES } from "./guides.js";
+import { expandHtmlAuthoring, HtmlSchema, ScreensSchema, ViewportSchema } from "./htmlAuthoring.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
 import { sha256Hex, sha256HexBytes } from "./lib/hash.js";
 import { deleteObject, getObject, presignObject } from "./lib/objectStore.js";
@@ -367,7 +368,7 @@ function snapshotRecommendation(args: {
 }
 
 async function changedFileSnapshotRecommendations(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   args: {
     ref: string;
     version: number;
@@ -538,12 +539,44 @@ function describeError(err: unknown): string {
   return describeIssues(err) ?? (err instanceof Error ? err.message : String(err));
 }
 
-async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+async function runTool(
+  fn: () => Promise<CallToolResult>,
+  context?: { operation: string; ref?: string; writeOutcome?: "unknown" },
+): Promise<CallToolResult> {
   try {
     return await fn();
   } catch (err) {
-    return { content: [{ type: "text", text: describeError(err) }], isError: true };
+    const message = describeError(err);
+    if (!context) return { content: [{ type: "text", text: message }], isError: true };
+    const code = /^([a-z][a-z0-9_]+):/.exec(message)?.[1] ?? "tool_execution_failed";
+    const error = {
+      status: "error",
+      error: {
+        code,
+        message,
+        operation: context.operation,
+        write_outcome: context.writeOutcome ?? "unknown",
+      },
+      ...(context.ref
+        ? {
+            recovery: {
+              message:
+                "The write may have completed. Read the current canvas before changing the payload or retrying.",
+              suggested_tool: {
+                name: "canvas_get",
+                arguments: { ref: context.ref, doc_projection: { summary: true } },
+              },
+            },
+          }
+        : {}),
+    };
+    return { content: [{ type: "text", text: JSON.stringify(error, null, 2) }], isError: true };
   }
+}
+
+function runCanvasSave(ref: string) {
+  return (fn: () => Promise<CallToolResult>) =>
+    runTool(fn, { operation: "canvas_save", ref, writeOutcome: "unknown" });
 }
 
 /* ------------------------------------------------------------------------
@@ -552,7 +585,7 @@ async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResul
 
 /** Signed download URLs for every file a canvas has (the worker's `sources`). */
 async function resolveCanvasSources(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   versionId: Id<"canvasVersions">,
 ): Promise<Array<{ relPath: string; getUrl: string }>> {
@@ -590,7 +623,9 @@ const FileInputSchema = z
       .string()
       .max(1_000_000)
       .optional()
-      .describe("Inline UTF-8 content up to 1 MB. Use upload_id for larger files."),
+      .describe(
+        "Author source text directly here (up to 1,000,000 characters). Split large generated HTML into screens; use uploads for existing files/media.",
+      ),
     upload_id: z
       .string()
       .optional()
@@ -801,7 +836,7 @@ function reusableMime(path: string, contentType?: string): string | null {
  * revision, and canvas binding in the same database transaction.
  */
 async function prepareSaveFiles(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   userId: Id<"users">,
   files: FileInput[],
@@ -1236,7 +1271,7 @@ const PreparedPublicEmbedSchema = PublicEmbedSchema.extend({
 type PngEmbedMetadata = z.infer<typeof PublicEmbedSchema>;
 
 async function publicEmbedMetadata(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   input: SingleEmbedInput,
   required: boolean,
   prepare = false,
@@ -1451,14 +1486,6 @@ interface RenderedArtifact {
   raw_url: string | null;
 }
 
-async function syncComponentUsages(
-  ctx: ActionCtx,
-  canvasId: Id<"canvases">,
-  versionId: Id<"canvasVersions">,
-): Promise<void> {
-  await ctx.runAction(internal.components.syncVersionUsages, { canvasId, versionId });
-}
-
 /** Derives an output path when the caller didn't name one. */
 function deriveOutputPath(entrypoint: string, format: RenderInput["format"]): string {
   const base = entrypoint.replace(/^.*\//, "").replace(/\.[^.]+$/, "") || "output";
@@ -1472,7 +1499,7 @@ function deriveOutputPath(entrypoint: string, format: RenderInput["format"]): st
  * far worse than shipping without a PNG.
  */
 async function performRender(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   principal: McpPrincipal,
   spec: RenderInput,
@@ -1661,7 +1688,7 @@ async function performRender(
 }
 
 async function prepareSaveDoc(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   rawDoc: unknown,
   theme?: Theme,
 ): Promise<{
@@ -1750,7 +1777,7 @@ async function prepareSaveDoc(
 }
 
 async function saveCanvasFileDraft(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   canvasId: Id<"canvases">,
   file: CanvasFile,
@@ -1784,7 +1811,7 @@ async function saveCanvasFileDraft(
   }
 }
 
-async function loadCanvasFileByRef(ctx: ActionCtx, ref: string) {
+async function loadCanvasFileByRef(ctx: AgentContext, ref: string) {
   const detail = await ctx.runQuery(internal.canvases.detailByRef, {
     ref,
     includeDoc: true,
@@ -1827,7 +1854,7 @@ function assertEditableText(path: string, text: string): void {
 }
 
 async function loadEditableFile(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   ref: string,
   path: string,
 ): Promise<{
@@ -1853,7 +1880,7 @@ async function loadEditableFile(
 }
 
 async function commitPreparedFileChanges(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   canvasId: Id<"canvases">,
   expectedVersion: number,
@@ -2018,7 +2045,7 @@ class AssetFinalizeFailure extends Error {
 }
 
 async function finalizeUploadedAsset(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   input: AssetFinalizeItem,
 ) {
@@ -2099,7 +2126,7 @@ function productionToolDescription(
   ].join(" ");
 }
 
-export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
+export function registerTools(server: McpServer, ctx: AgentContext, principal: McpPrincipal): void {
   const rawRegisterTool = server.registerTool.bind(server) as (
     ...args: Parameters<McpServer["registerTool"]>
   ) => ReturnType<McpServer["registerTool"]>;
@@ -2123,7 +2150,10 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         "Creates or updates a canvas and returns its URLs. This one call does everything: it " +
         "creates the workspace and canvas if they don't exist, writes files, renders, and " +
         "publishes. Addressed by ref, so calling it twice with the same ref updates rather than " +
-        "duplicating — safe to retry. Author kind=canvas with `doc`; author html/image/pdf with " +
+        "duplicating — safe to retry. For HTML, pass html directly or screens:[{id,html}]; " +
+        "the server creates source paths and a viewable kind=canvas layout. Share top-level html across routes. " +
+        "No local files, shell, or upload needed. Shorthand replaces pages/prototype; use canvas_edit for small edits. " +
+        "For custom geometry author kind=canvas with `doc`; author html/image/pdf artifacts with " +
         "`files` + `renders`. Note that saving a `doc` also writes a generated preview page to " +
         "the reserved path /src/__canvas.html.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -2151,6 +2181,11 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
                 "prototype:{start?,interactions}}. The complete multi-page file is saved " +
                 `atomically as a durable draft. ${frameGuide()}`,
             ),
+          html: HtmlSchema.optional(),
+          screens: ScreensSchema.optional(),
+          viewport: ViewportSchema.optional().describe(
+            "HTML screen viewport; defaults to 1280×800. Individual screens may override.",
+          ),
           files: z.array(FileInputSchema).max(500).optional(),
           renders: z.array(RenderInputSchema).max(4).optional(),
           visibility: z
@@ -2178,8 +2213,17 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         .strict(),
       outputSchema: SaveOutputSchema,
     },
-    async (input) =>
-      runTool(async () => {
+    async (rawInput) =>
+      runCanvasSave(rawInput.ref)(async () => {
+        const authored = expandHtmlAuthoring(rawInput);
+        const input = authored
+          ? {
+              ...rawInput,
+              kind: "canvas" as const,
+              doc: authored.doc,
+              files: [...authored.files, ...(rawInput.files ?? [])],
+            }
+          : rawInput;
         const warnings: Warning[] = [];
         const recommendations: Recommendation[] = [];
 
@@ -2343,9 +2387,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         if ((input.renders?.length ?? 0) > 0 && !renderVersionId) {
           renderVersionId =
             (await ctx.runQuery(internal.canvases.currentVersion, { canvasId }))?.versionId ?? null;
-        }
-        if (renderVersionId) {
-          await syncComponentUsages(ctx, canvasId, renderVersionId);
         }
         for (const spec of input.renders ?? []) {
           if (!renderVersionId) {
@@ -3441,7 +3482,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           note: input.note,
           expectedDraftRevision: input.expected_draft_revision,
         });
-        await syncComponentUsages(ctx, checkpoint.canvasId, checkpoint.versionId);
         return result({
           status: "ok" as const,
           ref: input.ref,
@@ -6021,6 +6061,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
     {
       title: "Upload files for a canvas save",
       description:
+        "For existing files and media. Author generated HTML directly with canvas_save html/screens/files[].text; do not stage it on local disk. " +
         "Returns short-lived URLs for uploading one or up to 50 files out of band. POST each " +
         "file's raw bytes, read storageId from each JSON response, then pass those values as " +
         "files[].upload_id in one canvas_save. Supported media at /assets paths becomes reusable " +
@@ -6110,7 +6151,7 @@ function randomShareSlug(): string {
  * data, which is exactly what MCP resources are for: the listing is titles
  * and descriptions, and a caller reads the one it actually wants.
  * ---------------------------------------------------------------------- */
-export function registerResources(server: McpServer, ctx: ActionCtx): void {
+export function registerResources(server: McpServer, ctx: AgentContext): void {
   for (const guide of MCP_GUIDES) {
     server.registerResource(
       `guide-${guide.id}`,

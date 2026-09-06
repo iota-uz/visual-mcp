@@ -6,6 +6,7 @@
  */
 
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -162,28 +163,33 @@ test("hydrate downloads every signed file to its relPath", async () => {
   }
 });
 
-async function vcTempDirsIn(dir: string): Promise<string[]> {
-  const entries = await readdir(dir);
-  return entries.filter((e) => e.startsWith("vc-"));
-}
-
-test("hydrate rejects a traversal relPath and removes the temp dir it created", async () => {
-  const before = await vcTempDirsIn(tmpdir());
+test("hydrate rejects a traversal relPath and removes the temp dir it created", async (t) => {
+  const created: string[] = [];
+  t.mock.method(fs, "mkdtemp", async (prefix: string) => {
+    const root = await mkdtemp(prefix);
+    created.push(root);
+    return root;
+  });
   await assert.rejects(
     () => hydrate([{ relPath: "../../escape.txt", getUrl: "data:text/plain;base64,eA==" }]),
     SandboxPathError,
   );
-  const after = await vcTempDirsIn(tmpdir());
-  assert.deepEqual(after, before);
+  assert.equal(created.length, 1);
+  await assert.rejects(() => stat(created[0]), { code: "ENOENT" });
 });
 
-test("hydrate removes the temp dir it created when a download fails", async () => {
-  const before = await vcTempDirsIn(tmpdir());
+test("hydrate removes the temp dir it created when a download fails", async (t) => {
+  const created: string[] = [];
+  t.mock.method(fs, "mkdtemp", async (prefix: string) => {
+    const root = await mkdtemp(prefix);
+    created.push(root);
+    return root;
+  });
   await assert.rejects(() =>
     hydrate([{ relPath: "/src/a.txt", getUrl: "https://127.0.0.1:1/definitely-not-listening" }]),
   );
-  const after = await vcTempDirsIn(tmpdir());
-  assert.deepEqual(after, before);
+  assert.equal(created.length, 1);
+  await assert.rejects(() => stat(created[0]), { code: "ENOENT" });
 });
 
 test("dispose is safe to call more than once", async () => {

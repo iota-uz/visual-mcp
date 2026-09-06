@@ -1,6 +1,18 @@
 [
   { "query": "Create a new product dashboard", "expected": "canvas_save" },
   {
+    "query": "Draw an HTML screen directly from a string without touching local files",
+    "expected": "canvas_save"
+  },
+  {
+    "query": "Create five HTML screens sharing one app shell with different hash routes",
+    "expected": "canvas_save"
+  },
+  {
+    "query": "Change one label in the existing HTML screen without resending its full source",
+    "expected": "canvas_edit"
+  },
+  {
     "query": "Replace exact strings in three existing source files atomically",
     "expected": "canvas_edit"
   },

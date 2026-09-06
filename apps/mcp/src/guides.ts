@@ -27,6 +27,16 @@ Use one stable ref, preferably \`workspace-slug/canvas-slug\`. A canvas id, retu
 
 ## Writes
 
+Author generated HTML entirely through MCP. One call is enough:
+
+\`canvas_save({ref:"demo/app", html:"<!doctype html>..."})\`
+
+This creates a viewable kind=canvas with one unframed HTML screen, a 1280×800 viewport, and source at /src/screens/index.html. Set viewport:{width,height} when needed. No local disk, shell, curl, or upload URL is needed. HTML is sent once; saving it locally first does not reduce generation tokens.
+
+For multiple screens use \`screens:[{id:"home",html:"..."},{id:"settings",html:"..."}]\`. For a shared app shell, send \`html:"..."\` once plus \`screens:[{id:"home",route:"#/home"},{id:"settings",route:"#/settings"}]\`. The HTML implements its own hash routing; route selects its initial state. Each screen may override title, html, and viewport. A screen with its own HTML gets /src/screens/<id>.html; screens inheriting top-level HTML share /src/screens/index.html. Do not combine inherited HTML with an explicit screen HTML whose id is index. Extra files/media may accompany the call, but cannot overwrite generated paths.
+
+The server generates page id screens and stable node ids from screen ids, with up to three columns. html alone uses node id index. html/screens replace the complete pages and prototype, so use them for initial creation or deliberate full replacement; they require kind=canvas and cannot accompany doc. Source files omitted from later saves remain stored. For incremental edits, use canvas_file_get then canvas_edit with the returned hashes; do not resend the entire HTML or regenerate layout. For custom geometry use doc and files[].text directly. For large new designs split HTML into screens and author in MCP; reserve upload URLs for media and existing files.
+
 \`canvas_save\` upserts atomically by ref. A CanvasFile v3 owns ordered Pages of CanvasDoc v2 plus one prototype. Files, assets, checkpoints, visibility, and sharing remain canvas-level. Use \`canvas_edit\` for an ordered atomic batch of exact replacements, \`canvas_apply_patch\` for Codex-style add/update/move/delete patches, and \`canvas_doc_patch\` for typed graph operations. Use page/prototype tools for those structures and batch node tools for multi-selection moves/deletes. Read first and pass expected version, draft revision, and file hashes. On conflict, reread; hash-backed file edits may safely rebase when their targets are unchanged.
 
 Micro-edits advance \`draft_revision\`; checkpoint at meaningful milestones. Publishing checkpoints the complete draft. A metadata-only save should not trigger visual QA. For visual edits, follow returned snapshot arguments and confirm the same draft revision before refining.
@@ -155,7 +165,7 @@ Screens select on one click and activate on double-click or Enter; Escape exits 
     description: "Canvas files, uploads, Asset Library reuse, security, and unresolved references.",
     text: `# Files and assets
 
-Writable roots are \`/src\`, \`/assets\`, and \`/output\`; \`/cache\` is temporary and read-only. Reference local media with root-relative paths. Supported images, SVG, fonts, video, and JSON saved under \`/assets\` automatically become reusable workspace assets and are pinned to the canvas as immutable revisions. The save returns each \`asset_ref\`. Source under \`/src\` and generated files under \`/output\` remain canvas-local. Save small text inline. For binary or large content, request upload URLs (up to 50), follow each returned method and Content-Type, then pass each \`upload_id\` in one atomic save.
+Writable roots are \`/src\`, \`/assets\`, and \`/output\`; \`/cache\` is temporary and read-only. Reference media with root-relative paths. Supported images, SVG, fonts, video, and JSON saved under \`/assets\` automatically become reusable workspace assets and are pinned to the canvas as immutable revisions. The save returns each \`asset_ref\`. Source under \`/src\` and generated files under \`/output\` remain canvas-local. Author HTML directly with html/screens or files[].text, without local files or uploads. For existing files and media, request upload URLs (up to 50), follow each returned method and Content-Type, then pass each \`upload_id\` in one atomic save.
 
 Search reusable media with \`asset_list\`, inspect with \`asset_get(include_preview=true)\`, and attach an existing immutable revision with \`asset_ref\` at an \`/assets\` path. Use \`asset_upload_url\`/\`asset_finalize\` only to add media directly to a library without a canvas, and \`asset_import\` for HTTPS sources. Moving an asset changes library scope without rewriting existing pinned bindings; deleting archives it. SVG is trusted internal workspace content and must be preserved byte-for-byte. Audio is not supported.
 
