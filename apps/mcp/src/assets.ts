@@ -1,5 +1,5 @@
 import type { Id } from "../../../convex/_generated/dataModel.js";
-import type { ActionCtx } from "../../../convex/_generated/server.js";
+import type { AgentContext } from "./gateway.js";
 import {
   ASSET_MAX_BYTES,
   type AssetKind,
@@ -79,7 +79,7 @@ export type PreparedAssetObject = {
  * create the workspace asset and its canvas binding in the same transaction.
  */
 export async function prepareAssetObject(input: {
-  ctx: ActionCtx;
+  ctx: AgentContext;
   filename: string;
   rawBytes: Uint8Array;
   declaredMime: string;
@@ -118,7 +118,7 @@ export async function prepareAssetObject(input: {
  * prevents an asset-version insert from racing the external delete.
  */
 export async function discardPreparedAssetObject(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   prepared: PreparedAssetObject,
 ): Promise<void> {
   const claimed = await ctx.runMutation(internal.assets.claimObjectDeletion, {
@@ -138,7 +138,7 @@ export async function discardPreparedAssetObject(
 }
 
 export async function persistAsset(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   input: {
     uploadId?: Id<"assetUploads">;
     scope: "personal" | "workspace";

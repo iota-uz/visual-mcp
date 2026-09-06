@@ -72,7 +72,6 @@ import {
 } from "@visual-canvas/runtime/templates/index.js";
 import { z } from "zod";
 import type { Id } from "../../../convex/_generated/dataModel.js";
-import type { ActionCtx } from "../../../convex/_generated/server.js";
 import {
   discardPreparedAssetObject,
   fetchAssetImport,
@@ -82,6 +81,7 @@ import {
 } from "./assets.js";
 import { applyExactFileEdits, type PreparedPatchChange, prepareApplyPatch } from "./editEngine.js";
 import { projectTextFile, searchText } from "./fileTools.js";
+import type { AgentContext } from "./gateway.js";
 import { MCP_GUIDES } from "./guides.js";
 import { ASSET_MAX_BYTES, ASSET_MIME_TYPES } from "./lib/assetSecurity.js";
 import { sha256Hex, sha256HexBytes } from "./lib/hash.js";
@@ -367,7 +367,7 @@ function snapshotRecommendation(args: {
 }
 
 async function changedFileSnapshotRecommendations(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   args: {
     ref: string;
     version: number;
@@ -538,12 +538,44 @@ function describeError(err: unknown): string {
   return describeIssues(err) ?? (err instanceof Error ? err.message : String(err));
 }
 
-async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+async function runTool(
+  fn: () => Promise<CallToolResult>,
+  context?: { operation: string; ref?: string; writeOutcome?: "unknown" },
+): Promise<CallToolResult> {
   try {
     return await fn();
   } catch (err) {
-    return { content: [{ type: "text", text: describeError(err) }], isError: true };
+    const message = describeError(err);
+    if (!context) return { content: [{ type: "text", text: message }], isError: true };
+    const code = /^([a-z][a-z0-9_]+):/.exec(message)?.[1] ?? "tool_execution_failed";
+    const error = {
+      status: "error",
+      error: {
+        code,
+        message,
+        operation: context.operation,
+        write_outcome: context.writeOutcome ?? "unknown",
+      },
+      ...(context.ref
+        ? {
+            recovery: {
+              message:
+                "The write may have completed. Read the current canvas before changing the payload or retrying.",
+              suggested_tool: {
+                name: "canvas_get",
+                arguments: { ref: context.ref, doc_projection: { summary: true } },
+              },
+            },
+          }
+        : {}),
+    };
+    return { content: [{ type: "text", text: JSON.stringify(error, null, 2) }], isError: true };
   }
+}
+
+function runCanvasSave(ref: string) {
+  return (fn: () => Promise<CallToolResult>) =>
+    runTool(fn, { operation: "canvas_save", ref, writeOutcome: "unknown" });
 }
 
 /* ------------------------------------------------------------------------
@@ -552,7 +584,7 @@ async function runTool(fn: () => Promise<CallToolResult>): Promise<CallToolResul
 
 /** Signed download URLs for every file a canvas has (the worker's `sources`). */
 async function resolveCanvasSources(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   versionId: Id<"canvasVersions">,
 ): Promise<Array<{ relPath: string; getUrl: string }>> {
@@ -801,7 +833,7 @@ function reusableMime(path: string, contentType?: string): string | null {
  * revision, and canvas binding in the same database transaction.
  */
 async function prepareSaveFiles(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   userId: Id<"users">,
   files: FileInput[],
@@ -1236,7 +1268,7 @@ const PreparedPublicEmbedSchema = PublicEmbedSchema.extend({
 type PngEmbedMetadata = z.infer<typeof PublicEmbedSchema>;
 
 async function publicEmbedMetadata(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   input: SingleEmbedInput,
   required: boolean,
   prepare = false,
@@ -1451,14 +1483,6 @@ interface RenderedArtifact {
   raw_url: string | null;
 }
 
-async function syncComponentUsages(
-  ctx: ActionCtx,
-  canvasId: Id<"canvases">,
-  versionId: Id<"canvasVersions">,
-): Promise<void> {
-  await ctx.runAction(internal.components.syncVersionUsages, { canvasId, versionId });
-}
-
 /** Derives an output path when the caller didn't name one. */
 function deriveOutputPath(entrypoint: string, format: RenderInput["format"]): string {
   const base = entrypoint.replace(/^.*\//, "").replace(/\.[^.]+$/, "") || "output";
@@ -1472,7 +1496,7 @@ function deriveOutputPath(entrypoint: string, format: RenderInput["format"]): st
  * far worse than shipping without a PNG.
  */
 async function performRender(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   canvasId: Id<"canvases">,
   principal: McpPrincipal,
   spec: RenderInput,
@@ -1661,7 +1685,7 @@ async function performRender(
 }
 
 async function prepareSaveDoc(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   rawDoc: unknown,
   theme?: Theme,
 ): Promise<{
@@ -1750,7 +1774,7 @@ async function prepareSaveDoc(
 }
 
 async function saveCanvasFileDraft(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   canvasId: Id<"canvases">,
   file: CanvasFile,
@@ -1784,7 +1808,7 @@ async function saveCanvasFileDraft(
   }
 }
 
-async function loadCanvasFileByRef(ctx: ActionCtx, ref: string) {
+async function loadCanvasFileByRef(ctx: AgentContext, ref: string) {
   const detail = await ctx.runQuery(internal.canvases.detailByRef, {
     ref,
     includeDoc: true,
@@ -1827,7 +1851,7 @@ function assertEditableText(path: string, text: string): void {
 }
 
 async function loadEditableFile(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   ref: string,
   path: string,
 ): Promise<{
@@ -1853,7 +1877,7 @@ async function loadEditableFile(
 }
 
 async function commitPreparedFileChanges(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   canvasId: Id<"canvases">,
   expectedVersion: number,
@@ -2018,7 +2042,7 @@ class AssetFinalizeFailure extends Error {
 }
 
 async function finalizeUploadedAsset(
-  ctx: ActionCtx,
+  ctx: AgentContext,
   principal: McpPrincipal,
   input: AssetFinalizeItem,
 ) {
@@ -2099,7 +2123,7 @@ function productionToolDescription(
   ].join(" ");
 }
 
-export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpPrincipal): void {
+export function registerTools(server: McpServer, ctx: AgentContext, principal: McpPrincipal): void {
   const rawRegisterTool = server.registerTool.bind(server) as (
     ...args: Parameters<McpServer["registerTool"]>
   ) => ReturnType<McpServer["registerTool"]>;
@@ -2179,7 +2203,7 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
       outputSchema: SaveOutputSchema,
     },
     async (input) =>
-      runTool(async () => {
+      runCanvasSave(input.ref)(async () => {
         const warnings: Warning[] = [];
         const recommendations: Recommendation[] = [];
 
@@ -2343,9 +2367,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
         if ((input.renders?.length ?? 0) > 0 && !renderVersionId) {
           renderVersionId =
             (await ctx.runQuery(internal.canvases.currentVersion, { canvasId }))?.versionId ?? null;
-        }
-        if (renderVersionId) {
-          await syncComponentUsages(ctx, canvasId, renderVersionId);
         }
         for (const spec of input.renders ?? []) {
           if (!renderVersionId) {
@@ -3441,7 +3462,6 @@ export function registerTools(server: McpServer, ctx: ActionCtx, principal: McpP
           note: input.note,
           expectedDraftRevision: input.expected_draft_revision,
         });
-        await syncComponentUsages(ctx, checkpoint.canvasId, checkpoint.versionId);
         return result({
           status: "ok" as const,
           ref: input.ref,
@@ -6110,7 +6130,7 @@ function randomShareSlug(): string {
  * data, which is exactly what MCP resources are for: the listing is titles
  * and descriptions, and a caller reads the one it actually wants.
  * ---------------------------------------------------------------------- */
-export function registerResources(server: McpServer, ctx: ActionCtx): void {
+export function registerResources(server: McpServer, ctx: AgentContext): void {
   for (const guide of MCP_GUIDES) {
     server.registerResource(
       `guide-${guide.id}`,
