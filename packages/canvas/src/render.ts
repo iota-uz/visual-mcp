@@ -1,11 +1,13 @@
 import { deviceFrameScale, renderDeviceFrame } from "./device-frame.js";
 import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
+import { type PrototypeNodeFlags, prototypeNodeClasses } from "./prototype.js";
 import { type EdgePath, routeEdges } from "./router.js";
 import { ARROW_SHAPE } from "./routing/geometry.js";
 import type { Theme } from "./themes.js";
 import {
   type CanvasDrawing,
+  type CanvasNote,
   type DrawingBounds,
   type DrawingPoint,
   type IframeNode,
@@ -34,6 +36,32 @@ export interface RenderOptions {
   shouldLoadIframe?: (node: Extract<PositionedNode, { kind: "iframe" }>) => boolean;
   /** Resolved base + workspace + canvas semantic tokens. */
   theme?: Theme;
+  /**
+   * Per-node Play / Download / more buttons in the caption strip. Off for
+   * static renders and public viewers; the viewport turns them on and
+   * routes the clicks.
+   */
+  captionActions?: boolean;
+  /** Where Play goes: a real href, so ⌘-click opens the prototype in a new tab. */
+  resolvePresentUrl?: (nodeId: string) => string | undefined;
+  /** Prototype membership for this page, from `prototypeNodeFlags`. */
+  prototypeFlags?: ReadonlyMap<string, PrototypeNodeFlags>;
+}
+
+const PLAY_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>`;
+const DOWNLOAD_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 12.5h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>`;
+
+/** Actor and decision shapes restyle the caption into something with no room for buttons. */
+function captionActionsFor(node: PositionedNode, options: RenderOptions): string {
+  if (!options.captionActions) return "";
+  if (node.kind === "native" && (node.shape === "actor" || node.shape === "decision")) return "";
+  const presentUrl = options.resolvePresentUrl?.(node.id);
+  const interactive = options.prototypeFlags?.get(node.id)?.interactive ?? false;
+  const play = presentUrl
+    ? `<a class="vc-caption-action vc-caption-play${interactive ? " is-interactive" : ""}" href="${escapeHtml(presentUrl)}" data-action="play" title="${interactive ? "Present this screen as a clickable prototype" : "Present from this screen"}" aria-label="Present from this screen" draggable="false">${PLAY_ICON}</a>`
+    : "";
+  return `<div class="vc-caption-actions" data-caption-actions>${play}<button type="button" class="vc-caption-action vc-caption-download" data-action="download" title="Download this screen as PNG" aria-label="Download this screen as PNG">${DOWNLOAD_ICON}</button><button type="button" class="vc-caption-action vc-caption-more" data-action="more" title="More actions" aria-label="More actions" aria-haspopup="menu">${MORE_ICON}</button></div>`;
 }
 
 function themeStyle(theme?: Theme): string {
@@ -69,8 +97,8 @@ function themeStyle(theme?: Theme): string {
     .join(";");
 }
 
-function caption(node: PositionedNode): string {
-  return `<div class="vc-caption"><div><div class="vc-caption-title">${escapeHtml(node.caption.title)}</div>${node.caption.subtitle ? `<div class="vc-caption-subtitle">${escapeHtml(node.caption.subtitle)}</div>` : ""}</div>${node.caption.tag ? `<div class="vc-caption-tag">${escapeHtml(node.caption.tag)}</div>` : ""}${node.maturity ? `<span class="vc-badge vc-tone-${node.maturity}">${node.maturity.toUpperCase()}</span>` : ""}</div>`;
+function caption(node: PositionedNode, options: RenderOptions = {}): string {
+  return `<div class="vc-caption"><div class="vc-caption-text"><div class="vc-caption-title">${escapeHtml(node.caption.title)}</div>${node.caption.subtitle ? `<div class="vc-caption-subtitle">${escapeHtml(node.caption.subtitle)}</div>` : ""}</div>${node.caption.tag ? `<div class="vc-caption-tag">${escapeHtml(node.caption.tag)}</div>` : ""}${node.maturity ? `<span class="vc-badge vc-tone-${node.maturity}">${node.maturity.toUpperCase()}</span>` : ""}${captionActionsFor(node, options)}</div>`;
 }
 function nativeBody(node: Extract<PositionedNode, { kind: "native" }>): string {
   const body = node.body;
@@ -193,11 +221,21 @@ function renderNode(node: PositionedNode, options: RenderOptions): string {
     node.kind === "native"
       ? node.shape === "actor"
         ? actorBody(node)
-        : `${caption(node)}${nativeBody(node)}`
+        : `${caption(node, options)}${nativeBody(node)}`
       : node.kind === "iframe"
-        ? `${caption(node)}${iframeBody(node, options)}`
-        : `${caption(node)}${imageBody(node, options)}`;
-  return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? RESIZE_HANDLES : ""}</div>`;
+        ? `${caption(node, options)}${iframeBody(node, options)}`
+        : `${caption(node, options)}${imageBody(node, options)}`;
+  const flags = prototypeNodeClasses(options.prototypeFlags?.get(node.id));
+  return `<div class="vc-node vc-kind-${node.kind} vc-shape-${shape}${flags}" tabindex="0" data-node-id="${escapeHtml(node.id)}" data-lane="${escapeHtml(node.laneId ?? "")}" data-stage="${escapeHtml(node.stageId ?? "")}" style="left:${node.x}px;top:${node.y}px;width:${node.w}px;height:${node.h}px">${content}${options.editable ? RESIZE_HANDLES : ""}</div>`;
+}
+/**
+ * A sticky note is world-space text with a width and no stored height: the
+ * element wraps its text and `note-metrics.ts` estimates the same number
+ * for anything that cannot ask the DOM. `data-author` is what lets the
+ * agent's notes and the human's read differently without two components.
+ */
+export function renderNote(note: CanvasNote): string {
+  return `<div class="vc-note" tabindex="0" data-note-id="${escapeHtml(note.id)}" data-color="${note.color}" data-size="${note.size}" data-author="${note.author}" style="left:${note.x}px;top:${note.y}px;width:${note.w}px"><div class="vc-note-text">${escapeHtml(note.text)}</div></div>`;
 }
 function renderGroup(group: PositionedGroup): string {
   return `<div class="vc-group" tabindex="0" data-group-id="${escapeHtml(group.id)}" style="left:${group.x}px;top:${group.y}px;width:${group.w}px;height:${group.h}px"><span>${escapeHtml(group.label ?? group.id)}</span></div>`;
@@ -363,7 +401,7 @@ export function renderCanvas(
   const edges = routeEdges(canvas);
   const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
   const drawings = canvas.doc.drawings ?? [];
-  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}${renderEdgeHeads(edges)}</svg><svg class="vc-drawings" width="${canvas.width}" height="${canvas.height}">${drawingDefs(drawings, nodesById)}${drawings.map((drawing) => renderDrawing(drawing, nodesById)).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
+  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}${renderEdgeHeads(edges)}</svg><svg class="vc-drawings" width="${canvas.width}" height="${canvas.height}">${drawingDefs(drawings, nodesById)}${drawings.map((drawing) => renderDrawing(drawing, nodesById)).join("")}</svg><div class="vc-notes">${(canvas.doc.notes ?? []).map(renderNote).join("")}</div></div>${renderLegend(canvas.doc.legend)}`;
   const themedHtml = options.theme
     ? html
         .replace(

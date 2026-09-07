@@ -15,11 +15,12 @@ function doc(): CanvasDoc {
     groups: [],
     edges: [],
     drawings: [],
+    notes: [],
     nodes: [
       {
         id: "intake",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 0, y: 0, w: 100, h: 60 },
         caption: { title: "Intake" },
         anchors: [{ id: "left", side: "left", offset: 0.5 }],

@@ -2494,7 +2494,7 @@
     {
       "id": "qr-retry",
       "kind": "native",
-      "shape": "note",
+      "shape": "card",
       "laneId": "exceptions",
       "stageId": "s4",
       "rect": {
@@ -2536,7 +2536,7 @@
     {
       "id": "photo-retry",
       "kind": "native",
-      "shape": "note",
+      "shape": "card",
       "laneId": "exceptions",
       "stageId": "s7",
       "rect": {
@@ -2578,7 +2578,7 @@
     {
       "id": "payment-retry",
       "kind": "native",
-      "shape": "note",
+      "shape": "card",
       "laneId": "exceptions",
       "stageId": "s11",
       "rect": {
@@ -2620,7 +2620,7 @@
     {
       "id": "regress",
       "kind": "native",
-      "shape": "note",
+      "shape": "card",
       "laneId": "exceptions",
       "stageId": "s12",
       "rect": {

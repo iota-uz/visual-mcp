@@ -20,7 +20,7 @@ const NODE_SHAPES = [
   "service",
   "registry",
   "decision",
-  "note",
+  "card",
 ] as const;
 export type NodeShape = (typeof NODE_SHAPES)[number];
 const MATURITY = ["live", "partial", "to-be"] as const;
@@ -75,6 +75,42 @@ export const CanvasLabelSchema = z.object({
   align: z.enum(["left", "center", "right"]).optional(),
 });
 export type CanvasLabel = z.infer<typeof CanvasLabelSchema>;
+
+export const NOTE_COLORS = ["yellow", "blue", "green", "pink", "neutral"] as const;
+export type NoteColor = (typeof NOTE_COLORS)[number];
+export const NOTE_SIZES = ["s", "m", "l"] as const;
+export type NoteSize = (typeof NOTE_SIZES)[number];
+export const NOTE_AUTHORS = ["human", "agent"] as const;
+export type NoteAuthor = (typeof NOTE_AUTHORS)[number];
+export const NOTE_MIN_WIDTH = 120;
+export const NOTE_MAX_WIDTH = 2000;
+export const NOTE_MAX_TEXT = 5000;
+
+/**
+ * A sticky note: plain text pinned to a world point, sized by its width only.
+ * Height is never stored — the DOM wraps the text and `note-metrics.ts`
+ * estimates it for hit-tests and static renders — so a note edited in the
+ * browser and one written by the agent never disagree about a number the
+ * renderer recomputes anyway. `author` is stamped at the write boundary
+ * (MCP → agent, browser → human) and never trusted from the payload.
+ */
+export const CanvasNoteSchema = z
+  .object({
+    id: z.string().min(1),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    w: z.number().finite().min(NOTE_MIN_WIDTH).max(NOTE_MAX_WIDTH),
+    text: z
+      .string()
+      .min(1)
+      .max(NOTE_MAX_TEXT)
+      .refine((text) => text.trim().length > 0, "Note text cannot be blank"),
+    color: z.enum(NOTE_COLORS).default("yellow"),
+    size: z.enum(NOTE_SIZES).default("m"),
+    author: z.enum(NOTE_AUTHORS),
+  })
+  .strict();
+export type CanvasNote = z.infer<typeof CanvasNoteSchema>;
 
 /** A Figma-like logical container. Its frame is derived from its member nodes. */
 export const CanvasGroupSchema = z.object({
@@ -240,7 +276,7 @@ export const NativeNodeSchema = z
      * Which side of the interaction an `actor` node stands on: the person the
      * flow is about, or the party they deal with. Purely a rendering variant
      * (round avatar vs. squared one) and meaningless on every other shape,
-     * which is why it is optional rather than defaulted — a `note` should not
+     * which is why it is optional rather than defaulted — a `card` should not
      * carry an actor field just because it went through the parser.
      *
      * It exists because the renderer used to infer this by comparing the
@@ -473,6 +509,7 @@ export const CanvasDocSchema = z
     groups: z.array(CanvasGroupSchema).max(500).default([]),
     edges: z.array(CanvasEdgeSchema).max(3_000).default([]),
     drawings: z.array(CanvasDrawingSchema).max(3_000).default([]),
+    notes: z.array(CanvasNoteSchema).max(500).default([]),
     legend: z.array(LegendGroupSchema).max(50).optional(),
   })
   .strict()
@@ -497,6 +534,7 @@ export const CanvasDocSchema = z
     unique(doc.groups, "groups");
     unique(doc.edges, "edges");
     unique(doc.drawings, "drawings");
+    unique(doc.notes, "notes");
     const nodeById = new Map(doc.nodes.map((node) => [node.id, node]));
     doc.nodes.forEach((node, index) => {
       if (node.laneId && !laneIds.has(node.laneId))

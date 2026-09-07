@@ -14,7 +14,7 @@ import { anchors, fixture } from "./fixture.js";
 const note = (id: string, x: number, y: number, w = 100, h = 80) => ({
   id,
   kind: "native" as const,
-  shape: "note" as const,
+  shape: "card" as const,
   rect: { x, y, w, h },
   caption: { title: id },
   anchors,

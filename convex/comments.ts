@@ -172,9 +172,9 @@ async function nodeIsMissing(
     .query("canvasDraftNodes")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
     .take(1_001);
-  const onPage = indexed.filter((row) => row.pageId === pageId);
+  const onPage = indexed.filter((row) => row.pageId === pageId && row.entity === "node");
   if (onPage.length === 0) return false;
-  return !onPage.some((row) => row.nodeId === nodeId);
+  return !onPage.some((row) => row.entityId === nodeId);
 }
 
 /**

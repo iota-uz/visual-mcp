@@ -120,7 +120,7 @@ test("orthogonal routing chooses a clear corridor around intervening nodes", () 
   doc.nodes.push({
     id: "obstacle",
     kind: "native",
-    shape: "note",
+    shape: "card",
     laneId: "lane",
     stageId: "s1",
     rect: { x: 400, y: 90, w: 100, h: 100 },

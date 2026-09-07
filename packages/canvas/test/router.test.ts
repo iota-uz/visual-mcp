@@ -16,7 +16,7 @@ function node(id: string, x: number, y: number, w = 100, h = 100): CanvasNode {
   return {
     id,
     kind: "native",
-    shape: "note",
+    shape: "card",
     rect: { x, y, w, h },
     caption: { title: id },
     anchors,

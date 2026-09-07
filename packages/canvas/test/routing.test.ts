@@ -17,7 +17,7 @@ const sides: AnchorSide[] = ["top", "right", "bottom", "left"];
 const node = (id: string, x: number, y: number, w = 100, h = 100): CanvasNode => ({
   id,
   kind: "native",
-  shape: "note",
+  shape: "card",
   rect: { x, y, w, h },
   caption: { title: id },
   anchors: sides.map((side) => ({ id: side, side, offset: 0.5 })),
@@ -40,6 +40,7 @@ const doc = (nodes: CanvasNode[], edges: CanvasEdge[]): CanvasDoc => ({
   groups: [],
   labels: [],
   drawings: [],
+  notes: [],
 });
 
 test("automatic and normalized ports need no authored anchors; ambiguous ports fail validation", () => {

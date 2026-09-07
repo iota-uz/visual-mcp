@@ -20,7 +20,8 @@ async function seedCanvasWithNode(t: ReturnType<typeof convexTest>) {
     ctx.db.insert("canvasDraftNodes", {
       canvasId,
       pageId: "overview",
-      nodeId: "intake",
+      entity: "node",
+      entityId: "intake",
       title: "Intake",
       searchText: "Intake",
     }),
@@ -353,8 +354,8 @@ describe("canvas comments", () => {
     await t.run(async (ctx) => {
       const node = await ctx.db
         .query("canvasDraftNodes")
-        .withIndex("by_canvas_page_node", (q) =>
-          q.eq("canvasId", canvasId).eq("pageId", "overview").eq("nodeId", "intake"),
+        .withIndex("by_canvas_page_entity", (q) =>
+          q.eq("canvasId", canvasId).eq("pageId", "overview").eq("entityId", "intake"),
         )
         .unique();
       if (node) await ctx.db.delete(node._id);

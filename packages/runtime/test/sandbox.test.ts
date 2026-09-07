@@ -138,7 +138,7 @@ test("run_code exposes the Canvas operation accumulator", async () => {
         canvas.node({
           id: "note",
           kind: "native",
-          shape: "note",
+          shape: "card",
           rect: { x: 20, y: 30, w: 240, h: 120 },
           caption: { title: "Generated" },
           anchors: []
@@ -155,7 +155,7 @@ test("run_code exposes the Canvas operation accumulator", async () => {
           value: {
             id: "note",
             kind: "native",
-            shape: "note",
+            shape: "card",
             rect: { x: 20, y: 30, w: 240, h: 120 },
             caption: { title: "Generated" },
             anchors: [],
@@ -164,6 +164,42 @@ test("run_code exposes the Canvas operation accumulator", async () => {
       ],
       createdNodeIds: ["note"],
     });
+  } finally {
+    cleanup();
+  }
+});
+
+test("canvas.sticky records a notes.add without an author for the server to stamp", async () => {
+  const { session, cleanup } = freshSession();
+  try {
+    const result = await runCode(
+      session,
+      `
+        canvas.sticky({ id: "fb", x: 40, y: 60, w: 260, text: "Check spacing", color: "blue", size: "s" });
+        canvas.sticky({ x: 0, y: 0, text: "Default width" });
+        canvas.commit();
+      `,
+    );
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.canvas?.operations, [
+      {
+        op: "notes.add",
+        value: { id: "fb", x: 40, y: 60, w: 260, text: "Check spacing", color: "blue", size: "s" },
+      },
+      { op: "notes.add", value: { id: "note-2", x: 0, y: 0, w: 240, text: "Default width" } },
+    ]);
+    assert.deepEqual(result.canvas?.createdNodeIds, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("canvas.sticky rejects blank text", async () => {
+  const { session, cleanup } = freshSession();
+  try {
+    const result = await runCode(session, 'canvas.sticky({ x: 0, y: 0, text: "  " });');
+    assert.equal(result.success, false);
+    assert.match(result.error ?? result.stderr, /canvas\.sticky requires text/);
   } finally {
     cleanup();
   }
@@ -209,6 +245,7 @@ test("run_code exposes nested drawing APIs and reusable issue compositions", asy
       nodes: [],
       edges: [],
       drawings: [],
+      notes: [],
     };
     const committed = applyCanvasDocPatch(
       emptyDoc,

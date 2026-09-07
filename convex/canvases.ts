@@ -8,12 +8,14 @@ import {
 } from "@visual-canvas/canvas/layout.js";
 import { applyCanvasDocPatch } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
+import { canvasSearchRows } from "@visual-canvas/canvas/search-rows.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { Theme } from "@visual-canvas/canvas/themes.js";
-import type { CanvasDoc, CanvasFile } from "@visual-canvas/canvas/types.js";
+import type { CanvasDoc, CanvasFile, CanvasNote } from "@visual-canvas/canvas/types.js";
 import {
   CanvasDocSchema,
   CanvasFileSchema,
+  CanvasNoteSchema,
   RectSchema,
   resolveCanvasPage,
 } from "@visual-canvas/canvas/types.js";
@@ -48,6 +50,7 @@ import {
 import { slugify } from "./lib/slug";
 import { ThemeIdValidator, ThemeOverrideValidator, validateThemeOverride } from "./lib/theme";
 import { randomPublicSlug } from "./lib/tokenFormat";
+import { CanvasSearchRowValidator } from "./schema";
 
 const ArtifactTypeValidator = v.union(
   v.literal("pdf"),
@@ -871,23 +874,7 @@ export const saveCanvasFileMine = action({
               ),
             ),
           ],
-          nodes: file.pages.flatMap((page) =>
-            page.doc.nodes.map((node) => ({
-              pageId: page.id,
-              nodeId: node.id,
-              title: node.caption.title,
-              eyebrow: node.caption.tag,
-              searchText: [
-                page.title,
-                node.caption.title,
-                node.caption.subtitle,
-                node.caption.tag,
-                node.annotation?.content,
-              ]
-                .filter((value): value is string => Boolean(value))
-                .join(" "),
-            })),
-          ),
+          nodes: canvasSearchRows(file),
         },
       });
       return {
@@ -1008,13 +995,14 @@ export const searchNodes = query({
 
     const results = await Promise.all(
       rows.map(async (row) => {
+        if (row.entity !== "node") return null;
         const canvas = await ctx.db.get(row.canvasId);
         if (!canvas || canvas.currentVersionId !== row.versionId) return null;
         return {
           canvasId: row.canvasId,
           canvasTitle: canvas.title,
           workspaceId: canvas.workspaceId,
-          nodeId: row.nodeId,
+          nodeId: row.entityId,
           nodeTitle: row.title,
           nodeEyebrow: row.eyebrow,
         };
@@ -1039,15 +1027,7 @@ export const putDoc = internalMutation({
     note: v.optional(v.string()),
     createdBy: v.id("users"),
     expectedVersion: v.optional(v.number()),
-    nodes: v.array(
-      v.object({
-        pageId: v.string(),
-        nodeId: v.string(),
-        title: v.string(),
-        eyebrow: v.optional(v.string()),
-        searchText: v.string(),
-      }),
-    ),
+    nodes: v.array(CanvasSearchRowValidator),
   },
   handler: async (ctx, args) => {
     const canvas = await ctx.db.get(args.canvasId);
@@ -1355,7 +1335,8 @@ async function createCheckpointFromDraft(
       canvasId: args.canvasId,
       versionId,
       pageId: node.pageId,
-      nodeId: node.nodeId,
+      entity: node.entity,
+      entityId: node.entityId,
       title: node.title,
       eyebrow: node.eyebrow,
       searchText: node.searchText,
@@ -1403,15 +1384,7 @@ export const commitSaveContent = internalMutation({
         entryContentHash: v.string(),
         iframeEntrypoints: v.array(v.string()),
         imagePaths: v.array(v.string()),
-        nodes: v.array(
-          v.object({
-            pageId: v.string(),
-            nodeId: v.string(),
-            title: v.string(),
-            eyebrow: v.optional(v.string()),
-            searchText: v.string(),
-          }),
-        ),
+        nodes: v.array(CanvasSearchRowValidator),
       }),
     ),
   },
@@ -2297,9 +2270,54 @@ export const getLayoutPatchSource = internalQuery({
 });
 
 /** Version-history label for one manual layout edit. */
+const NOTE_EDITABLE_FIELDS = ["x", "y", "w", "text", "color", "size"] as const;
+
+/** Browser-authored note: whatever came in, the author is the boundary's call. */
+function humanNote(input: unknown, author: CanvasNote["author"]): CanvasNote {
+  const candidate = (input ?? {}) as Record<string, unknown>;
+  return CanvasNoteSchema.parse({ ...candidate, author });
+}
+
+function restoredNote(input: unknown): CanvasNote {
+  return CanvasNoteSchema.parse(input);
+}
+
+function noteChanges(input: unknown): Record<string, unknown> {
+  const candidate = (input ?? {}) as Record<string, unknown>;
+  const changes: Record<string, unknown> = {};
+  for (const key of NOTE_EDITABLE_FIELDS) if (key in candidate) changes[key] = candidate[key];
+  if (Object.keys(changes).length === 0) throw new Error("Nothing to change on the note");
+  return changes;
+}
+
+function applyCaptionTitle(doc: CanvasDoc, nodeId: string, title: string): CanvasDoc {
+  const nodeIndex = doc.nodes.findIndex((node) => node.id === nodeId);
+  if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${nodeId}`);
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("Node title cannot be blank");
+  return CanvasDocSchema.parse({
+    ...doc,
+    nodes: doc.nodes.map((node, index) =>
+      index === nodeIndex ? { ...node, caption: { ...node.caption, title: trimmed } } : node,
+    ),
+  });
+}
+
 function layoutNote(change: {
-  kind: "node" | "group" | "nodes" | "delete" | "restore" | "edge";
+  kind:
+    | "node"
+    | "group"
+    | "nodes"
+    | "delete"
+    | "restore"
+    | "edge"
+    | "caption"
+    | "note-add"
+    | "note"
+    | "note-delete"
+    | "note-restore";
   nodeId?: string;
+  noteId?: string;
   groupId?: string;
   nodeIds?: string[];
   nodes?: unknown[];
@@ -2307,6 +2325,16 @@ function layoutNote(change: {
   switch (change.kind) {
     case "edge":
       return "Arrow updated";
+    case "caption":
+      return `Renamed: ${change.nodeId}`;
+    case "note-add":
+      return "Sticky note added";
+    case "note":
+      return `Sticky note: ${change.noteId}`;
+    case "note-delete":
+      return `Sticky note deleted: ${change.noteId}`;
+    case "note-restore":
+      return "Sticky note restored";
     case "node":
       return `Layout: ${change.nodeId}`;
     case "group":
@@ -2320,13 +2348,28 @@ function layoutNote(change: {
   }
 }
 
-/** Signed-in node and group layout editing coalesces geometry into the durable draft. */
-export const patchGeometryMine = action({
+/**
+ * Signed-in manual editing coalesces one gesture into the durable draft:
+ * node and group geometry, arrows, deletion, and the two kinds of content a
+ * human authors directly in the editor — a node's caption title and sticky
+ * notes. Everything else stays agent-authored (adr/product).
+ */
+export const patchManualEditMine = action({
   args: {
     canvasId: v.id("canvases"),
     pageId: v.optional(v.string()),
     change: v.union(
       v.object({ kind: v.literal("edge"), edgeId: v.string(), edge: v.any() }),
+      v.object({ kind: v.literal("caption"), nodeId: v.string(), title: v.string() }),
+      // Notes carry no author from the browser: this action is the human
+      // write boundary and stamps it. `changes` may move, resize, restyle or
+      // retext a note but never reassign its author.
+      v.object({ kind: v.literal("note-add"), note: v.any() }),
+      v.object({ kind: v.literal("note"), noteId: v.string(), changes: v.any() }),
+      v.object({ kind: v.literal("note-delete"), noteId: v.string() }),
+      // Session-local undo of a note delete: the note this action handed
+      // back, author included, so an agent's note comes back as the agent's.
+      v.object({ kind: v.literal("note-restore"), note: v.any() }),
       v.object({
         kind: v.literal("node"),
         nodeId: v.string(),
@@ -2372,6 +2415,8 @@ export const patchGeometryMine = action({
     removedEdgeIds: v.optional(v.array(v.string())),
     /** Everything the delete destroyed, in the shape `change: "restore"` takes. */
     undo: v.optional(v.any()),
+    /** The note a `note-delete` removed, in the shape `note-restore` takes. */
+    removedNote: v.optional(v.any()),
   }),
   handler: async (
     ctx,
@@ -2383,6 +2428,7 @@ export const patchGeometryMine = action({
     removedNodeIds?: string[];
     removedEdgeIds?: string[];
     undo?: NodeRestorePayload;
+    removedNote?: CanvasNote;
   }> => {
     const identity = await requireIotaIdentity(ctx);
     const source = await ctx.runQuery(internal.canvases.getLayoutPatchSource, {
@@ -2419,6 +2465,7 @@ export const patchGeometryMine = action({
     let removedNodeIds: string[] | undefined;
     let removedEdgeIds: string[] | undefined;
     let undo: NodeRestorePayload | undefined;
+    let removedNote: CanvasNote | undefined;
     let patchedFile: CanvasFile;
     if (change.kind === "delete") {
       if (change.nodeIds.length === 0) throw new Error("Nothing to delete");
@@ -2440,26 +2487,53 @@ export const patchGeometryMine = action({
         }),
       );
     } else {
+      if (change.kind === "note-delete")
+        removedNote = doc.notes.find((note) => note.id === change.noteId);
       const patched =
         change.kind === "edge"
           ? applyCanvasDocPatch(doc, [
               { op: "edges.replace", id: change.edgeId, value: change.edge },
             ])
-          : change.kind === "node"
-            ? (() => {
-                const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
-                if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
-                const rect = RectSchema.parse(change.rect);
-                return CanvasDocSchema.parse({
-                  ...doc,
-                  nodes: doc.nodes.map((node, index) =>
-                    index === nodeIndex ? { ...node, rect: { ...rect } } : node,
-                  ),
-                });
-              })()
-            : change.kind === "nodes"
-              ? CanvasDocSchema.parse(moveNodes(doc, change.nodeIds, change.dx, change.dy))
-              : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
+          : change.kind === "caption"
+            ? applyCaptionTitle(doc, change.nodeId, change.title)
+            : change.kind === "note-add"
+              ? applyCanvasDocPatch(doc, [
+                  { op: "notes.add", value: humanNote(change.note, "human") },
+                ])
+              : change.kind === "note-restore"
+                ? applyCanvasDocPatch(doc, [{ op: "notes.add", value: restoredNote(change.note) }])
+                : change.kind === "note"
+                  ? applyCanvasDocPatch(doc, [
+                      {
+                        op: "notes.update",
+                        id: change.noteId,
+                        changes: noteChanges(change.changes),
+                      },
+                    ])
+                  : change.kind === "note-delete"
+                    ? applyCanvasDocPatch(doc, [{ op: "notes.remove", id: change.noteId }])
+                    : change.kind === "node"
+                      ? (() => {
+                          const nodeIndex = doc.nodes.findIndex(
+                            (node) => node.id === change.nodeId,
+                          );
+                          if (nodeIndex < 0)
+                            throw new Error(`Unknown canvas node: ${change.nodeId}`);
+                          const rect = RectSchema.parse(change.rect);
+                          return CanvasDocSchema.parse({
+                            ...doc,
+                            nodes: doc.nodes.map((node, index) =>
+                              index === nodeIndex ? { ...node, rect: { ...rect } } : node,
+                            ),
+                          });
+                        })()
+                      : change.kind === "nodes"
+                        ? CanvasDocSchema.parse(
+                            moveNodes(doc, change.nodeIds, change.dx, change.dy),
+                          )
+                        : CanvasDocSchema.parse(
+                            moveGroupNodes(doc, change.groupId, change.dx, change.dy),
+                          );
       patchedFile = CanvasFileSchema.parse({
         ...file,
         pages: file.pages.map((candidate) =>
@@ -2498,18 +2572,7 @@ export const patchGeometryMine = action({
               ),
             ),
           ],
-          nodes: patchedFile.pages.flatMap((candidate) =>
-            candidate.doc.nodes.map((node) => ({
-              pageId: candidate.id,
-              nodeId: node.id,
-              title: node.caption.title,
-              eyebrow: node.caption.tag,
-              searchText: [candidate.title, node.caption.title, node.caption.subtitle]
-                .concat(node.caption.tag ?? [], node.annotation?.content ?? [])
-                .filter((value): value is string => typeof value === "string")
-                .join(" "),
-            })),
-          ),
+          nodes: canvasSearchRows(patchedFile),
         },
       });
       return {
@@ -2519,6 +2582,7 @@ export const patchGeometryMine = action({
         removedNodeIds,
         removedEdgeIds,
         undo,
+        removedNote,
       };
     } catch (error) {
       await ctx.storage.delete(docStorageId);
@@ -3252,7 +3316,9 @@ export const resolvePublicEmbedCard = internalQuery({
         .query("canvasNodes")
         .withIndex("by_version", (q) => q.eq("versionId", version._id))
         .take(1_000);
-      const node = nodes.find((entry) => entry.nodeId === args.targetId);
+      const node = nodes.find(
+        (entry) => entry.entity === "node" && entry.entityId === args.targetId,
+      );
       if (!node) return null;
       targetLabel = node.title;
       targetDetail = node.eyebrow ? `${node.eyebrow} · canvas screen` : "Canvas screen";
@@ -3865,7 +3931,8 @@ async function restoreVersion(
     await ctx.db.insert("canvasDraftNodes", {
       canvasId,
       pageId: node.pageId,
-      nodeId: node.nodeId,
+      entity: node.entity,
+      entityId: node.entityId,
       title: node.title,
       eyebrow: node.eyebrow,
       searchText: node.searchText,
@@ -4239,7 +4306,9 @@ export const currentNodeByRef = internalQuery({
       .take(1001);
     const node = draftNodes.find(
       (candidate) =>
-        candidate.nodeId === args.nodeId && (!args.pageId || candidate.pageId === args.pageId),
+        candidate.entity === "node" &&
+        candidate.entityId === args.nodeId &&
+        (!args.pageId || candidate.pageId === args.pageId),
     );
     return node
       ? {
@@ -4440,8 +4509,10 @@ export const findCanvasNodes = internalQuery({
           return {
             ref: owner ? `${owner.slug}/${canvas.slug}` : canvas._id,
             canvas_id: canvas._id,
-            node_id: row.nodeId,
-            node_title: row.title,
+            page_id: row.pageId,
+            entity: row.entity,
+            entity_id: row.entityId,
+            title: row.title,
             eyebrow: row.eyebrow,
           };
         }),

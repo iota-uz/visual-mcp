@@ -124,6 +124,12 @@ export const SnapshotRequestSchema = z
     themeTailwindCss: z.string().optional(),
     themeRuntimeCss: z.string().optional(),
     themeJson: z.string().optional(),
+    // "png" is the one-capture contract every caller had. "pdf" wraps one
+    // capture per entrypoint into a document — the browser Export menu's
+    // "all pages" — so the raster pipeline, clipping and readiness checks
+    // stay exactly the ones PNG uses; only the container differs.
+    format: z.enum(["png", "pdf"]).default("png"),
+    entrypoints: z.array(z.string().min(1)).min(1).max(50).optional(),
   })
   .superRefine((request, check) => {
     if (request.clip === "content" && request.target.type !== "node") {
@@ -133,14 +139,24 @@ export const SnapshotRequestSchema = z
         message: "clip=content supports only target.type=node",
       });
     }
+    if (request.entrypoints && request.format !== "pdf") {
+      check.addIssue({
+        code: "custom",
+        path: ["entrypoints"],
+        message: "entrypoints is only meaningful with format=pdf",
+      });
+    }
   });
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
 
 export const SnapshotResponseSchema = z.object({
   size: z.number(),
+  /** Pixel size of the first (or only) capture. */
   width: z.number(),
   height: z.number(),
-  mimeType: z.literal("image/png"),
+  mimeType: z.enum(["image/png", "application/pdf"]),
+  /** 1 for PNG; one per entrypoint for PDF. */
+  pages: z.number().int().positive(),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   uploadStatus: z.number(),
   uploadBody: z.unknown(),

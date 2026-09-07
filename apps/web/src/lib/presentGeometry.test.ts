@@ -7,7 +7,7 @@ describe("presentHotspotBox", () => {
     const node = {
       id: "screen",
       kind: "native",
-      shape: "note",
+      shape: "card",
       rect: { x: 100, y: 100, w: 400, h: 200 },
       caption: { title: "Screen" },
       anchors: [],

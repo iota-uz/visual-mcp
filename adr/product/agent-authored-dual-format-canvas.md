@@ -47,3 +47,9 @@ focused human editor. Opaque artifact не обязан становиться e
 
 README и MCP schemas поддерживают `kind=canvas`, `html`, `image`, `pdf`; viewer
 даёт ограниченный набор прямых манипуляций и не содержит generic drawing layer.
+
+## Уточнения
+
+- 2026-09-07: `human-authored-canvas-content` добавляет два вида контента,
+  которые авторит человек — sticky notes и заголовок ноды. Разделение ролей
+  в остальном не меняется.

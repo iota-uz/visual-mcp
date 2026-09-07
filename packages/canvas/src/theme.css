@@ -2477,3 +2477,360 @@
     animation: none;
   }
 }
+
+/* --- caption actions: Play / Download / more ---
+   In the caption strip, after the title, sized against the camera like
+   the rest of the caption so they stay a constant size on screen. Shown on
+   hover, focus or selection; gone while the screen is being interacted
+   with, at low zoom (the inspector takes over) and in placement tools. */
+.vc-caption-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.vc-caption-actions {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: calc(2px * var(--vc-camera-inverse));
+  margin-left: auto;
+}
+.vc-node:hover .vc-caption-actions,
+.vc-node:focus-within .vc-caption-actions,
+.vc-node.selected .vc-caption-actions {
+  display: flex;
+}
+.vc-node.iframe-active .vc-caption-actions,
+.vc-node.is-renaming .vc-caption-actions,
+.vc-viewport[data-zoom="low"] .vc-caption-actions,
+.vc-viewport.is-tool-comment .vc-caption-actions,
+.vc-viewport.is-tool-note .vc-caption-actions,
+.vc-viewport.is-moving-node .vc-caption-actions {
+  display: none;
+}
+.vc-caption-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22px * var(--vc-camera-inverse));
+  height: calc(22px * var(--vc-camera-inverse));
+  padding: 0;
+  border: 0;
+  border-radius: var(--vc-radius-sm);
+  background: transparent;
+  color: var(--vc-ink-soft);
+  cursor: pointer;
+  text-decoration: none;
+}
+.vc-caption-action svg {
+  width: calc(12px * var(--vc-camera-inverse));
+  height: calc(12px * var(--vc-camera-inverse));
+  fill: currentColor;
+}
+.vc-caption-action:hover {
+  background: #eef2f6;
+  color: var(--vc-ink);
+}
+.vc-caption-action:focus-visible {
+  outline: calc(2px * var(--vc-camera-inverse)) solid var(--vc-accent-ring);
+  outline-offset: 0;
+}
+.vc-caption-play.is-interactive {
+  color: var(--vc-accent);
+}
+.vc-caption-play.is-interactive:hover {
+  background: color-mix(in srgb, var(--vc-accent) 12%, transparent);
+  color: var(--vc-accent);
+}
+
+/* Prototype membership: a playable screen carries a translucent accent ring,
+   the start screen a small flag. Both are outside the frame so nothing in the
+   caption moves. */
+.vc-node.is-interactive {
+  box-shadow:
+    0 0 0 calc(3px * var(--vc-camera-inverse)) color-mix(in srgb, var(--vc-accent) 16%, transparent),
+    var(--vc-shadow-sm);
+}
+.vc-node.is-interactive.selected {
+  box-shadow:
+    0 0 0 calc(3px * var(--vc-camera-inverse)) color-mix(in srgb, var(--vc-accent) 28%, transparent),
+    var(--vc-shadow-md);
+}
+.vc-node.is-prototype-start::before {
+  content: "Start";
+  position: absolute;
+  left: 0;
+  top: calc(-22px * var(--vc-camera-inverse));
+  padding: calc(2px * var(--vc-camera-inverse)) calc(7px * var(--vc-camera-inverse));
+  border-radius: var(--vc-radius-sm);
+  background: var(--vc-accent);
+  color: #fff;
+  font: 700 calc(9px * var(--vc-camera-inverse)) / 1.2 var(--vc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.vc-node.is-prototype-start {
+  overflow: visible;
+}
+
+/* Inline rename of the caption title. */
+.vc-caption-title[contenteditable] {
+  overflow: visible;
+  white-space: pre-wrap;
+  text-overflow: clip;
+  outline: calc(2px * var(--vc-camera-inverse)) solid var(--vc-accent-ring);
+  outline-offset: calc(2px * var(--vc-camera-inverse));
+  border-radius: var(--vc-radius-xs);
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.vc-node.is-renaming {
+  cursor: default;
+}
+
+/* Inspector row of the same actions, for a finger or a low-zoom camera. */
+.vc-inspector-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.vc-inspector-tools[hidden] {
+  display: none;
+}
+.vc-inspector-tool {
+  appearance: none;
+  min-height: max(var(--vc-action-h), 30px);
+  padding: 0 12px;
+  border: 1px solid var(--vc-line);
+  border-radius: var(--vc-radius-sm);
+  background: #fff;
+  color: var(--vc-ink);
+  cursor: pointer;
+  font: 650 12px / 1 var(--vc-body);
+}
+.vc-inspector-tool:hover {
+  background: #f1f5f9;
+}
+.vc-inspector-tool:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 2px;
+}
+.vc-inspector-tool[hidden] {
+  display: none;
+}
+
+/* --- sticky notes ---
+   World-space, above drawings and below chrome. A note is content, so it
+   scales with the camera like a node does; only the strip is screen-space.
+   `data-size` metrics are mirrored in note-metrics.ts — keep both in step. */
+.vc-notes {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+.vc-note {
+  --vc-note-paper: #fff3a6;
+  --vc-note-ink: #4a3b00;
+  --vc-note-font: 16px;
+  --vc-note-line: 22px;
+  --vc-note-pad: 14px;
+  position: absolute;
+  box-sizing: border-box;
+  padding: var(--vc-note-pad);
+  border-radius: 4px;
+  background: var(--vc-note-paper);
+  color: var(--vc-note-ink);
+  box-shadow:
+    0 1px 2px rgba(20, 24, 40, 0.14),
+    0 6px 16px rgba(20, 24, 40, 0.1);
+  font: 500 var(--vc-note-font) / var(--vc-note-line) var(--vc-body);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: box-shadow 0.18s ease;
+}
+.vc-note[data-size="s"] {
+  --vc-note-font: 13px;
+  --vc-note-line: 18px;
+  --vc-note-pad: 12px;
+}
+.vc-note[data-size="l"] {
+  --vc-note-font: 22px;
+  --vc-note-line: 30px;
+  --vc-note-pad: 18px;
+}
+.vc-note[data-color="blue"] {
+  --vc-note-paper: #d6e8ff;
+  --vc-note-ink: #0f2f5c;
+}
+.vc-note[data-color="green"] {
+  --vc-note-paper: #d4f4dd;
+  --vc-note-ink: #0f3f22;
+}
+.vc-note[data-color="pink"] {
+  --vc-note-paper: #ffd9e6;
+  --vc-note-ink: #5c1030;
+}
+.vc-note[data-color="neutral"] {
+  --vc-note-paper: #f1f3f6;
+  --vc-note-ink: #1f2933;
+}
+.vc-note[data-author="agent"]::after {
+  content: "agent";
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font: 600 calc(var(--vc-note-font) * 0.6) / 1 var(--vc-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+.vc-note-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+.vc-note:hover {
+  box-shadow:
+    0 1px 2px rgba(20, 24, 40, 0.18),
+    0 10px 24px rgba(20, 24, 40, 0.14);
+}
+.vc-note:focus-visible {
+  outline: calc(3px * var(--vc-camera-inverse)) solid var(--vc-accent-ring);
+  outline-offset: calc(3px * var(--vc-camera-inverse));
+}
+.vc-note.selected {
+  z-index: 2;
+  outline: calc(2px * var(--vc-camera-inverse)) solid var(--vc-accent);
+  outline-offset: calc(2px * var(--vc-camera-inverse));
+  cursor: move;
+}
+.vc-note.is-provisional {
+  box-shadow:
+    0 0 0 calc(2px * var(--vc-camera-inverse)) var(--vc-accent-ring),
+    0 6px 16px rgba(20, 24, 40, 0.1);
+}
+.vc-note.is-editing {
+  cursor: text;
+}
+.vc-note-editor {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.vc-note-resize {
+  position: absolute;
+  right: calc(-6px * var(--vc-camera-inverse));
+  top: 50%;
+  width: calc(10px * var(--vc-camera-inverse));
+  height: calc(28px * var(--vc-camera-inverse));
+  transform: translateY(-50%);
+  border-radius: 99px;
+  background: var(--vc-accent);
+  border: calc(2px * var(--vc-camera-inverse)) solid #fff;
+  cursor: ew-resize;
+}
+.vc-viewport.is-moving-note .vc-note {
+  transition: none;
+}
+.vc-viewport.is-tool-note {
+  cursor: copy;
+}
+.vc-viewport.is-tool-note .vc-node {
+  cursor: copy;
+}
+
+/* The note strip: screen-space, above the selected note. */
+.vc-note-strip {
+  position: absolute;
+  z-index: 25;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: 1px solid var(--vc-line);
+  border-radius: var(--vc-radius-md);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--vc-shadow-lg);
+  backdrop-filter: blur(18px);
+}
+.vc-note-strip[hidden] {
+  display: none;
+}
+.vc-note-strip-colors,
+.vc-note-strip-sizes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.vc-note-swatch {
+  appearance: none;
+  width: max(var(--vc-action-h), 22px);
+  height: max(var(--vc-action-h), 22px);
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: #fff3a6;
+  cursor: pointer;
+}
+.vc-note-swatch[data-note-color="blue"] {
+  background: #d6e8ff;
+}
+.vc-note-swatch[data-note-color="green"] {
+  background: #d4f4dd;
+}
+.vc-note-swatch[data-note-color="pink"] {
+  background: #ffd9e6;
+}
+.vc-note-swatch[data-note-color="neutral"] {
+  background: #e4e8ee;
+}
+.vc-note-swatch[aria-pressed="true"] {
+  border-color: var(--vc-ink);
+}
+.vc-note-size,
+.vc-note-delete {
+  appearance: none;
+  min-width: max(var(--vc-action-h), 26px);
+  min-height: max(var(--vc-action-h), 26px);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--vc-radius-sm);
+  background: transparent;
+  color: var(--vc-ink);
+  cursor: pointer;
+  font: 650 11px / 1 var(--vc-body);
+}
+.vc-note-size[aria-pressed="true"] {
+  background: #eef2f6;
+  border-color: var(--vc-line);
+}
+.vc-note-size:hover,
+.vc-note-delete:hover {
+  background: #f1f5f9;
+}
+.vc-note-delete {
+  color: var(--vc-danger);
+}
+.vc-note-swatch:focus-visible,
+.vc-note-size:focus-visible,
+.vc-note-delete:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: 1px;
+}

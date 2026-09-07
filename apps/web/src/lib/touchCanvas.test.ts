@@ -24,11 +24,12 @@ function doc(): CanvasDoc {
     groups: [],
     edges: [],
     drawings: [],
+    notes: [],
     nodes: [
       {
         id: "a",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 100, y: 100, w: 140, h: 90 },
         caption: { title: "A" },
         anchors,
@@ -36,7 +37,7 @@ function doc(): CanvasDoc {
       {
         id: "b",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 400, y: 100, w: 140, h: 90 },
         caption: { title: "B" },
         anchors,

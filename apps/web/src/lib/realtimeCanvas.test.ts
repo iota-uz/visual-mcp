@@ -22,7 +22,7 @@ function doc(): CanvasDoc {
       {
         id: "native",
         kind: "native",
-        shape: "note",
+        shape: "card",
         laneId: "lane",
         stageId: "one",
         rect: { x: 100, y: 100, w: 140, h: 90 },
@@ -55,6 +55,7 @@ function doc(): CanvasDoc {
       },
     ],
     drawings: [],
+    notes: [],
   };
 }
 
@@ -293,7 +294,7 @@ describe("reactive viewport reconciliation", () => {
       {
         id: "architecture-product-map-desktop",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 80, y: 70, w: 500, h: 300 },
         caption: { title: "01 · Схема продукта" },
         anchors,
@@ -536,7 +537,7 @@ describe("reactive viewport reconciliation", () => {
         {
           id: "second",
           kind: "native",
-          shape: "note",
+          shape: "card",
           laneId: "lane",
           stageId: "one",
           rect: { x: 260, y: 100, w: 140, h: 90 },

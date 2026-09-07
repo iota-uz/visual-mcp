@@ -23,12 +23,13 @@ function page(id: string, nodeId = `${id}-node`) {
           rect: { x: 10, y: 10, w: 100, h: 60 },
           caption: { title: nodeId },
           anchors: [],
-          shape: "note" as const,
+          shape: "card" as const,
         },
       ],
       groups: [],
       edges: [],
       drawings: [],
+      notes: [],
     },
   };
 }

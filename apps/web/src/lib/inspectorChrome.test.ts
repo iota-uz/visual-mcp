@@ -17,11 +17,12 @@ function doc(): CanvasDoc {
     groups: [],
     edges: [],
     drawings: [],
+    notes: [],
     nodes: [
       {
         id: "note",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 80, y: 80, w: 160, h: 120 },
         caption: { title: "Note" },
         annotation: { format: "text", content: "Why this step exists." },

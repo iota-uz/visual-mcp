@@ -20,8 +20,18 @@ test("defaults diagram-only collections for gallery-oriented documents", () => {
       groups: parsed.groups,
       edges: parsed.edges,
       drawings: parsed.drawings,
+      notes: parsed.notes,
     },
-    { lanes: [], stages: [], labels: [], nodes: [], groups: [], edges: [], drawings: [] },
+    {
+      lanes: [],
+      stages: [],
+      labels: [],
+      nodes: [],
+      groups: [],
+      edges: [],
+      drawings: [],
+      notes: [],
+    },
   );
 });
 

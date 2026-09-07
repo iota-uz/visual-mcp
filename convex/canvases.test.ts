@@ -979,7 +979,8 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
       nodes: [
         {
           pageId: "overview",
-          nodeId: "n1",
+          entity: "node",
+          entityId: "n1",
           title: "Sign In Screen",
           searchText: "sign in screen auth",
         },
@@ -993,7 +994,8 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
       nodes: [
         {
           pageId: "overview",
-          nodeId: "n1",
+          entity: "node",
+          entityId: "n1",
           title: "Sign In Screen v2",
           searchText: "sign in screen auth v2",
         },
@@ -1017,7 +1019,8 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
       nodes: [
         {
           pageId: "overview",
-          nodeId: "checkout",
+          entity: "node",
+          entityId: "checkout",
           title: "Checkout",
           eyebrow: "Payments",
           searchText: "checkout payments europrotocol",
@@ -1048,7 +1051,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
   });
 });
 
-describe("canvases.patchGeometryMine", () => {
+describe("canvases.patchManualEditMine", () => {
   test("coalesces optimistic geometry into the durable draft", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await t.run((ctx) =>
@@ -1081,7 +1084,7 @@ describe("canvases.patchGeometryMine", () => {
         {
           id: "node",
           kind: "native",
-          shape: "note",
+          shape: "card",
           laneId: "lane",
           stageId: "stage",
           rect: { x: 10, y: 20, w: 100, h: 80 },
@@ -1103,7 +1106,9 @@ describe("canvases.patchGeometryMine", () => {
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, JSON.stringify(doc)),
       createdBy,
-      nodes: [{ pageId: "overview", nodeId: "node", title: "Node", searchText: "Node" }],
+      nodes: [
+        { pageId: "overview", entity: "node", entityId: "node", title: "Node", searchText: "Node" },
+      ],
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -1111,7 +1116,7 @@ describe("canvases.patchGeometryMine", () => {
 
     const asMember = t.withIdentity({ subject: `${createdBy}|session-abc`, issuer: "convex" });
     await expect(
-      asMember.action(api.canvases.patchGeometryMine, {
+      asMember.action(api.canvases.patchManualEditMine, {
         canvasId: created.canvasId,
         change: {
           kind: "node",
@@ -1134,7 +1139,7 @@ describe("canvases.patchGeometryMine", () => {
     );
     expect(versions).toHaveLength(1);
     await expect(
-      asMember.action(api.canvases.patchGeometryMine, {
+      asMember.action(api.canvases.patchManualEditMine, {
         canvasId: created.canvasId,
         change: { kind: "group", groupId: "group", dx: 5, dy: 7 },
         expectedVersion: 1,
@@ -1148,7 +1153,7 @@ describe("canvases.patchGeometryMine", () => {
     });
     expect(movedDraft.pages[0].doc.nodes[0].rect).toEqual({ x: 15, y: 27, w: 100, h: 80 });
     await expect(
-      asMember.action(api.canvases.patchGeometryMine, {
+      asMember.action(api.canvases.patchManualEditMine, {
         canvasId: created.canvasId,
         change: {
           kind: "node",
@@ -1161,7 +1166,7 @@ describe("canvases.patchGeometryMine", () => {
     ).rejects.toThrow(/expected draft_revision 0, current 2/);
 
     for (let draftRevision = 2; draftRevision <= 26; draftRevision += 1) {
-      await asMember.action(api.canvases.patchGeometryMine, {
+      await asMember.action(api.canvases.patchManualEditMine, {
         canvasId: created.canvasId,
         change: {
           kind: "node",
@@ -1973,7 +1978,8 @@ describe("canvases.removeByRef", () => {
       nodes: [
         {
           pageId: "main",
-          nodeId: "summary",
+          entity: "node",
+          entityId: "summary",
           title: "Summary",
           searchText: "summary",
         },
@@ -2430,7 +2436,7 @@ test("arrow edits validate ports, require authentication and honor draft concurr
             {
               id: "node",
               kind: "native",
-              shape: "note",
+              shape: "card",
               rect: { x: 200, y: 200, w: 100, h: 100 },
               caption: { title: "Node" },
               anchors: [],
@@ -2447,7 +2453,9 @@ test("arrow edits validate ports, require authentication and honor draft concurr
     canvasId: created.canvasId,
     docStorageId: await seedStorage(t, JSON.stringify(file)),
     createdBy,
-    nodes: [{ pageId: "page", nodeId: "node", title: "Node", searchText: "Node" }],
+    nodes: [
+      { pageId: "page", entity: "node", entityId: "node", title: "Node", searchText: "Node" },
+    ],
   });
   const fetchSpy = vi
     .spyOn(globalThis, "fetch")
@@ -2464,15 +2472,15 @@ test("arrow edits validate ports, require authentication and honor draft concurr
       expectedVersion: 1,
       expectedDraftRevision: 0,
     };
-    await expect(t.action(api.canvases.patchGeometryMine, args)).rejects.toThrow();
+    await expect(t.action(api.canvases.patchManualEditMine, args)).rejects.toThrow();
     const member = t.withIdentity({ subject: `${createdBy}|session`, issuer: "convex" });
     await expect(
-      member.action(api.canvases.patchGeometryMine, {
+      member.action(api.canvases.patchManualEditMine, {
         ...args,
         change: { ...args.change, edge: { ...edge, source: { nodeId: "missing" } } },
       }),
     ).rejects.toThrow(/unknown node/);
-    await expect(member.action(api.canvases.patchGeometryMine, args)).resolves.toMatchObject({
+    await expect(member.action(api.canvases.patchManualEditMine, args)).resolves.toMatchObject({
       draftRevision: 1,
       dirty: true,
     });
@@ -2482,10 +2490,228 @@ test("arrow edits validate ports, require authentication and honor draft concurr
       return JSON.parse(await blob!.text());
     });
     expect(saved.pages[0].doc.edges[0].label.text).toBe("Retry");
-    await expect(member.action(api.canvases.patchGeometryMine, args)).rejects.toThrow(
+    await expect(member.action(api.canvases.patchManualEditMine, args)).rejects.toThrow(
       /draft conflict/,
     );
   } finally {
     fetchSpy.mockRestore();
   }
+});
+
+describe("canvases.patchManualEditMine: human-authored content", () => {
+  async function seedManualEditCanvas() {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "manual/content",
+      createdBy,
+      kind: "canvas",
+    });
+    const file = {
+      version: 3,
+      defaultPageId: "page",
+      pages: [
+        {
+          id: "page",
+          title: "Page",
+          order: 0,
+          doc: {
+            version: 2,
+            title: "Manual edits",
+            world: { width: 800, height: 600 },
+            lanes: [],
+            stages: [],
+            labels: [],
+            groups: [],
+            edges: [],
+            drawings: [],
+            notes: [
+              {
+                id: "agent-note",
+                x: 10,
+                y: 10,
+                w: 200,
+                text: "Written by the agent",
+                color: "blue",
+                size: "s",
+                author: "agent",
+              },
+            ],
+            nodes: [
+              {
+                id: "node",
+                kind: "native",
+                shape: "card",
+                rect: { x: 200, y: 200, w: 100, h: 100 },
+                caption: { title: "Node", tag: "Tag" },
+                anchors: [],
+              },
+            ],
+          },
+        },
+      ],
+      prototype: { interactions: [] },
+    };
+    await t.mutation(internal.canvases.putDoc, {
+      iframeEntrypoints: [],
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, JSON.stringify(file)),
+      createdBy,
+      nodes: [
+        { pageId: "page", entity: "node", entityId: "node", title: "Node", searchText: "Node" },
+      ],
+    });
+    // The action re-reads the draft on every call, so the mock has to serve
+    // whatever the last write stored rather than the seed forever.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const draft = await t.run(async (ctx) => {
+        const row = await ctx.db.get(created.canvasId);
+        const blob = row?.draftDocStorageId ? await ctx.storage.get(row.draftDocStorageId) : null;
+        return blob ? await blob.text() : null;
+      });
+      return new Response(draft ?? JSON.stringify(file));
+    });
+    const asMember = t.withIdentity({ subject: `${createdBy}|session-abc`, issuer: "convex" });
+    const draftDoc = async () => {
+      const draft = await t.run(async (ctx) => {
+        const row = await ctx.db.get(created.canvasId);
+        const blob = row?.draftDocStorageId ? await ctx.storage.get(row.draftDocStorageId) : null;
+        return blob ? JSON.parse(await blob.text()) : null;
+      });
+      return draft.pages[0].doc;
+    };
+    const draftRows = () =>
+      t.run((ctx) =>
+        ctx.db
+          .query("canvasDraftNodes")
+          .withIndex("by_canvas", (q) => q.eq("canvasId", created.canvasId))
+          .collect(),
+      );
+    return { t, created, asMember, fetchSpy, draftDoc, draftRows };
+  }
+
+  test("caption rename trims, rejects blank, and re-indexes the node", async () => {
+    const { created, asMember, fetchSpy, draftDoc, draftRows } = await seedManualEditCanvas();
+    try {
+      await asMember.action(api.canvases.patchManualEditMine, {
+        canvasId: created.canvasId,
+        pageId: "page",
+        change: { kind: "caption", nodeId: "node", title: "  Sign in  " },
+        expectedVersion: 1,
+      });
+      const doc = await draftDoc();
+      expect(doc.nodes[0].caption).toEqual({ title: "Sign in", tag: "Tag" });
+      const rows = await draftRows();
+      expect(rows.find((row) => row.entity === "node")?.title).toBe("Sign in");
+      await expect(
+        asMember.action(api.canvases.patchManualEditMine, {
+          canvasId: created.canvasId,
+          pageId: "page",
+          change: { kind: "caption", nodeId: "node", title: "   " },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow(/blank/);
+      await expect(
+        asMember.action(api.canvases.patchManualEditMine, {
+          canvasId: created.canvasId,
+          pageId: "page",
+          change: { kind: "caption", nodeId: "missing", title: "x" },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow(/Unknown canvas node/);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("notes are stamped human on add, keep their author on edit, and restore with it", async () => {
+    const { created, asMember, fetchSpy, draftDoc, draftRows } = await seedManualEditCanvas();
+    try {
+      const canvasId = created.canvasId;
+      await asMember.action(api.canvases.patchManualEditMine, {
+        canvasId,
+        pageId: "page",
+        change: {
+          kind: "note-add",
+          // A browser claiming to be the agent is ignored: the boundary stamps.
+          note: { id: "human-note", x: 50, y: 60, w: 240, text: "Move this up", author: "agent" },
+        },
+        expectedVersion: 1,
+      });
+      let doc = await draftDoc();
+      expect(doc.notes).toHaveLength(2);
+      expect(doc.notes[1]).toMatchObject({
+        id: "human-note",
+        author: "human",
+        color: "yellow",
+        size: "m",
+      });
+      const rows = await draftRows();
+      expect(rows.filter((row) => row.entity === "note").map((row) => row.entityId)).toEqual([
+        "agent-note",
+        "human-note",
+      ]);
+      expect(rows.find((row) => row.entityId === "human-note")?.eyebrow).toBe("Human note");
+
+      await asMember.action(api.canvases.patchManualEditMine, {
+        canvasId,
+        pageId: "page",
+        change: {
+          kind: "note",
+          noteId: "agent-note",
+          changes: { x: 99, color: "pink", author: "human", id: "hijack" },
+        },
+        expectedVersion: 1,
+      });
+      doc = await draftDoc();
+      expect(doc.notes[0]).toMatchObject({
+        id: "agent-note",
+        x: 99,
+        color: "pink",
+        author: "agent",
+      });
+
+      await expect(
+        asMember.action(api.canvases.patchManualEditMine, {
+          canvasId,
+          pageId: "page",
+          change: { kind: "note", noteId: "agent-note", changes: { author: "human" } },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow(/Nothing to change/);
+
+      const removed = await asMember.action(api.canvases.patchManualEditMine, {
+        canvasId,
+        pageId: "page",
+        change: { kind: "note-delete", noteId: "agent-note" },
+        expectedVersion: 1,
+      });
+      expect(removed.removedNote).toMatchObject({ id: "agent-note", author: "agent", x: 99 });
+      doc = await draftDoc();
+      expect(doc.notes.map((note: { id: string }) => note.id)).toEqual(["human-note"]);
+
+      await asMember.action(api.canvases.patchManualEditMine, {
+        canvasId,
+        pageId: "page",
+        change: { kind: "note-restore", note: removed.removedNote },
+        expectedVersion: 1,
+      });
+      doc = await draftDoc();
+      expect(doc.notes.find((note: { id: string }) => note.id === "agent-note")).toMatchObject({
+        author: "agent",
+        x: 99,
+      });
+
+      await expect(
+        asMember.action(api.canvases.patchManualEditMine, {
+          canvasId,
+          pageId: "page",
+          change: { kind: "note-add", note: { id: "bad", x: 0, y: 0, w: 10, text: "too narrow" } },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

@@ -945,7 +945,9 @@
  */
 .canvas-command-bar {
   position: absolute;
-  z-index: var(--app-z-chrome);
+  /* One above the engine's legend, which shares the chrome level and would
+     otherwise paint over the header's own menus. */
+  z-index: calc(var(--app-z-chrome) + 2);
   top: 0;
   right: 0;
   left: 0;
@@ -1581,4 +1583,58 @@
   .drawer-section {
     margin-inline: var(--app-space-3);
   }
+}
+
+/* Header Export menu: the page ⋯ menu's popup, anchored under its trigger. */
+.canvas-export {
+  position: relative;
+}
+
+.canvas-export-menu {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) + 1);
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  width: max(196px, calc(var(--app-hit-min) * 5));
+  padding: 4px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-md);
+}
+
+.canvas-export-menu > button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  height: max(32px, var(--app-hit-min));
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--app-radius-sm, 6px);
+  background: transparent;
+  color: var(--app-ink);
+  font: inherit;
+  font-size: var(--app-text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.canvas-export-menu > button:hover,
+.canvas-export-menu > button:focus-visible {
+  background: var(--app-surface-hover, var(--app-line));
+}
+
+.canvas-command-export[aria-busy] {
+  opacity: 0.7;
+}
+
+.present-controls a kbd {
+  margin-left: 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  font: 600 10px / 1.4 var(--app-font-mono, monospace);
 }

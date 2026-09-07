@@ -23,6 +23,10 @@ export const CONTEXT_MENU_CHROME_SELECTOR = [
   ".vc-multiselect",
   ".vc-context-menu",
   ".vc-zoom-menu",
+  ".vc-caption-actions",
+  ".vc-inspector-tools",
+  ".vc-note-strip",
+  ".vc-note-editor",
 ].join(", ");
 
 export type ContextMenuPointerPolicy = "open" | "suppress" | "native";
@@ -55,13 +59,39 @@ export type ContextCommandId =
   | "add-comment"
   | "copy-link"
   | "copy-ref"
+  | "play"
+  | "download"
+  | "rename"
+  | "add-note"
+  | "edit-note"
   | "delete";
 
 export type ContextMenuTarget =
   | { kind: "canvas"; hasSelection: boolean }
-  | { kind: "node"; nodeKind: string; hasRef: boolean }
+  | { kind: "node"; nodeKind: string; nodeShape?: string; hasRef: boolean }
   | { kind: "nodes" }
-  | { kind: "group" };
+  | { kind: "group" }
+  | { kind: "note"; noteId: string };
+
+export interface ContextMenuCaps {
+  comments: boolean;
+  editable: boolean;
+  copyLink: boolean;
+  /** The app can open one node as a prototype. */
+  play?: boolean;
+  /** The app can render one node to a file. */
+  download?: boolean;
+  /** Sticky notes are on: the canvas offers "Add note", a note offers "Edit". */
+  notes?: boolean;
+}
+
+/** Actor and decision nodes have no caption strip to act on. */
+export function nodeActionsAvailable(target: { nodeKind: string; nodeShape?: string }): boolean {
+  return !(
+    target.nodeKind === "native" &&
+    (target.nodeShape === "actor" || target.nodeShape === "decision")
+  );
+}
 
 export type ContextMenuEntry =
   | { type: "separator" }
@@ -76,7 +106,7 @@ export type ContextMenuEntry =
 
 export function contextMenuEntries(
   target: ContextMenuTarget,
-  caps: { comments: boolean; editable: boolean; copyLink: boolean },
+  caps: ContextMenuCaps,
 ): ContextMenuEntry[] {
   const items: ContextMenuEntry[] = [];
   const fitSelection = (disabled: boolean): ContextMenuEntry => ({
@@ -100,6 +130,8 @@ export function contextMenuEntries(
   });
 
   if (target.kind === "canvas") {
+    if (caps.notes && caps.editable)
+      items.push({ type: "item", id: "add-note", label: "Add note", shortcut: "N" });
     if (caps.comments) items.push(comment());
     items.push(
       { type: "separator" },
@@ -110,10 +142,21 @@ export function contextMenuEntries(
   } else if (target.kind === "node") {
     // Iframe interaction stays double-click / Enter — already hinted on
     // the node. A menu item was a slower duplicate of that gesture.
-    items.push(fitSelection(false));
+    const actions = nodeActionsAvailable(target);
+    if (actions && caps.play) items.push({ type: "item", id: "play", label: "Present from here" });
+    if (actions && caps.download)
+      items.push({ type: "item", id: "download", label: "Download PNG…" });
+    if (actions && caps.editable)
+      items.push({ type: "item", id: "rename", label: "Rename", shortcut: "F2" });
+    items.push({ type: "separator" }, fitSelection(false));
     if (caps.comments) items.push(comment());
     if (caps.copyLink) items.push({ type: "item", id: "copy-link", label: "Copy link" });
     if (target.hasRef) items.push({ type: "item", id: "copy-ref", label: "Copy element ref" });
+    if (caps.editable) items.push({ type: "separator" }, del());
+  } else if (target.kind === "note") {
+    if (caps.editable)
+      items.push({ type: "item", id: "edit-note", label: "Edit note", shortcut: "Enter" });
+    items.push({ type: "separator" }, fitSelection(false));
     if (caps.editable) items.push({ type: "separator" }, del());
   } else if (target.kind === "nodes") {
     items.push(fitSelection(false));

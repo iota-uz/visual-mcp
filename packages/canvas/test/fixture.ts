@@ -18,7 +18,7 @@ export function fixture(): CanvasDoc {
       {
         id: "a",
         kind: "native",
-        shape: "note",
+        shape: "card",
         laneId: "lane",
         stageId: "s1",
         rect: { x: 100, y: 100, w: 120, h: 80 },
@@ -43,6 +43,7 @@ export function fixture(): CanvasDoc {
     ],
     groups: [{ id: "flow", label: "Flow", nodeIds: ["a", "b"] }],
     drawings: [],
+    notes: [],
     edges: [
       {
         id: "ab",

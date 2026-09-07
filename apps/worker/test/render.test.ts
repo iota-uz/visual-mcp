@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, test } from "node:test";
 import { disposeD2Renderer } from "@visual-canvas/runtime/render/diagrams/index.js";
+import { PDFDocument } from "pdf-lib";
 import { handleRender } from "../src/render.js";
 import { handleSnapshot } from "../src/snapshot.js";
 import { startTestUploadServer } from "./test-upload-server.js";
@@ -300,6 +301,42 @@ test("handleRender: rejects an outputPath outside /output or /cache", async () =
         upload: { putUrl: uploadServer.putUrl("out.png") },
       }),
     );
+  } finally {
+    await uploadServer.close();
+  }
+});
+
+test("handleSnapshot: format=pdf wraps one capture per entrypoint into a document", async () => {
+  const uploadServer = await startTestUploadServer();
+  try {
+    const page = (color: string) =>
+      dataUrl(
+        "text/html",
+        `<!doctype html><style>html,body{margin:0}.vc-world{position:relative;width:200px;height:150px;background:${color}}</style><div class="vc-world"></div>`,
+      );
+    const result = await handleSnapshot({
+      sources: [
+        { relPath: "/src/__export-0.html", getUrl: page("red") },
+        { relPath: "/src/__export-1.html", getUrl: page("blue") },
+      ],
+      entrypoint: "/src/__export-0.html",
+      entrypoints: ["/src/__export-0.html", "/src/__export-1.html"],
+      format: "pdf",
+      target: { type: "canvas" },
+      scale: 1,
+      upload: { putUrl: uploadServer.objectPutUrl("export.pdf"), method: "PUT" },
+    });
+    assert.equal(result.mimeType, "application/pdf");
+    assert.equal(result.pages, 2);
+    assert.equal(result.uploadStatus, 200);
+    const bytes = uploadServer.uploads[0]?.bytes ?? Buffer.alloc(0);
+    assert.equal(bytes.subarray(0, 4).toString("latin1"), "%PDF");
+    assert.equal(result.size, bytes.byteLength);
+    assert.equal(result.contentHash, createHash("sha256").update(bytes).digest("hex"));
+    const pdf = await PDFDocument.load(bytes);
+    assert.equal(pdf.getPageCount(), 2);
+    const { width, height } = pdf.getPage(0).getSize();
+    assert.deepEqual([Math.round(width), Math.round(height)], [result.width, result.height]);
   } finally {
     await uploadServer.close();
   }

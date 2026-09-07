@@ -131,6 +131,7 @@ describe("Railway MCP service", () => {
             groups: [],
             edges: [],
             drawings: [],
+            notes: [],
             nodes: [
               {
                 kind: "native",
@@ -138,7 +139,7 @@ describe("Railway MCP service", () => {
                 rect: { x: 10, y: 10, w: 100, h: 60 },
                 caption: { title: "Old" },
                 anchors: [],
-                shape: "note",
+                shape: "card",
               },
             ],
           },
@@ -238,6 +239,7 @@ describe("Railway MCP service", () => {
         groups: [],
         edges: [],
         drawings: [],
+        notes: [],
         nodes: [
           {
             kind: "native",
@@ -245,7 +247,7 @@ describe("Railway MCP service", () => {
             rect: { x: 10, y: 10, w: 100, h: 60 },
             caption: { title: id },
             anchors: [],
-            shape: "note",
+            shape: "card",
           },
         ],
       },

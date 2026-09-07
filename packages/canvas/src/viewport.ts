@@ -8,17 +8,28 @@ import {
   contextMenuEntries,
   contextMenuPointerPolicy,
   nativeBodyKeepsContextMenu,
+  nodeActionsAvailable,
   paintContextMenu,
   placeContextMenu,
 } from "./context-menu.js";
 import { DEVICE_CAPTION_HEIGHT, deviceFrameScale, deviceShellSize } from "./device-frame.js";
 import { mountEdgeEditor } from "./edge-editor.js";
 import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
+import { mountNoteEditor, type NoteChanges } from "./note-editor.js";
 import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
+import { type PrototypeNodeFlags, prototypeNodeClasses } from "./prototype.js";
 import { escapeHtml, renderCanvas, renderEdge, renderEdgeHeads } from "./render.js";
 import { routeEdges } from "./router.js";
 import type { Theme } from "./themes.js";
-import type { CanvasEdge, CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
+import type {
+  CanvasEdge,
+  CanvasNode,
+  CanvasNote,
+  IframeNode,
+  ImageNode,
+  Point,
+  Rect,
+} from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -97,7 +108,7 @@ export interface CameraFitOptions {
  * public share page and Present mount the same viewport and have no comment
  * surface to draft into.
  */
-export type ViewportTool = "view" | "move" | "comment";
+export type ViewportTool = "view" | "move" | "comment" | "note";
 
 /**
  * One pin on the canvas. A node comment carries the node *id*, resolved
@@ -704,6 +715,28 @@ export interface ViewportOptions {
   resolveElementRef?: (nodeId: string) => string | undefined;
   onCopyElementRef?: (refId: string) => void | Promise<void>;
   /**
+   * Per-node actions in the caption strip and the context menu. Each is on
+   * only when its handler is present: a public viewer passes none and gets
+   * a plain caption.
+   */
+  /** Open this node as a prototype. The href comes from `resolvePresentUrl`. */
+  onPlay?: (nodeId: string) => void | Promise<void>;
+  resolvePresentUrl?: (nodeId: string) => string | undefined;
+  /** Render this node to a file. */
+  onDownload?: (nodeId: string) => void | Promise<void>;
+  /** The caption title was retyped in place. `previous` feeds undo. */
+  onCaptionRename?: (nodeId: string, title: string, previous: string) => void | Promise<void>;
+  /** Prototype membership for this page, from `prototypeNodeFlags`. */
+  prototypeFlags?: ReadonlyMap<string, PrototypeNodeFlags>;
+  /**
+   * Sticky notes. Passing `onNoteAdd` is what turns the Note tool on; the
+   * notes themselves always render, since they are part of the document.
+   */
+  onNoteAdd?: (note: CanvasNote) => void | Promise<void>;
+  onNoteChange?: (id: string, changes: NoteChanges, previous: CanvasNote) => void | Promise<void>;
+  onNoteDelete?: (id: string, note: CanvasNote) => void | Promise<void>;
+  onNoteSelect?: (id: string | null) => void;
+  /**
    * Copy a shareable URL for one node. Absent on surfaces that have no
    * addressable page URL; the menu hides the item rather than offering a
    * no-op.
@@ -783,6 +816,13 @@ export interface ViewportController {
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
   openContextMenu(clientPoint?: { x: number; y: number }): void;
   closeContextMenu(): void;
+  /** Re-badges nodes after the prototype changed without a document change. */
+  setPrototypeFlags(flags: ReadonlyMap<string, PrototypeNodeFlags>): void;
+  /** Opens the caption title of one node for retyping. */
+  beginRename(nodeId: string): void;
+  selectNote(id: string | null): void;
+  /** Drops a new note at a world point, or at the viewport centre. */
+  addNote(point?: Point): void;
   dispose(): void;
 }
 
@@ -796,6 +836,11 @@ const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
         <code class="vc-inspector-ref-value"></code>
         <button type="button" class="vc-inspector-ref-copy" aria-live="polite">Copy</button>
       </div>
+    </div>
+    <div class="vc-inspector-tools" hidden>
+      <button type="button" class="vc-inspector-tool" data-inspector-action="play">Present</button>
+      <button type="button" class="vc-inspector-tool" data-inspector-action="download">Download</button>
+      <button type="button" class="vc-inspector-tool" data-inspector-action="rename">Rename</button>
     </div>
     <div class="vc-inspector-actions" hidden>
       <button type="button" class="vc-inspector-delete">Delete</button>
@@ -816,6 +861,7 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
       <div><dt>View tool</dt><dd><kbd>V</kbd></dd></div>
       <div><dt>Move tool</dt><dd><kbd>M</kbd></dd></div>
       <div class="vc-shortcut-comment" hidden><dt>Comment tool</dt><dd><kbd>C</kbd></dd></div>
+      <div class="vc-shortcut-note" hidden><dt>Note tool</dt><dd><kbd>N</kbd></dd></div>
       <div><dt>Fit page</dt><dd><kbd>⇧1</kbd> <kbd>0</kbd></dd></div>
       <div><dt>Fit selection</dt><dd><kbd>⇧2</kbd></dd></div>
       <div><dt>Zoom to 100%</dt><dd><kbd>⇧0</kbd> <kbd>R</kbd></dd></div>
@@ -827,6 +873,8 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
       <div><dt>Context menu</dt><dd>right-click <kbd>⇧F10</kbd></dd></div>
       <div><dt>Undo / redo</dt><dd><kbd>⌘Z</kbd> <kbd>⌘⇧Z</kbd></dd></div>
       <div><dt>Open screen</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
+      <div class="vc-shortcut-rename" hidden><dt>Rename node</dt><dd><kbd>F2</kbd> or double-click the title</dd></div>
+      <div class="vc-shortcut-note" hidden><dt>Edit note</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
       <div><dt>Exit screen, then deselect</dt><dd><kbd>Esc</kbd></dd></div>
       <div><dt>This panel</dt><dd><kbd>?</kbd></dd></div>
     </dl>
@@ -882,12 +930,13 @@ const MINIMAP_SHELL = `<div class="vc-minimap">
     <i class="vc-minimap-viewport"></i>
   </div>`;
 
-function toolbarShell(editable: boolean, comments: boolean): string {
+function toolbarShell(editable: boolean, comments: boolean, notes = false): string {
   return `<div class="vc-toolbar" role="toolbar" aria-label="Canvas tools">
     <div class="vc-tool-group">
       <button type="button" class="vc-tool" data-tool="view" aria-label="View tool" aria-pressed="true" title="View (V)"><span>View</span><kbd>V</kbd></button>
       <button type="button" class="vc-tool" data-tool="move" aria-label="Move tool" aria-pressed="false" title="Move selected node (M)"${editable ? "" : " disabled"}><span>Move</span><kbd>M</kbd></button>
       ${comments ? `<button type="button" class="vc-tool" data-tool="comment" aria-label="Comment tool" aria-pressed="false" title="Comment (C)"><span>Comment</span><kbd>C</kbd></button>` : ""}
+      ${notes ? `<button type="button" class="vc-tool" data-tool="note" aria-label="Note tool" aria-pressed="false" title="Sticky note (N)"><span>Note</span><kbd>N</kbd></button>` : ""}
     </div>
     <div class="vc-zoom-control" aria-label="Canvas zoom">
       <button type="button" class="vc-zoom-step" data-zoom="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
@@ -915,17 +964,36 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let liveResolveImageUrl = opts.resolveImageUrl;
   let liveResolveIframeIdentity = opts.resolveIframeIdentity;
   let liveTheme = opts.theme;
-  const rendered = renderCanvas(liveCanvas, {
-    resolveIframeUrl: liveResolveIframeUrl,
-    resolveImageUrl: liveResolveImageUrl,
-    editable: opts.editable,
-    theme: liveTheme,
-  });
+  let prototypeFlags: ReadonlyMap<string, PrototypeNodeFlags> = opts.prototypeFlags ?? new Map();
+  const playEnabled = typeof opts.onPlay === "function";
+  const downloadEnabled = typeof opts.onDownload === "function";
+  const renameEnabled = Boolean(opts.editable) && typeof opts.onCaptionRename === "function";
+  const captionActions = playEnabled || downloadEnabled || renameEnabled;
+  const notesEnabled = Boolean(opts.editable) && typeof opts.onNoteAdd === "function";
+  function renderOptions(
+    resolveIframeUrl: ((node: IframeNode) => string) | undefined,
+    resolveImageUrl: ((node: ImageNode) => string) | undefined,
+    theme: Theme | undefined,
+  ) {
+    return {
+      resolveIframeUrl,
+      resolveImageUrl,
+      editable: opts.editable,
+      theme,
+      captionActions,
+      resolvePresentUrl: playEnabled ? opts.resolvePresentUrl : undefined,
+      prototypeFlags,
+    };
+  }
+  const rendered = renderCanvas(
+    liveCanvas,
+    renderOptions(liveResolveIframeUrl, liveResolveImageUrl, liveTheme),
+  );
 
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
   const commentsEnabled = typeof opts.onCommentDraft === "function";
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${SCREEN_EXIT_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${CONTEXT_MENU_SHELL}${EMPTY_SHELL}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${SCREEN_EXIT_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled, notesEnabled)}${SHORTCUT_HELP_SHELL}${CONTEXT_MENU_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -961,6 +1029,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    */
   const inspectorActions = must(".vc-inspector-actions");
   const inspectorDelete = must(".vc-inspector-delete");
+  const inspectorTools = must(".vc-inspector-tools");
   const screenExit = must(".vc-screen-exit") as HTMLButtonElement;
   inspectorActions.hidden = !opts.editable;
   const toolbar = must(".vc-toolbar");
@@ -1204,7 +1273,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const originLeft = viewportRect.left;
     const originTop = viewportRect.top;
     const boxes: ScreenRect[] = [];
-    for (const el of [toolbar, minimap, shortcutHelp, commentOverlay]) {
+    for (const el of [toolbar, minimap, shortcutHelp, commentOverlay, noteEditor.stripElement()]) {
       if (el.hasAttribute("hidden")) continue;
       const box = el.getBoundingClientRect();
       if (box.width === 0 || box.height === 0) continue;
@@ -1221,6 +1290,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   function positionChrome(): void {
     const interacting = Boolean(activeIframeId);
     container.classList.toggle("is-interacting", interacting);
+    noteEditor.positionStrip();
     const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
     if (interacting && node) {
       const exitBox = placeExitOnNode({
@@ -1419,6 +1489,18 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function fitSelection(): void {
+    const noteId = noteEditor.selectedId();
+    const note = noteId ? liveCanvas.doc.notes.find((candidate) => candidate.id === noteId) : null;
+    if (note) {
+      setView(
+        fitCameraToBounds(
+          { x: note.x, y: note.y, width: note.w, height: Math.max(note.w, 200) },
+          viewportRect,
+        ),
+        true,
+      );
+      return;
+    }
     const group = selectedGroupId ? groupById.get(selectedGroupId) : undefined;
     if (group) {
       setView(
@@ -1456,7 +1538,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    * key fall through to whatever else arrows might mean.
    */
   function nudgeSelection(dx: number, dy: number): boolean {
-    if (activeTool !== "move" || !opts.editable) return false;
+    if (!opts.editable) return false;
+    if (noteEditor.selectedId()) return noteEditor.nudge(dx, dy);
+    if (activeTool !== "move") return false;
 
     const group = selectedGroupId ? groupById.get(selectedGroupId) : undefined;
     if (group) {
@@ -1540,19 +1624,29 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     return Boolean(container.closest(".vc-viewport-host.vc-immersive"));
   }
 
+  function nodeTarget(node: PositionedNode): ContextMenuTarget {
+    return {
+      kind: "node",
+      nodeKind: node.kind,
+      nodeShape: node.kind === "native" ? node.shape : undefined,
+      hasRef: Boolean(opts.resolveElementRef?.(node.id)),
+    };
+  }
+
   function applyContextSelection(target: HTMLElement): ContextMenuTarget | null {
     if (target.closest(CONTEXT_MENU_CHROME_SELECTOR)) return null;
     if (target.closest(".vc-node.iframe-active iframe")) return null;
+    const noteId = target.closest<HTMLElement>(".vc-note")?.dataset.noteId;
+    if (noteId) {
+      noteEditor.select(noteId);
+      return { kind: "note", noteId };
+    }
     const nodeId = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
     const node = nodeId ? nodeById.get(nodeId) : undefined;
     if (node) {
       if (!selection.has(node.id)) selectNode(node.id);
       if (selection.size > 1 && selection.has(node.id)) return { kind: "nodes" };
-      return {
-        kind: "node",
-        nodeKind: node.kind,
-        hasRef: Boolean(opts.resolveElementRef?.(node.id)),
-      };
+      return nodeTarget(node);
     }
     const groupId = target.closest<HTMLElement>(".vc-group")?.dataset.groupId;
     if (groupId && groupById.has(groupId)) {
@@ -1563,16 +1657,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function targetFromSelection(): ContextMenuTarget {
+    const noteId = noteEditor.selectedId();
+    if (noteId) return { kind: "note", noteId };
     if (selectedGroupId && groupById.has(selectedGroupId)) return { kind: "group" };
     if (selection.size > 1) return { kind: "nodes" };
     const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
-    if (node) {
-      return {
-        kind: "node",
-        nodeKind: node.kind,
-        hasRef: Boolean(opts.resolveElementRef?.(node.id)),
-      };
-    }
+    if (node) return nodeTarget(node);
     return { kind: "canvas", hasSelection: false };
   }
 
@@ -1585,9 +1675,34 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       );
     const commentNodeId =
       contextTarget?.kind === "node" ? (selectedNodeId ?? undefined) : undefined;
+    const noteTarget = contextTarget?.kind === "note" ? contextTarget.noteId : null;
     closeContextMenu();
     if (id === "fit-selection") {
       fitSelection();
+      return;
+    }
+    if (id === "play" && selectedNodeId) {
+      void opts.onPlay?.(selectedNodeId);
+      return;
+    }
+    if (id === "download" && selectedNodeId) {
+      void opts.onDownload?.(selectedNodeId);
+      return;
+    }
+    if (id === "rename" && selectedNodeId) {
+      beginRename(selectedNodeId);
+      return;
+    }
+    if (id === "add-note") {
+      addNote(world);
+      return;
+    }
+    if (id === "edit-note" && noteTarget) {
+      noteEditor.beginEdit(noteTarget);
+      return;
+    }
+    if (id === "delete" && noteTarget) {
+      noteEditor.deleteSelected();
       return;
     }
     if (id === "fit-page") {
@@ -1642,6 +1757,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       comments: commentsEnabled,
       editable: Boolean(opts.editable),
       copyLink: typeof opts.onCopyNodeLink === "function",
+      play: playEnabled,
+      download: downloadEnabled,
+      notes: notesEnabled,
     });
     if (entries.length === 0) return;
     contextTarget = target;
@@ -1720,7 +1838,32 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (inspectorRefValue.textContent !== (refId ?? "")) resetCopied();
       inspectorRefValue.textContent = refId ?? "";
       const coarseDelete = Boolean(opts.editable) && resolvedPointer === "coarse";
-      const hasBody = showTitle || !inspectorAnnotation.hidden || Boolean(refId) || coarseDelete;
+      /*
+       * The caption cluster is a hover affordance and a small one: at low
+       * zoom it is hidden, and a finger has nothing to hover with. In both
+       * cases the same actions move into the card.
+       */
+      const showTools =
+        captionActions &&
+        (resolvedPointer === "coarse" || showTitle) &&
+        nodeActionsAvailable({
+          nodeKind: primary.kind,
+          nodeShape: primary.kind === "native" ? primary.shape : undefined,
+        });
+      inspectorTools.hidden = !showTools;
+      for (const button of inspectorTools.querySelectorAll<HTMLButtonElement>(
+        "[data-inspector-action]",
+      )) {
+        const action = button.dataset.inspectorAction;
+        button.hidden =
+          action === "play"
+            ? !playEnabled
+            : action === "download"
+              ? !downloadEnabled
+              : !renameEnabled;
+      }
+      const hasBody =
+        showTitle || !inspectorAnnotation.hidden || Boolean(refId) || coarseDelete || showTools;
       inspector.classList.toggle("visible", hasBody);
     }
     positionChrome();
@@ -1734,6 +1877,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const primaryId = [...selection].at(-1) ?? null;
     selectedNodeId = primaryId;
     if (selection.size > 0) {
+      noteEditor.select(null);
       selectedGroupId = null;
       for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
         el.classList.remove("selected");
@@ -1753,15 +1897,21 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     setSelection([...next]);
   }
 
+  /** Node and group selection only; the note editor is left alone. */
+  function clearNodeSelection(): void {
+    selection.clear();
+    selectedNodeId = null;
+    selectedGroupId = null;
+    for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
+      el.classList.remove("selected");
+    paintSelection();
+    onSelect?.(null);
+  }
+
   function selectNode(id: string | null, focus = false): void {
     if (!id || !nodeById.has(id)) {
-      selection.clear();
-      selectedNodeId = null;
-      selectedGroupId = null;
-      for (const el of groupsRoot.querySelectorAll<HTMLElement>(".vc-group"))
-        el.classList.remove("selected");
-      paintSelection();
-      onSelect?.(null);
+      noteEditor.select(null);
+      clearNodeSelection();
       return;
     }
     setSelection([id], focus);
@@ -1773,6 +1923,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       selectNode(null);
       return;
     }
+    noteEditor.select(null);
     selectedNodeId = null;
     selectedGroupId = id;
     inspector.classList.remove("visible");
@@ -1789,6 +1940,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.classList.toggle("is-tool-view", current === "view");
     container.classList.toggle("is-tool-move", current === "move");
     container.classList.toggle("is-tool-comment", current === "comment");
+    container.classList.toggle("is-tool-note", current === "note");
     for (const button of toolbar.querySelectorAll<HTMLButtonElement>("[data-tool]")) {
       button.setAttribute("aria-pressed", String(button.dataset.tool === current));
     }
@@ -1799,7 +1951,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function setTool(tool: ViewportTool): void {
     const unavailable =
-      (tool === "move" && !opts.editable) || (tool === "comment" && !commentsEnabled);
+      (tool === "move" && !opts.editable) ||
+      (tool === "comment" && !commentsEnabled) ||
+      (tool === "note" && !notesEnabled);
     const next = unavailable ? "view" : tool;
     // An unposted draft belongs to the comment tool. Leaving the tool with
     // the composer still open would strand it over a canvas you are now
@@ -1864,7 +2018,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function paintEmptyState(): void {
-    emptyState.toggleAttribute("hidden", liveCanvas.nodes.length > 0);
+    emptyState.toggleAttribute(
+      "hidden",
+      liveCanvas.nodes.length > 0 || liveCanvas.doc.notes.length > 0,
+    );
   }
 
   function renderMinimap(): void {
@@ -2219,13 +2376,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     nextResolveIframeIdentity: ((node: IframeNode) => string) | undefined,
     nextTheme: Theme | undefined,
   ): void {
+    // A title mid-edit is committed first: the caption is about to be
+    // replaced from the new render, and the keystrokes must not go with it.
+    finishRename(true);
     const scratch = document.createElement("div");
-    scratch.innerHTML = renderCanvas(nextCanvas, {
-      resolveIframeUrl: nextResolveIframeUrl,
-      resolveImageUrl: nextResolveImageUrl,
-      editable: opts.editable,
-      theme: nextTheme,
-    }).html;
+    scratch.innerHTML = renderCanvas(
+      nextCanvas,
+      renderOptions(nextResolveIframeUrl, nextResolveImageUrl, nextTheme),
+    ).html;
     const nextWorld = scratch.querySelector<HTMLElement>(".vc-world");
     const nextNodesRoot = nextWorld?.querySelector<HTMLElement>(".vc-nodes");
     if (!nextWorld || !nextNodesRoot) throw new Error("Unable to render reactive canvas update");
@@ -2251,6 +2409,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       ".vc-labels",
       ".vc-groups",
       ".vc-edges",
+      ".vc-notes",
     ] as const) {
       const current = world.querySelector<HTMLElement>(selector);
       const next = nextWorld.querySelector<HTMLElement>(selector);
@@ -2401,6 +2560,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     liveTheme = nextTheme;
     liveCanvas = nextCanvas;
     edgeEditor.refresh();
+    noteEditor.refresh();
     contentBoundsCache = null;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     groupById = new Map(nextCanvas.groups.map((group) => [group.id, group]));
@@ -2649,7 +2809,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // The comment popover is portalled inside this container, so without
     // this a press inside the composer would drop a second pin under it.
     if (target.closest(".vc-comment-overlay")) return;
-    if (target.closest("input, textarea, button, a, summary, details")) return;
+    if (target.closest("input, textarea, button, a, summary, details, [contenteditable]")) return;
     /*
      * Anywhere else with a popover open means "I am done here". Armed on
      * press and fired on release only if the pointer stayed put: a drag is
@@ -2673,6 +2833,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
           y: (event.clientY - viewportRect.top - view.y) / view.scale,
         },
       });
+      return;
+    }
+    // The Note tool is one-shot like the Comment tool: one press drops a
+    // note and hands the keyboard to it; the tool goes back to View.
+    if (activeTool === "note" && notesEnabled) {
+      addNote(worldPointFromClient(event.clientX, event.clientY));
+      setTool("view");
       return;
     }
     // Touching the canvas always stops a coasting camera dead — the same
@@ -2717,6 +2884,18 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // emitted after pointer capture.
     const doubleTapPending =
       nodeId !== null && lastClick?.nodeId === nodeId && Date.now() - lastClick.at < 500;
+    /*
+     * A double-click on the title retypes it; anywhere else on the node it
+     * opens the screen. Decided here, on the second press, for the same
+     * reason activation is: the native dblclick is not reliable after
+     * pointer capture.
+     */
+    if (doubleTapPending && nodeId && renameEnabled && target.closest(".vc-caption-title")) {
+      lastClick = null;
+      activePointers.delete(event.pointerId);
+      beginRename(nodeId);
+      return;
+    }
     if (doubleTapPending && nodeId) {
       if (node) focusNode(node);
       activateIframe(nodeId);
@@ -3196,7 +3375,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (event.key === "v" || event.key === "V") setTool("view");
     else if ((event.key === "m" || event.key === "M") && opts.editable) setTool("move");
     else if ((event.key === "c" || event.key === "C") && commentsEnabled) setTool("comment");
-    else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
+    else if ((event.key === "n" || event.key === "N") && notesEnabled) setTool("note");
+    else if (event.key === "F2") {
+      const noteId = noteEditor.selectedId();
+      if (noteId) {
+        event.preventDefault();
+        noteEditor.beginEdit(noteId);
+      } else if (selectedNodeId && renameEnabled) {
+        event.preventDefault();
+        beginRename(selectedNodeId);
+      }
+    } else if (event.shiftKey && (event.code === "Digit1" || event.key === "1")) {
       event.preventDefault();
       fitAll();
     } else if (event.shiftKey && (event.code === "Digit2" || event.key === "2")) {
@@ -3234,6 +3423,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     } else if (
       (event.key === "Delete" || event.key === "Backspace") &&
       opts.editable &&
+      noteEditor.selectedId()
+    ) {
+      event.preventDefault();
+      noteEditor.deleteSelected();
+    } else if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      opts.editable &&
       selection.size > 0
     ) {
       // Backspace would otherwise navigate back in some browsers.
@@ -3252,9 +3448,24 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         deactivateIframe();
         return;
       }
+      // Esc unwinds one layer at a time: typing → selected note → tool.
+      if (noteEditor.isEditing()) {
+        noteEditor.cancel();
+        return;
+      }
+      if (noteEditor.selectedId()) {
+        noteEditor.select(null);
+        return;
+      }
       setTool("view");
       selectNode(null);
     } else if (event.key === "Enter") {
+      const noteId = noteEditor.selectedId();
+      if (noteId) {
+        event.preventDefault();
+        noteEditor.beginEdit(noteId);
+        return;
+      }
       const selected = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
       if (selected) activateIframe(selected);
     }
@@ -3284,7 +3495,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-tool]");
     if (button && !button.disabled) {
       const tool = button.dataset.tool;
-      if (tool === "view" || tool === "move" || tool === "comment") setTool(tool);
+      if (tool === "view" || tool === "move" || tool === "comment" || tool === "note")
+        setTool(tool);
     }
     const zoomStep = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-zoom]");
     if (zoomStep) {
@@ -3455,12 +3667,154 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onNodesDoubleClick(event: MouseEvent): void {
-    const id = (event.target as HTMLElement).closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+    const target = event.target as HTMLElement;
+    const id = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
     const node = id ? nodeById.get(id) : undefined;
-    if (node) {
-      focusNode(node);
-      activateIframe(node.id);
+    if (!node) return;
+    if (renameEnabled && target.closest(".vc-caption-title")) {
+      event.preventDefault();
+      beginRename(node.id);
+      return;
     }
+    if (renaming?.nodeId === node.id) return;
+    focusNode(node);
+    activateIframe(node.id);
+  }
+
+  /*
+   * Inline rename. The title becomes plain-text editable in place rather
+   * than through a field in the inspector: the name is on the node, so that
+   * is where you change it. Enter commits, Escape restores, an empty title
+   * is a cancel — the schema requires one — and a reactive update commits
+   * first so the keystrokes survive the caption being re-rendered.
+   */
+  let renaming: { nodeId: string; original: string; el: HTMLElement } | null = null;
+
+  function beginRename(nodeId: string): void {
+    if (!renameEnabled) return;
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    if (
+      !nodeActionsAvailable({
+        nodeKind: node.kind,
+        nodeShape: node.kind === "native" ? node.shape : undefined,
+      })
+    )
+      return;
+    if (renaming?.nodeId === nodeId) return;
+    finishRename(true);
+    if (activeIframeId) deactivateIframe();
+    if (!selection.has(nodeId)) selectNode(nodeId);
+    const el = nodesRoot.querySelector<HTMLElement>(
+      `[data-node-id="${CSS.escape(nodeId)}"] .vc-caption-title`,
+    );
+    if (!el) return;
+    cancelDrag();
+    renaming = { nodeId, original: node.caption.title, el };
+    el.setAttribute("contenteditable", "plaintext-only");
+    el.setAttribute("role", "textbox");
+    el.setAttribute("aria-label", "Node title");
+    el.classList.add("is-editing");
+    el.closest(".vc-node")?.classList.add("is-renaming");
+    el.addEventListener("keydown", onRenameKeyDown);
+    el.addEventListener("blur", onRenameBlur);
+    el.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  function finishRename(commit: boolean): void {
+    const current = renaming;
+    if (!current) return;
+    renaming = null;
+    const { el, nodeId, original } = current;
+    el.removeEventListener("keydown", onRenameKeyDown);
+    el.removeEventListener("blur", onRenameBlur);
+    el.removeAttribute("contenteditable");
+    el.removeAttribute("role");
+    el.removeAttribute("aria-label");
+    el.classList.remove("is-editing");
+    el.closest(".vc-node")?.classList.remove("is-renaming");
+    const next = (el.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (!commit || !next || next === original) {
+      el.textContent = original;
+      return;
+    }
+    const node = nodeById.get(nodeId);
+    if (node) node.caption.title = next;
+    el.textContent = next;
+    void opts.onCaptionRename?.(nodeId, next, original);
+  }
+
+  function onRenameKeyDown(event: KeyboardEvent): void {
+    // The title owns the keyboard while it is being typed into.
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finishRename(true);
+      container.focus({ preventScroll: true });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finishRename(false);
+      container.focus({ preventScroll: true });
+    }
+  }
+
+  function onRenameBlur(): void {
+    finishRename(true);
+  }
+
+  function runNodeAction(action: string | undefined, nodeId: string, anchor?: HTMLElement): void {
+    if (action === "download") void opts.onDownload?.(nodeId);
+    else if (action === "play") void opts.onPlay?.(nodeId);
+    else if (action === "rename") beginRename(nodeId);
+    else if (action === "more") {
+      const node = nodeById.get(nodeId);
+      if (!node) return;
+      if (!selection.has(nodeId)) selectNode(nodeId);
+      const box = anchor?.getBoundingClientRect();
+      openContextMenuAt(
+        box ? box.left : viewportRect.left + viewportRect.width / 2,
+        box ? box.bottom + 4 : viewportRect.top + viewportRect.height / 2,
+        nodeTarget(node),
+      );
+    }
+  }
+
+  function onInspectorToolsClick(event: MouseEvent): void {
+    const button = (event.target as HTMLElement).closest<HTMLElement>("[data-inspector-action]");
+    if (!button || !selectedNodeId) return;
+    runNodeAction(button.dataset.inspectorAction, selectedNodeId, button);
+  }
+
+  function setPrototypeFlags(flags: ReadonlyMap<string, PrototypeNodeFlags>): void {
+    prototypeFlags = flags;
+    for (const el of nodesRoot.querySelectorAll<HTMLElement>(".vc-node")) {
+      const id = el.dataset.nodeId ?? "";
+      const own = flags.get(id);
+      el.classList.remove("is-interactive", "is-prototype-start");
+      const classes = prototypeNodeClasses(own).trim();
+      if (classes) el.classList.add(...classes.split(" "));
+      el.querySelector(".vc-caption-play")?.classList.toggle(
+        "is-interactive",
+        Boolean(own?.interactive),
+      );
+    }
+  }
+
+  function addNote(point?: Point): void {
+    if (!notesEnabled) return;
+    const at =
+      point ??
+      worldPointFromClient(
+        viewportRect.left + viewportRect.width / 2,
+        viewportRect.top + viewportRect.height / 2,
+      );
+    if (selection.size > 0 || selectedGroupId) clearNodeSelection();
+    noteEditor.createAt(at);
   }
 
   function onScreenExitClick(event: MouseEvent): void {
@@ -3469,12 +3823,27 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onNodesClick(event: MouseEvent): void {
-    const retry = (event.target as HTMLElement).closest(".vc-iframe-retry");
+    const target = event.target as HTMLElement;
+    const retry = target.closest(".vc-iframe-retry");
     if (retry) {
       event.stopPropagation();
       const owner = retry.closest<HTMLElement>(".vc-node");
       if (owner) retryIframe(owner);
+      return;
     }
+    const action = target.closest<HTMLElement>(".vc-caption-action");
+    if (!action) return;
+    event.stopPropagation();
+    const nodeId = action.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+    if (!nodeId) return;
+    const kind = action.dataset.action;
+    // Play is a real link: a modified click keeps the browser's new-tab
+    // behaviour, a plain click stays in the app.
+    if (kind === "play") {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+    }
+    runNodeAction(kind, nodeId, action);
   }
 
   function onWindowMessage(event: MessageEvent): void {
@@ -3500,6 +3869,26 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  const noteEditor = mountNoteEditor({
+    container,
+    notesRoot: () => world.querySelector<HTMLElement>(".vc-notes"),
+    notes: () => liveCanvas.doc.notes,
+    editable: notesEnabled,
+    toWorld: (x, y) => worldPointFromClient(x, y),
+    toScreen: (point) => ({ x: view.x + point.x * view.scale, y: view.y + point.y * view.scale }),
+    scale: () => view.scale,
+    dragThreshold: () => dragThresholdPx(),
+    onAdd: opts.onNoteAdd,
+    onChange: opts.onNoteChange,
+    onDelete: opts.onNoteDelete,
+    onSelect: (id) => {
+      // One selection at a time: a note in hand means no node in hand (and
+      // no inspector), and vice versa.
+      if (id && (selection.size > 0 || selectedGroupId)) clearNodeSelection();
+      if (id) closeContextMenu();
+      opts.onNoteSelect?.(id);
+    },
+  });
   const edgeEditor = mountEdgeEditor({
     container,
     canvas: () => liveCanvas,
@@ -3559,6 +3948,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   inspectorClose.addEventListener("click", onInspectorClose);
   inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
   inspectorDelete.addEventListener("click", requestDelete);
+  inspectorTools.addEventListener("click", onInspectorToolsClick);
   screenExit.addEventListener("click", onScreenExitClick);
   nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
   nodesRoot.addEventListener("click", onNodesClick);
@@ -3599,6 +3989,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.querySelector(".vc-shortcut-comment")?.removeAttribute("hidden");
     rebuildComments();
   }
+  if (notesEnabled)
+    for (const row of container.querySelectorAll(".vc-shortcut-note"))
+      row.removeAttribute("hidden");
+  if (renameEnabled) container.querySelector(".vc-shortcut-rename")?.removeAttribute("hidden");
 
   return {
     fitAll,
@@ -3625,7 +4019,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     updateCanvas,
     openContextMenu,
     closeContextMenu,
+    setPrototypeFlags,
+    beginRename,
+    selectNote: (id) => noteEditor.select(id),
+    addNote,
     dispose() {
+      finishRename(false);
+      noteEditor.destroy();
       edgeEditor.destroy();
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
       if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
@@ -3664,6 +4064,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       inspectorClose.removeEventListener("click", onInspectorClose);
       inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);
       inspectorDelete.removeEventListener("click", requestDelete);
+      inspectorTools.removeEventListener("click", onInspectorToolsClick);
       screenExit.removeEventListener("click", onScreenExitClick);
       nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);
       nodesRoot.removeEventListener("click", onNodesClick);

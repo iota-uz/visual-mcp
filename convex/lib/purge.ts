@@ -135,6 +135,15 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
     await ctx.db.delete(row._id);
   }
 
+  const canvasExports = await ctx.db
+    .query("canvasExports")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id))
+    .collect();
+  for (const row of canvasExports) {
+    blobs.add(row.storageId);
+    await ctx.db.delete(row._id);
+  }
+
   for await (const row of ctx.db
     .query("canvasEmbeds")
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvas._id)))
@@ -288,6 +297,12 @@ export async function isBlobReferenced(
     .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
     .collect();
   if (canvasSnapshots.some((snapshot) => snapshot.storageId === storageId)) return true;
+
+  const canvasExports = await ctx.db
+    .query("canvasExports")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
+    .collect();
+  if (canvasExports.some((row) => row.storageId === storageId)) return true;
 
   const snapshots = await ctx.db
     .query("canvasVersionFiles")

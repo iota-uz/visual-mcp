@@ -87,6 +87,12 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
     return pageId && nodeId ? { pageId, nodeId } : null;
   }, [params]);
   const start = file?.prototype.start ?? null;
+  /*
+   * Where Restart and Home go. A presentation opened from a node's Play
+   * button has no configured start and should not need one: that node is
+   * its start for as long as it is open.
+   */
+  const home = start ?? urlTarget;
   const active = urlTarget ?? start;
   const activePage = file && active ? resolveCanvasPage(file, active.pageId) : null;
   const activeNode = activePage?.doc.nodes.find((node) => node.id === active?.nodeId) ?? null;
@@ -170,6 +176,17 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
   }, [file, active]);
 
   /*
+   * Leaving lands on the screen that was showing, selected, so a round trip
+   * from a node's Play button ends where it started.
+   */
+  const backToCanvasUrl = useMemo(() => {
+    const base = publicView ? `/s/${slug}` : `/c/${canvasId}`;
+    if (!active) return base;
+    const query = new URLSearchParams({ page: active.pageId, node: active.nodeId });
+    return `${base}?${query.toString()}`;
+  }, [publicView, slug, canvasId, active]);
+
+  /*
    * `mousemove` made the chrome a mouse-only affordance: on a touch device
    * the controls hid 2.6s in and nothing left on the route could bring them
    * back for the rest of the session. A tap is the finger's equivalent of
@@ -204,34 +221,24 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
         goBack();
       } else if (event.key === "Escape") {
         // The browser owns Esc while fullscreen, so this only runs when we
-        // are windowed — where it should leave the presentation entirely.
+        // are windowed — where it should leave the presentation entirely,
+        // landing back on the screen that was showing.
         if (document.fullscreenElement) return;
         event.preventDefault();
-        navigate(publicView ? `/s/${slug}` : `/c/${canvasId}`);
+        navigate(backToCanvasUrl);
       } else if (event.key === "f" || event.key === "F") {
         event.preventDefault();
         toggleFullscreen();
       } else if (event.key === "Home") {
         event.preventDefault();
         setHistory([]);
-        if (start) go(start);
+        if (home) go(home);
       }
       showControls();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    forward,
-    go,
-    goBack,
-    navigate,
-    publicView,
-    slug,
-    canvasId,
-    toggleFullscreen,
-    start,
-    showControls,
-  ]);
+  }, [forward, go, goBack, navigate, backToCanvasUrl, toggleFullscreen, home, showControls]);
 
   if (canvas === undefined || !cssReady) {
     return (
@@ -257,13 +264,21 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
       </div>
     );
   }
-  if (!start || !active || !activePage || !activeNode) {
+  if (!active || !activePage || !activeNode) {
+    /*
+     * Two different dead ends. No target at all means no start frame was
+     * ever set; a target that resolves to nothing means the link names a
+     * screen this canvas no longer has.
+     */
+    const stale = Boolean(urlTarget);
     return (
       <div className="present-loading">
         <EmptyState
-          title="Prototype start isn't configured."
+          title={stale ? "That screen isn't on this canvas." : "Prototype start isn't configured."}
           hint={
-            publicView ? undefined : (
+            publicView ? undefined : stale ? (
+              <Link to={`/c/${canvasId}`}>Back to the canvas</Link>
+            ) : (
               <Link to={`/c/${canvasId}?mode=prototype`}>Set a start frame in Prototype mode</Link>
             )
           }
@@ -334,6 +349,7 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
             labels: [],
             groups: [],
             edges: [],
+            notes: [],
             legend: undefined,
             nodes: [
               {
@@ -390,12 +406,8 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
         className={`present-controls${controlsVisible ? "" : " is-hidden"}`}
         aria-label="Presentation controls"
       >
-        <Link
-          to={
-            publicView ? `/s/${slug}?page=${active.pageId}` : `/c/${canvasId}?page=${active.pageId}`
-          }
-        >
-          <ArrowLeft size={16} aria-hidden="true" /> Back to design
+        <Link to={backToCanvasUrl}>
+          <ArrowLeft size={16} aria-hidden="true" /> Back to canvas <kbd>Esc</kbd>
         </Link>
         <IconButton
           icon={ArrowLeft}
@@ -406,9 +418,10 @@ export function PresentPage({ publicView = false }: { publicView?: boolean }) {
         <IconButton
           icon={RotateCcw}
           label="Restart presentation"
+          disabled={!home}
           onClick={() => {
             setHistory([]);
-            go(start);
+            if (home) go(home);
           }}
         />
         <IconButton

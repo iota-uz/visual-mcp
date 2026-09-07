@@ -1,16 +1,18 @@
 import { CanvasFileSchema, resolveCanvasPage } from "@visual-canvas/canvas";
-import { canvasSnapshotEntryHtml } from "@visual-canvas/canvas/snapshot-entry.js";
-import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
-import {
-  compileThemeToCssVariables,
-  compileThemeToTailwindV4,
-  resolveTheme,
-} from "@visual-canvas/runtime/render/themes/index.js";
+import { resolveTheme } from "@visual-canvas/runtime/render/themes/index.js";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { deleteObject, presignObject } from "./lib/objectStore";
+import {
+  callSnapshotWorker,
+  resolveSnapshotSources,
+  SNAPSHOT_READINESS_TIMEOUT_MS,
+  type SnapshotWorkerResult,
+  snapshotThemePayload,
+  stageSnapshotEntry,
+} from "./lib/snapshotRender";
 
 type EmbedTarget =
   | { type: "canvas" }
@@ -36,35 +38,6 @@ type PublicEmbedContext = {
   workspaceBrand?: Parameters<typeof resolveTheme>[1];
 };
 
-type WorkerSnapshotResult = {
-  size: number;
-  width: number;
-  height: number;
-  mimeType: "image/png";
-  contentHash: string;
-  uploadStatus: number;
-  readiness: { status: "ready" | "partial"; warnings: string[] };
-  downscaled: boolean;
-};
-
-async function callSnapshotWorker(body: unknown): Promise<WorkerSnapshotResult> {
-  const rawUrl = process.env.WORKER_URL;
-  const token = process.env.WORKER_TOKEN;
-  if (!rawUrl || !token) throw new Error("render worker is not configured");
-  const origin = rawUrl.includes("://") ? rawUrl : `http://${rawUrl}:8080`;
-  const response = await fetch(`${origin.replace(/\/$/, "")}/snapshot`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
-  const result = (await response.json().catch(() => null)) as WorkerSnapshotResult | null;
-  if (!response.ok || !result) throw new Error(`snapshot worker failed (${response.status})`);
-  if (result.uploadStatus < 200 || result.uploadStatus >= 300) {
-    throw new Error(`snapshot upload failed (${result.uploadStatus})`);
-  }
-  return result;
-}
-
 async function render(
   ctx: ActionCtx,
   context: PublicEmbedContext,
@@ -76,27 +49,11 @@ async function render(
     padding: number;
   },
   objectKey: string,
-): Promise<WorkerSnapshotResult> {
+): Promise<SnapshotWorkerResult> {
   if (context.kind !== "canvas" && context.kind !== "html") {
     throw new Error("unsupported_canvas_kind");
   }
-  const resolvedFiles = await Promise.all(
-    context.files.map(async (file) => {
-      const getUrl = await ctx.storage.getUrl(file.storageId);
-      return getUrl ? { relPath: file.relPath, getUrl } : null;
-    }),
-  );
-  const sources = [
-    ...resolvedFiles.filter(
-      (source): source is { relPath: string; getUrl: string } => source !== null,
-    ),
-    ...(await Promise.all(
-      context.assets.map(async (asset) => ({
-        relPath: asset.relPath,
-        getUrl: await presignObject(asset.objectKey, "GET", 3600),
-      })),
-    )),
-  ];
+  const sources = await resolveSnapshotSources(ctx, context);
   let entrypoint: string;
   let temporaryEntryStorageId: Id<"_storage"> | undefined;
   try {
@@ -125,19 +82,15 @@ async function render(
       ) {
         throw new Error("stage_not_found");
       }
-      const cssBlob = context.cssStorageId ? await ctx.storage.get(context.cssStorageId) : null;
-      const entry = canvasSnapshotEntryHtml(
-        page.doc,
-        cssBlob ? await cssBlob.text() : "",
-        target,
-        undefined,
-        THEME_CSS,
-      );
-      temporaryEntryStorageId = await ctx.storage.store(new Blob([entry], { type: "text/html" }));
-      const getUrl = await ctx.storage.getUrl(temporaryEntryStorageId);
-      if (!getUrl) throw new Error("unable to stage published canvas entrypoint");
       entrypoint = "/src/__embed.html";
-      sources.push({ relPath: entrypoint, getUrl });
+      const staged = await stageSnapshotEntry(ctx, {
+        doc: page.doc,
+        cssStorageId: context.cssStorageId,
+        target,
+        relPath: entrypoint,
+      });
+      temporaryEntryStorageId = staged.storageId;
+      sources.push(staged.source);
     } else {
       if (spec.pageId || spec.target.type !== "canvas") {
         throw new Error("unsupported_snapshot_target");
@@ -166,11 +119,9 @@ async function render(
       clip: spec.clip,
       padding: spec.padding,
       scale: spec.scale,
-      readinessTimeoutMs: 15_000,
+      readinessTimeoutMs: SNAPSHOT_READINESS_TIMEOUT_MS,
       upload: { putUrl: await presignObject(objectKey, "PUT", 900), method: "PUT" },
-      themeTailwindCss: compileThemeToTailwindV4(theme),
-      themeRuntimeCss: compileThemeToCssVariables(theme),
-      themeJson: JSON.stringify(theme),
+      ...snapshotThemePayload(theme),
     });
     if (result.readiness.status !== "ready") {
       throw new Error(`iframe_not_ready: ${result.readiness.warnings.join("; ")}`);

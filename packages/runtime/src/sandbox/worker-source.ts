@@ -197,13 +197,35 @@ function canvasNative(value, defaultShape) {
   return canvasAdd("nodes", {
     id: value.id,
     kind: "native",
-    shape: value.shape || defaultShape || "note",
+    shape: value.shape || defaultShape || "card",
     rect: canvasRect(value.rect || value, "canvas.native"),
     caption: canvasCaption(value),
     anchors: value.anchors || [],
     ...(value.body ? { body: value.body } : {}),
     ...(value.stageId ? { stageId: value.stageId } : {}),
     ...(value.laneId ? { laneId: value.laneId } : {}),
+  });
+}
+
+function canvasSticky(value) {
+  if (!value || typeof value !== "object") throw new TypeError("canvas.sticky requires a note");
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const w = Number(value.w !== undefined ? value.w : value.width !== undefined ? value.width : 240);
+  if (![x, y, w].every(Number.isFinite) || w <= 0) {
+    throw new TypeError("canvas.sticky requires finite x/y and a positive w");
+  }
+  const text = String(value.text === undefined ? "" : value.text);
+  if (!text.trim()) throw new TypeError("canvas.sticky requires text");
+  // No author: the server stamps every note this SDK commits as the agent's.
+  return canvasAdd("notes", {
+    id: value.id || "note-" + (canvasOperations.length + 1),
+    x: x,
+    y: y,
+    w: w,
+    text: text,
+    ...(value.color ? { color: value.color } : {}),
+    ...(value.size ? { size: value.size } : {}),
   });
 }
 
@@ -374,10 +396,10 @@ function acceptanceChecklist(value) {
     id: value.id,
     title: value.title || "Acceptance criteria",
     rect: value.rect || value,
-    shape: "note",
+    shape: "card",
     stageId: value.stageId,
     body: { points: (value.items || []).map(function (item) { return "✓ " + item; }) },
-  }, "note");
+  }, "card");
 }
 
 function issueSection(value) {
@@ -475,7 +497,7 @@ const canvasComposition = Object.freeze({
 
 const canvasNodeApi = Object.assign(
   function (value) { return canvasAdd("nodes", value); },
-  { native: function (value) { return canvasNative(value, "note"); }, note: function (value) { return canvasNative(value, "note"); }, image: canvasImage, text: canvasText, frame: canvasFrame },
+  { native: function (value) { return canvasNative(value, "card"); }, card: function (value) { return canvasNative(value, "card"); }, image: canvasImage, text: canvasText, frame: canvasFrame },
 );
 const canvasDrawingApi = Object.assign(
   function (value) { return canvasAdd("drawings", value); },
@@ -495,11 +517,12 @@ const canvasSdk = Object.freeze({
   operation: canvasOperation,
   world: function (changes) { return canvasOperation({ op: "world.update", changes: changes }); },
   node: Object.freeze(canvasNodeApi),
-  native: function (value) { return canvasNative(value, "note"); },
-  note: function (value) { return canvasNative(value, "note"); },
+  native: function (value) { return canvasNative(value, "card"); },
+  card: function (value) { return canvasNative(value, "card"); },
   image: canvasImage,
   text: canvasText,
   frame: canvasFrame,
+  sticky: canvasSticky,
   stage: function (value) { return canvasAdd("stages", value); },
   label: function (value) { return canvasAdd("labels", value); },
   group: function (value) { return canvasAdd("groups", value); },

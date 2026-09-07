@@ -25,6 +25,7 @@ function canvasFile(): CanvasFile {
     groups: [],
     edges: [],
     drawings: [],
+    notes: [],
   });
   return {
     version: 3,

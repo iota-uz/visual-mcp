@@ -8,7 +8,7 @@ const anchors = ["top", "right", "bottom", "left"].map((side) => ({ id: side, si
 const node = (id: string, x: number, y: number, w = 100, h = 100) => ({
   id,
   kind: "native",
-  shape: "note",
+  shape: "card",
   rect: { x, y, w, h },
   caption: { title: id },
   anchors,

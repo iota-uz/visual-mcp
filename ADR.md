@@ -20,6 +20,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## canvas
 
+- **Sticky notes — коллекция notes[] в CanvasDoc без высоты и с проставляемым автором** — [запись](adr/canvas/sticky-notes-collection.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Стрелки используют общую геометрию, автоматические порты и явные ограничения** — [запись](adr/canvas/controllable-obstacle-aware-arrows.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **CanvasFile v3 разделяет долговечный draft, именованные checkpoints и опубликованную ревизию** — [запись](adr/canvas/drafts-checkpoints-and-published-revisions.md) · accepted · 2026-08-21 (`b0fa76a`, `3cce739`)
 
@@ -37,12 +38,15 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **Экспорт из браузера рендерит snapshot worker через Convex action, кэш по draft revision** — [запись](adr/platform/browser-export-via-snapshot-worker.md) · accepted · 2026-09-07 (план, утверждённый пользователем)
 - **Convex хранит данные и обслуживает BFF, а stateless MCP работает в Railway** — [запись](adr/platform/convex-bff-railway-mcp-boundary.md) · accepted · 2026-08-23 (`688d884`)
 - **`run_code` сохраняет `node:vm` и network egress как принятый риск** — [запись](adr/platform/run-code-network-risk-is-accepted.md) · accepted · 2026-08-09 (`9a73635`)
 - **Продукт использует hosted remote MCP; локальный stdio runtime удалён** — [запись](adr/platform/hosted-remote-mcp-only.md) · accepted · 2026-08-09 (`0bf0e03`, `9a73635`)
 
 ## product
 
+- **Человек авторит на канвасе два вида контента — sticky notes и заголовок ноды** — [запись](adr/product/human-authored-canvas-content.md) · accepted · 2026-09-07 (запрос сопровождающего)
+- **Play, Download и Rename живут в caption ноды, в контекстном меню и в inspector** — [запись](adr/product/canvas-node-actions.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Inspector и Exit якорятся к выбранной ноде в screen space** — [запись](adr/product/canvas-node-anchored-inspector.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Правый клик открывает короткое меню существующих операций focused-editor** — [запись](adr/product/canvas-context-menu.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Агент авторит CanvasDoc и артефакты двух форматов, человек получает сфокусированный редактор** — [запись](adr/product/agent-authored-dual-format-canvas.md) · accepted · 2026-08-09 (`9a73635`)

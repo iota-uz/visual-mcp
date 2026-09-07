@@ -65,7 +65,7 @@ test("CanvasDoc replace clears optional fields and preserves the semantic id", (
         rect: { ...node.rect, x: node.rect.x + 80 },
         caption: { title: "Replacement" },
         anchors: node.anchors,
-        shape: "note",
+        shape: "card",
       },
     },
   ]);

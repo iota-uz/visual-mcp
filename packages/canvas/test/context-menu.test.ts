@@ -51,7 +51,7 @@ test("a node offers fit, copy, and delete; iframe and native share the same item
   );
   assert.deepEqual(
     iframe.map((entry) => (entry.type === "separator" ? "|" : entry.id)),
-    ["fit-selection", "add-comment", "copy-link", "copy-ref", "|", "delete"],
+    ["rename", "|", "fit-selection", "add-comment", "copy-link", "copy-ref", "|", "delete"],
   );
   assert.equal(iframe.at(-1)?.type === "item" && iframe.at(-1).danger, true);
 
@@ -107,4 +107,44 @@ test("the menu opens beside the pointer and flips to stay inside the viewport", 
   });
   assert.equal(corner.x, 780 - 200 - 4);
   assert.equal(corner.y, 580 - 160 - 4);
+});
+
+test("node actions appear only when the app can run them, and never on actors or decisions", () => {
+  const ids = (entries: ReturnType<typeof contextMenuEntries>) =>
+    entries.map((entry) => (entry.type === "separator" ? "|" : entry.id));
+  const full = contextMenuEntries(
+    { kind: "node", nodeKind: "iframe", hasRef: false },
+    { comments: false, editable: true, copyLink: false, play: true, download: true },
+  );
+  assert.deepEqual(ids(full), ["play", "download", "rename", "|", "fit-selection", "|", "delete"]);
+  const actor = contextMenuEntries(
+    { kind: "node", nodeKind: "native", nodeShape: "actor", hasRef: false },
+    { comments: false, editable: true, copyLink: false, play: true, download: true },
+  );
+  assert.deepEqual(ids(actor), ["fit-selection", "|", "delete"]);
+  const viewer = contextMenuEntries(
+    { kind: "node", nodeKind: "iframe", hasRef: false },
+    { comments: false, editable: false, copyLink: false, play: true },
+  );
+  assert.deepEqual(ids(viewer), ["play", "|", "fit-selection"]);
+});
+
+test("sticky notes add an entry to the canvas menu and get their own target", () => {
+  const ids = (entries: ReturnType<typeof contextMenuEntries>) =>
+    entries.map((entry) => (entry.type === "separator" ? "|" : entry.id));
+  const canvas = contextMenuEntries(
+    { kind: "canvas", hasSelection: false },
+    { comments: false, editable: true, copyLink: false, notes: true },
+  );
+  assert.deepEqual(ids(canvas), ["add-note", "|", "fit-selection", "fit-page", "zoom-100"]);
+  const readonlyCanvas = contextMenuEntries(
+    { kind: "canvas", hasSelection: false },
+    { comments: false, editable: false, copyLink: false, notes: true },
+  );
+  assert.deepEqual(ids(readonlyCanvas), ["fit-selection", "fit-page", "zoom-100"]);
+  const note = contextMenuEntries(
+    { kind: "note", noteId: "n1" },
+    { comments: true, editable: true, copyLink: true, notes: true },
+  );
+  assert.deepEqual(ids(note), ["edit-note", "|", "fit-selection", "|", "delete"]);
 });

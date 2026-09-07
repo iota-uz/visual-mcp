@@ -51,8 +51,13 @@ import {
 import { describeIssues } from "@visual-canvas/canvas/issues.js";
 import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
-import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
+import {
+  applyCanvasDocPatch,
+  CANVAS_DOC_COLLECTIONS,
+  type CanvasDocPatchOperation,
+} from "@visual-canvas/canvas/patch.js";
 import { routeEdges } from "@visual-canvas/canvas/router.js";
+import { type CanvasSearchRow, canvasSearchRows } from "@visual-canvas/canvas/search-rows.js";
 import { canvasSnapshotEntryHtml } from "@visual-canvas/canvas/snapshot-entry.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { Theme, ThemeOverride } from "@visual-canvas/canvas/themes.js";
@@ -103,6 +108,7 @@ import {
   shareUrl,
 } from "./lib/urls.js";
 import { callWorker, extractStorageId, getWorkerConfig } from "./lib/worker.js";
+import { countHumanNotes, reconcileNoteAuthors, stampAgentNotes } from "./notes.js";
 import { internal } from "./refs.js";
 
 export interface McpPrincipal {
@@ -1728,13 +1734,7 @@ async function prepareSaveDoc(
     entryContentHash: string;
     iframeEntrypoints: string[];
     imagePaths: string[];
-    nodes: Array<{
-      pageId: string;
-      nodeId: string;
-      title: string;
-      eyebrow?: string;
-      searchText: string;
-    }>;
+    nodes: CanvasSearchRow[];
   };
   stored: Id<"_storage">[];
 }> {
@@ -1781,25 +1781,18 @@ async function prepareSaveDoc(
           ),
         ),
       ],
-      nodes: doc.pages.flatMap((page) =>
-        page.doc.nodes.map((node) => ({
-          pageId: page.id,
-          nodeId: node.id,
-          title: node.caption.title,
-          eyebrow: node.caption.tag,
-          searchText: [
-            page.title,
-            node.caption.title,
-            node.caption.subtitle,
-            node.caption.tag,
-            node.annotation?.content,
-          ]
-            .filter((value): value is string => typeof value === "string" && value.length > 0)
-            .join(" "),
-        })),
-      ),
+      nodes: canvasSearchRows(doc),
     },
   };
+}
+
+async function loadCurrentCanvasFile(
+  ctx: AgentContext,
+  ref: string,
+): Promise<CanvasFile | undefined> {
+  const source = await ctx.runQuery(internal.canvases.currentDocStorageByRef, { ref });
+  const blob = source ? await ctx.storage.get(source.storageId) : null;
+  return blob ? CanvasFileSchema.parse(JSON.parse(await blob.text())) : undefined;
 }
 
 async function saveCanvasFileDraft(
@@ -1811,12 +1804,17 @@ async function saveCanvasFileDraft(
     expectedVersion?: number;
     expectedDraftRevision?: number;
     note?: string;
+    /** The stored draft this write replaces; loaded when the caller has none. */
+    currentFile?: CanvasFile;
   },
 ) {
   const detail = await ctx.runQuery(internal.canvases.detailByRef, { ref: canvasId });
+  // Every full-document write passes here, so this is where human sticky
+  // notes keep their author whatever the tool above re-sent.
+  const currentFile = options.currentFile ?? (await loadCurrentCanvasFile(ctx, canvasId));
   const prepared = await prepareSaveDoc(
     ctx,
-    file,
+    reconcileNoteAuthors(currentFile, file),
     detail?.canvas.resolved_theme as Theme | undefined,
   );
   try {
@@ -2334,6 +2332,12 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             const blob = context?.docStorageId ? await ctx.storage.get(context.docStorageId) : null;
             if (blob) docInput = JSON.parse(await blob.text());
           }
+          if (docInput !== undefined) {
+            docInput = reconcileNoteAuthors(
+              upserted.created ? undefined : await loadCurrentCanvasFile(ctx, canvasId),
+              docInput,
+            );
+          }
           preparedDoc =
             docInput === undefined ? undefined : await prepareSaveDoc(ctx, docInput, resolvedTheme);
           if (
@@ -2847,15 +2851,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
   const entityValueSchema = z
     .unknown()
     .describe("Complete CanvasDoc entity, validated as part of the final document.");
-  const docPatchCollections = [
-    "lanes",
-    "stages",
-    "labels",
-    "nodes",
-    "groups",
-    "edges",
-    "drawings",
-  ] as const;
+  const docPatchCollections = CANVAS_DOC_COLLECTIONS;
   const docPatchOperationSchema = z.discriminatedUnion("op", [
     z
       .object({
@@ -2946,7 +2942,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         }
         const patchedDoc = applyCanvasDocPatch(
           currentPage.doc,
-          input.operations as CanvasDocPatchOperation[],
+          stampAgentNotes(input.operations as CanvasDocPatchOperation[], currentPage.doc),
         );
         const patchedFile = CanvasFileSchema.parse({
           ...currentFile,
@@ -2963,6 +2959,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             expectedVersion: input.expected_version,
             expectedDraftRevision: input.expected_draft_revision,
             note: input.note ?? `CanvasDoc patch (${input.operations.length})`,
+            currentFile,
           },
         );
         const warnings = dedupeWarnings(
@@ -3107,12 +3104,17 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
               return { op: operation.op, pageId: operation.page_id };
             case "pages.reorder":
               return { op: operation.op, pageIds: operation.page_ids };
-            case "page.doc.patch":
+            case "page.doc.patch": {
+              const page = resolveCanvasPage(loaded.file, operation.page_id);
               return {
                 op: operation.op,
                 pageId: operation.page_id,
-                operations: operation.operations as CanvasDocPatchOperation[],
+                operations: stampAgentNotes(
+                  operation.operations as CanvasDocPatchOperation[],
+                  page.id === operation.page_id || !operation.page_id ? page.doc : { notes: [] },
+                ),
               };
+            }
             case "prototype.start.set":
               return { op: operation.op, start: operation.start };
             case "prototype.interaction.upsert":
@@ -3136,6 +3138,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             expectedVersion: base.version,
             expectedDraftRevision: base.draftRevision,
             note: input.note ?? `Canvas patch (${input.operations.length})`,
+            currentFile: loaded.file,
           },
         );
         const affected = patched.file.pages.filter((page) =>
@@ -5079,9 +5082,18 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
               node_ids: z.array(z.string()).max(100).optional(),
               collections: z
                 .array(
-                  z.enum(["lanes", "stages", "labels", "nodes", "edges", "drawings", "legend"]),
+                  z.enum([
+                    "lanes",
+                    "stages",
+                    "labels",
+                    "nodes",
+                    "edges",
+                    "drawings",
+                    "notes",
+                    "legend",
+                  ]),
                 )
-                .max(7)
+                .max(8)
                 .optional(),
             })
             .strict()
@@ -5153,6 +5165,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
               // Always present, so an agent reading a canvas notices the
               // feedback waiting on it without having to ask a second tool.
               open_comments: z.number().int().nonnegative(),
+              // Sticky notes a person wrote on the canvas (the selected Page
+              // when one is named). Read them with doc_projection
+              // collections:["notes"] before editing.
+              open_notes_by_human: z.number().int().nonnegative(),
               canvas_url: z.string(),
               present_url: z.string().nullable(),
               share_url: z.string().nullable(),
@@ -5351,6 +5367,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                   nodes: canvasDoc.nodes.length,
                   edges: canvasDoc.edges.length,
                   drawings: canvasDoc.drawings.length,
+                  notes: canvasDoc.notes.length,
                 },
                 lanes: !projection || collections.has("lanes") ? canvasDoc.lanes : undefined,
                 stages: !projection || collections.has("stages") ? canvasDoc.stages : undefined,
@@ -5373,6 +5390,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                       : undefined,
                 drawings:
                   !projection || collections.has("drawings") ? canvasDoc.drawings : undefined,
+                notes: !projection || collections.has("notes") ? canvasDoc.notes : undefined,
                 legend: !projection || collections.has("legend") ? canvasDoc.legend : undefined,
               },
             },
@@ -5391,8 +5409,18 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         })();
 
         const canvasId = detail.canvas.canvas_id as Id<"canvases">;
-        const [openComments, commentThreads] = await Promise.all([
+        const [openComments, openHumanNotes, commentThreads] = await Promise.all([
           ctx.runQuery(internal.comments.openCount, { canvasId }),
+          // Counted from the file already in hand when the doc was read;
+          // otherwise the draft is loaded just for the count, so the number
+          // is always present like open_comments.
+          canvasFile
+            ? Promise.resolve(countHumanNotes(canvasFile, selectedPage?.id ?? input.page_id))
+            : detail.canvas.kind === "canvas"
+              ? loadCurrentCanvasFile(ctx, ref).then((file) =>
+                  file ? countHumanNotes(file, input.page_id) : 0,
+                )
+              : Promise.resolve(0),
           include.has("comments")
             ? ctx.runQuery(internal.comments.list, {
                 canvasId,
@@ -5454,6 +5482,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             resolved_theme:
               input.response_mode === "full" ? detail.canvas.resolved_theme : undefined,
             open_comments: openComments,
+            open_notes_by_human: openHumanNotes,
             canvas_url: focusedCanvasUrl.toString(),
             present_url:
               detail.canvas.kind === "canvas"
@@ -5817,9 +5846,9 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
       title: "Find canvases",
       description:
         "Browses and searches. With no query it lists workspaces and recent canvases; with a " +
-        "query it searches canvas titles and the text inside canvas-document nodes, so a hit can " +
-        "point at the exact node. Every result carries a ref you can pass straight to the other " +
-        "tools.",
+        "query it searches canvas titles, the text inside canvas-document nodes, and sticky " +
+        "notes, so a hit can point at the exact node or note. Every result carries a ref you can " +
+        "pass straight to the other tools.",
       annotations: { readOnlyHint: true },
       inputSchema: z
         .object({
@@ -5866,9 +5895,21 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           z.object({
             ref: z.string(),
             canvas_id: z.string(),
+            page_id: z.string(),
             node_id: z.string(),
             node_title: z.string(),
             eyebrow: z.string().optional(),
+          }),
+        ),
+        /** Sticky notes whose text matched — the human's feedback is searchable too. */
+        notes: z.array(
+          z.object({
+            ref: z.string(),
+            canvas_id: z.string(),
+            page_id: z.string(),
+            note_id: z.string(),
+            excerpt: z.string(),
+            author: z.enum(["human", "agent"]),
           }),
         ),
         has_more: z.boolean(),
@@ -5945,7 +5986,26 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             canvas_url: canvasUrl(c.canvas_id),
             share_url: shareUrl(c.public_slug),
           })),
-          nodes: nodePage.nodes,
+          nodes: nodePage.nodes
+            .filter((row) => row.entity === "node")
+            .map((row) => ({
+              ref: row.ref,
+              canvas_id: row.canvas_id,
+              page_id: row.page_id,
+              node_id: row.entity_id,
+              node_title: row.title,
+              eyebrow: row.eyebrow,
+            })),
+          notes: nodePage.nodes
+            .filter((row) => row.entity === "note")
+            .map((row) => ({
+              ref: row.ref,
+              canvas_id: row.canvas_id,
+              page_id: row.page_id,
+              note_id: row.entity_id,
+              excerpt: row.title,
+              author: row.eyebrow === "Human note" ? ("human" as const) : ("agent" as const),
+            })),
           has_more: !found.is_done,
           next_cursor: found.next_cursor,
           nodes_done: nodePage.is_done,
@@ -6164,7 +6224,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           const page = resolveCanvasPage(initialFile, initialPageId);
           const patchedDoc = applyCanvasDocPatch(
             page.doc,
-            canvasOperations as CanvasDocPatchOperation[],
+            stampAgentNotes(canvasOperations as CanvasDocPatchOperation[], page.doc),
           );
           patchedFile = CanvasFileSchema.parse({
             ...initialFile,

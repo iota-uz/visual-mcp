@@ -16,6 +16,16 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
 
+/** Mirror of `CanvasSearchRow` in @visual-canvas/canvas/search-rows. */
+export const CanvasSearchRowValidator = v.object({
+  pageId: v.string(),
+  entity: v.union(v.literal("node"), v.literal("note")),
+  entityId: v.string(),
+  title: v.string(),
+  eyebrow: v.optional(v.string()),
+  searchText: v.string(),
+});
+
 // The app owns user creation through auth.ts's createOrUpdateUser callback.
 // Auth support tables still use this row id for sessions and accounts.
 const { users: _authUsers, ...authSupportTables } = authTables;
@@ -339,6 +349,26 @@ export default defineSchema({
     .index("by_canvas", ["canvasId"])
     .index("by_createdAt", ["createdAt"]),
 
+  // Browser exports (Download on a node, the header Export menu): the
+  // worker's PNG/PDF of the *draft*, cached per draft revision so repeated
+  // clicks on an unchanged canvas do not re-render. Ephemeral like
+  // canvasSnapshots — swept after 24h — but kept apart from it because a
+  // snapshot is always a PNG of an immutable version and every reader of
+  // that table relies on both facts.
+  canvasExports: defineTable({
+    canvasId: v.id("canvases"),
+    draftRevision: v.number(),
+    cacheKey: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.union(v.literal("image/png"), v.literal("application/pdf")),
+    size: v.number(),
+    filename: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_canvas_cacheKey", ["canvasId", "cacheKey"])
+    .index("by_canvas", ["canvasId"])
+    .index("by_createdAt", ["createdAt"]),
+
   // Durable public-embed cache metadata. PNG bytes live under the `embeds/`
   // prefix in the private S3_ASSET bucket and are only streamed after a live
   // share-slug check; they are separate from ephemeral Convex snapshots.
@@ -454,20 +484,18 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_canvas", ["canvasId"]),
 
-  // One small document per canvas node — what makes `#node=` resolution and
-  // full-text search index lookups instead of full-document scans (PLAN.md
-  // section 4).
+  // One small document per searchable canvas entity (a node or a sticky
+  // note) — what makes `#node=` resolution and full-text search index lookups
+  // instead of full-document scans (PLAN.md section 4). Rows are built by
+  // `canvasSearchRows` in @visual-canvas/canvas so every write path indexes
+  // the same text.
   canvasNodes: defineTable({
     canvasId: v.id("canvases"),
     versionId: v.id("canvasVersions"),
-    pageId: v.string(),
-    nodeId: v.string(),
-    title: v.string(),
-    eyebrow: v.optional(v.string()),
-    searchText: v.string(),
+    ...CanvasSearchRowValidator.fields,
   })
     .index("by_version", ["versionId"])
-    .index("by_versionId_and_nodeId", ["versionId", "nodeId"])
+    .index("by_versionId_and_entityId", ["versionId", "entityId"])
     // Needed to enumerate a canvas's nodes without walking its versions —
     // deleting a canvas has to remove them, and the search index can filter
     // by canvasId but cannot enumerate by it.
@@ -476,14 +504,10 @@ export default defineSchema({
 
   canvasDraftNodes: defineTable({
     canvasId: v.id("canvases"),
-    pageId: v.string(),
-    nodeId: v.string(),
-    title: v.string(),
-    eyebrow: v.optional(v.string()),
-    searchText: v.string(),
+    ...CanvasSearchRowValidator.fields,
   })
     .index("by_canvas", ["canvasId"])
-    .index("by_canvas_page_node", ["canvasId", "pageId", "nodeId"])
+    .index("by_canvas_page_entity", ["canvasId", "pageId", "entityId"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
 
   /**

@@ -5,6 +5,7 @@ import {
   type CanvasFile,
   CanvasFileSchema,
   type CanvasNode,
+  type CanvasNote,
   type CommentAnchor,
   type CommentMarker,
   formatElementRef,
@@ -12,6 +13,9 @@ import {
   mountViewport,
   type Rect as NodeRect,
   type NodeRestorePayload,
+  type NoteChanges,
+  type PrototypeNodeFlags,
+  prototypeNodeFlags,
   resolveCanvasPage,
   type Theme,
   type ViewportController,
@@ -60,6 +64,7 @@ import { CommentsPanel } from "../components/comments/CommentsPanel";
 import { commentAnchorLabel } from "../components/comments/types";
 import { EmbedControl } from "../components/EmbedControl";
 import { EmptyState } from "../components/EmptyState";
+import { ExportMenu } from "../components/ExportMenu";
 import { LoadingState } from "../components/LoadingState";
 import { RenameForm } from "../components/RenameForm";
 import { CanvasSkeleton } from "../components/Skeleton";
@@ -71,6 +76,7 @@ import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
 import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
 import { convexSiteOrigin } from "../lib/convexSiteOrigin";
+import { describeExportWarnings, exportErrorMessage, exportNode } from "../lib/export";
 import { formatBytes } from "../lib/formatBytes";
 import { formatAbsoluteTime, formatRelativeTime } from "../lib/formatDate";
 import {
@@ -112,6 +118,14 @@ export function CanvasViewport({
   onCommentActivate,
   onCommentDraft,
   onCommentDismiss,
+  prototypeFlags,
+  resolvePresentUrl,
+  onPlay,
+  onDownload,
+  onCaptionRename,
+  onNoteAdd,
+  onNoteChange,
+  onNoteDelete,
 }: {
   doc: CanvasDoc;
   iframeBaseUrl?: string | null;
@@ -143,6 +157,17 @@ export function CanvasViewport({
   onCommentActivate?: (commentId: string) => void;
   onCommentDraft?: (anchor: { nodeId?: string; point: { x: number; y: number } }) => void;
   onCommentDismiss?: () => void;
+  /** Which nodes take part in the prototype, for the ring and the Start flag. */
+  prototypeFlags?: ReadonlyMap<string, PrototypeNodeFlags>;
+  /** Present-from-here link per node; passing `onPlay` turns the Play button on. */
+  resolvePresentUrl?: (nodeId: string) => string | undefined;
+  onPlay?: (nodeId: string) => void;
+  onDownload?: (nodeId: string) => void;
+  onCaptionRename?: (nodeId: string, title: string, previous: string) => void;
+  /** Passing `onNoteAdd` is what turns the Note tool on. */
+  onNoteAdd?: (note: CanvasNote) => void;
+  onNoteChange?: (id: string, changes: NoteChanges, previous: CanvasNote) => void;
+  onNoteDelete?: (id: string, note: CanvasNote) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ViewportController | null>(null);
@@ -188,6 +213,28 @@ export function CanvasViewport({
   const onCommentDismissRef = useRef(onCommentDismiss);
   onCommentDismissRef.current = onCommentDismiss;
   const commentsEnabled = Boolean(onCommentDraft);
+  const onPlayRef = useRef(onPlay);
+  onPlayRef.current = onPlay;
+  const onDownloadRef = useRef(onDownload);
+  onDownloadRef.current = onDownload;
+  const onCaptionRenameRef = useRef(onCaptionRename);
+  onCaptionRenameRef.current = onCaptionRename;
+  const resolvePresentUrlRef = useRef(resolvePresentUrl);
+  resolvePresentUrlRef.current = resolvePresentUrl;
+  const onNoteAddRef = useRef(onNoteAdd);
+  onNoteAddRef.current = onNoteAdd;
+  const onNoteChangeRef = useRef(onNoteChange);
+  onNoteChangeRef.current = onNoteChange;
+  const onNoteDeleteRef = useRef(onNoteDelete);
+  onNoteDeleteRef.current = onNoteDelete;
+  const prototypeFlagsRef = useRef(prototypeFlags);
+  prototypeFlagsRef.current = prototypeFlags;
+  // Presence decides whether the affordance exists at all, so it is a
+  // mount-effect dependency like `commentsEnabled`; the handler identity is not.
+  const playEnabled = Boolean(onPlay);
+  const downloadEnabled = Boolean(onDownload);
+  const renameEnabled = Boolean(onCaptionRename);
+  const notesEnabled = Boolean(onNoteAdd);
   /*
    * State, not a ref: the portal target only exists once the viewport has
    * mounted, and the popover has to render on the paint after that rather
@@ -307,6 +354,26 @@ export function CanvasViewport({
       onGroupMove: (groupId, dx, dy) => onGroupMoveRef.current?.(groupId, dx, dy),
       onNodesMove: (nodeIds, dx, dy) => onNodesMoveRef.current?.(nodeIds, dx, dy),
       onDeleteNodes: (nodeIds) => onDeleteNodesRef.current?.(nodeIds),
+      prototypeFlags: prototypeFlagsRef.current,
+      resolvePresentUrl: (nodeId) => resolvePresentUrlRef.current?.(nodeId),
+      ...(playEnabled ? { onPlay: (nodeId: string) => onPlayRef.current?.(nodeId) } : {}),
+      ...(downloadEnabled
+        ? { onDownload: (nodeId: string) => onDownloadRef.current?.(nodeId) }
+        : {}),
+      ...(renameEnabled
+        ? {
+            onCaptionRename: (nodeId: string, title: string, previous: string) =>
+              onCaptionRenameRef.current?.(nodeId, title, previous),
+          }
+        : {}),
+      ...(notesEnabled
+        ? {
+            onNoteAdd: (note: CanvasNote) => onNoteAddRef.current?.(note),
+            onNoteChange: (id: string, changes: NoteChanges, previous: CanvasNote) =>
+              onNoteChangeRef.current?.(id, changes, previous),
+            onNoteDelete: (id: string, note: CanvasNote) => onNoteDeleteRef.current?.(id, note),
+          }
+        : {}),
       comments,
       ...(commentsEnabled
         ? {
@@ -360,11 +427,25 @@ export function CanvasViewport({
       setCommentHost(null);
       controller.dispose();
     };
-  }, [cameraStorageKey, commentsEnabled, editable, immersive, syncSelectionToUrl]);
+  }, [
+    cameraStorageKey,
+    commentsEnabled,
+    editable,
+    immersive,
+    syncSelectionToUrl,
+    playEnabled,
+    downloadEnabled,
+    renameEnabled,
+    notesEnabled,
+  ]);
 
   useEffect(() => {
     controllerRef.current?.setComments(comments ?? []);
   }, [comments]);
+
+  useEffect(() => {
+    controllerRef.current?.setPrototypeFlags(prototypeFlags ?? new Map());
+  }, [prototypeFlags]);
 
   useEffect(() => {
     controllerRef.current?.setActiveComment(activeCommentId ?? null);
@@ -1900,7 +1981,7 @@ export function CanvasPage() {
     api.canvases.getMine,
     canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
-  const patchGeometry = useAction(api.canvases.patchGeometryMine);
+  const patchManualEdit = useAction(api.canvases.patchManualEditMine);
   const saveCanvasFile = useAction(api.canvases.saveCanvasFileMine);
   const checkpoint = useMutation(api.canvases.checkpointMine);
   const canvasVersion = canvas?.version;
@@ -1936,6 +2017,35 @@ export function CanvasPage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const prototypeFlags = useMemo(
+    () => (file ? prototypeNodeFlags(file.prototype, activePageId) : new Map()),
+    [file, activePageId],
+  );
+  const requestExport = useAction(api.exports.requestMine);
+  /*
+   * The Download button beside a node's title. Rendered server-side by the
+   * same worker that draws snapshots for the agent, so what the human
+   * downloads is what the agent has been looking at.
+   */
+  async function downloadNode(nodeId: string) {
+    if (!canvasId || !activePageId) return;
+    try {
+      const result = await exportNode(requestExport, {
+        canvasId: canvasId as Id<"canvases">,
+        pageId: activePageId,
+        nodeId,
+        scale: 2,
+      });
+      const warning = describeExportWarnings(result);
+      notify(
+        warning
+          ? { message: `Downloaded with a caveat: ${warning}` }
+          : { message: "Downloading PNG." },
+      );
+    } catch (err: unknown) {
+      notify({ tone: "error", message: `Couldn't export this screen: ${exportErrorMessage(err)}` });
+    }
+  }
   /*
    * Persisted, like the camera already is. It used to reset on every visit,
    * so anyone who preferred the rail out of the way had to collapse it
@@ -2113,15 +2223,20 @@ export function CanvasPage() {
     detailsOpen && canvasId ? { canvasId: canvasId as Id<"canvases"> } : "skip",
   );
   const lastAuthor = versions?.find((v) => v.isCurrent)?.createdByEmail ?? null;
-  function queueGeometryChange(
+  function queueManualEdit(
     change:
       | { kind: "edge"; edgeId: string; edge: CanvasEdge }
       | { kind: "node"; nodeId: string; rect: { x: number; y: number; w: number; h: number } }
       | { kind: "group"; groupId: string; dx: number; dy: number }
       | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
       | { kind: "delete"; nodeIds: string[] }
-      | ({ kind: "restore" } & NodeRestorePayload),
-    onResult?: (result: { undo?: NodeRestorePayload }) => void,
+      | ({ kind: "restore" } & NodeRestorePayload)
+      | { kind: "caption"; nodeId: string; title: string }
+      | { kind: "note-add"; note: Omit<CanvasNote, "author"> }
+      | { kind: "note"; noteId: string; changes: NoteChanges }
+      | { kind: "note-delete"; noteId: string }
+      | { kind: "note-restore"; note: CanvasNote },
+    onResult?: (result: { undo?: NodeRestorePayload; removedNote?: CanvasNote }) => void,
   ) {
     if (!canvasId) return;
     pendingGeometrySavesRef.current += 1;
@@ -2132,7 +2247,7 @@ export function CanvasPage() {
       .then(async () => {
         const expectedVersion = persistedVersionRef.current;
         if (expectedVersion === undefined) return;
-        const result = await patchGeometry({
+        const result = await patchManualEdit({
           canvasId: canvasId as Id<"canvases">,
           pageId: activePageId,
           change,
@@ -2141,7 +2256,7 @@ export function CanvasPage() {
         });
         persistedVersionRef.current = result.version;
         persistedDraftRevisionRef.current = result.draftRevision;
-        onResult?.(result as { undo?: NodeRestorePayload });
+        onResult?.(result as { undo?: NodeRestorePayload; removedNote?: CanvasNote });
         failed = false;
       })
       .catch((error: unknown) => {
@@ -2182,7 +2297,16 @@ export function CanvasPage() {
      * last saw it — so it is filled in on the way back and refreshed on every
      * redo of the same edit.
      */
-    | { kind: "delete"; nodeIds: string[]; undo: NodeRestorePayload };
+    | { kind: "delete"; nodeIds: string[]; undo: NodeRestorePayload }
+    | { kind: "caption"; nodeId: string; before: string; after: string }
+    /*
+     * A note's undo is the note itself: adding one undoes to a delete,
+     * deleting one undoes to a restore that keeps the author it had, and a
+     * change carries the fields it touched in both directions.
+     */
+    | { kind: "note-add"; note: CanvasNote }
+    | { kind: "note"; noteId: string; before: NoteChanges; after: NoteChanges }
+    | { kind: "note-delete"; note: CanvasNote };
   const undoStackRef = useRef<ManualEdit[]>([]);
   const redoStackRef = useRef<ManualEdit[]>([]);
   const HISTORY_LIMIT = 50;
@@ -2197,14 +2321,14 @@ export function CanvasPage() {
     const sign = direction === "undo" ? -1 : 1;
     switch (edit.kind) {
       case "edge":
-        queueGeometryChange({
+        queueManualEdit({
           kind: "edge",
           edgeId: edit.after.id,
           edge: direction === "undo" ? edit.before : edit.after,
         });
         return;
       case "nodes":
-        queueGeometryChange({
+        queueManualEdit({
           kind: "nodes",
           nodeIds: edit.nodeIds,
           dx: edit.dx * sign,
@@ -2212,7 +2336,7 @@ export function CanvasPage() {
         });
         return;
       case "group":
-        queueGeometryChange({
+        queueManualEdit({
           kind: "group",
           groupId: edit.groupId,
           dx: edit.dx * sign,
@@ -2220,14 +2344,36 @@ export function CanvasPage() {
         });
         return;
       case "node":
-        queueGeometryChange({
+        queueManualEdit({
           kind: "node",
           nodeId: edit.nodeId,
           rect: direction === "undo" ? edit.before : edit.after,
         });
         return;
+      case "caption":
+        queueManualEdit({
+          kind: "caption",
+          nodeId: edit.nodeId,
+          title: direction === "undo" ? edit.before : edit.after,
+        });
+        return;
+      case "note-add":
+        if (direction === "undo") queueManualEdit({ kind: "note-delete", noteId: edit.note.id });
+        else queueManualEdit({ kind: "note-restore", note: edit.note });
+        return;
+      case "note":
+        queueManualEdit({
+          kind: "note",
+          noteId: edit.noteId,
+          changes: direction === "undo" ? edit.before : edit.after,
+        });
+        return;
+      case "note-delete":
+        if (direction === "undo") queueManualEdit({ kind: "note-restore", note: edit.note });
+        else queueManualEdit({ kind: "note-delete", noteId: edit.note.id });
+        return;
       default:
-        if (direction === "undo") queueGeometryChange({ kind: "restore", ...edit.undo });
+        if (direction === "undo") queueManualEdit({ kind: "restore", ...edit.undo });
         else performNodeDeletion(edit);
     }
   }
@@ -2275,7 +2421,7 @@ export function CanvasPage() {
    * server actually removed. Shared by the confirmation dialog and redo.
    */
   function performNodeDeletion(edit: Extract<ManualEdit, { kind: "delete" }>) {
-    queueGeometryChange({ kind: "delete", nodeIds: edit.nodeIds }, (result) => {
+    queueManualEdit({ kind: "delete", nodeIds: edit.nodeIds }, (result) => {
       if (result.undo) edit.undo = result.undo;
     });
   }
@@ -2433,6 +2579,18 @@ export function CanvasPage() {
               aria-expanded={detailsOpen}
               aria-controls="canvas-details"
             />
+            {activePageId && (
+              <ExportMenu
+                canvasId={canvas.canvas_id as Id<"canvases">}
+                pageId={activePageId}
+                onError={(message) => notify({ tone: "error", message })}
+                onDone={(_result, message) =>
+                  notify({
+                    message: message ? `Downloaded with a caveat: ${message}` : "Downloading.",
+                  })
+                }
+              />
+            )}
             <IconLink
               to={`/c/${canvas.canvas_id}/present`}
               icon={Play}
@@ -2754,22 +2912,58 @@ export function CanvasPage() {
               canvasRef={workspace ? `${workspace.slug}/${canvas.slug}` : undefined}
               cameraStorageKey={`visual-canvas:camera:${sessionUser?.userId ?? "session"}:${canvas.canvas_id}:${activePageId}`}
               onGeometryChange={(nodeId, rect, previous) => {
-                queueGeometryChange({ kind: "node", nodeId, rect });
+                queueManualEdit({ kind: "node", nodeId, rect });
                 recordEdit({ kind: "node", nodeId, before: previous, after: rect });
               }}
               onEdgeChange={(edge, previous) => {
-                queueGeometryChange({ kind: "edge", edgeId: edge.id, edge });
+                queueManualEdit({ kind: "edge", edgeId: edge.id, edge });
                 recordEdit({ kind: "edge", before: previous, after: edge });
               }}
               onGroupMove={(groupId, dx, dy) => {
-                queueGeometryChange({ kind: "group", groupId, dx, dy });
+                queueManualEdit({ kind: "group", groupId, dx, dy });
                 recordEdit({ kind: "group", groupId, dx, dy });
               }}
               onNodesMove={(nodeIds, dx, dy) => {
-                queueGeometryChange({ kind: "nodes", nodeIds, dx, dy });
+                queueManualEdit({ kind: "nodes", nodeIds, dx, dy });
                 recordEdit({ kind: "nodes", nodeIds, dx, dy });
               }}
               onDeleteNodes={requestNodeDeletion}
+              prototypeFlags={prototypeFlags}
+              resolvePresentUrl={(nodeId) =>
+                `/c/${canvas.canvas_id}/present?page=${encodeURIComponent(activePageId)}&node=${encodeURIComponent(nodeId)}`
+              }
+              onPlay={(nodeId) =>
+                navigate(
+                  `/c/${canvas.canvas_id}/present?page=${encodeURIComponent(activePageId)}&node=${encodeURIComponent(nodeId)}`,
+                )
+              }
+              onDownload={(nodeId) => void downloadNode(nodeId)}
+              onCaptionRename={(nodeId, title, previous) => {
+                queueManualEdit({ kind: "caption", nodeId, title });
+                recordEdit({ kind: "caption", nodeId, before: previous, after: title });
+              }}
+              onNoteAdd={(note) => {
+                const { author: _author, ...draft } = note;
+                queueManualEdit({ kind: "note-add", note: draft });
+                recordEdit({ kind: "note-add", note });
+              }}
+              onNoteChange={(noteId, changes, previous) => {
+                queueManualEdit({ kind: "note", noteId, changes });
+                const before = Object.fromEntries(
+                  Object.keys(changes).map((key) => [key, previous[key as keyof NoteChanges]]),
+                ) as NoteChanges;
+                recordEdit({ kind: "note", noteId, before, after: changes });
+              }}
+              onNoteDelete={(noteId, note) => {
+                queueManualEdit({ kind: "note-delete", noteId }, (result) => {
+                  if (result.removedNote) edit.note = result.removedNote;
+                });
+                const edit: Extract<ManualEdit, { kind: "note-delete" }> = {
+                  kind: "note-delete",
+                  note,
+                };
+                recordEdit(edit);
+              }}
               comments={commentMarkers}
               activeCommentId={activeCommentId}
               commentAnchor={commentAnchor}

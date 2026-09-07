@@ -49,6 +49,10 @@ Orthogonal waypoints are ordered constraints: the router connects them with obst
 
 Labels are placed off the stroke and avoid cards/other labels. Narrow gaps use a leader callout. label.position selects arc-length position (0..1); label.offset:{x,y} overrides automatic placement relative to that point. Avoid manual offsets unless needed. All coordinates and label sizes are world-space; camera fitting includes route and label bounds. In the viewer, select an arrow for settings and endpoint/segment/label handles; edits autosave to the draft and support undo.
 
+## Sticky notes
+
+\`notes\` is a CanvasDoc collection of plain-text sticky notes pinned to world coordinates: \`{id,x,y,w,text,color?,size?,author}\`. People write them in the editor (Note tool) as feedback on the work; the agent writes its own as annotations. Read them before editing: \`canvas_get\` with \`doc_projection:{collections:["notes"]}\` returns them, \`open_notes_by_human\` counts the human ones, and \`canvas_find\` searches their text. Add one with \`notes.add {id,x,y,w,text,color?,size?}\` (colors yellow|blue|green|pink|neutral, sizes s|m|l, width 120..2000) or \`canvas.sticky({...})\` in canvas_run; \`author\` is stamped server-side and never taken from the payload. A human note is read-only text for the agent: move, resize or recolor it, but a text change is rejected with \`note_owned_by_human\`. Notes are not comments; use comments to reply to a person.
+
 ## Delivery
 
 Use the returned URLs. \`canvas_url\` is the signed-in viewer, \`present_url\` is immersive canvas playback, and \`share_url\` exists only for public canvases. Never construct URLs.`,
@@ -64,7 +68,7 @@ Use \`canvas_run\` when a visual edit is easier to express as JavaScript than as
 
 ## Primitives and geometry
 
-Create content with \`canvas.node.native\`, \`note\`, \`image\`, \`text\`, and \`frame\`. Add non-destructive annotations with \`canvas.drawing.rect\`, \`ellipse\`, \`line\`, \`arrow\`, \`path\`, \`highlight\`, \`badge\`, and \`callout\`. Points may be absolute world coordinates, normalized coordinates inside a node, or semantic node anchors. Prefer node-relative geometry for screenshot annotations so annotations follow the screenshot when it moves or resizes.
+Create content with \`canvas.node.native\`, \`card\`, \`image\`, \`text\`, and \`frame\`; \`canvas.sticky\` adds a sticky note. Add non-destructive annotations with \`canvas.drawing.rect\`, \`ellipse\`, \`line\`, \`arrow\`, \`path\`, \`highlight\`, \`badge\`, and \`callout\`. Points may be absolute world coordinates, normalized coordinates inside a node, or semantic node anchors. Prefer node-relative geometry for screenshot annotations so annotations follow the screenshot when it moves or resizes.
 
 Arrange generated nodes with \`canvas.layout.stack\`, \`row\`, \`grid\`, \`columns\`, \`overlay\`, and \`inset\`. Use the built-in homogeneous compositions \`annotatedScreenshot\`, \`beforeAfter\`/\`comparison\`, \`numberedCallouts\`, \`issueSection\`, \`specTable\`, \`acceptanceChecklist\`, and \`stepFlow\` before inventing a new visual grammar.
 

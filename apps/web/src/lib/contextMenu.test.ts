@@ -17,11 +17,12 @@ function doc(): CanvasDoc {
     groups: [{ id: "bundle", label: "Bundle", nodeIds: ["note"] }],
     edges: [],
     drawings: [],
+    notes: [],
     nodes: [
       {
         id: "note",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 80, y: 80, w: 160, h: 120 },
         caption: { title: "Note" },
         body: { text: "Selectable copy" },
@@ -43,7 +44,7 @@ function doc(): CanvasDoc {
       {
         id: "other",
         kind: "native",
-        shape: "note",
+        shape: "card",
         rect: { x: 700, y: 80, w: 140, h: 90 },
         caption: { title: "Other" },
         anchors,

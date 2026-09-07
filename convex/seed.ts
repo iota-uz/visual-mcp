@@ -97,6 +97,30 @@ const CANVAS_FILE = {
           },
         ],
         labels: [],
+        // One note from each author, so the editor, the search index and the
+        // MCP projection all have both kinds to show from a fresh reset.
+        notes: [
+          {
+            id: "note-human-cta",
+            x: 470,
+            y: 120,
+            w: 230,
+            text: "Can the intake form remember the last vehicle?\nMost claimants only have one.",
+            color: "yellow",
+            size: "m",
+            author: "human",
+          },
+          {
+            id: "note-agent-pricing",
+            x: 1_020,
+            y: 560,
+            w: 260,
+            text: "Pricing runs nightly today; the settle step assumes same-day. Flagging before I wire the flow.",
+            color: "blue",
+            size: "s",
+            author: "agent",
+          },
+        ],
         nodes: [
           {
             id: "claimant",
@@ -362,8 +386,10 @@ export const write = internalMutation({
       "assetVersions",
       "assetUploads",
       "assets",
+      "canvasExports",
       "canvasFiles",
       "canvasNodes",
+      "canvasDraftNodes",
       "canvasVersions",
       "canvases",
       "workspaces",
