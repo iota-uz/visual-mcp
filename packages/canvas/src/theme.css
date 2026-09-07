@@ -2491,8 +2491,14 @@
   display: none;
   flex: none;
   align-items: center;
-  gap: calc(2px * var(--vc-camera-inverse));
+  gap: calc(1px * var(--vc-camera-inverse));
+  /* One strip, not three loose chips: the group reads as the screen's own
+     controls and keeps the caption's white surface. */
   margin-left: auto;
+  padding: calc(2px * var(--vc-camera-inverse));
+  border: calc(1px * var(--vc-camera-inverse)) solid var(--vc-line);
+  border-radius: var(--vc-radius-sm);
+  background: var(--vc-white);
 }
 .vc-node:hover .vc-caption-actions,
 .vc-node:focus-within .vc-caption-actions,
@@ -2512,19 +2518,22 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(22px * var(--vc-camera-inverse));
-  height: calc(22px * var(--vc-camera-inverse));
+  /* A pointer target, not a glyph: 28px is the smallest of these anyone hit
+     reliably, and the resting surface is what makes them read as buttons
+     rather than as decoration beside the title. */
+  width: calc(28px * var(--vc-camera-inverse));
+  height: calc(28px * var(--vc-camera-inverse));
   padding: 0;
   border: 0;
-  border-radius: var(--vc-radius-sm);
+  border-radius: calc(var(--vc-radius-sm) - 1px);
   background: transparent;
   color: var(--vc-ink-soft);
   cursor: pointer;
   text-decoration: none;
 }
 .vc-caption-action svg {
-  width: calc(12px * var(--vc-camera-inverse));
-  height: calc(12px * var(--vc-camera-inverse));
+  width: calc(15px * var(--vc-camera-inverse));
+  height: calc(15px * var(--vc-camera-inverse));
   fill: currentColor;
 }
 .vc-caption-action:hover {
@@ -2539,7 +2548,7 @@
   color: var(--vc-accent);
 }
 .vc-caption-play.is-interactive:hover {
-  background: color-mix(in srgb, var(--vc-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--vc-accent) 20%, var(--vc-white));
   color: var(--vc-accent);
 }
 

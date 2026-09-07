@@ -2,7 +2,8 @@
 
 .canvas-navigation-trigger,
 .canvas-command-comments,
-.canvas-command-details {
+.canvas-command-details,
+.canvas-command-export {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -901,7 +902,8 @@
 
 .canvas-navigation-trigger:hover,
 .canvas-command-comments:hover,
-.canvas-command-details:hover {
+.canvas-command-details:hover,
+.canvas-command-export:hover {
   border-color: var(--app-accent);
   color: var(--app-accent-text);
 }
@@ -1065,7 +1067,8 @@
 }
 
 .canvas-command-comments,
-.canvas-command-details {
+.canvas-command-details,
+.canvas-command-export {
   flex: none;
   gap: 6px;
   min-height: max(30px, var(--app-hit-min));
@@ -1546,7 +1549,13 @@
 @media (max-width: 640px) {
   .canvas-command-details span,
   .canvas-command-present span,
-  .canvas-command-comments span {
+  .canvas-command-comments span,
+  .canvas-command-export span {
+    display: none;
+  }
+
+  /* Without its label the chevron is noise beside the download glyph. */
+  .canvas-command-export .icon-button-chevron {
     display: none;
   }
 
@@ -1568,7 +1577,8 @@
 @media (max-width: 640px) {
   .canvas-command-comments,
   .canvas-command-details,
-  .canvas-command-present {
+  .canvas-command-present,
+  .canvas-command-export {
     width: max(30px, var(--app-hit-min));
     justify-content: center;
     padding: 0;
@@ -1629,6 +1639,24 @@
 
 .canvas-command-export[aria-busy] {
   opacity: 0.7;
+}
+
+/* Open reads like Comments' pressed state, so the two menus in the bar
+   behave the same way. */
+.canvas-command-export[aria-expanded="true"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+
+.canvas-command-export .icon-button-chevron {
+  margin-left: -2px;
+  color: var(--app-muted);
+  transition: transform var(--app-transition);
+}
+
+.canvas-command-export[aria-expanded="true"] .icon-button-chevron {
+  color: inherit;
+  transform: rotate(180deg);
 }
 
 .present-controls a kbd {

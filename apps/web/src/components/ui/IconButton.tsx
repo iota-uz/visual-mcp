@@ -23,14 +23,20 @@ interface IconControl {
   text?: string;
   /** Lucide's `size`, in px. */
   iconSize?: number;
+  /**
+   * A second, smaller icon after the text — only for a control that opens a
+   * menu, where the chevron is what says so.
+   */
+  trailingIcon?: LucideIcon;
   className?: string;
 }
 
-function Content({ icon: Icon, text, iconSize = 16 }: IconControl) {
+function Content({ icon: Icon, text, iconSize = 16, trailingIcon: Trailing }: IconControl) {
   return (
     <>
       <Icon size={iconSize} aria-hidden="true" />
       {text && <span>{text}</span>}
+      {Trailing && <Trailing size={13} aria-hidden="true" className="icon-button-chevron" />}
     </>
   );
 }
@@ -51,13 +57,20 @@ export function IconButton({
   label,
   text,
   iconSize,
+  trailingIcon,
   className,
   type = "button",
   ...rest
 }: IconButtonProps) {
   return (
     <button type={type} className={className} aria-label={label} {...rest}>
-      <Content icon={icon} label={label} text={text} iconSize={iconSize} />
+      <Content
+        icon={icon}
+        label={label}
+        text={text}
+        iconSize={iconSize}
+        trailingIcon={trailingIcon}
+      />
     </button>
   );
 }

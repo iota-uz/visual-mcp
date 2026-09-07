@@ -1,5 +1,5 @@
 import { useAction } from "convex/react";
-import { Download, FileImage, Files, FileText } from "lucide-react";
+import { ChevronDown, Download, FileImage, Files, FileText } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -120,6 +120,7 @@ export function ExportMenu({ canvasId, pageId, onError, onDone }: ExportMenuProp
         label={busy ? "Exporting" : "Export canvas"}
         text={label}
         iconSize={16}
+        trailingIcon={ChevronDown}
         className="canvas-command-export"
         disabled={busy !== null}
         aria-busy={busy !== null || undefined}
