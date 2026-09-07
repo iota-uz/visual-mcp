@@ -44,14 +44,14 @@ test("empty canvas offers comment, fit, and zoom, and disables fit without a sel
   );
 });
 
-test("a single iframe node surfaces open, copy, and delete; a native node hides open", () => {
+test("a node offers fit, copy, and delete; iframe and native share the same items", () => {
   const iframe = contextMenuEntries(
     { kind: "node", nodeKind: "iframe", hasRef: true },
     { comments: true, editable: true, copyLink: true },
   );
   assert.deepEqual(
     iframe.map((entry) => (entry.type === "separator" ? "|" : entry.id)),
-    ["open-screen", "fit-selection", "add-comment", "copy-link", "copy-ref", "|", "delete"],
+    ["fit-selection", "add-comment", "copy-link", "copy-ref", "|", "delete"],
   );
   assert.equal(iframe.at(-1)?.type === "item" && iframe.at(-1).danger, true);
 

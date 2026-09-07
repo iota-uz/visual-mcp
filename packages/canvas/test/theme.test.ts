@@ -12,7 +12,7 @@ test("immersive viewports hide every editor-only canvas control", async () => {
     ".vc-minimap",
     ".vc-inspector",
     ".vc-iframe-guard",
-    ".vc-iframe-exit",
+    ".vc-screen-exit",
     ".vc-toolbar",
     ".vc-resize-handle",
     ".vc-context-menu",

@@ -12,6 +12,7 @@ export const CONTEXT_MENU_GUTTER_PX = 8;
 export const CONTEXT_MENU_CHROME_SELECTOR = [
   ".vc-toolbar",
   ".vc-inspector",
+  ".vc-screen-exit",
   ".vc-minimap",
   ".vc-shortcut-help",
   ".vc-comment-overlay",
@@ -48,7 +49,6 @@ export function nativeBodyKeepsContextMenu(
 }
 
 export type ContextCommandId =
-  | "open-screen"
   | "fit-selection"
   | "fit-page"
   | "zoom-100"
@@ -108,9 +108,8 @@ export function contextMenuEntries(
       { type: "item", id: "zoom-100", label: "Zoom to 100%", shortcut: "⇧0" },
     );
   } else if (target.kind === "node") {
-    if (target.nodeKind === "iframe") {
-      items.push({ type: "item", id: "open-screen", label: "Open screen", shortcut: "↵" });
-    }
+    // Iframe interaction stays double-click / Enter — already hinted on
+    // the node. A menu item was a slower duplicate of that gesture.
     items.push(fitSelection(false));
     if (caps.comments) items.push(comment());
     if (caps.copyLink) items.push({ type: "item", id: "copy-link", label: "Copy link" });

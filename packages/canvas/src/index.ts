@@ -1,4 +1,5 @@
 export * from "./annotation.js";
+export * from "./chrome-placement.js";
 export * from "./context-menu.js";
 export * from "./device-frame.js";
 export * from "./element-ref.js";

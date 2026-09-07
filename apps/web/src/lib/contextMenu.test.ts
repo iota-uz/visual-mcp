@@ -154,26 +154,21 @@ describe("canvas context menu", () => {
     contextmenu(node, 120, 120);
     expect(controller.getSelection()).toEqual(["note"]);
     expect(items(container).join(" ")).toContain("Delete…");
-    expect(items(container).join(" ")).not.toContain("Open screen");
     menu(container)?.querySelector<HTMLButtonElement>("[data-command='delete']")?.click();
     expect(onDeleteNodes).toHaveBeenCalledWith(["note"]);
     expect(menu(container)?.hasAttribute("hidden")).toBe(true);
   });
 
-  test("an iframe node offers Open screen; a multi-selection does not", () => {
+  test("a multi-selection keeps the set and only offers fit and delete", () => {
     const { container, controller } = mount();
-    const screen = container.querySelector<HTMLElement>('[data-node-id="screen"]');
-    if (!screen) throw new Error("missing screen");
-    contextmenu(screen, 450, 120);
-    expect(items(container).join(" ")).toContain("Open screen");
-
     controller.setSelection(["note", "other"]);
     const note = container.querySelector<HTMLElement>('[data-node-id="note"]');
     if (!note) throw new Error("missing note");
     contextmenu(note, 120, 120);
     expect(controller.getSelection()).toEqual(["note", "other"]);
-    expect(items(container).join(" ")).not.toContain("Open screen");
+    expect(items(container).join(" ")).toContain("Fit Selection");
     expect(items(container).join(" ")).toContain("Delete…");
+    expect(items(container).join(" ")).not.toContain("Copy link");
   });
 
   test("Add comment uses the click point on empty canvas and the node when the target is a node", () => {

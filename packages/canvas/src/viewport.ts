@@ -1,4 +1,5 @@
 import { renderAnnotation } from "./annotation.js";
+import { placeBesideRect, placeExitOnNode, type ScreenRect } from "./chrome-placement.js";
 import {
   CONTEXT_MENU_CHROME_SELECTOR,
   type ContextCommandId,
@@ -826,7 +827,7 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
       <div><dt>Context menu</dt><dd>right-click <kbd>⇧F10</kbd></dd></div>
       <div><dt>Undo / redo</dt><dd><kbd>⌘Z</kbd> <kbd>⌘⇧Z</kbd></dd></div>
       <div><dt>Open screen</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
-      <div><dt>Deselect / exit</dt><dd><kbd>Esc</kbd></dd></div>
+      <div><dt>Exit screen, then deselect</dt><dd><kbd>Esc</kbd></dd></div>
       <div><dt>This panel</dt><dd><kbd>?</kbd></dd></div>
     </dl>
   </div>`;
@@ -866,6 +867,8 @@ const MULTISELECT_SHELL = `<div class="vc-multiselect" hidden role="status">
     <span class="vc-multiselect-count"></span>
     <button type="button" class="vc-multiselect-delete">Delete</button>
   </div>`;
+
+const SCREEN_EXIT_SHELL = `<button type="button" class="vc-screen-exit" aria-label="Exit screen interaction">Exit <kbd>Esc</kbd></button>`;
 
 const CONTEXT_MENU_SHELL = `<div class="vc-context-menu" hidden role="menu" aria-label="Canvas actions"></div>`;
 
@@ -922,7 +925,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
   const commentsEnabled = typeof opts.onCommentDraft === "function";
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${CONTEXT_MENU_SHELL}${EMPTY_SHELL}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${SCREEN_EXIT_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${CONTEXT_MENU_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -958,6 +961,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    */
   const inspectorActions = must(".vc-inspector-actions");
   const inspectorDelete = must(".vc-inspector-delete");
+  const screenExit = must(".vc-screen-exit") as HTMLButtonElement;
   inspectorActions.hidden = !opts.editable;
   const toolbar = must(".vc-toolbar");
   const toolStatus = must(".vc-tool-status");
@@ -1187,6 +1191,57 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     commentOverlay.style.transform = `translate(${clamp(left, w, vw)}px, ${clamp(top, h, vh)}px)`;
   }
 
+  function nodeScreenRect(node: PositionedNode): ScreenRect {
+    return {
+      x: view.x + node.x * view.scale,
+      y: view.y + node.y * view.scale,
+      width: node.w * view.scale,
+      height: node.h * view.scale,
+    };
+  }
+
+  function chromeAvoidRects(): ScreenRect[] {
+    const originLeft = viewportRect.left;
+    const originTop = viewportRect.top;
+    const boxes: ScreenRect[] = [];
+    for (const el of [toolbar, minimap, shortcutHelp, commentOverlay]) {
+      if (el.hasAttribute("hidden")) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      boxes.push({
+        x: box.left - originLeft,
+        y: box.top - originTop,
+        width: box.width,
+        height: box.height,
+      });
+    }
+    return boxes;
+  }
+
+  function positionChrome(): void {
+    const interacting = Boolean(activeIframeId);
+    container.classList.toggle("is-interacting", interacting);
+    const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+    if (interacting && node) {
+      const exitBox = placeExitOnNode({
+        anchor: nodeScreenRect(node),
+        cardWidth: Math.max(screenExit.offsetWidth, 64),
+        cardHeight: Math.max(screenExit.offsetHeight, 30),
+      });
+      screenExit.style.transform = `translate(${exitBox.x}px, ${exitBox.y}px)`;
+    }
+    if (!inspector.classList.contains("visible") || !node) return;
+    const placed = placeBesideRect({
+      anchor: nodeScreenRect(node),
+      cardWidth: inspector.offsetWidth || 280,
+      cardHeight: inspector.offsetHeight || 80,
+      viewportWidth: viewportRect.width,
+      viewportHeight: viewportRect.height,
+      avoid: chromeAvoidRects(),
+    });
+    inspector.style.transform = `translate(${placed.x}px, ${placed.y}px)`;
+  }
+
   /*
    * Opening a thread from the app's list must not leave its pin off screen
    * with the popover clamped to an edge pointing at nothing. Only the
@@ -1245,6 +1300,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.style.setProperty("--grid-y", `${grid.y}px`);
     updateMinimapViewport();
     positionComments();
+    positionChrome();
     scheduleIframeSync();
     opts.onViewChange?.({ ...view });
   }
@@ -1530,14 +1586,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const commentNodeId =
       contextTarget?.kind === "node" ? (selectedNodeId ?? undefined) : undefined;
     closeContextMenu();
-    if (id === "open-screen") {
-      if (selectedNodeId) {
-        const node = nodeById.get(selectedNodeId);
-        if (node) focusNode(node);
-        activateIframe(selectedNodeId);
-      }
-      return;
-    }
     if (id === "fit-selection") {
       fitSelection();
       return;
@@ -1652,7 +1700,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       el.classList.toggle("primary", isSelected && id === selectedNodeId);
       el.classList.toggle(
         "dimmed",
-        !isSelected && focusStage !== "" && (el.dataset.stage ?? "") !== focusStage,
+        activeIframeId
+          ? id !== activeIframeId
+          : !isSelected && focusStage !== "" && (el.dataset.stage ?? "") !== focusStage,
       );
     }
     const multiple = selection.size > 1;
@@ -1660,14 +1710,19 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     multiselectCount.textContent = multiple ? `${selection.size} nodes selected` : "";
     if (multiple || !primary) inspector.classList.remove("visible");
     if (!multiple && primary) {
+      const showTitle = container.dataset.zoom === "low";
       inspectorTitle.textContent = primary.caption.title;
+      inspectorTitle.hidden = !showTitle;
       inspectorAnnotation.innerHTML = renderAnnotation(primary.annotation);
       inspectorAnnotation.hidden = inspectorAnnotation.innerHTML.length === 0;
       const refId = opts.resolveElementRef?.(primary.id);
       inspectorRef.hidden = !refId;
       inspectorRefValue.textContent = refId ?? "";
-      inspector.classList.add("visible");
+      const coarseDelete = Boolean(opts.editable) && resolvedPointer === "coarse";
+      const hasBody = showTitle || !inspectorAnnotation.hidden || Boolean(refId) || coarseDelete;
+      inspector.classList.toggle("visible", hasBody);
     }
+    positionChrome();
     opts.onSelectionChange?.([...selection]);
   }
 
@@ -1789,6 +1844,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     el?.classList.remove("iframe-active");
     el?.querySelector<HTMLIFrameElement>("iframe")?.blur();
     activeIframeId = null;
+    paintSelection();
     scheduleIframeSync(0);
     container.focus({ preventScroll: true });
   }
@@ -1802,6 +1858,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (el) setIframeLifecycle(el, "active");
     el?.classList.add("iframe-active");
     activeIframeId = id;
+    paintSelection();
     el?.querySelector<HTMLIFrameElement>("iframe")?.focus({ preventScroll: true });
   }
 
@@ -2997,7 +3054,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       // doing so moves the target before the second click and prevents iframe activation.
       if (finishedDrag.groupId) selectGroup(finishedDrag.groupId);
       else if (finishedDrag.nodeId && finishedDrag.additive) toggleSelection(finishedDrag.nodeId);
-      else selectNode(finishedDrag.nodeId, false);
+      else if (finishedDrag.nodeId) selectNode(finishedDrag.nodeId, false);
+      else if (activeIframeId) deactivateIframe();
+      else selectNode(null);
       if (finishedDrag.nodeId) {
         const now = Date.now();
         if (lastClick?.nodeId === finishedDrag.nodeId && now - lastClick.at < 500)
@@ -3188,8 +3247,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       }
       cancelDrag();
       stopFlick();
+      if (activeIframeId) {
+        deactivateIframe();
+        return;
+      }
       setTool("view");
-      deactivateIframe();
       selectNode(null);
     } else if (event.key === "Enter") {
       const selected = nodesRoot.querySelector<HTMLElement>(".vc-node.selected")?.dataset.nodeId;
@@ -3376,12 +3438,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  function onScreenExitClick(event: MouseEvent): void {
+    event.stopPropagation();
+    deactivateIframe();
+  }
+
   function onNodesClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).closest(".vc-iframe-exit")) {
-      event.stopPropagation();
-      deactivateIframe();
-      return;
-    }
     const retry = (event.target as HTMLElement).closest(".vc-iframe-retry");
     if (retry) {
       event.stopPropagation();
@@ -3398,9 +3460,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const owner = iframe.closest<HTMLElement>(".vc-node");
     if (event.data?.type === "visual-canvas:escape" && owner?.dataset.nodeId === activeIframeId) {
       cancelDrag();
-      setTool("view");
       deactivateIframe();
-      selectNode(null);
     }
     if (
       event.data?.type === "visual-canvas:readiness" &&
@@ -3438,6 +3498,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
           if (opts.fitOnResize) setView(fitPageCamera(liveCanvas, viewportRect));
           else applyView();
         });
+  const chromeResize =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          positionChrome();
+        });
+  chromeResize?.observe(inspector);
 
   container.addEventListener("pointerdown", onPointerDown);
   container.addEventListener("pointermove", onPointerMove);
@@ -3467,6 +3534,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   inspectorClose.addEventListener("click", onInspectorClose);
   inspectorRefCopy.addEventListener("click", onInspectorRefCopy);
   inspectorDelete.addEventListener("click", requestDelete);
+  screenExit.addEventListener("click", onScreenExitClick);
   nodesRoot.addEventListener("dblclick", onNodesDoubleClick);
   nodesRoot.addEventListener("click", onNodesClick);
   window.addEventListener("message", onWindowMessage);
@@ -3543,6 +3611,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       coarseQuery?.removeEventListener?.("change", onCoarseQueryChange);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();
+      chromeResize?.disconnect();
       overlayResize?.disconnect();
       commentsLayer.removeEventListener("click", onCommentLayerClick);
       multiselectPanel.removeEventListener("click", onMultiselectClick);
@@ -3569,6 +3638,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       inspectorClose.removeEventListener("click", onInspectorClose);
       inspectorRefCopy.removeEventListener("click", onInspectorRefCopy);
       inspectorDelete.removeEventListener("click", requestDelete);
+      screenExit.removeEventListener("click", onScreenExitClick);
       nodesRoot.removeEventListener("dblclick", onNodesDoubleClick);
       nodesRoot.removeEventListener("click", onNodesClick);
       window.removeEventListener("message", onWindowMessage);

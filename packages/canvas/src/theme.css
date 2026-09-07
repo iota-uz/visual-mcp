@@ -634,6 +634,10 @@
   opacity: 0.25;
   filter: saturate(0.55);
 }
+.vc-viewport.is-interacting .vc-node.dimmed {
+  opacity: 0.12;
+  filter: saturate(0.35);
+}
 .vc-node.vc-shape-decision {
   border-radius: var(--vc-radius-md);
   transform: rotate(45deg);
@@ -1312,24 +1316,6 @@
 .vc-node.iframe-active .vc-iframe-guard {
   display: none;
 }
-.vc-iframe-exit {
-  display: none;
-  position: absolute;
-  z-index: 4;
-  right: 8px;
-  top: 55px;
-  border: 0;
-  border-radius: var(--vc-radius-sm);
-  min-height: var(--vc-action-h);
-  padding: 6px 9px;
-  background: #061b36;
-  color: white;
-  font: 650 8px var(--vc-mono);
-  cursor: pointer;
-}
-.vc-node.iframe-active .vc-iframe-exit {
-  display: block;
-}
 /* Eight of them, sized in inverse-camera units so they stay a constant 8px
    on screen at every zoom. The ::before pad is the real hit target — an 8px
    dot is a hard thing to grab, and harder still on a trackpad. */
@@ -1699,7 +1685,7 @@
  * embedding app puts its Pages rail — since that rail became a floating
  * card the two overlapped, and the legend read as content inside it.
  * Nothing else claims this corner: the toolbar is bottom-centre, the
- * minimap bottom-right, the inspector bottom-left.
+ * minimap bottom-right; the inspector follows the selected node.
  */
 .vc-legend {
   position: absolute;
@@ -1771,30 +1757,61 @@
   background: var(--vc-tone-planned);
 }
 
-/* --- inspector --- */
+/* --- inspector ---
+   Screen-space, sibling of `.vc-world`. Position comes from JS
+   (`transform: translate`) so the card rides the camera next to the
+   selected node instead of living in a viewport corner. */
 .vc-inspector {
   position: absolute;
   z-index: 25;
-  left: 18px;
-  bottom: 18px;
-  width: 320px;
-  padding: 18px 20px 19px;
+  top: 0;
+  left: 0;
+  width: min(320px, calc(100% - 24px));
+  padding: 14px 16px 15px;
   border: 1px solid var(--vc-line);
   border-radius: var(--vc-radius-xl);
   background: rgba(255, 255, 255, 0.97);
   box-shadow: var(--vc-shadow-lg);
   backdrop-filter: blur(18px);
   opacity: 0;
-  transform: translateY(12px);
   pointer-events: none;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+  transition: opacity 0.18s ease;
 }
 .vc-inspector.visible {
   opacity: 1;
-  transform: none;
   pointer-events: auto;
+}
+.vc-screen-exit {
+  position: absolute;
+  z-index: 26;
+  top: 0;
+  left: 0;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--vc-control-h);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--vc-radius-sm);
+  background: #061b36;
+  color: white;
+  font: 650 11px / 1 var(--vc-body);
+  cursor: pointer;
+}
+.vc-viewport.is-interacting .vc-screen-exit {
+  display: flex;
+}
+.vc-screen-exit kbd {
+  color: rgba(255, 255, 255, 0.65);
+  font: 600 10px / 1 var(--vc-mono);
+}
+.vc-viewport.is-camera-animating .vc-inspector {
+  transition:
+    transform var(--vc-duration-camera) var(--vc-ease-out),
+    opacity 0.18s ease;
+}
+.vc-viewport.is-camera-animating .vc-screen-exit {
+  transition: transform var(--vc-duration-camera) var(--vc-ease-out);
 }
 .vc-inspector-close {
   position: absolute;
@@ -1817,8 +1834,11 @@
 }
 .vc-inspector-title {
   margin: 0 30px 8px 0;
-  font: 700 16px / 1.25 var(--vc-body);
+  font: 700 14px / 1.25 var(--vc-body);
   color: var(--vc-ink);
+}
+.vc-inspector-title[hidden] {
+  display: none;
 }
 .vc-inspector-annotation {
   margin: 0;
@@ -2340,7 +2360,7 @@
 .vc-viewport-host.vc-immersive .vc-minimap,
 .vc-viewport-host.vc-immersive .vc-inspector,
 .vc-viewport-host.vc-immersive .vc-iframe-guard,
-.vc-viewport-host.vc-immersive .vc-iframe-exit,
+.vc-viewport-host.vc-immersive .vc-screen-exit,
 .vc-viewport-host.vc-immersive .vc-toolbar,
 .vc-viewport-host.vc-immersive .vc-shortcut-help,
 .vc-viewport-host.vc-immersive .vc-empty,
@@ -2358,17 +2378,6 @@
     bottom: 76px;
     width: 180px;
     height: 74px;
-  }
-  /*
-   * The inspector is anchored bottom-left and the toolbar is centred in the
-   * same band, so as the viewport narrows the centre slides left until the
-   * two overlap — measured from ~1100px of window, well before anything
-   * that reads as "small". It moves above the toolbar instead, and stops
-   * being wider than the space it is in.
-   */
-  .vc-inspector {
-    bottom: 84px;
-    width: min(320px, calc(100% - 36px));
   }
   .vc-shortcut-help {
     right: 12px;
@@ -2429,9 +2438,10 @@
   .vc-viewport.is-camera-animating .vc-world,
   .vc-viewport.is-camera-animating .vc-comment-marker,
   .vc-viewport.is-camera-animating .vc-comment-overlay,
+  .vc-viewport.is-camera-animating .vc-inspector,
+  .vc-viewport.is-camera-animating .vc-screen-exit,
   .vc-comment-marker,
   .vc-node,
-  .vc-inspector,
   .vc-toolbar {
     transition-duration: 0s;
   }
