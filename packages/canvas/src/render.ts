@@ -2,6 +2,7 @@ import { deviceFrameScale, renderDeviceFrame } from "./device-frame.js";
 import type { PositionedCanvas, PositionedGroup, PositionedNode } from "./layout.js";
 import { phoneFrameScale, renderPhoneFrame } from "./phone-frame.js";
 import { type EdgePath, routeEdges } from "./router.js";
+import { ARROW_SHAPE } from "./routing/geometry.js";
 import type { Theme } from "./themes.js";
 import {
   type CanvasDrawing,
@@ -209,19 +210,37 @@ const MARKERS: Record<EdgePath["edge"]["kind"], string> = {
   exception: "vc-arrow-exception",
   external: "vc-arrow-external",
 };
-function renderEdge(path: EdgePath): string {
-  const marker = MARKERS[path.edge.kind];
+export function renderEdge(path: EdgePath): string {
   const junctions = [path.junctionPoint, path.mergePoint]
     .filter((point) => point !== undefined)
     .map((point) => `<circle class="vc-edge-junction" cx="${point.x}" cy="${point.y}" r="4" />`)
     .join("");
-  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}" data-edge-id="${escapeHtml(path.edge.id)}"><path class="vc-edge-halo" d="${path.d}" aria-hidden="true"/><path class="vc-edge-line" d="${path.d}" marker-end="url(#${marker})" ${path.edge.bidirectional ? `marker-start="url(#${marker})"` : ""}/>${junctions}${path.edge.label ? `<text class="vc-edge-label" x="${path.labelPoint.x}" y="${path.labelPoint.y}">${escapeHtml(path.edge.label.text)}</text>` : ""}</g>`;
+  const label = path.label;
+  const labelHtml = label
+    ? `${label.leader ? `<path class="vc-edge-leader" d="${label.leader.map((p, i) => `${i ? "L" : "M"} ${p.x} ${p.y}`).join(" ")}"/>` : ""}<rect class="vc-edge-label-bg" x="${label.bounds.x}" y="${label.bounds.y}" width="${label.bounds.w}" height="${label.bounds.h}" rx="5"/><text class="vc-edge-label" x="${label.point.x}" y="${label.point.y}">${label.lines.map((line, i) => `<tspan x="${label.point.x}" y="${label.bounds.y + 18 + i * 16}">${escapeHtml(line)}</tspan>`).join("")}</text>`
+    : "";
+  const description =
+    path.edge.label?.text ?? `${path.edge.source.nodeId} → ${path.edge.target.nodeId}`;
+  return `<g class="vc-edge vc-edge-${path.edge.kind} vc-route-${path.route}${path.diagnostics.length ? " vc-edge-warning" : ""}" data-edge-id="${escapeHtml(path.edge.id)}" data-routing-diagnostics="${path.diagnostics.join(",")}" tabindex="0" role="button" aria-label="${escapeHtml(description)}"><title>${escapeHtml(description)}${path.diagnostics.length ? ` — ${path.diagnostics.join(", ")}` : ""}</title><path class="vc-edge-hit" d="${path.d}"/><path class="vc-edge-halo" d="${path.d}" aria-hidden="true"/><path class="vc-edge-line" d="${path.d}"/>${junctions}${labelHtml}</g>`;
+}
+/** Paint tips last: a reciprocal edge's halo must never erase an arrowhead. */
+export function renderEdgeHeads(paths: EdgePath[]): string {
+  return (
+    '<g class="vc-edge-heads" aria-hidden="true">' +
+    paths
+      .map((path) => {
+        const marker = MARKERS[path.edge.kind];
+        return `<path d="${path.d}" fill="none" stroke="none" marker-end="url(#${marker})" ${path.edge.bidirectional ? `marker-start="url(#${marker})"` : ""}/>`;
+      })
+      .join("") +
+    "</g>"
+  );
 }
 function markerDefs(): string {
   return `<defs>${Object.entries(MARKERS)
     .map(
       ([kind, id]) =>
-        `<marker id="${id}" class="vc-marker vc-marker-${kind}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>`,
+        `<marker id="${id}" class="vc-marker vc-marker-${kind}" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="${ARROW_SHAPE}"/></marker>`,
     )
     .join("")}</defs>`;
 }
@@ -324,7 +343,7 @@ function drawingDefs(drawings: CanvasDrawing[], nodes: Map<string, PositionedNod
       return `<clipPath id="vc-drawing-clip-${escapeHtml(drawing.id)}"><rect x="${rect.x}" y="${rect.y}" width="${rect.w}" height="${rect.h}"/></clipPath>`;
     })
     .join("");
-  return `<defs><marker id="vc-drawing-arrow" class="vc-drawing-arrow-marker" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 1 1 L 11 6 L 1 11 z"/></marker>${clips}</defs>`;
+  return `<defs><marker id="vc-drawing-arrow" class="vc-drawing-arrow-marker" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="${ARROW_SHAPE}"/></marker>${clips}</defs>`;
 }
 function renderLegend(groups?: LegendGroup[]): string {
   return groups?.length
@@ -344,7 +363,7 @@ export function renderCanvas(
   const edges = routeEdges(canvas);
   const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
   const drawings = canvas.doc.drawings ?? [];
-  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}</svg><svg class="vc-drawings" width="${canvas.width}" height="${canvas.height}">${drawingDefs(drawings, nodesById)}${drawings.map((drawing) => renderDrawing(drawing, nodesById)).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
+  const html = `<div class="vc-world" data-canvas-version="2" style="width:${canvas.width}px;height:${canvas.height}px"><div class="vc-lanes">${canvas.lanes.map((lane) => `<div class="vc-lane vc-role-${lane.role}" data-lane-id="${escapeHtml(lane.id)}" style="left:${lane.rect.x}px;top:${lane.rect.y}px;width:${lane.rect.w}px;height:${lane.rect.h}px"><div class="vc-lane-label">${escapeHtml(lane.label)}</div></div>`).join("")}</div><div class="vc-stages">${canvas.stages.map((stage) => `<div class="vc-stage" data-stage-id="${escapeHtml(stage.id)}" style="left:${stage.rect.x}px;top:${stage.rect.y}px;width:${stage.rect.w}px;height:${stage.rect.h}px"><div class="vc-stage-header"><div class="vc-stage-label">${escapeHtml(stage.label)}</div>${stage.summary ? `<div class="vc-stage-summary">${escapeHtml(stage.summary)}</div>` : ""}</div></div>`).join("")}</div><div class="vc-labels">${canvas.doc.labels.map((label) => `<div class="vc-label vc-tone-${label.tone ?? "neutral"}" style="left:${label.rect.x}px;top:${label.rect.y}px;width:${label.rect.w}px;height:${label.rect.h}px;text-align:${label.align ?? "left"}">${escapeHtml(label.text)}</div>`).join("")}</div><div class="vc-groups">${canvas.groups.map(renderGroup).join("")}</div><div class="vc-nodes">${canvas.nodes.map((node) => renderNode(node, options)).join("")}</div><svg class="vc-edges" width="${canvas.width}" height="${canvas.height}">${markerDefs()}${edges.map(renderEdge).join("")}${renderEdgeHeads(edges)}</svg><svg class="vc-drawings" width="${canvas.width}" height="${canvas.height}">${drawingDefs(drawings, nodesById)}${drawings.map((drawing) => renderDrawing(drawing, nodesById)).join("")}</svg></div>${renderLegend(canvas.doc.legend)}`;
   const themedHtml = options.theme
     ? html
         .replace(

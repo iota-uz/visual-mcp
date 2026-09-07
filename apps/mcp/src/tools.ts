@@ -45,9 +45,10 @@ import {
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
 import { describeIssues } from "@visual-canvas/canvas/issues.js";
-import { deleteNodesFromFile, moveNodes } from "@visual-canvas/canvas/layout.js";
+import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
 import { applyCanvasDocPatch, type CanvasDocPatchOperation } from "@visual-canvas/canvas/patch.js";
+import { routeEdges } from "@visual-canvas/canvas/router.js";
 import { canvasSnapshotEntryHtml } from "@visual-canvas/canvas/snapshot-entry.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { Theme, ThemeOverride } from "@visual-canvas/canvas/themes.js";
@@ -113,6 +114,7 @@ export interface McpPrincipal {
 type WarningCode =
   | "unresolved_asset"
   | "node_overlap"
+  | "edge_routing"
   | "overwrote_other_author"
   | "truncated"
   | "render_failed"
@@ -128,6 +130,8 @@ interface Warning {
   data?: {
     page_id?: string;
     node_ids?: string[];
+    edge_id?: string;
+    diagnostics?: string[];
     rects?: { x: number; y: number; w: number; h: number }[];
     overlap_area?: number;
     overlap_fraction?: number;
@@ -422,6 +426,7 @@ const WarningSchema = z.object({
   code: z.enum([
     "unresolved_asset",
     "node_overlap",
+    "edge_routing",
     "overwrote_other_author",
     "truncated",
     "render_failed",
@@ -435,6 +440,8 @@ const WarningSchema = z.object({
     .object({
       page_id: z.string().optional(),
       node_ids: z.array(z.string()).optional(),
+      edge_id: z.string().optional(),
+      diagnostics: z.array(z.string()).optional(),
       rects: z.array(WarningRectSchema).optional(),
       overlap_area: z.number().optional(),
       overlap_fraction: z.number().optional(),
@@ -739,7 +746,7 @@ const OVERLAP_REPORT_LIMIT = 20;
  * card is a stack on purpose — so this never blocks a write and never makes a
  * save `partial`; it just tells the author what the render will look like.
  */
-function scanNodeOverlaps(
+function scanGeometryWarnings(
   pages: readonly { id: string; title?: string; doc: CanvasDoc }[],
 ): Warning[] {
   const warnings: Warning[] = [];
@@ -747,6 +754,21 @@ function scanNodeOverlaps(
   let reported = 0;
 
   for (const page of pages) {
+    for (const path of routeEdges(layoutCanvas(page.doc))
+      .filter((path) => path.diagnostics.length)
+      .slice(0, 20)) {
+      warnings.push({
+        code: "edge_routing",
+        path: `${page.id}#${path.edge.id}`,
+        message: `Arrow "${path.edge.id}": ${path.diagnostics.join(", ")}. Move a card, choose another port, or adjust its waypoints/label offset.`,
+        data: {
+          page_id: page.id,
+          edge_id: path.edge.id,
+          node_ids: [path.edge.source.nodeId, path.edge.target.nodeId],
+          diagnostics: path.diagnostics,
+        },
+      });
+    }
     const report = findNodeOverlaps(page.doc.nodes, {
       limit: Math.max(0, OVERLAP_REPORT_LIMIT - reported),
     });
@@ -2377,7 +2399,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
 
         // --- geometry the author cannot see ---
         if (preparedDoc) {
-          warnings.push(...scanNodeOverlaps(preparedDoc.doc.pages));
+          warnings.push(...scanGeometryWarnings(preparedDoc.doc.pages));
         }
         recommendations.push(...scanProductionQuality(writtenText, preparedDoc?.doc));
 
@@ -2930,7 +2952,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           },
         );
         const warnings = dedupeWarnings(
-          scanNodeOverlaps([{ id: currentPage.id, title: currentPage.title, doc: patchedDoc }]),
+          scanGeometryWarnings([{ id: currentPage.id, title: currentPage.title, doc: patchedDoc }]),
         );
         const operation = input.operations.length === 1 ? input.operations[0] : undefined;
         const targetNodeId =
@@ -3041,7 +3063,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           },
         );
         const warnings = dedupeWarnings(
-          scanNodeOverlaps([{ id: page.id, title: page.title, doc: movedDoc }]),
+          scanGeometryWarnings([{ id: page.id, title: page.title, doc: movedDoc }]),
         );
         return result({
           status: "ok",

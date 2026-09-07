@@ -89,13 +89,18 @@ test("moving a group translates every member by the exact same delta", () => {
     h: 300,
   });
 });
-test("waypoint routing is preserved", () => {
+test("orthogonal waypoints constrain a rounded route without diagonal shortcuts", () => {
   const doc = fixture();
   doc.edges[0]!.route.waypoints = [
     { x: 400, y: 30 },
     { x: 600, y: 30 },
   ];
-  assert.match(routeEdges(layoutCanvas(doc))[0]!.d, /400 30 L 600 30/);
+  const path = routeEdges(layoutCanvas(doc))[0]!;
+  for (const [i, p] of path.points.entries()) {
+    if (i) assert.ok(p.x === path.points[i - 1]!.x || p.y === path.points[i - 1]!.y);
+  }
+  assert.ok(path.points.some((p) => p.y === 30));
+  assert.deepEqual(path.diagnostics, []);
 });
 test("orthogonal routing leaves and enters through the declared anchor sides", () => {
   const doc = fixture();

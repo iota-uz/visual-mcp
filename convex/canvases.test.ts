@@ -2394,3 +2394,98 @@ describe("canvases.restoreVersionByRef", () => {
     ).rejects.toThrow(/no version 42/i);
   });
 });
+
+test("arrow edits validate ports, require authentication and honor draft concurrency", async () => {
+  const t = convexTest(schema, modules);
+  const createdBy = await seedUser(t);
+  const created = await t.mutation(internal.canvases.upsertByRef, {
+    ref: "arrows/controls",
+    createdBy,
+    kind: "canvas",
+  });
+  const edge = {
+    id: "loop",
+    source: { nodeId: "node", side: "right" },
+    target: { nodeId: "node", side: "top" },
+    kind: "main",
+    route: { type: "orthogonal" },
+  };
+  const file = {
+    version: 3,
+    defaultPageId: "page",
+    pages: [
+      {
+        id: "page",
+        title: "Page",
+        order: 0,
+        doc: {
+          version: 2,
+          title: "Arrows",
+          world: { width: 800, height: 600 },
+          lanes: [],
+          stages: [],
+          labels: [],
+          groups: [],
+          nodes: [
+            {
+              id: "node",
+              kind: "native",
+              shape: "note",
+              rect: { x: 200, y: 200, w: 100, h: 100 },
+              caption: { title: "Node" },
+              anchors: [],
+            },
+          ],
+          edges: [edge],
+        },
+      },
+    ],
+    prototype: { interactions: [] },
+  };
+  await t.mutation(internal.canvases.putDoc, {
+    iframeEntrypoints: [],
+    canvasId: created.canvasId,
+    docStorageId: await seedStorage(t, JSON.stringify(file)),
+    createdBy,
+    nodes: [{ pageId: "page", nodeId: "node", title: "Node", searchText: "Node" }],
+  });
+  const fetchSpy = vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async () => new Response(JSON.stringify(file)));
+  try {
+    const args = {
+      canvasId: created.canvasId,
+      pageId: "page",
+      change: {
+        kind: "edge" as const,
+        edgeId: "loop",
+        edge: { ...edge, label: { text: "Retry" } },
+      },
+      expectedVersion: 1,
+      expectedDraftRevision: 0,
+    };
+    await expect(t.action(api.canvases.patchGeometryMine, args)).rejects.toThrow();
+    const member = t.withIdentity({ subject: `${createdBy}|session`, issuer: "convex" });
+    await expect(
+      member.action(api.canvases.patchGeometryMine, {
+        ...args,
+        change: { ...args.change, edge: { ...edge, source: { nodeId: "missing" } } },
+      }),
+    ).rejects.toThrow(/unknown node/);
+    await expect(member.action(api.canvases.patchGeometryMine, args)).resolves.toMatchObject({
+      draftRevision: 1,
+      dirty: true,
+    });
+    const saved = await t.run(async (ctx) => {
+      const row = await ctx.db.get(created.canvasId);
+      const blob = await ctx.storage.get(row!.draftDocStorageId!);
+      return JSON.parse(await blob!.text());
+    });
+    expect(saved.pages[0].doc.edges[0].label.text).toBe("Retry");
+    await expect(member.action(api.canvases.patchGeometryMine, args)).rejects.toThrow(
+      /draft conflict/,
+    );
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});

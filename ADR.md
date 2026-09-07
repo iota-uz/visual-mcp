@@ -19,6 +19,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## canvas
 
+- **Стрелки используют общую геометрию, автоматические порты и явные ограничения** — [запись](adr/canvas/controllable-obstacle-aware-arrows.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **CanvasFile v3 разделяет долговечный draft, именованные checkpoints и опубликованную ревизию** — [запись](adr/canvas/drafts-checkpoints-and-published-revisions.md) · accepted · 2026-08-21 (`b0fa76a`, `3cce739`)
 
 ## assets

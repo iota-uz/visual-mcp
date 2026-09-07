@@ -161,9 +161,60 @@ test("short links remain finite and do not collapse into a zero-length arrow", (
   );
   const path = routeEdges(canvas)[0];
   assert.ok(path);
-  assert.ok(path.points.length >= 4);
+  assert.deepEqual(path.points, [
+    { x: 200, y: 350 },
+    { x: 215, y: 350 },
+  ]);
   assert.doesNotMatch(path.d, /NaN|Infinity/);
   assert.notDeepEqual(path.points[0], path.points.at(-1));
+});
+
+test("40px gutters between tall screens stay straight in every direction", () => {
+  for (const gap of [1, 15, 40, 48, 72]) {
+    for (const vertical of [false, true]) {
+      for (const reverse of [false, true]) {
+        const nodes = vertical
+          ? [node("a", 100, 100, 512, 700), node("b", 100, 800 + gap, 512, 700)]
+          : [node("a", 100, 100, 700, 512), node("b", 800 + gap, 100, 700, 512)];
+        const from = vertical ? "bottom" : "right";
+        const to = vertical ? "top" : "left";
+        const connection = reverse
+          ? edge("link", "b", to, "a", from)
+          : edge("link", "a", from, "b", to);
+        const path = routeEdges(layoutCanvas(doc(nodes, [connection])))[0]!;
+        assert.equal(path.points.length, 2, `${gap}px, vertical=${vertical}, reverse=${reverse}`);
+        assert.equal(
+          Math.hypot(path.points[1]!.x - path.points[0]!.x, path.points[1]!.y - path.points[0]!.y),
+          gap,
+        );
+        assert.doesNotMatch(path.d, /NaN|Infinity|Q/);
+      }
+    }
+  }
+});
+
+test("backward links go around their endpoint cards instead of through them", () => {
+  const path = routeEdges(
+    layoutCanvas(
+      doc(
+        [node("source", 600, 300), node("target", 100, 300)],
+        [edge("backward", "source", "right", "target", "left")],
+      ),
+    ),
+  )[0]!;
+  assert.ok(path.points.some((point) => point.y < 300 || point.y > 400));
+  for (let i = 1; i < path.points.length - 2; i++) {
+    const a = path.points[i]!;
+    const b = path.points[i + 1]!;
+    if (a.y === b.y && a.y > 300 && a.y < 400) {
+      for (const [left, right] of [
+        [100, 200],
+        [600, 700],
+      ]) {
+        assert.ok(Math.max(a.x, b.x) <= left! || Math.min(a.x, b.x) >= right!);
+      }
+    }
+  }
 });
 
 test("edge rendering adds crossing halos and one junction port per fan-out", () => {
@@ -195,4 +246,17 @@ test("a mixed orthogonal and bezier fan-out keeps its junction on the shared anc
   );
   const paths = routeEdges(canvas);
   assert.deepEqual(paths.find((path) => path.junctionPoint)?.junctionPoint, { x: 200, y: 400 });
+});
+
+test("arrowheads paint after every edge halo so reciprocal tips cannot be erased", () => {
+  const html = renderCanvas(
+    layoutCanvas(
+      doc(
+        [node("a", 100, 300), node("b", 700, 300)],
+        [edge("forward", "a", "right", "b", "left"), edge("reverse", "b", "left", "a", "right")],
+      ),
+    ),
+  ).html;
+  assert.ok(html.indexOf('class="vc-edge-heads"') > html.lastIndexOf('class="vc-edge-halo"'));
+  assert.equal((html.match(/marker-end="url\(#vc-arrow-main\)"/g) ?? []).length, 2);
 });

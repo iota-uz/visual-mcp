@@ -6,6 +6,7 @@ import {
   type NodeRestorePayload,
   restoreNodesIntoFile,
 } from "@visual-canvas/canvas/layout.js";
+import { applyCanvasDocPatch } from "@visual-canvas/canvas/patch.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
 import type { Theme } from "@visual-canvas/canvas/themes.js";
@@ -2297,13 +2298,15 @@ export const getLayoutPatchSource = internalQuery({
 
 /** Version-history label for one manual layout edit. */
 function layoutNote(change: {
-  kind: "node" | "group" | "nodes" | "delete" | "restore";
+  kind: "node" | "group" | "nodes" | "delete" | "restore" | "edge";
   nodeId?: string;
   groupId?: string;
   nodeIds?: string[];
   nodes?: unknown[];
 }): string {
   switch (change.kind) {
+    case "edge":
+      return "Arrow updated";
     case "node":
       return `Layout: ${change.nodeId}`;
     case "group":
@@ -2323,6 +2326,7 @@ export const patchGeometryMine = action({
     canvasId: v.id("canvases"),
     pageId: v.optional(v.string()),
     change: v.union(
+      v.object({ kind: v.literal("edge"), edgeId: v.string(), edge: v.any() }),
       v.object({
         kind: v.literal("node"),
         nodeId: v.string(),
@@ -2437,21 +2441,25 @@ export const patchGeometryMine = action({
       );
     } else {
       const patched =
-        change.kind === "node"
-          ? (() => {
-              const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
-              if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
-              const rect = RectSchema.parse(change.rect);
-              return CanvasDocSchema.parse({
-                ...doc,
-                nodes: doc.nodes.map((node, index) =>
-                  index === nodeIndex ? { ...node, rect: { ...rect } } : node,
-                ),
-              });
-            })()
-          : change.kind === "nodes"
-            ? CanvasDocSchema.parse(moveNodes(doc, change.nodeIds, change.dx, change.dy))
-            : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
+        change.kind === "edge"
+          ? applyCanvasDocPatch(doc, [
+              { op: "edges.replace", id: change.edgeId, value: change.edge },
+            ])
+          : change.kind === "node"
+            ? (() => {
+                const nodeIndex = doc.nodes.findIndex((node) => node.id === change.nodeId);
+                if (nodeIndex < 0) throw new Error(`Unknown canvas node: ${change.nodeId}`);
+                const rect = RectSchema.parse(change.rect);
+                return CanvasDocSchema.parse({
+                  ...doc,
+                  nodes: doc.nodes.map((node, index) =>
+                    index === nodeIndex ? { ...node, rect: { ...rect } } : node,
+                  ),
+                });
+              })()
+            : change.kind === "nodes"
+              ? CanvasDocSchema.parse(moveNodes(doc, change.nodeIds, change.dx, change.dy))
+              : CanvasDocSchema.parse(moveGroupNodes(doc, change.groupId, change.dx, change.dy));
       patchedFile = CanvasFileSchema.parse({
         ...file,
         pages: file.pages.map((candidate) =>

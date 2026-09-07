@@ -41,6 +41,14 @@ The server generates page id screens and stable node ids from screen ids, with u
 
 Micro-edits advance \`draft_revision\`; checkpoint at meaningful milestones. Publishing checkpoints the complete draft. A metadata-only save should not trigger visual QA. For visual edits, follow returned snapshot arguments and confirm the same draft revision before refining.
 
+## Arrows and connections
+
+Use \`canvas.edge({id:"handoff",source:{nodeId:"a"},target:{nodeId:"b"},label:{text:"Approved"}})\` in canvas_run. The SDK defaults to main / orthogonal. In a raw doc or edges.add patch, include kind:"main" and route:{type:"orthogonal"}. Ports are automatic when only nodeId is supplied. Pin a port with side:"left"|"right"|"top"|"bottom" and optional offset:0..1, or use anchorId for an existing named anchor; never combine the two forms.
+
+Orthogonal waypoints are ordered constraints: the router connects them with obstacle-aware orthogonal segments. route.radius controls corner rounding (0..40). Pinned corners remain exact. straight with waypoints is an exact polyline; bezier without waypoints is a curve. Impossible routes remain visible with edge_routing warnings and machine-readable diagnostics; fix the cards, ports or constraints instead of ignoring these warnings.
+
+Labels are placed off the stroke and avoid cards/other labels. Narrow gaps use a leader callout. label.position selects arc-length position (0..1); label.offset:{x,y} overrides automatic placement relative to that point. Avoid manual offsets unless needed. All coordinates and label sizes are world-space; camera fitting includes route and label bounds. In the viewer, select an arrow for settings and endpoint/segment/label handles; edits autosave to the draft and support undo.
+
 ## Delivery
 
 Use the returned URLs. \`canvas_url\` is the signed-in viewer, \`present_url\` is immersive canvas playback, and \`share_url\` exists only for public canvases. Never construct URLs.`,

@@ -416,13 +416,109 @@
 }
 .vc-edge-label {
   fill: var(--vc-muted);
-  font: 650 calc(9.5px * var(--vc-camera-inverse)) var(--vc-mono);
+  font: 500 12px var(--vc-mono);
   text-anchor: middle;
-  dominant-baseline: middle;
+  dominant-baseline: auto;
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.96);
-  stroke-width: calc(5px * var(--vc-camera-inverse));
+  stroke-width: 0;
   stroke-linejoin: round;
+}
+.vc-edge-hit {
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+}
+.vc-edge-label-bg {
+  fill: var(--vc-white);
+  stroke: var(--vc-line);
+  stroke-width: 1;
+  pointer-events: all;
+}
+.vc-edge-label {
+  pointer-events: all;
+}
+.vc-edge .vc-edge-leader {
+  stroke: var(--vc-muted);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+.vc-edge:focus .vc-edge-halo,
+.vc-edge-selected .vc-edge-halo {
+  stroke: #a5caff;
+}
+.vc-edge-warning .vc-edge-line {
+  stroke-dasharray: 3 4;
+}
+.vc-edge-handles circle {
+  fill: white;
+  stroke: var(--vc-edge-main);
+  stroke-width: 2;
+  pointer-events: all;
+  cursor: grab;
+}
+.vc-edge-editor {
+  position: absolute;
+  z-index: 30;
+  right: 16px;
+  top: 16px;
+  width: 270px;
+  max-height: calc(100% - 100px);
+  overflow: auto;
+  padding: 16px;
+  background: white;
+  color: #213547;
+  border: 1px solid #dce3e8;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px #15243518;
+  font: 13px / 1.5 system-ui;
+}
+.vc-edge-editor[hidden] {
+  display: none;
+}
+.vc-edge-editor header,
+.vc-edge-editor footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.vc-edge-editor fieldset {
+  border: 1px solid #dce3e8;
+  border-radius: 6px;
+  margin: 8px 0;
+  padding: 8px;
+}
+.vc-edge-editor label {
+  display: block;
+  margin: 8px 0;
+}
+.vc-edge-editor input:not([type="checkbox"]),
+.vc-edge-editor select,
+.vc-edge-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #bbc7d0;
+  border-radius: 4px;
+  padding: 6px;
+  font: inherit;
+}
+.vc-edge-editor button {
+  border: 1px solid #bbc7d0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: #f5f8fa;
+  cursor: pointer;
+}
+.vc-edge-editor button[type="submit"] {
+  background: #235fae;
+  color: white;
+  border-color: #235fae;
+}
+.vc-edge-error {
+  color: #a93226;
+  overflow-wrap: anywhere;
 }
 .vc-marker path {
   fill: currentColor;

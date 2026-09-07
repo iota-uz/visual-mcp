@@ -96,6 +96,7 @@ export function CanvasViewport({
   theme,
   editable = false,
   onGeometryChange,
+  onEdgeChange,
   onGroupMove,
   onNodesMove,
   onDeleteNodes,
@@ -123,6 +124,7 @@ export function CanvasViewport({
     rect: { x: number; y: number; w: number; h: number },
     previous: { x: number; y: number; w: number; h: number },
   ) => void;
+  onEdgeChange?: (edge: CanvasEdge, previous: CanvasEdge) => void;
   onGroupMove?: (groupId: string, dx: number, dy: number) => void;
   onNodesMove?: (nodeIds: string[], dx: number, dy: number) => void;
   onDeleteNodes?: (nodeIds: string[]) => void;
@@ -163,6 +165,8 @@ export function CanvasViewport({
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
   const onGeometryChangeRef = useRef(onGeometryChange);
+  const onEdgeChangeRef = useRef(onEdgeChange);
+  onEdgeChangeRef.current = onEdgeChange;
   onGeometryChangeRef.current = onGeometryChange;
   const onGroupMoveRef = useRef(onGroupMove);
   onGroupMoveRef.current = onGroupMove;
@@ -299,6 +303,7 @@ export function CanvasViewport({
       },
       onGeometryChange: (nodeId, rect, previous) =>
         onGeometryChangeRef.current?.(nodeId, rect, previous),
+      onEdgeChange: (edge, previous) => onEdgeChangeRef.current?.(edge, previous),
       onGroupMove: (groupId, dx, dy) => onGroupMoveRef.current?.(groupId, dx, dy),
       onNodesMove: (nodeIds, dx, dy) => onNodesMoveRef.current?.(nodeIds, dx, dy),
       onDeleteNodes: (nodeIds) => onDeleteNodesRef.current?.(nodeIds),
@@ -2100,6 +2105,7 @@ export function CanvasPage() {
   const lastAuthor = versions?.find((v) => v.isCurrent)?.createdByEmail ?? null;
   function queueGeometryChange(
     change:
+      | { kind: "edge"; edgeId: string; edge: CanvasEdge }
       | { kind: "node"; nodeId: string; rect: { x: number; y: number; w: number; h: number } }
       | { kind: "group"; groupId: string; dx: number; dy: number }
       | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
@@ -2154,6 +2160,7 @@ export function CanvasPage() {
    * server can apply to whatever the current document is.
    */
   type ManualEdit =
+    | { kind: "edge"; before: CanvasEdge; after: CanvasEdge }
     | { kind: "nodes"; nodeIds: string[]; dx: number; dy: number }
     | { kind: "node"; nodeId: string; before: NodeRect; after: NodeRect }
     | { kind: "group"; groupId: string; dx: number; dy: number }
@@ -2179,6 +2186,13 @@ export function CanvasPage() {
   function applyEdit(edit: ManualEdit, direction: "undo" | "redo") {
     const sign = direction === "undo" ? -1 : 1;
     switch (edit.kind) {
+      case "edge":
+        queueGeometryChange({
+          kind: "edge",
+          edgeId: edit.after.id,
+          edge: direction === "undo" ? edit.before : edit.after,
+        });
+        return;
       case "nodes":
         queueGeometryChange({
           kind: "nodes",
@@ -2732,6 +2746,10 @@ export function CanvasPage() {
               onGeometryChange={(nodeId, rect, previous) => {
                 queueGeometryChange({ kind: "node", nodeId, rect });
                 recordEdit({ kind: "node", nodeId, before: previous, after: rect });
+              }}
+              onEdgeChange={(edge, previous) => {
+                queueGeometryChange({ kind: "edge", edgeId: edge.id, edge });
+                recordEdit({ kind: "edge", before: previous, after: edge });
               }}
               onGroupMove={(groupId, dx, dy) => {
                 queueGeometryChange({ kind: "group", groupId, dx, dy });

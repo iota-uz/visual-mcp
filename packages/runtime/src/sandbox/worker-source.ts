@@ -443,8 +443,8 @@ function stepFlow(value) {
     if (index > 0) {
       canvasAdd("edges", {
         id: value.id + "-edge-" + index,
-        source: { nodeId: value.steps[index - 1].id, anchorId: "right" },
-        target: { nodeId: step.id, anchorId: "left" },
+        source: { nodeId: value.steps[index - 1].id },
+        target: { nodeId: step.id },
         kind: "main",
         route: { type: "straight" },
       });
@@ -503,7 +503,7 @@ const canvasSdk = Object.freeze({
   stage: function (value) { return canvasAdd("stages", value); },
   label: function (value) { return canvasAdd("labels", value); },
   group: function (value) { return canvasAdd("groups", value); },
-  edge: function (value) { return canvasAdd("edges", value); },
+  edge: function (value) { return canvasAdd("edges", Object.assign({ kind: "main", route: { type: "orthogonal" } }, value)); },
   drawing: Object.freeze(canvasDrawingApi),
   rect: function (value) { return canvasDrawing("rect", value); },
   ellipse: function (value) { return canvasDrawing("ellipse", value); },

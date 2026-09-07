@@ -193,7 +193,7 @@ describe("reactive viewport reconciliation", () => {
     expect(container.querySelector('[data-node-id="screen"]')).toBe(screenOwner);
     expect(container.querySelector('[data-node-id="screen"] iframe')).toBe(iframe);
     expect(container.querySelector<HTMLElement>(".vc-world")?.style.transform).toBe(transform);
-    const edgePaths = [...container.querySelectorAll(".vc-edge path")];
+    const edgePaths = [...container.querySelectorAll(".vc-edge-halo, .vc-edge-line")];
     expect(edgePaths).toHaveLength(2);
     expect(edgePaths.every((path) => path.getAttribute("d")?.includes("720"))).toBe(true);
 
@@ -1087,4 +1087,84 @@ describe("reactive viewport reconciliation", () => {
     expect(container).not.toHaveClass("is-camera-animating");
     controller.dispose();
   });
+});
+
+test("arrow controls save validated edits, survive reactive updates and reject invalid points", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const canvas = layoutCanvas(doc()),
+    onEdgeChange = vi.fn();
+  const controller = mountViewport({ container, canvas, editable: true, onEdgeChange });
+  const arrow = container.querySelector<SVGGElement>(".vc-edge")!;
+  arrow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  const panel = container.querySelector<HTMLElement>(".vc-edge-editor")!;
+  expect(panel.hidden).toBe(false);
+  const form = panel.querySelector("form")!;
+  panel.querySelector<HTMLTextAreaElement>('[name="label"]')!.value = "Updated arrow";
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(onEdgeChange).toHaveBeenCalledOnce();
+  expect(onEdgeChange.mock.calls[0]![0].label.text).toBe("Updated arrow");
+  expect(container.querySelector(".vc-edge-label")).toHaveTextContent("Updated arrow");
+  controller.updateCanvas(layoutCanvas(doc()));
+  expect(panel.hidden).toBe(false);
+  panel.querySelector<HTMLTextAreaElement>('[name="waypoints"]')!.value = "NaN, 40";
+  panel
+    .querySelector("form")!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(panel.querySelector('[role="alert"]')).toHaveTextContent("finite x, y");
+  expect(onEdgeChange).toHaveBeenCalledOnce();
+  const removed = doc();
+  removed.edges = [];
+  controller.updateCanvas(layoutCanvas(removed));
+  expect(panel.hidden).toBe(true);
+  controller.dispose();
+  container.remove();
+});
+
+test("public arrow inspection cannot edit the document", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const controller = mountViewport({ container, canvas: layoutCanvas(doc()), editable: false });
+  container.querySelector(".vc-edge")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  expect(container.querySelector(".vc-edge-editor form")).toBeNull();
+  expect(container.querySelector(".vc-edge-handles")).toBeNull();
+  controller.dispose();
+  container.remove();
+});
+
+test("dragging a parallel segment uses its displayed route rather than an isolated straight link", () => {
+  const document = doc(),
+    original = document.edges[0]!;
+  document.edges.push({
+    ...original,
+    id: "reverse",
+    source: original.target,
+    target: original.source,
+  });
+  const container = window.document.createElement("div");
+  window.document.body.append(container);
+  container.setPointerCapture = vi.fn();
+  const onEdgeChange = vi.fn(),
+    controller = mountViewport({
+      container,
+      canvas: layoutCanvas(document),
+      editable: true,
+      initialView: { x: 0, y: 0, scale: 1 },
+      onEdgeChange,
+    });
+  container.querySelector(".vc-edge")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  const handle = container.querySelector('[data-handle="segment"][data-index="2"]')!;
+  expect(handle).not.toBeNull();
+  const fire = (target: Element, type: string, x: number, y: number) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+    Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    target.dispatchEvent(event);
+  };
+  fire(handle, "pointerdown", 400, 200);
+  fire(container, "pointermove", 400, 50);
+  fire(container, "pointerup", 400, 50);
+  expect(onEdgeChange).toHaveBeenCalledOnce();
+  expect(onEdgeChange.mock.calls[0]![0].route.waypoints.length).toBeGreaterThan(1);
+  controller.dispose();
+  container.remove();
 });

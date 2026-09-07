@@ -1,11 +1,12 @@
 import { renderAnnotation } from "./annotation.js";
 import { DEVICE_CAPTION_HEIGHT, deviceFrameScale, deviceShellSize } from "./device-frame.js";
+import { mountEdgeEditor } from "./edge-editor.js";
 import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
 import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
-import { escapeHtml, renderCanvas } from "./render.js";
+import { escapeHtml, renderCanvas, renderEdge, renderEdgeHeads } from "./render.js";
 import { routeEdges } from "./router.js";
 import type { Theme } from "./themes.js";
-import type { CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
+import type { CanvasEdge, CanvasNode, IframeNode, ImageNode, Point, Rect } from "./types.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -618,6 +619,12 @@ export function canvasContentBounds(canvas: PositionedCanvas): CameraBounds {
     top = Math.min(top, lane.rect.y);
     bottom = Math.max(bottom, lane.rect.y + lane.rect.h);
   }
+  for (const edge of routeEdges(canvas)) {
+    left = Math.min(left, edge.bounds.x);
+    top = Math.min(top, edge.bounds.y);
+    right = Math.max(right, edge.bounds.x + edge.bounds.w);
+    bottom = Math.max(bottom, edge.bounds.y + edge.bounds.h);
+  }
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
@@ -672,6 +679,7 @@ export interface ViewportOptions {
    * only place that value still exists once the drag has ended.
    */
   onGeometryChange?: (nodeId: string, rect: Rect, previous: Rect) => void | Promise<void>;
+  onEdgeChange?: (edge: CanvasEdge, previous: CanvasEdge) => void | Promise<void>;
   onGroupMove?: (groupId: string, dx: number, dy: number) => void | Promise<void>;
   /** A multi-selection dragged or nudged as one gesture; persist it as one write. */
   onNodesMove?: (nodeIds: string[], dx: number, dy: number) => void | Promise<void>;
@@ -1181,6 +1189,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     viewFrame = null;
     world.style.transform = `translate3d(${view.x}px,${view.y}px,0) scale(${view.scale})`;
     world.style.setProperty("--vc-camera-scale", String(view.scale));
+    for (const marker of world.querySelectorAll("marker")) {
+      marker.setAttribute("markerWidth", String(9 / view.scale));
+      marker.setAttribute("markerHeight", String(9 / view.scale));
+    }
+    for (const handle of world.querySelectorAll(".vc-edge-handles circle"))
+      handle.setAttribute("r", String(6 / view.scale));
     world.style.setProperty(
       "--vc-camera-inverse",
       String(Math.min(20, Math.max(0.125, 1 / view.scale))),
@@ -1881,30 +1895,26 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     el.style.height = `${bounds.h}px`;
   }
 
-  function updateEdgeGeometry(): void {
-    for (const routed of routeEdges(liveCanvas)) {
-      const edge = world.querySelector<SVGGElement>(
-        `.vc-edge[data-edge-id="${CSS.escape(routed.edge.id)}"]`,
-      );
-      for (const path of edge?.querySelectorAll<SVGPathElement>(".vc-edge-halo, .vc-edge-line") ??
-        []) {
-        path.setAttribute("d", routed.d);
-      }
-      const junctionPoints = [routed.junctionPoint, routed.mergePoint].filter(
-        (point) => point !== undefined,
-      );
-      const junctions = edge?.querySelectorAll<SVGCircleElement>(".vc-edge-junction") ?? [];
-      junctions.forEach((junction, index) => {
-        const point = junctionPoints[index];
-        if (!point) return;
-        junction.setAttribute("cx", String(point.x));
-        junction.setAttribute("cy", String(point.y));
-      });
-      const label = edge?.querySelector<SVGTextElement>(".vc-edge-label");
-      if (label) {
-        label.setAttribute("x", String(routed.labelPoint.x));
-        label.setAttribute("y", String(routed.labelPoint.y));
-      }
+  const edgeMarkup = new Map<string, string>();
+  function updateEdgeGeometry(incremental = false): void {
+    const elements = new Map(
+      [...world.querySelectorAll<SVGGElement>(".vc-edge")].map((el) => [
+        el.getAttribute("data-edge-id"),
+        el,
+      ]),
+    );
+    const paths = routeEdges(liveCanvas, incremental);
+    for (const routed of paths) {
+      const edge = elements.get(routed.edge.id),
+        markup = renderEdge(routed);
+      if (edge && edgeMarkup.get(routed.edge.id) !== markup) edge.outerHTML = markup;
+      edgeMarkup.set(routed.edge.id, markup);
+    }
+    const heads = world.querySelector(".vc-edge-heads");
+    if (heads) heads.outerHTML = renderEdgeHeads(paths);
+    for (const marker of world.querySelectorAll("marker")) {
+      marker.setAttribute("markerWidth", String(9 / view.scale));
+      marker.setAttribute("markerHeight", String(9 / view.scale));
     }
   }
 
@@ -1919,7 +1929,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     for (const group of liveCanvas.groups) {
       if (group.nodeIds.some((id) => changedIds.has(id))) updateGroupElement(group.id);
     }
-    updateEdgeGeometry();
+    updateEdgeGeometry(true);
   }
 
   function scheduleGeometry(id: string): void {
@@ -2144,6 +2154,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     liveResolveIframeIdentity = nextResolveIframeIdentity;
     liveTheme = nextTheme;
     liveCanvas = nextCanvas;
+    edgeEditor.refresh();
     contentBoundsCache = null;
     nodeById = new Map(nextCanvas.nodes.map((node) => [node.id, node]));
     groupById = new Map(nextCanvas.groups.map((group) => [group.id, group]));
@@ -2388,6 +2399,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest(".vc-node.iframe-active iframe")) return;
+    if (target.closest(".vc-edge, .vc-edge-editor, .vc-edge-handles")) return;
     // The comment popover is portalled inside this container, so without
     // this a press inside the composer would drop a second pin under it.
     if (target.closest(".vc-comment-overlay")) return;
@@ -3144,6 +3156,20 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  const edgeEditor = mountEdgeEditor({
+    container,
+    canvas: () => liveCanvas,
+    editable: Boolean(opts.editable),
+    toWorld: (x, y) => ({
+      x: (x - viewportRect.left - view.x) / view.scale,
+      y: (y - viewportRect.top - view.y) / view.scale,
+    }),
+    paint: () => {
+      contentBoundsCache = null;
+      updateEdgeGeometry();
+    },
+    commit: opts.onEdgeChange,
+  });
   const resizeObserver =
     typeof ResizeObserver === "undefined"
       ? null
@@ -3239,6 +3265,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     getView: () => ({ ...view }),
     updateCanvas,
     dispose() {
+      edgeEditor.destroy();
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
       if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
       if (iframeSyncTimer !== null) window.clearTimeout(iframeSyncTimer);

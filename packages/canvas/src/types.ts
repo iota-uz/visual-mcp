@@ -405,16 +405,35 @@ export type ImageNode = z.infer<typeof ImageNodeSchema>;
 export const CanvasNodeSchema = z.union([NativeNodeSchema, IframeNodeSchema, ImageNodeSchema]);
 export type CanvasNode = z.infer<typeof CanvasNodeSchema>;
 
-export const EdgeEndpointSchema = z.object({
-  nodeId: z.string().min(1),
-  anchorId: z.string().min(1),
-});
+export const EdgeEndpointSchema = z
+  .object({
+    nodeId: z.string().min(1),
+    anchorId: z.string().min(1).optional(),
+    side: z.enum(ANCHOR_SIDES).optional(),
+    offset: z.number().finite().min(0).max(1).optional(),
+  })
+  .strict()
+  .superRefine((endpoint, ctx) => {
+    if (endpoint.anchorId && (endpoint.side || endpoint.offset !== undefined))
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Use a named anchor OR side/offset, not both",
+      });
+    if (endpoint.offset !== undefined && !endpoint.side)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "offset requires an explicit side" });
+  });
 export const CanvasEdgeSchema = z.object({
   id: z.string().min(1),
   source: EdgeEndpointSchema,
   target: EdgeEndpointSchema,
   kind: z.enum(EDGE_KINDS),
-  route: z.object({ type: z.enum(EDGE_ROUTES), waypoints: z.array(PointSchema).optional() }),
+  route: z
+    .object({
+      type: z.enum(EDGE_ROUTES),
+      waypoints: z.array(PointSchema).max(64).optional(),
+      radius: z.number().finite().min(0).max(40).optional(),
+    })
+    .strict(),
   label: z
     .object({
       text: z.string().min(1),
@@ -535,7 +554,7 @@ export const CanvasDocSchema = z
           continue;
         }
         const node = nodeById.get(endpoint.nodeId);
-        if (!node?.anchors.some((anchor) => anchor.id === endpoint.anchorId))
+        if (endpoint.anchorId && !node?.anchors.some((anchor) => anchor.id === endpoint.anchorId))
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["edges", index, key, "anchorId"],
