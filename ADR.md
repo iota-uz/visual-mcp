@@ -43,6 +43,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Правый клик открывает короткое меню существующих операций focused-editor** — [запись](adr/product/canvas-context-menu.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Агент авторит CanvasDoc и артефакты двух форматов, человек получает сфокусированный редактор** — [запись](adr/product/agent-authored-dual-format-canvas.md) · accepted · 2026-08-09 (`9a73635`)
 
 ## process

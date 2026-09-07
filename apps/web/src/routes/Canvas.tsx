@@ -328,6 +328,16 @@ export function CanvasViewport({
           notifyRef.current(toastError(err, "Couldn't copy element ref"));
         }
       },
+      onCopyNodeLink: async (nodeId) => {
+        try {
+          const url = new URL(window.location.href);
+          url.search = withCanvasNodeSelection(url.search, nodeId).toString();
+          await navigator.clipboard.writeText(url.toString());
+          notifyRef.current({ message: "Link copied." });
+        } catch (err: unknown) {
+          notifyRef.current(toastError(err, "Couldn't copy link"));
+        }
+      },
     });
     controllerRef.current = controller;
     setCommentHost(commentsEnabled ? controller.commentOverlayElement() : null);

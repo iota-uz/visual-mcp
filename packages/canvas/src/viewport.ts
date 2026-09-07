@@ -1,4 +1,15 @@
 import { renderAnnotation } from "./annotation.js";
+import {
+  CONTEXT_MENU_CHROME_SELECTOR,
+  type ContextCommandId,
+  type ContextMenuTarget,
+  contextMenuButtons,
+  contextMenuEntries,
+  contextMenuPointerPolicy,
+  nativeBodyKeepsContextMenu,
+  paintContextMenu,
+  placeContextMenu,
+} from "./context-menu.js";
 import { DEVICE_CAPTION_HEIGHT, deviceFrameScale, deviceShellSize } from "./device-frame.js";
 import { mountEdgeEditor } from "./edge-editor.js";
 import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
@@ -692,6 +703,17 @@ export interface ViewportOptions {
   resolveElementRef?: (nodeId: string) => string | undefined;
   onCopyElementRef?: (refId: string) => void | Promise<void>;
   /**
+   * Copy a shareable URL for one node. Absent on surfaces that have no
+   * addressable page URL; the menu hides the item rather than offering a
+   * no-op.
+   */
+  onCopyNodeLink?: (nodeId: string) => void | Promise<void>;
+  /**
+   * Right-click / Shift+F10 menu. Defaults on; a coarse pointer still
+   * suppresses the system menu and does not open this one.
+   */
+  contextMenu?: boolean;
+  /**
    * Comment pins to draw. Passing this (with `onCommentDraft`) is what turns
    * the whole feature on: the Comment tool, its button and the markers all
    * stay out of the DOM otherwise.
@@ -758,6 +780,8 @@ export interface ViewportController {
   getView(): ViewState;
   /** Reconciles a reactive CanvasDoc update without rebuilding the camera or stable iframes. */
   updateCanvas(canvas: PositionedCanvas, options?: ViewportUpdateOptions): void;
+  openContextMenu(clientPoint?: { x: number; y: number }): void;
+  closeContextMenu(): void;
   dispose(): void;
 }
 
@@ -799,6 +823,7 @@ const SHORTCUT_HELP_SHELL = `<div class="vc-shortcut-help" hidden role="dialog" 
       <div><dt>Nudge selection</dt><dd><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <span aria-hidden="true">·</span> <kbd>⇧</kbd> ×10</dd></div>
       <div><dt>Select several</dt><dd>drag on empty canvas <span aria-hidden="true">·</span> <kbd>⇧</kbd> click</dd></div>
       <div><dt>Delete selection</dt><dd><kbd>Delete</kbd></dd></div>
+      <div><dt>Context menu</dt><dd>right-click <kbd>⇧F10</kbd></dd></div>
       <div><dt>Undo / redo</dt><dd><kbd>⌘Z</kbd> <kbd>⌘⇧Z</kbd></dd></div>
       <div><dt>Open screen</dt><dd><kbd>Enter</kbd> or double-click</dd></div>
       <div><dt>Deselect / exit</dt><dd><kbd>Esc</kbd></dd></div>
@@ -841,6 +866,8 @@ const MULTISELECT_SHELL = `<div class="vc-multiselect" hidden role="status">
     <span class="vc-multiselect-count"></span>
     <button type="button" class="vc-multiselect-delete">Delete</button>
   </div>`;
+
+const CONTEXT_MENU_SHELL = `<div class="vc-context-menu" hidden role="menu" aria-label="Canvas actions"></div>`;
 
 const EMPTY_SHELL = `<div class="vc-empty" hidden>
     <p class="vc-empty-title">This page is empty.</p>
@@ -895,7 +922,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.classList.add("vc-viewport");
   container.tabIndex = 0;
   const commentsEnabled = typeof opts.onCommentDraft === "function";
-  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${EMPTY_SHELL}`;
+  container.innerHTML = `${rendered.html}${GUIDES_SHELL}${COMMENTS_SHELL}${COMMENT_OVERLAY_SHELL}${MARQUEE_SHELL}${MULTISELECT_SHELL}${MINIMAP_SHELL}${INSPECTOR_SHELL}${toolbarShell(Boolean(opts.editable), commentsEnabled)}${SHORTCUT_HELP_SHELL}${CONTEXT_MENU_SHELL}${EMPTY_SHELL}`;
 
   function must(selector: string): HTMLElement {
     const el = container.querySelector<HTMLElement>(selector);
@@ -939,6 +966,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   const helpToggle = must(".vc-help-toggle");
   const shortcutHelpClose = must(".vc-shortcut-help-close");
   const emptyState = must(".vc-empty");
+  const contextMenu = must(".vc-context-menu");
+  const contextMenuEnabled = opts.contextMenu !== false;
 
   let nodeById = new Map(liveCanvas.nodes.map((n) => [n.id, n]));
   let groupById = new Map(liveCanvas.groups.map((group) => [group.id, group]));
@@ -1427,6 +1456,163 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     void opts.onDeleteNodes?.([...selection]);
   }
 
+  let contextAnchor: { clientX: number; clientY: number; world: Point } | null = null;
+  let contextTarget: ContextMenuTarget | null = null;
+
+  function contextMenuOpen(): boolean {
+    return !contextMenu.hasAttribute("hidden");
+  }
+
+  function closeContextMenu(): void {
+    if (!contextMenuOpen()) return;
+    contextMenu.setAttribute("hidden", "");
+    contextAnchor = null;
+    contextTarget = null;
+    if (contextMenu.contains(document.activeElement)) {
+      container.focus({ preventScroll: true });
+    }
+  }
+
+  function worldPointFromClient(clientX: number, clientY: number): Point {
+    return {
+      x: (clientX - viewportRect.left - view.x) / view.scale,
+      y: (clientY - viewportRect.top - view.y) / view.scale,
+    };
+  }
+
+  function immersiveHost(): boolean {
+    return Boolean(container.closest(".vc-viewport-host.vc-immersive"));
+  }
+
+  function applyContextSelection(target: HTMLElement): ContextMenuTarget | null {
+    if (target.closest(CONTEXT_MENU_CHROME_SELECTOR)) return null;
+    if (target.closest(".vc-node.iframe-active iframe")) return null;
+    const nodeId = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+    const node = nodeId ? nodeById.get(nodeId) : undefined;
+    if (node) {
+      if (!selection.has(node.id)) selectNode(node.id);
+      if (selection.size > 1 && selection.has(node.id)) return { kind: "nodes" };
+      return {
+        kind: "node",
+        nodeKind: node.kind,
+        hasRef: Boolean(opts.resolveElementRef?.(node.id)),
+      };
+    }
+    const groupId = target.closest<HTMLElement>(".vc-group")?.dataset.groupId;
+    if (groupId && groupById.has(groupId)) {
+      if (selectedGroupId !== groupId) selectGroup(groupId);
+      return { kind: "group" };
+    }
+    return { kind: "canvas", hasSelection: selection.size > 0 || selectedGroupId !== null };
+  }
+
+  function targetFromSelection(): ContextMenuTarget {
+    if (selectedGroupId && groupById.has(selectedGroupId)) return { kind: "group" };
+    if (selection.size > 1) return { kind: "nodes" };
+    const node = selectedNodeId ? nodeById.get(selectedNodeId) : undefined;
+    if (node) {
+      return {
+        kind: "node",
+        nodeKind: node.kind,
+        hasRef: Boolean(opts.resolveElementRef?.(node.id)),
+      };
+    }
+    return { kind: "canvas", hasSelection: false };
+  }
+
+  function runContextCommand(id: ContextCommandId): void {
+    const world =
+      contextAnchor?.world ??
+      worldPointFromClient(
+        viewportRect.left + viewportRect.width / 2,
+        viewportRect.top + viewportRect.height / 2,
+      );
+    const commentNodeId =
+      contextTarget?.kind === "node" ? (selectedNodeId ?? undefined) : undefined;
+    closeContextMenu();
+    if (id === "open-screen") {
+      if (selectedNodeId) {
+        const node = nodeById.get(selectedNodeId);
+        if (node) focusNode(node);
+        activateIframe(selectedNodeId);
+      }
+      return;
+    }
+    if (id === "fit-selection") {
+      fitSelection();
+      return;
+    }
+    if (id === "fit-page") {
+      fitAll();
+      return;
+    }
+    if (id === "zoom-100") {
+      resetView();
+      return;
+    }
+    if (id === "add-comment") {
+      opts.onCommentDraft?.({
+        nodeId: commentNodeId,
+        point: world,
+      });
+      return;
+    }
+    if (id === "copy-link" && selectedNodeId) {
+      void opts.onCopyNodeLink?.(selectedNodeId);
+      return;
+    }
+    if (id === "copy-ref" && selectedNodeId) {
+      const refId = opts.resolveElementRef?.(selectedNodeId);
+      if (refId) void opts.onCopyElementRef?.(refId);
+      return;
+    }
+    if (id === "delete") requestDelete();
+  }
+
+  function positionContextMenu(clientX: number, clientY: number): void {
+    const localX = clientX - viewportRect.left;
+    const localY = clientY - viewportRect.top;
+    contextMenu.style.left = `${localX}px`;
+    contextMenu.style.top = `${localY}px`;
+    contextMenu.removeAttribute("hidden");
+    const box = contextMenu.getBoundingClientRect();
+    const placed = placeContextMenu({
+      pointerX: localX,
+      pointerY: localY,
+      menuWidth: box.width,
+      menuHeight: box.height,
+      viewportWidth: viewportRect.width,
+      viewportHeight: viewportRect.height,
+    });
+    contextMenu.style.left = `${placed.x}px`;
+    contextMenu.style.top = `${placed.y}px`;
+  }
+
+  function openContextMenuAt(clientX: number, clientY: number, target: ContextMenuTarget): void {
+    if (!contextMenuEnabled || immersiveHost()) return;
+    const entries = contextMenuEntries(target, {
+      comments: commentsEnabled,
+      editable: Boolean(opts.editable),
+      copyLink: typeof opts.onCopyNodeLink === "function",
+    });
+    if (entries.length === 0) return;
+    contextTarget = target;
+    contextAnchor = { clientX, clientY, world: worldPointFromClient(clientX, clientY) };
+    if (commentOverlayAnchor) opts.onCommentDismiss?.();
+    if (shortcutHelpOpen()) toggleShortcutHelp(false);
+    paintContextMenu(contextMenu, entries, runContextCommand);
+    positionContextMenu(clientX, clientY);
+    contextMenuButtons(contextMenu)[0]?.focus();
+  }
+
+  function openContextMenu(clientPoint?: { x: number; y: number }): void {
+    const point = clientPoint ?? {
+      x: viewportRect.left + viewportRect.width / 2,
+      y: viewportRect.top + viewportRect.height / 2,
+    };
+    openContextMenuAt(point.x, point.y, targetFromSelection());
+  }
+
   function stepZoom(direction: 1 | -1): void {
     stopFlick();
     zoomTo(
@@ -1563,6 +1749,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // the composer still open would strand it over a canvas you are now
     // selecting and dragging in.
     if (next !== activeTool && commentOverlayAnchor?.draft) opts.onCommentDismiss?.();
+    if (next !== activeTool) closeContextMenu();
     activeTool = next;
     paintToolState(true);
   }
@@ -2116,6 +2303,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function updateCanvas(nextCanvas: PositionedCanvas, options?: ViewportUpdateOptions): void {
+    closeContextMenu();
     const nextResolveIframeUrl = options?.resolveIframeUrl ?? liveResolveIframeUrl;
     const nextResolveImageUrl = options?.resolveImageUrl ?? liveResolveImageUrl;
     const nextResolveIframeIdentity = options?.resolveIframeIdentity ?? liveResolveIframeIdentity;
@@ -2839,16 +3027,39 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    * iOS raises its own copy/share sheet on a long press, which is the same
    * gesture the selection toggle uses. `-webkit-touch-callout: none` covers
    * Safari; this covers Android and an iPad driving a trackpad. A mouse
-   * keeps its context menu, and node body text keeps its own.
+   * opens the canvas menu, except over selected node-body text, which
+   * keeps the native Copy/Look Up sheet.
    */
   function onContextMenu(event: MouseEvent): void {
-    if (lastPointerType === "mouse") return;
-    if ((event.target as HTMLElement).closest(".vc-native-body")) return;
+    const target = event.target as HTMLElement;
+    const policy = contextMenuPointerPolicy({
+      enabled: contextMenuEnabled,
+      pointerType: lastPointerType,
+    });
+    if (policy === "native") return;
+    if (policy === "suppress") {
+      if (target.closest(".vc-native-body")) return;
+      event.preventDefault();
+      return;
+    }
+    if (
+      nativeBodyKeepsContextMenu(Boolean(target.closest(".vc-native-body")), window.getSelection())
+    ) {
+      return;
+    }
+    if (immersiveHost()) {
+      event.preventDefault();
+      return;
+    }
+    const menuTarget = applyContextSelection(target);
+    if (!menuTarget) return;
     event.preventDefault();
+    openContextMenuAt(event.clientX, event.clientY, menuTarget);
   }
 
   function onWheel(event: WheelEvent): void {
     event.preventDefault();
+    closeContextMenu();
     stopFlick();
     if (event.ctrlKey || event.metaKey) {
       const factor = Math.exp(-event.deltaY * 0.01);
@@ -2861,8 +3072,45 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
+  function onContextMenuKeyDown(event: KeyboardEvent): void {
+    const list = contextMenuButtons(contextMenu);
+    const index = list.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (list.length === 0) return;
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const from = index < 0 ? (delta > 0 ? -1 : 0) : index;
+      list[(from + delta + list.length) % list.length]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      event.stopPropagation();
+      list[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      event.stopPropagation();
+      list.at(-1)?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeContextMenu();
+    } else if (event.key === "Tab") {
+      closeContextMenu();
+    }
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
+    if (contextMenuOpen() && contextMenu.contains(target)) return;
+    if (contextMenuOpen()) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeContextMenu();
+        return;
+      }
+      event.preventDefault();
+      return;
+    }
     // Text entry owns the keyboard outright. (The zoom field also stops
     // propagation itself, so "150" cannot fire Fit Page underneath.)
     if (
@@ -2910,6 +3158,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     } else if (event.key === "?") {
       event.preventDefault();
       toggleShortcutHelp();
+    } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      openContextMenu();
     } else if (
       event.key === "ArrowUp" ||
       event.key === "ArrowDown" ||
@@ -2948,6 +3199,14 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function onWindowBlur(): void {
     cancelDrag();
+    closeContextMenu();
+  }
+
+  function onWindowPointerDown(event: PointerEvent): void {
+    if (!contextMenuOpen()) return;
+    const target = event.target as Node | null;
+    if (target && contextMenu.contains(target)) return;
+    closeContextMenu();
   }
 
   function onMultiselectClick(event: MouseEvent): void {
@@ -3187,6 +3446,13 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   container.addEventListener("contextmenu", onContextMenu);
   container.addEventListener("wheel", onWheel, { passive: false });
   container.addEventListener("keydown", onKeyDown);
+  function onContextMenuSelf(event: MouseEvent): void {
+    event.preventDefault();
+  }
+
+  contextMenu.addEventListener("keydown", onContextMenuKeyDown);
+  contextMenu.addEventListener("contextmenu", onContextMenuSelf);
+  window.addEventListener("pointerdown", onWindowPointerDown);
   window.addEventListener("blur", onWindowBlur);
   toolbar.addEventListener("click", onToolbarClick);
   multiselectPanel.addEventListener("click", onMultiselectClick);
@@ -3264,6 +3530,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     commentOverlayElement: () => commentOverlay,
     getView: () => ({ ...view }),
     updateCanvas,
+    openContextMenu,
+    closeContextMenu,
     dispose() {
       edgeEditor.destroy();
       if (viewFrame !== null) cancelAnimationFrame(viewFrame);
@@ -3285,6 +3553,9 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       container.removeEventListener("contextmenu", onContextMenu);
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
+      contextMenu.removeEventListener("keydown", onContextMenuKeyDown);
+      contextMenu.removeEventListener("contextmenu", onContextMenuSelf);
+      window.removeEventListener("pointerdown", onWindowPointerDown);
       window.removeEventListener("blur", onWindowBlur);
       toolbar.removeEventListener("click", onToolbarClick);
       minimap.removeEventListener("pointerdown", onMinimapPointerDown);

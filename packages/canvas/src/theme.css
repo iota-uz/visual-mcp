@@ -125,6 +125,7 @@
   --vc-zoom-value-w: 52px;
   --vc-zoom-menu-w: 65px;
   --vc-zoom-options-w: 184px;
+  --vc-context-menu-w: 220px;
   --vc-marker: 24px;
   --vc-handle-hit: 8px;
   --vc-input-font-size: 10px;
@@ -191,6 +192,7 @@
   --vc-zoom-value-w: 64px;
   --vc-zoom-menu-w: 44px;
   --vc-zoom-options-w: 220px;
+  --vc-context-menu-w: 260px;
   --vc-marker: 36px;
   --vc-handle-hit: 14px;
   /* iOS zooms the page whenever a focused field is under 16px, and the zoom
@@ -2177,9 +2179,73 @@
   white-space: nowrap;
 }
 
-/* Immersive consumers such as Present render the canvas content without any
-   editor affordances. This lives in the unlayered canvas theme beside the
-   controls it overrides, so hosts do not need cascade-breaking !important. */
+/*
+ * Screen-space, sibling of toolbar/inspector, never inside `.vc-world`:
+ * the world element is replaced wholesale on every reactive update.
+ * Above comment overlay (31) so a menu opened over a dismissed thread
+ * is not buried. Offset from the pointer is applied in JS so the first
+ * item is not sitting under the cursor.
+ */
+.vc-context-menu {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: max-content;
+  min-width: var(--vc-context-menu-w);
+  padding: 4px;
+  border: 1px solid rgba(143, 160, 180, 0.42);
+  border-radius: var(--vc-radius-md);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--vc-shadow-xl);
+  color: var(--vc-ink);
+}
+.vc-context-menu[hidden] {
+  display: none;
+}
+.vc-context-menu > button {
+  appearance: none;
+  display: flex;
+  width: 100%;
+  min-height: var(--vc-menu-item-h);
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--vc-radius-sm);
+  background: transparent;
+  color: var(--vc-ink);
+  cursor: pointer;
+  font: 650 12px / 1 var(--vc-body);
+  text-align: left;
+}
+.vc-context-menu > button:hover,
+.vc-context-menu > button:focus-visible {
+  background: #f1f5f9;
+}
+.vc-context-menu > button:focus-visible {
+  outline: 3px solid var(--vc-accent-ring);
+  outline-offset: -1px;
+}
+.vc-context-menu > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.vc-context-menu > button.is-danger {
+  color: var(--vc-danger);
+}
+.vc-context-menu > button kbd {
+  color: var(--vc-muted);
+  font: 600 10px / 1 var(--vc-mono);
+}
+.vc-context-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--vc-line);
+}
+
 /* Keyboard shortcuts, on `?`. Anchored to the toolbar's corner rather than
    centred: it is a reference you read while still driving the canvas, not
    a modal that takes the stage. */
@@ -2268,6 +2334,9 @@
   font: 650 9px / 1 var(--vc-mono);
 }
 
+/* Immersive consumers such as Present render the canvas content without any
+   editor affordances. This lives in the unlayered canvas theme beside the
+   controls it overrides, so hosts do not need cascade-breaking !important. */
 .vc-viewport-host.vc-immersive .vc-minimap,
 .vc-viewport-host.vc-immersive .vc-inspector,
 .vc-viewport-host.vc-immersive .vc-iframe-guard,
@@ -2275,7 +2344,8 @@
 .vc-viewport-host.vc-immersive .vc-toolbar,
 .vc-viewport-host.vc-immersive .vc-shortcut-help,
 .vc-viewport-host.vc-immersive .vc-empty,
-.vc-viewport-host.vc-immersive .vc-resize-handle {
+.vc-viewport-host.vc-immersive .vc-resize-handle,
+.vc-viewport-host.vc-immersive .vc-context-menu {
   display: none;
 }
 

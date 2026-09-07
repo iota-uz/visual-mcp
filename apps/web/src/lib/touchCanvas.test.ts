@@ -272,17 +272,26 @@ describe("touch gestures", () => {
     controller.dispose();
   });
 
-  test("the system context menu is suppressed for a finger and kept for a mouse", () => {
+  test("the system context menu is suppressed for a finger and replaced for a mouse", () => {
     const { container, controller } = mount();
     pointer(container, "pointerdown", 300, 300, 1, "touch");
     const touched = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     container.dispatchEvent(touched);
     expect(touched.defaultPrevented).toBe(true);
+    expect(container.querySelector(".vc-context-menu")?.hasAttribute("hidden")).toBe(true);
 
     pointer(container, "pointerdown", 300, 300, 1, "mouse");
-    const clicked = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const clicked = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 300,
+      clientY: 300,
+    });
     container.dispatchEvent(clicked);
-    expect(clicked.defaultPrevented).toBe(false);
+    expect(clicked.defaultPrevented).toBe(true);
+    // A mouse still gets the canvas menu on a coarse device; only a finger
+    // is refused, because long-press already owns that gesture.
+    expect(container.querySelector(".vc-context-menu")?.hasAttribute("hidden")).toBe(false);
     controller.dispose();
   });
 
