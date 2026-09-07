@@ -3141,7 +3141,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         const affected = patched.file.pages.filter((page) =>
           patched.affectedPageIds.includes(page.id),
         );
-        const warnings = dedupeWarnings(scanNodeOverlaps(affected));
+        const warnings = dedupeWarnings(scanGeometryWarnings(affected));
         return result({
           status: "ok" as const,
           ref: input.ref,
