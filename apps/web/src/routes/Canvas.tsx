@@ -323,9 +323,9 @@ export function CanvasViewport({
       onCopyElementRef: async (refId) => {
         try {
           await navigator.clipboard.writeText(refId);
-          notifyRef.current({ message: "Element ref copied." });
         } catch (err: unknown) {
           notifyRef.current(toastError(err, "Couldn't copy element ref"));
+          throw err;
         }
       },
       onCopyNodeLink: async (nodeId) => {

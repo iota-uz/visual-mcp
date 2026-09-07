@@ -794,7 +794,7 @@ const INSPECTOR_SHELL = `<aside class="vc-inspector" aria-live="polite">
       <span class="vc-inspector-ref-label">Element ref</span>
       <div class="vc-inspector-ref-row">
         <code class="vc-inspector-ref-value"></code>
-        <button type="button" class="vc-inspector-ref-copy">Copy</button>
+        <button type="button" class="vc-inspector-ref-copy" aria-live="polite">Copy</button>
       </div>
     </div>
     <div class="vc-inspector-actions" hidden>
@@ -1717,6 +1717,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       inspectorAnnotation.hidden = inspectorAnnotation.innerHTML.length === 0;
       const refId = opts.resolveElementRef?.(primary.id);
       inspectorRef.hidden = !refId;
+      if (inspectorRefValue.textContent !== (refId ?? "")) resetCopied();
       inspectorRefValue.textContent = refId ?? "";
       const coarseDelete = Boolean(opts.editable) && resolvedPointer === "coarse";
       const hasBody = showTitle || !inspectorAnnotation.hidden || Boolean(refId) || coarseDelete;
@@ -3424,9 +3425,33 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     selectNode(null);
   }
 
-  function onInspectorRefCopy(): void {
+  let copyResetTimer: number | null = null;
+
+  function resetCopied(): void {
+    if (copyResetTimer !== null) {
+      window.clearTimeout(copyResetTimer);
+      copyResetTimer = null;
+    }
+    inspectorRefCopy.textContent = "Copy";
+    inspectorRefCopy.classList.remove("is-copied");
+  }
+
+  function flashCopied(): void {
+    inspectorRefCopy.textContent = "Copied";
+    inspectorRefCopy.classList.add("is-copied");
+    if (copyResetTimer !== null) window.clearTimeout(copyResetTimer);
+    copyResetTimer = window.setTimeout(resetCopied, 1500);
+  }
+
+  async function onInspectorRefCopy(): Promise<void> {
     const refId = inspectorRefValue.textContent;
-    if (refId) void opts.onCopyElementRef?.(refId);
+    if (!refId || !opts.onCopyElementRef) return;
+    try {
+      await opts.onCopyElementRef(refId);
+    } catch {
+      return;
+    }
+    flashCopied();
   }
 
   function onNodesDoubleClick(event: MouseEvent): void {
@@ -3608,6 +3633,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       if (fitAnimationTimer !== null) window.clearTimeout(fitAnimationTimer);
       if (flickFrame !== null) cancelAnimationFrame(flickFrame);
       if (longPressTimer !== null) window.clearTimeout(longPressTimer);
+      if (copyResetTimer !== null) window.clearTimeout(copyResetTimer);
       coarseQuery?.removeEventListener?.("change", onCoarseQueryChange);
       for (const timeout of iframeLoadTimeouts.values()) window.clearTimeout(timeout);
       resizeObserver?.disconnect();

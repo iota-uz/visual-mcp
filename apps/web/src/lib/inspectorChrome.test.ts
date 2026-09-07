@@ -63,6 +63,7 @@ describe("node-anchored inspector", () => {
     for (const controller of live.splice(0)) controller.dispose();
     frames.clear();
     document.body.innerHTML = "";
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -134,6 +135,39 @@ describe("node-anchored inspector", () => {
 
     container.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(controller.getSelection()).toEqual([]);
+  });
+
+  test("copy confirms inline on the button instead of a toast", async () => {
+    vi.useFakeTimers();
+    const onCopyElementRef = vi.fn().mockResolvedValue(undefined);
+    const { container, controller } = mount({ onCopyElementRef });
+    controller.selectNode("note");
+    flushFrames();
+    const button = container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy");
+    expect(button).toHaveTextContent("Copy");
+    button?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCopyElementRef).toHaveBeenCalledWith("canvas://ws/c?node=note");
+    expect(button).toHaveTextContent("Copied");
+    expect(button).toHaveClass("is-copied");
+    vi.advanceTimersByTime(1500);
+    expect(button).toHaveTextContent("Copy");
+    expect(button).not.toHaveClass("is-copied");
+    vi.useRealTimers();
+  });
+
+  test("copy failure does not flip the button to Copied", async () => {
+    const onCopyElementRef = vi.fn().mockRejectedValue(new Error("denied"));
+    const { container, controller } = mount({ onCopyElementRef });
+    controller.selectNode("note");
+    flushFrames();
+    const button = container.querySelector<HTMLButtonElement>(".vc-inspector-ref-copy");
+    button?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(button).toHaveTextContent("Copy");
+    expect(button).not.toHaveClass("is-copied");
   });
 
   test("Exit is a screen-space control on the active iframe", () => {

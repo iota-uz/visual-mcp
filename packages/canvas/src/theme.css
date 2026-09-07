@@ -1890,11 +1890,16 @@
   border: 1px solid var(--vc-line);
   border-radius: var(--vc-radius-sm);
   background: var(--vc-white);
+  min-width: 4.75em;
   min-height: var(--vc-action-h);
   padding: 6px 9px;
   color: var(--vc-ink);
   cursor: pointer;
   font: 650 9px / 1 var(--vc-body);
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease;
 }
 .vc-inspector-ref-copy:hover {
   border-color: var(--vc-role-primary);
@@ -1902,6 +1907,29 @@
 .vc-inspector-ref-copy:focus-visible {
   outline: 3px solid var(--vc-accent-ring);
   outline-offset: 2px;
+}
+.vc-inspector-ref-copy.is-copied {
+  border-color: color-mix(in srgb, var(--vc-success) 55%, var(--vc-line));
+  background: color-mix(in srgb, var(--vc-success) 12%, var(--vc-white));
+  color: var(--vc-success);
+  animation: vc-copied-pop 0.28s var(--vc-ease-out);
+}
+@keyframes vc-copied-pop {
+  from {
+    transform: scale(0.96);
+  }
+  40% {
+    transform: scale(1.05);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vc-inspector-ref-copy {
+    transition: none;
+    animation: none;
+  }
 }
 
 /*
