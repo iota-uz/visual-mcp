@@ -1,6 +1,7 @@
 export * from "./annotation.js";
 export * from "./device-frame.js";
 export * from "./element-ref.js";
+export * from "./file-patch.js";
 export * from "./issues.js";
 export * from "./layout.js";
 export * from "./overlap.js";

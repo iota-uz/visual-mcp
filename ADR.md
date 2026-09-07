@@ -11,6 +11,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## mcp
 
+- **Структурные правки используют атомарный batch, компактное чтение и единый state token** — [запись](adr/mcp/token-efficient-structural-patches.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **HTML авторится напрямую через MCP, краткая форма разворачивается в canvas на сервере** — [запись](adr/mcp/direct-html-authoring.md) · accepted · 2026-09-06 (запрос сопровождающего)
 - **Файловые MCP-операции пакетируются внутри одной задачи, а поиск остаётся отдельным инструментом** — [запись](adr/mcp/bounded-batch-file-operations.md) · accepted · 2026-09-01 (агентский аудит и запрос сопровождающего)
 - **Общий контракт маршрутизации повторяется в каждом описании инструмента ради свежести контекста** — [запись](adr/mcp/repeated-routing-contract-for-context-freshness.md) · accepted · 2026-08-23 (`12e0d20`, подтверждено сопровождающим 2026-09-01)
