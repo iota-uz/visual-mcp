@@ -44,6 +44,10 @@ import {
   parseElementRef,
   resolveElementSelection,
 } from "@visual-canvas/canvas/element-ref.js";
+import {
+  applyCanvasFilePatch,
+  type CanvasFilePatchOperation,
+} from "@visual-canvas/canvas/file-patch.js";
 import { describeIssues } from "@visual-canvas/canvas/issues.js";
 import { deleteNodesFromFile, layoutCanvas, moveNodes } from "@visual-canvas/canvas/layout.js";
 import { findNodeOverlaps } from "@visual-canvas/canvas/overlap.js";
@@ -514,7 +518,7 @@ const ResolvedThemeOutputSchema = z.object({
  */
 function result(value: Record<string, unknown>): CallToolResult {
   return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(value) }],
     structuredContent: value,
   };
 }
@@ -577,7 +581,7 @@ async function runTool(
           }
         : {}),
     };
-    return { content: [{ type: "text", text: JSON.stringify(error, null, 2) }], isError: true };
+    return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true };
   }
 }
 
@@ -1858,6 +1862,16 @@ function pageSlug(title: string): string {
   return base || "page";
 }
 
+function canvasState(version: number, draftRevision: number): string {
+  return `v${version}.r${draftRevision}`;
+}
+
+function parseCanvasState(value: string): { version: number; draftRevision: number } {
+  const match = /^v(\d+)\.r(\d+)$/.exec(value);
+  if (!match) throw new Error("invalid_state: expected the opaque state returned by canvas_get");
+  return { version: Number(match[1]), draftRevision: Number(match[2]) };
+}
+
 /* ------------------------------------------------------------------------
  * Tool registration
  * ---------------------------------------------------------------------- */
@@ -2986,6 +3000,159 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
       }),
   );
 
+  const filePatchOperationSchema = z.discriminatedUnion("op", [
+    z
+      .object({
+        op: z.literal("page.update"),
+        page_id: z.string().min(1),
+        changes: z
+          .object({
+            title: z.string().min(1).max(120).optional(),
+            subtitle: z.string().max(500).nullable().optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        op: z.literal("page.create"),
+        page_id: z.string().min(1),
+        title: z.string().min(1).max(120),
+        doc: z.unknown(),
+        after_page_id: z.string().min(1).optional(),
+      })
+      .strict(),
+    z.object({ op: z.literal("page.delete"), page_id: z.string().min(1) }).strict(),
+    z
+      .object({
+        op: z.literal("pages.reorder"),
+        page_ids: z.array(z.string().min(1)).min(1).max(100),
+      })
+      .strict(),
+    z
+      .object({
+        op: z.literal("page.doc.patch"),
+        page_id: z.string().min(1),
+        operations: z.array(docPatchOperationSchema).min(1).max(100),
+      })
+      .strict(),
+    z
+      .object({
+        op: z.literal("prototype.start.set"),
+        start: z
+          .object({ pageId: z.string().min(1), nodeId: z.string().min(1) })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+    z.object({ op: z.literal("prototype.interaction.upsert"), interaction: z.unknown() }).strict(),
+    z.object({ op: z.literal("prototype.interaction.remove"), id: z.string().min(1) }).strict(),
+  ]);
+
+  server.registerTool(
+    "canvas_patch",
+    {
+      title: "Patch canvas structure",
+      description:
+        "Atomically changes Page metadata/order/content and prototype state. Use one mixed batch when references move: final-state validation allows replacing a prototype start and its node together. Use canvas_edit for source text.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          base: z
+            .string()
+            .regex(/^v\d+\.r\d+$/)
+            .describe("Opaque canvas.state returned by canvas_get or the previous canvas_patch."),
+          operations: z.array(filePatchOperationSchema).min(1).max(100),
+          note: z.string().max(240).optional(),
+        })
+        .strict(),
+      outputSchema: z
+        .object({
+          status: z.enum(["ok", "partial"]),
+          ref: z.string(),
+          state: z.string(),
+          changed: z.number().int().positive(),
+          affected_pages: z.array(z.string()),
+          warnings: z.array(WarningSchema),
+        })
+        .strict(),
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        const base = parseCanvasState(input.base);
+        const currentVersion = loaded.detail.canvas.version ?? 0;
+        const currentDraftRevision = loaded.detail.canvas.draft_revision;
+        if (base.version !== currentVersion || base.draftRevision !== currentDraftRevision) {
+          throw new Error(
+            `state_conflict: expected ${input.base}, current ${canvasState(currentVersion, currentDraftRevision)}`,
+          );
+        }
+        const operations = input.operations.map((operation): CanvasFilePatchOperation => {
+          switch (operation.op) {
+            case "page.update":
+              return { op: operation.op, pageId: operation.page_id, changes: operation.changes };
+            case "page.create":
+              return {
+                op: operation.op,
+                page: {
+                  id: operation.page_id,
+                  title: operation.title,
+                  doc: operation.doc as CanvasDoc,
+                },
+                afterPageId: operation.after_page_id,
+              };
+            case "page.delete":
+              return { op: operation.op, pageId: operation.page_id };
+            case "pages.reorder":
+              return { op: operation.op, pageIds: operation.page_ids };
+            case "page.doc.patch":
+              return {
+                op: operation.op,
+                pageId: operation.page_id,
+                operations: operation.operations as CanvasDocPatchOperation[],
+              };
+            case "prototype.start.set":
+              return { op: operation.op, start: operation.start };
+            case "prototype.interaction.upsert":
+              return {
+                op: operation.op,
+                interaction: operation.interaction as never,
+              };
+            case "prototype.interaction.remove":
+              return operation;
+            default:
+              throw new Error("unsupported_canvas_patch_operation");
+          }
+        });
+        const patched = applyCanvasFilePatch(loaded.file, operations);
+        const saved = await saveCanvasFileDraft(
+          ctx,
+          principal,
+          loaded.detail.canvas.canvas_id,
+          patched.file,
+          {
+            expectedVersion: base.version,
+            expectedDraftRevision: base.draftRevision,
+            note: input.note ?? `Canvas patch (${input.operations.length})`,
+          },
+        );
+        const affected = patched.file.pages.filter((page) =>
+          patched.affectedPageIds.includes(page.id),
+        );
+        const warnings = dedupeWarnings(scanGeometryWarnings(affected));
+        return result({
+          status: "ok" as const,
+          ref: input.ref,
+          state: canvasState(saved.version, saved.draftRevision),
+          changed: input.operations.length,
+          affected_pages: patched.affectedPageIds,
+          warnings,
+        });
+      }),
+  );
+
   /* --- batch node operations (UI gesture parity) ------------------------ */
   /*
    * A human's marquee selection produces one gesture over many nodes, and an
@@ -3415,11 +3582,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
   const PageMutationOutputSchema = z.object({
     status: z.literal("ok"),
     ref: z.string(),
+    state: z.string(),
     version: z.number().int().nonnegative(),
     draft_revision: z.number().int().nonnegative(),
-    dirty: z.boolean(),
-    page: PageSummarySchema.optional(),
-    pages: z.array(PageSummarySchema),
+    page_id: z.string().optional(),
   });
   const pageSummaries = (file: CanvasFile) =>
     [...file.pages]
@@ -3457,17 +3623,13 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         note: input.note,
       },
     );
-    const page = changed.pageId
-      ? pageSummaries(changed.file).find((candidate) => candidate.id === changed.pageId)
-      : undefined;
     return result({
       status: "ok" as const,
       ref: input.ref,
+      state: canvasState(saved.version, saved.draftRevision),
       version: saved.version,
       draft_revision: saved.draftRevision,
-      dirty: saved.dirty,
-      page,
-      pages: pageSummaries(changed.file),
+      page_id: changed.pageId,
     });
   };
 
@@ -3529,6 +3691,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         ref: z.string(),
         version: z.number().int().nonnegative(),
         draft_revision: z.number().int().nonnegative(),
+        state: z.string(),
         dirty: z.boolean(),
         pages: z.array(PageSummarySchema),
       }),
@@ -3541,6 +3704,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           ref: input.ref,
           version: loaded.detail.canvas.version ?? 0,
           draft_revision: loaded.detail.canvas.draft_revision,
+          state: canvasState(
+            loaded.detail.canvas.version ?? 0,
+            loaded.detail.canvas.draft_revision,
+          ),
           dirty: loaded.detail.canvas.dirty,
           pages: pageSummaries(loaded.file),
         });
@@ -3957,7 +4124,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           throw new Error("Asset preview exceeds the 5MB MCP inline limit");
         return {
           content: [
-            { type: "text", text: JSON.stringify(payload, null, 2) },
+            { type: "text", text: JSON.stringify(payload) },
             { type: "image", data: base64Bytes(bytes), mimeType: asset.mimeType },
           ],
           structuredContent: payload,
@@ -4869,7 +5036,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         });
         return {
           content: [
-            { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
+            { type: "text" as const, text: JSON.stringify(metadata) },
             ...(bytes
               ? [{ type: "image" as const, mimeType: "image/png", data: base64Bytes(bytes) }]
               : []),
@@ -4897,6 +5064,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             .optional()
             .describe("A copied canvas://workspace/canvas?node=<id> element ref."),
           page_id: z.string().optional().describe("Select a Page; defaults to defaultPageId."),
+          response_mode: z
+            .enum(["compact", "full"])
+            .default("compact")
+            .describe("compact omits author, resolved theme, thumbnail and embed metadata."),
           include: z
             .array(
               z.enum(["doc", "files", "artifacts", "versions", "renders", "storage", "comments"]),
@@ -4968,30 +5139,32 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
               description: z.string().optional(),
               kind: z.enum(["canvas", "html", "image", "pdf"]),
               visibility: z.enum(["private", "public"]),
+              state: z.string(),
               version: z.number().int().nonnegative(),
               draft_revision: z.number().int().nonnegative(),
               dirty: z.boolean(),
               draft_edit_count: z.number().int().nonnegative(),
               updated_at: z.number(),
-              created_by_email: z.string().nullable(),
+              created_by_email: z.string().nullable().optional(),
               theme_id: z.enum(THEME_IDS),
               workspace_brand: ThemeOverrideInputSchema.optional(),
               brand_override: ThemeOverrideInputSchema.optional(),
-              resolved_theme: ResolvedThemeOutputSchema,
+              resolved_theme: ResolvedThemeOutputSchema.optional(),
               // Always present, so an agent reading a canvas notices the
               // feedback waiting on it without having to ask a second tool.
               open_comments: z.number().int().nonnegative(),
               canvas_url: z.string(),
               present_url: z.string().nullable(),
               share_url: z.string().nullable(),
-              thumbnail_url: z.string().nullable(),
+              thumbnail_url: z.string().nullable().optional(),
               embed: z
                 .object({
                   image_url: z.string(),
                   target_url: z.string(),
                   github_markdown: z.string(),
                 })
-                .nullable(),
+                .nullable()
+                .optional(),
             })
             .strict(),
           selection: z.unknown().optional(),
@@ -5152,10 +5325,10 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         const projectedDoc = (() => {
           if (!include.has("doc") || !canvasFile || !selectedPage) return undefined;
           const projection = input.doc_projection;
-          if (!projection) return canvasFile;
+          if (!projection && !input.page_id) return canvasFile;
           const canvasDoc = selectedPage.doc;
-          const collections = new Set(projection.collections ?? []);
-          const nodeIds = new Set(projection.node_ids ?? []);
+          const collections = new Set(projection?.collections ?? []);
+          const nodeIds = new Set(projection?.node_ids ?? []);
           const nodes = canvasDoc.nodes.filter((node) => nodeIds.has(node.id));
           const selectedNodeIds = new Set(nodes.map((node) => node.id));
           return {
@@ -5179,29 +5352,41 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                   edges: canvasDoc.edges.length,
                   drawings: canvasDoc.drawings.length,
                 },
-                lanes: collections.has("lanes") ? canvasDoc.lanes : undefined,
-                stages: collections.has("stages") ? canvasDoc.stages : undefined,
-                labels: collections.has("labels") ? canvasDoc.labels : undefined,
+                lanes: !projection || collections.has("lanes") ? canvasDoc.lanes : undefined,
+                stages: !projection || collections.has("stages") ? canvasDoc.stages : undefined,
+                labels: !projection || collections.has("labels") ? canvasDoc.labels : undefined,
                 nodes:
-                  collections.has("nodes") && nodeIds.size === 0
+                  !projection || (collections.has("nodes") && nodeIds.size === 0)
                     ? canvasDoc.nodes
                     : nodes.length > 0
                       ? nodes
                       : undefined,
-                edges: collections.has("edges")
-                  ? canvasDoc.edges
-                  : selectedNodeIds.size > 0
-                    ? canvasDoc.edges.filter(
-                        (edge) =>
-                          selectedNodeIds.has(edge.source.nodeId) ||
-                          selectedNodeIds.has(edge.target.nodeId),
-                      )
-                    : undefined,
-                drawings: collections.has("drawings") ? canvasDoc.drawings : undefined,
-                legend: collections.has("legend") ? canvasDoc.legend : undefined,
+                edges:
+                  !projection || collections.has("edges")
+                    ? canvasDoc.edges
+                    : selectedNodeIds.size > 0
+                      ? canvasDoc.edges.filter(
+                          (edge) =>
+                            selectedNodeIds.has(edge.source.nodeId) ||
+                            selectedNodeIds.has(edge.target.nodeId),
+                        )
+                      : undefined,
+                drawings:
+                  !projection || collections.has("drawings") ? canvasDoc.drawings : undefined,
+                legend: !projection || collections.has("legend") ? canvasDoc.legend : undefined,
               },
             },
-            prototype: canvasFile.prototype,
+            prototype: {
+              start:
+                canvasFile.prototype.start?.pageId === selectedPage.id
+                  ? canvasFile.prototype.start
+                  : undefined,
+              interactions: canvasFile.prototype.interactions.filter(
+                (interaction) =>
+                  interaction.source.pageId === selectedPage.id ||
+                  interaction.destination.pageId === selectedPage.id,
+              ),
+            },
           };
         })();
 
@@ -5254,16 +5439,20 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             description: detail.canvas.description,
             kind: detail.canvas.kind,
             visibility: detail.canvas.visibility,
+            state: canvasState(detail.canvas.version ?? 0, detail.canvas.draft_revision),
             version: detail.canvas.version ?? 0,
             draft_revision: detail.canvas.draft_revision,
             dirty: detail.canvas.dirty,
             draft_edit_count: detail.canvas.draft_edit_count,
             updated_at: detail.canvas.updated_at,
-            created_by_email: detail.created_by_email,
+            created_by_email: input.response_mode === "full" ? detail.created_by_email : undefined,
             theme_id: detail.canvas.theme_id,
-            workspace_brand: detail.canvas.workspace_brand,
-            brand_override: detail.canvas.brand_override,
-            resolved_theme: detail.canvas.resolved_theme,
+            workspace_brand:
+              input.response_mode === "full" ? detail.canvas.workspace_brand : undefined,
+            brand_override:
+              input.response_mode === "full" ? detail.canvas.brand_override : undefined,
+            resolved_theme:
+              input.response_mode === "full" ? detail.canvas.resolved_theme : undefined,
             open_comments: openComments,
             canvas_url: focusedCanvasUrl.toString(),
             present_url:
@@ -5271,19 +5460,22 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                 ? `${canvasUrl(detail.canvas.canvas_id)}/present`
                 : null,
             share_url: shareUrl(detail.canvas.public_slug),
-            thumbnail_url: detail.canvas.thumbnail_url,
-            embed: (() => {
-              const imageUrl = embedCardUrl(
-                detail.canvas.public_slug,
-                { kind: "canvas" },
-                detail.canvas.version,
-              );
-              const targetUrl = embedTargetUrl(detail.canvas.public_slug, { kind: "canvas" });
-              const markdown = githubEmbedMarkdown(detail.canvas.title, imageUrl, targetUrl);
-              return imageUrl && targetUrl && markdown
-                ? { image_url: imageUrl, target_url: targetUrl, github_markdown: markdown }
-                : null;
-            })(),
+            thumbnail_url: input.response_mode === "full" ? detail.canvas.thumbnail_url : undefined,
+            embed:
+              input.response_mode === "full"
+                ? (() => {
+                    const imageUrl = embedCardUrl(
+                      detail.canvas.public_slug,
+                      { kind: "canvas" },
+                      detail.canvas.version,
+                    );
+                    const targetUrl = embedTargetUrl(detail.canvas.public_slug, { kind: "canvas" });
+                    const markdown = githubEmbedMarkdown(detail.canvas.title, imageUrl, targetUrl);
+                    return imageUrl && targetUrl && markdown
+                      ? { image_url: imageUrl, target_url: targetUrl, github_markdown: markdown }
+                      : null;
+                  })()
+                : undefined,
           },
           selection,
           doc: projectedDoc,
@@ -6068,7 +6260,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         // ordinary error handling saw "success".
         if (!workerResult.success) {
           return {
-            content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+            content: [{ type: "text", text: JSON.stringify(payload) }],
             structuredContent: payload,
             isError: true,
           };

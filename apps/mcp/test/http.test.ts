@@ -105,6 +105,234 @@ describe("Railway MCP service", () => {
     expect(byName.get("canvas_file_search")?.outputSchema.properties).toHaveProperty("skipped");
     expect(byName.get("canvas_snapshot")?.inputSchema.properties).toHaveProperty("response_mode");
     expect(byName.get("canvas_snapshot")?.outputSchema.properties).not.toHaveProperty("embed");
+    expect(byName.get("canvas_patch")?.inputSchema.properties).toHaveProperty("base");
+    expect(byName.get("canvas_patch")?.inputSchema.properties).toHaveProperty("operations");
+    expect(byName.get("canvas_page_move")?.outputSchema.properties).toHaveProperty("state");
+    expect(byName.get("canvas_page_move")?.outputSchema.properties).not.toHaveProperty("pages");
+  });
+
+  test("patches page metadata and prototype together with a compact state response", async () => {
+    const doc = {
+      version: 3,
+      defaultPageId: "flow",
+      pages: [
+        {
+          id: "flow",
+          title: "Flow",
+          order: 0,
+          doc: {
+            version: 2,
+            title: "Flow",
+            subtitle: "Old",
+            world: { width: 400, height: 300 },
+            lanes: [],
+            stages: [],
+            labels: [],
+            groups: [],
+            edges: [],
+            drawings: [],
+            nodes: [
+              {
+                kind: "native",
+                id: "old",
+                rect: { x: 10, y: 10, w: 100, h: 60 },
+                caption: { title: "Old" },
+                anchors: [],
+                shape: "note",
+              },
+            ],
+          },
+        },
+      ],
+      prototype: { start: { pageId: "flow", nodeId: "old" }, interactions: [] },
+    };
+    let query = 0;
+    const context = {
+      runQuery: async () => {
+        query += 1;
+        if (query === 2) return { storageId: "doc" };
+        return {
+          canvas: {
+            canvas_id: "canvas",
+            version: 4,
+            draft_revision: 9,
+            resolved_theme: undefined,
+            doc_url: "https://storage.example/doc",
+          },
+        };
+      },
+      runMutation: async () => ({ version: 4, draftRevision: 10, dirty: true }),
+      storage: {
+        get: async () => new Blob([JSON.stringify(doc)], { type: "application/json" }),
+        store: async () => "stored",
+        delete: async () => null,
+      },
+    } as unknown as AgentContext;
+    const response = await createApp({
+      ...gateway(),
+      actionContext: () => context,
+    } as never).request("/mcp", {
+      method: "POST",
+      headers: { ...headers, authorization: "Bearer valid" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 12,
+        method: "tools/call",
+        params: {
+          name: "canvas_patch",
+          arguments: {
+            ref: "workspace/canvas",
+            base: "v4.r9",
+            operations: [
+              {
+                op: "page.doc.patch",
+                page_id: "flow",
+                operations: [
+                  { op: "nodes.remove", id: "old" },
+                  {
+                    op: "nodes.add",
+                    value: { ...doc.pages[0].doc.nodes[0], id: "new", caption: { title: "New" } },
+                  },
+                ],
+              },
+              { op: "prototype.start.set", start: { pageId: "flow", nodeId: "new" } },
+              { op: "page.update", page_id: "flow", changes: { subtitle: "New flow" } },
+            ],
+          },
+        },
+      }),
+    });
+    const payload = parseMcpResponse(await response.text()) as {
+      result: {
+        isError?: boolean;
+        content?: Array<{ type: string; text?: string }>;
+        structuredContent?: Record<string, unknown>;
+      };
+    };
+    expect(payload.result.isError, JSON.stringify(payload)).not.toBe(true);
+    expect(payload.result.structuredContent).toEqual({
+      status: "ok",
+      ref: "workspace/canvas",
+      state: "v4.r10",
+      changed: 3,
+      affected_pages: ["flow"],
+      warnings: [],
+    });
+    const text = payload.result.content?.[0]?.text ?? "";
+    expect(text).not.toContain("\n");
+    expect(text.length).toBeLessThan(250);
+  });
+
+  test("reads one selected page without returning every page or full theme metadata", async () => {
+    const makePage = (id: string) => ({
+      id,
+      title: id,
+      order: id === "a" ? 0 : 1,
+      doc: {
+        version: 2,
+        title: id,
+        world: { width: 400, height: 300 },
+        lanes: [],
+        stages: [],
+        labels: [],
+        groups: [],
+        edges: [],
+        drawings: [],
+        nodes: [
+          {
+            kind: "native",
+            id: `${id}-node`,
+            rect: { x: 10, y: 10, w: 100, h: 60 },
+            caption: { title: id },
+            anchors: [],
+            shape: "note",
+          },
+        ],
+      },
+    });
+    const doc = {
+      version: 3,
+      defaultPageId: "a",
+      pages: [makePage("a"), makePage("b")],
+      prototype: {
+        start: { pageId: "a", nodeId: "a-node" },
+        interactions: [
+          {
+            id: "a-to-b",
+            source: { pageId: "a", nodeId: "a-node" },
+            hotspot: { x: 0, y: 0, width: 10, height: 10 },
+            trigger: "tap",
+            destination: { pageId: "b", nodeId: "b-node" },
+            transition: "instant",
+          },
+        ],
+      },
+    };
+    let query = 0;
+    const context = {
+      runQuery: async () => {
+        query += 1;
+        if (query === 1)
+          return {
+            workspace_slug: "workspace",
+            canvas: {
+              canvas_id: "canvas",
+              slug: "canvas",
+              title: "Canvas",
+              description: "Description",
+              kind: "canvas",
+              visibility: "private",
+              version: 5,
+              draft_revision: 12,
+              dirty: true,
+              draft_edit_count: 2,
+              updated_at: 1,
+              theme_id: "clean-saas",
+              resolved_theme: { intentionally: "large" },
+              doc_url: "https://storage.example/doc",
+              public_slug: undefined,
+              thumbnail_url: null,
+            },
+            created_by_email: "author@iota.uz",
+          };
+        if (query === 2) return { storageId: "doc" };
+        return 0;
+      },
+      runMutation: async () => null,
+      storage: { get: async () => new Blob([JSON.stringify(doc)], { type: "application/json" }) },
+    } as unknown as AgentContext;
+    const response = await createApp({
+      ...gateway(),
+      actionContext: () => context,
+    } as never).request("/mcp", {
+      method: "POST",
+      headers: { ...headers, authorization: "Bearer valid" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 13,
+        method: "tools/call",
+        params: {
+          name: "canvas_get",
+          arguments: { ref: "workspace/canvas", page_id: "b", include: ["doc"] },
+        },
+      }),
+    });
+    const payload = parseMcpResponse(await response.text()) as {
+      result: {
+        isError?: boolean;
+        structuredContent?: { canvas: Record<string, unknown>; doc: Record<string, unknown> };
+      };
+    };
+    expect(payload.result.isError, JSON.stringify(payload)).not.toBe(true);
+    expect(payload.result.structuredContent?.canvas).toMatchObject({ state: "v5.r12" });
+    expect(payload.result.structuredContent?.canvas).not.toHaveProperty("resolved_theme");
+    expect(payload.result.structuredContent?.canvas).not.toHaveProperty("created_by_email");
+    expect(payload.result.structuredContent?.doc).toMatchObject({ activePage: { id: "b" } });
+    expect(payload.result.structuredContent?.doc).not.toHaveProperty("pages.0.doc");
+    expect(payload.result.structuredContent?.doc).toMatchObject({
+      prototype: { interactions: [{ id: "a-to-b" }] },
+    });
+    expect(payload.result.structuredContent?.doc).not.toHaveProperty("prototype.start");
   });
 
   test("checkpoints through the gateway without requiring a direct Convex action", async () => {
