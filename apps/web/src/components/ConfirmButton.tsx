@@ -1,5 +1,5 @@
 import { type LucideIcon, Trash2 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./ui/Button";
 
 interface ConfirmButtonProps {
@@ -13,6 +13,20 @@ interface ConfirmButtonProps {
   /** `danger` destroys data; `warning` breaks something outside the app. */
   tone?: "danger" | "warning";
   icon?: LucideIcon;
+  /**
+   * Mount already armed. For a confirmation reached from a ⋯ menu: the user
+   * has already made the first of the two decisions, and repeating it as a
+   * resting Delete button under the menu that offered one is not a second
+   * safeguard, only a second click.
+   */
+  defaultArmed?: boolean;
+  /**
+   * Cancel, Escape, a click outside, the auto-disarm, or a completed
+   * confirmation. A menu-staged confirmation needs this: without it the
+   * armed tree collapses into a *resting* Delete button in the card,
+   * duplicating the menu item that opened it.
+   */
+  onDisarm?: () => void;
   onConfirm: () => Promise<unknown>;
 }
 
@@ -34,15 +48,24 @@ export function ConfirmButton({
   busyLabel = "Deleting…",
   tone = "danger",
   icon: Icon = Trash2,
+  defaultArmed = false,
+  onDisarm,
   onConfirm,
 }: ConfirmButtonProps) {
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmed] = useState(defaultArmed);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const restRef = useRef<HTMLButtonElement>(null);
   const wasArmed = useRef(false);
+
+  /* Every way out of the armed state goes through here, so a parent that
+     owns "am I confirming?" hears about all of them and not just Cancel. */
+  const disarm = useCallback(() => {
+    setArmed(false);
+    onDisarm?.();
+  }, [onDisarm]);
 
   // Arming swaps in a different element tree, so without this the focus
   // ring is left on a button that no longer exists and a keyboard user has
@@ -69,14 +92,14 @@ export function ConfirmButton({
     // explanation of why the delete failed 8 seconds after showing it.
     if (!armed || busy || error) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setArmed(false);
+      if (e.key === "Escape") disarm();
     }
     function onPointerDown(e: PointerEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setArmed(false);
+      if (!wrapRef.current?.contains(e.target as Node)) disarm();
     }
     // An armed Delete left live in a list row is a trap you walk back into
     // minutes later having forgotten it was armed. Disarm itself.
-    const timer = window.setTimeout(() => setArmed(false), AUTO_DISARM_MS);
+    const timer = window.setTimeout(disarm, AUTO_DISARM_MS);
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
@@ -84,14 +107,14 @@ export function ConfirmButton({
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [armed, busy, error]);
+  }, [armed, busy, error, disarm]);
 
   async function handleConfirm() {
     setBusy(true);
     setError(null);
     try {
       await onConfirm();
-      setArmed(false);
+      disarm();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -117,7 +140,7 @@ export function ConfirmButton({
       <Button ref={confirmRef} variant={tone} size="sm" onClick={handleConfirm} busy={busy}>
         {busy ? busyLabel : confirmLabel}
       </Button>
-      <Button variant="ghost" size="sm" onClick={() => setArmed(false)} disabled={busy}>
+      <Button variant="ghost" size="sm" onClick={disarm} disabled={busy}>
         Cancel
       </Button>
       {error && (

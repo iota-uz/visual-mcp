@@ -45,6 +45,44 @@ import { Checkbox, Select, TextInput } from "../components/ui/TextInput";
 
 const VARIANTS: ButtonVariant[] = ["primary", "secondary", "ghost", "danger", "warning", "google"];
 
+/*
+ * The destructive path a ⋯ menu takes: the item stages the action and the
+ * confirmation renders *outside* the menu, already armed. Arming inside a
+ * menu that closes on click cannot work — the armed tree is not a
+ * `role="menuitem"`, so the arrows would not reach it.
+ */
+function MenuStagedDelete() {
+  const [confirming, setConfirming] = useState(false);
+  const { notify } = useToast();
+  return (
+    <>
+      <Menu
+        label="Actions for Fast Settlement"
+        items={[
+          { id: "rename", label: "Rename", icon: Pencil, onSelect: () => {} },
+          { id: "sep", separator: true },
+          {
+            id: "delete",
+            label: "Delete canvas…",
+            icon: Trash2,
+            danger: true,
+            onSelect: () => setConfirming(true),
+          },
+        ]}
+      />
+      {confirming && (
+        <ConfirmButton
+          defaultArmed
+          onDisarm={() => setConfirming(false)}
+          confirmLabel="Delete canvas"
+          description={'Deletes "Fast Settlement" and its share link. Permanent.'}
+          onConfirm={async () => notify({ message: "Deleted." })}
+        />
+      )}
+    </>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="ks-section">
@@ -340,6 +378,12 @@ export function KitchenSinkPage() {
             description={'Any agent still using "laptop" stops working immediately.'}
             onConfirm={async () => notify({ message: 'Revoked "laptop".' })}
           />
+        </Row>
+      </Section>
+
+      <Section title="Confirm from a menu">
+        <Row label="staged">
+          <MenuStagedDelete />
         </Row>
       </Section>
 

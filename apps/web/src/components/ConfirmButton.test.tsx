@@ -55,3 +55,71 @@ test("confirming calls onConfirm exactly once", async () => {
 
   expect(onConfirm).toHaveBeenCalledTimes(1);
 });
+
+/*
+ * Reached from a ⋯ menu, the first of the two decisions has already been
+ * made, so the button mounts armed and the parent owns the state. `onDisarm`
+ * is what tells that parent to stop rendering the confirmation — without it
+ * every escape route below collapses into a resting Delete button sitting in
+ * the card next to the menu item that opened it.
+ */
+test("mounts armed for a menu-staged confirmation", async () => {
+  const onDisarm = vi.fn();
+  render(<ConfirmButton defaultArmed onDisarm={onDisarm} onConfirm={vi.fn()} />);
+
+  const confirm = screen.getByRole("button", { name: "Really delete?" });
+  expect(confirm).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  expect(onDisarm).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["Escape", async (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
+  [
+    "Cancel",
+    async (user: ReturnType<typeof userEvent.setup>) =>
+      user.click(screen.getByRole("button", { name: "Cancel" })),
+  ],
+  [
+    "a click outside",
+    async (user: ReturnType<typeof userEvent.setup>) =>
+      user.click(screen.getByRole("button", { name: "outside" })),
+  ],
+])("reports the disarm from %s", async (_route, act) => {
+  const user = userEvent.setup();
+  const onDisarm = vi.fn();
+  render(
+    <div>
+      <ConfirmButton defaultArmed onDisarm={onDisarm} onConfirm={vi.fn()} />
+      <button type="button">outside</button>
+    </div>,
+  );
+  await act(user);
+  expect(onDisarm).toHaveBeenCalledTimes(1);
+});
+
+test("reports the disarm after the action succeeds", async () => {
+  const user = userEvent.setup();
+  const onDisarm = vi.fn();
+  render(
+    <ConfirmButton
+      defaultArmed
+      onDisarm={onDisarm}
+      onConfirm={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Really delete?" }));
+  expect(onDisarm).toHaveBeenCalledTimes(1);
+});
+
+test("disarms itself after the timeout, and says so", async () => {
+  vi.useFakeTimers();
+  try {
+    const onDisarm = vi.fn();
+    render(<ConfirmButton defaultArmed onDisarm={onDisarm} onConfirm={vi.fn()} />);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(onDisarm).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
