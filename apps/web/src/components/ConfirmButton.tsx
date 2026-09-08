@@ -1,5 +1,5 @@
 import { type LucideIcon, Trash2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./ui/Button";
 
 interface ConfirmButtonProps {
@@ -27,6 +27,13 @@ interface ConfirmButtonProps {
    * duplicating the menu item that opened it.
    */
   onDisarm?: () => void;
+  /**
+   * Where focus goes when an armed confirmation is dismissed, for a parent
+   * that unmounts this on `onDisarm`: the resting button the effect below
+   * hands focus back to never renders, so without this Escape drops focus
+   * on `<body>`. Point it at the control that staged the confirmation.
+   */
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onConfirm: () => Promise<unknown>;
 }
 
@@ -50,6 +57,7 @@ export function ConfirmButton({
   icon: Icon = Trash2,
   defaultArmed = false,
   onDisarm,
+  returnFocusRef,
   onConfirm,
 }: ConfirmButtonProps) {
   const [armed, setArmed] = useState(defaultArmed);
@@ -62,10 +70,21 @@ export function ConfirmButton({
 
   /* Every way out of the armed state goes through here, so a parent that
      owns "am I confirming?" hears about all of them and not just Cancel. */
-  const disarm = useCallback(() => {
-    setArmed(false);
-    onDisarm?.();
-  }, [onDisarm]);
+  const finish = useCallback(
+    (returnFocus: boolean) => {
+      // Synchronous, before the armed tree unmounts. Guarded by the same
+      // rule as the effect below: only when focus is actually inside the
+      // tree that is going away — the auto-disarm and the document-level
+      // Escape listener both fire while the user may be elsewhere.
+      if (returnFocus && wrapRef.current?.contains(document.activeElement)) {
+        returnFocusRef?.current?.focus();
+      }
+      setArmed(false);
+      onDisarm?.();
+    },
+    [onDisarm, returnFocusRef],
+  );
+  const disarm = useCallback(() => finish(true), [finish]);
 
   // Arming swaps in a different element tree, so without this the focus
   // ring is left on a button that no longer exists and a keyboard user has
@@ -114,7 +133,10 @@ export function ConfirmButton({
     setError(null);
     try {
       await onConfirm();
-      disarm();
+      // Not `disarm()`: on success the row this sits in usually goes with
+      // it, and focusing a ⋯ that is about to unmount only loses focus
+      // twice.
+      finish(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

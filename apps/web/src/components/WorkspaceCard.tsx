@@ -1,6 +1,6 @@
 import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { Images, LayoutDashboard, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { formatBytes } from "../lib/formatBytes";
@@ -55,6 +55,7 @@ export function WorkspaceCard({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
   const { notify } = useToast();
 
   // Both come from `listMine`'s own projection. They used to come from a
@@ -70,6 +71,7 @@ export function WorkspaceCard({
           {workspace.name}
         </Link>
         <Menu
+          triggerRef={menuRef}
           className="card-hit-actions"
           label={`Actions for ${workspace.name}`}
           items={[
@@ -131,6 +133,7 @@ export function WorkspaceCard({
         <ConfirmButton
           defaultArmed
           onDisarm={() => setConfirming(false)}
+          returnFocusRef={menuRef}
           confirmLabel="Delete workspace"
           description={
             count === undefined

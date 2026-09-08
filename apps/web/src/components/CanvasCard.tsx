@@ -1,6 +1,6 @@
 import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { Copy, ExternalLink, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { kindIcon } from "../lib/canvasKind";
 import { writeClipboard } from "../lib/clipboard";
@@ -55,6 +55,7 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
   const KindIcon = kindIcon(canvas.kind);
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
   const { notify } = useToast();
   const canvasRef = `${workspaceSlug}/${canvas.slug}`;
 
@@ -100,6 +101,7 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
         </div>
         {(onRename || onDelete) && (
           <Menu
+            triggerRef={menuRef}
             className="card-hit-actions"
             label={`Actions for ${canvas.title}`}
             items={[
@@ -148,6 +150,7 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
         <ConfirmButton
           defaultArmed
           onDisarm={() => setConfirming(false)}
+          returnFocusRef={menuRef}
           confirmLabel="Delete canvas"
           busyLabel="Deleting…"
           description={`Deletes “${canvas.title}” and every version of it. Permanent.`}

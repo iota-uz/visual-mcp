@@ -14,7 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../components/Badge";
 import { CanvasCard, type CanvasCardRow } from "../components/CanvasCard";
@@ -57,10 +57,12 @@ const VARIANTS: ButtonVariant[] = ["primary", "secondary", "ghost", "danger", "w
  */
 function MenuStagedDelete() {
   const [confirming, setConfirming] = useState(false);
+  const menuRef = useRef<HTMLButtonElement>(null);
   const { notify } = useToast();
   return (
     <>
       <Menu
+        triggerRef={menuRef}
         label="Actions for Fast Settlement"
         items={[
           { id: "rename", label: "Rename", icon: Pencil, onSelect: () => {} },
@@ -78,6 +80,7 @@ function MenuStagedDelete() {
         <ConfirmButton
           defaultArmed
           onDisarm={() => setConfirming(false)}
+          returnFocusRef={menuRef}
           confirmLabel="Delete canvas"
           description={'Deletes "Fast Settlement" and its share link. Permanent.'}
           onConfirm={async () => notify({ message: "Deleted." })}

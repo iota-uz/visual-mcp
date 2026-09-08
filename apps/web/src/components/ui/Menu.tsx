@@ -3,6 +3,7 @@ import { MoreHorizontal } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -61,6 +62,13 @@ export interface MenuProps {
   side?: "bottom" | "top";
   /** Which edge it lines up with. Default "end" — right-aligned. */
   align?: "start" | "end";
+  /**
+   * The trigger element, for a call site that has to hand focus back to it
+   * itself. A destructive item stages a confirmation that renders outside
+   * this menu; when that confirmation is dismissed the menu is long gone,
+   * so `close(true)` cannot be the thing that returns focus.
+   */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   /** Extra class on the root, where a call site sets `--menu-width`. */
   className?: string;
 }
@@ -81,11 +89,13 @@ export function Menu({
   onOpenChange,
   side = "bottom",
   align = "end",
+  triggerRef: triggerRefProp,
   className,
 }: MenuProps) {
   const [uncontrolled, setUncontrolled] = useState(false);
   const open = openProp ?? uncontrolled;
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const ownTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = triggerRefProp ?? ownTriggerRef;
   const menuRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const popupId = useId();
