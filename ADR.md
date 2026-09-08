@@ -20,6 +20,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## canvas
 
+- **Обложка канваса — схематичный постер из геометрии, денормализованный в строку** — [запись](adr/canvas/canvas-poster-from-geometry.md) · accepted · 2026-09-08 (`7068dcf`)
 - **Sticky notes — коллекция notes[] в CanvasDoc без высоты и с проставляемым автором** — [запись](adr/canvas/sticky-notes-collection.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Стрелки используют общую геометрию, автоматические порты и явные ограничения** — [запись](adr/canvas/controllable-obstacle-aware-arrows.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **CanvasFile v3 разделяет долговечный draft, именованные checkpoints и опубликованную ревизию** — [запись](adr/canvas/drafts-checkpoints-and-published-revisions.md) · accepted · 2026-08-21 (`b0fa76a`, `3cce739`)
@@ -45,6 +46,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Списковые экраны — карточка-ссылка целиком, действия в меню ⋯, удаление жёсткое** — [запись](adr/product/workspace-and-canvas-lists.md) · accepted · 2026-09-08 (`aea8d2c`…`81a12c3`)
 - **Человек авторит на канвасе два вида контента — sticky notes и заголовок ноды** — [запись](adr/product/human-authored-canvas-content.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Play, Download и Rename живут в caption ноды, в контекстном меню и в inspector** — [запись](adr/product/canvas-node-actions.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Inspector и Exit якорятся к выбранной ноде в screen space** — [запись](adr/product/canvas-node-anchored-inspector.md) · accepted · 2026-09-07 (запрос сопровождающего)
