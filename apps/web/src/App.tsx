@@ -79,6 +79,11 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   // home → other workspace. This is the same subscription Home already
   // holds, so the list costs nothing extra.
   const workspaces = useQuery(api.workspaces.listMine, {});
+  const { pathname } = useLocation();
+  // /w/:slug is a canvas gallery; /w/:slug/assets is an asset library. The
+  // rail has one item for each, and the path says which is showing.
+  const onWorkspaces = pathname === "/" || /^\/w\/[^/]+$/.test(pathname);
+  const onWorkspaceAssets = /^\/w\/[^/]+\/assets$/.test(pathname);
 
   function handleSignOut() {
     // Ends the Convex session and drops the stored tokens; the Google
@@ -110,41 +115,60 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           accessible name — and an aria-label that read "Asset Library" over
           a visible "Assets" would be a name the label no longer contains. */}
       <nav className="app-sidebar-nav">
-        <NavLink to="/" end className={sidebarLinkClass}>
+        {/* `Workspaces` also lights up on /w/:slug: that page is the canvas
+            gallery, reached from this list, and until this predicate existed
+            standing on it left no rail item active at all. */}
+        <NavLink to="/" end className={() => sidebarLinkClass({ isActive: onWorkspaces })}>
           <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
         </NavLink>
-        <NavLink to="/assets" className={sidebarLinkClass}>
+        <NavLink
+          to="/assets"
+          className={({ isActive }) =>
+            sidebarLinkClass({ isActive: isActive || onWorkspaceAssets })
+          }
+        >
           <Images size={16} aria-hidden="true" />
           <span>Assets</span>
         </NavLink>
         {workspaces && workspaces.length > 0 && (
-          <ul className="app-sidebar-workspaces">
-            {/* These are workspace-scoped asset-library shortcuts. Keep the
-                explicit /assets suffix: /w/:slug is the canvas gallery, and
-                routing both destinations through that URL previously made
-                this behavior regress when the gallery was restored. */}
-            {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map((w) => (
-              <li key={w.workspace_id}>
-                <NavLink to={`/w/${w.slug}/assets`} className={sidebarLinkClass} title={w.name}>
-                  <span>{w.name}</span>
-                </NavLink>
-              </li>
-            ))}
-            {/* A long list would otherwise push sign-out off the bottom of
-                the rail and turn navigation into scrolling. */}
-            {workspaces.length > VISIBLE_WORKSPACES && !showAllWorkspaces && (
-              <li>
-                <button
-                  type="button"
-                  className="app-sidebar-more"
-                  onClick={() => setShowAllWorkspaces(true)}
-                >
-                  {workspaces.length - VISIBLE_WORKSPACES} more
-                </button>
-              </li>
-            )}
-          </ul>
+          <>
+            {/* The sub-list is *Assets'* children, and reads as a stray copy
+                of the workspace list without something saying so. The name
+                goes in this heading and never into each link's accessible
+                name, which is the workspace's own. */}
+            <p id="sidebar-asset-libraries" className="eyebrow app-sidebar-subhead">
+              Asset libraries
+            </p>
+            <ul className="app-sidebar-workspaces" aria-labelledby="sidebar-asset-libraries">
+              {/* Workspace-scoped asset-library shortcuts. Keep the explicit
+                  /assets suffix: /w/:slug is the canvas gallery, and routing
+                  both destinations through that URL previously made this
+                  behavior regress when the gallery was restored. */}
+              {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map(
+                (w) => (
+                  <li key={w.workspace_id}>
+                    <NavLink to={`/w/${w.slug}/assets`} className={sidebarLinkClass} title={w.name}>
+                      <span>{w.name}</span>
+                    </NavLink>
+                  </li>
+                ),
+              )}
+              {/* A long list would otherwise push sign-out off the bottom of
+                  the rail and turn navigation into scrolling. */}
+              {workspaces.length > VISIBLE_WORKSPACES && !showAllWorkspaces && (
+                <li>
+                  <button
+                    type="button"
+                    className="app-sidebar-more"
+                    onClick={() => setShowAllWorkspaces(true)}
+                  >
+                    {workspaces.length - VISIBLE_WORKSPACES} more
+                  </button>
+                </li>
+              )}
+            </ul>
+          </>
         )}
         <div className="app-sidebar-group">
           <NavLink to="/settings/tokens" className={sidebarLinkClass}>

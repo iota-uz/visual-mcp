@@ -24,7 +24,6 @@
   flex-direction: column;
   gap: var(--app-space-6);
   --section-header-gap: 0;
-  --node-search-gap: 0;
   --inline-form-gap: 0;
   --connect-panel-gap: 0;
   --connect-disclosure-gap: 0;

@@ -158,11 +158,14 @@ describe("HomePage", () => {
       renderHome();
 
       const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: /Delete/ }));
+      // The menu item is the first of the two decisions; the confirmation
+      // it stages arrives already armed.
+      await user.click(screen.getByRole("button", { name: "Actions for OSAGO" }));
+      await user.click(screen.getByRole("menuitem", { name: "Delete workspace…" }));
       expect(mutation).not.toHaveBeenCalled();
       expect(screen.getByText(/Deletes this workspace and 2 canvases/)).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: "Really delete?" }));
+      await user.click(screen.getByRole("button", { name: "Delete workspace" }));
       expect(mutation).toHaveBeenCalledWith({ workspaceId: "ws1" });
     });
 
@@ -173,12 +176,14 @@ describe("HomePage", () => {
       renderHome();
 
       const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: /Delete/ }));
+      await user.click(screen.getByRole("button", { name: "Actions for OSAGO" }));
+      await user.click(screen.getByRole("menuitem", { name: "Delete workspace…" }));
       await user.click(screen.getByRole("button", { name: "Cancel" }));
 
       expect(mutation).not.toHaveBeenCalled();
-      expect(screen.queryByText("Really delete?")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Delete/ })).toBeInTheDocument();
+      // Cancelling takes the confirmation away entirely rather than leaving
+      // a resting Delete button beside the menu item that opened it.
+      expect(screen.queryByRole("button", { name: /Delete workspace/ })).not.toBeInTheDocument();
     });
   });
 
@@ -201,7 +206,8 @@ describe("HomePage", () => {
     renderHome();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Rename/ }));
+    await user.click(screen.getByRole("button", { name: "Actions for OSAGO" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
 
     const input = screen.getByLabelText("Workspace name");
     await user.clear(input);

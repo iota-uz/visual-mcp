@@ -1,23 +1,18 @@
 import { useMutation, useQuery } from "convex/react";
-import { Compass, Pencil, Plus, Search, X } from "lucide-react";
+import { Compass, Plus, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
-import { ConfirmButton } from "../components/ConfirmButton";
 import { ConnectPanel } from "../components/ConnectPanel";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
-import { RenameForm } from "../components/RenameForm";
-import { ListSkeleton } from "../components/Skeleton";
-import { type StaticRenderState, StaticRenderStatus } from "../components/StaticRenderStatus";
+import { CardGridSkeleton } from "../components/Skeleton";
 import { toastError, useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
 import { Disclosure } from "../components/ui/Disclosure";
 import { IconButton } from "../components/ui/IconButton";
 import { TextInput } from "../components/ui/TextInput";
-import { kindIcon } from "../lib/canvasKind";
-import { formatBytes } from "../lib/formatBytes";
+import { WorkspaceCard } from "../components/WorkspaceCard";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
@@ -107,11 +102,13 @@ function NodeSearch({
 
   return (
     <>
-      <div className="node-search">
+      {/* The same toolbar shape /w/:slug uses for its filter, so the two
+          list pages read as the same kind of page. */}
+      <div className="list-toolbar">
         <TextInput
           id="node-search-input"
           label="Search canvas nodes"
-          className="node-search-field"
+          className="list-toolbar-search"
           inputRef={inputRef}
           leadingIcon={Search}
           value={term}
@@ -154,141 +151,12 @@ function NodeSearch({
   );
 }
 
-/** One entry in `listMine`'s recent-canvas projection. */
-interface RecentCanvas {
-  canvas_id: string;
-  title: string;
-  kind: string;
-  thumbnail_url: string | null;
-  static_render_status: StaticRenderState;
-}
-
-interface WorkspaceSummary {
-  workspace_id: Id<"workspaces">;
-  slug: string;
-  name: string;
-  description?: string;
-  canvas_count?: number;
-  recent?: RecentCanvas[];
-}
-
-/*
- * One canvas in a lane's preview strip. The no-render placeholder is the
- * same kind icon the workspace gallery draws — this used to be a blank box,
- * which read as a broken image rather than as a canvas nobody has rendered.
- */
-function LaneThumb({ canvas }: { canvas: RecentCanvas }) {
-  const KindIcon = kindIcon(canvas.kind);
-  // A signed thumbnail URL can expire and its storage object can go missing;
-  // the placeholder covers both, not just "never had one".
-  const [failed, setFailed] = useState(false);
-
-  return (
-    <li>
-      <Link to={`/c/${canvas.canvas_id}`} className="workspace-lane-thumb">
-        <span className="workspace-lane-frame">
-          {canvas.thumbnail_url && !failed ? (
-            <img src={canvas.thumbnail_url} alt="" onError={() => setFailed(true)} />
-          ) : (
-            <KindIcon size={18} strokeWidth={1.5} aria-hidden="true" />
-          )}
-          <StaticRenderStatus
-            state={canvas.static_render_status}
-            className="workspace-lane-render-status"
-          />
-        </span>
-        <span className="workspace-lane-thumb-title">{canvas.title}</span>
-      </Link>
-    </li>
-  );
-}
-
-function WorkspaceLane({ workspace }: { workspace: WorkspaceSummary }) {
-  const rename = useMutation(api.workspaces.renameMine);
-  const remove = useMutation(api.workspaces.deleteMine);
-  const { notify } = useToast();
-  const [editing, setEditing] = useState(false);
-
-  // Both come from `listMine`'s own projection. They used to come from a
-  // per-row `listForWorkspace` subscription that fetched every canvas in
-  // every workspace, signed a URL for each thumbnail, and kept `.length`.
-  const count = workspace.canvas_count;
-  const recent = workspace.recent ?? [];
-
-  if (editing) {
-    return (
-      <li className="card-list-item">
-        <RenameForm
-          initial={workspace.name}
-          label="Workspace name"
-          onSave={(name) => rename({ workspaceId: workspace.workspace_id, name })}
-          onDone={() => setEditing(false)}
-        />
-      </li>
-    );
-  }
-
-  return (
-    <li className="card-list-item workspace-lane">
-      <div className="workspace-lane-head">
-        <div className="workspace-lane-name">
-          <Link to={`/w/${workspace.slug}`}>
-            <strong>{workspace.name}</strong>
-          </Link>
-          {count !== undefined && (
-            <span className="eyebrow workspace-lane-count">
-              {count} {count === 1 ? "canvas" : "canvases"}
-            </span>
-          )}
-        </div>
-        {/* Dimmed until the row is hovered or something inside it is
-            focused — never hidden, so they stay in the tab order and stay
-            findable by anyone not using a pointer. */}
-        <div className="row-item-actions workspace-lane-actions">
-          <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
-            Rename
-          </Button>
-          <ConfirmButton
-            description={
-              count === undefined
-                ? "Deletes this workspace and every canvas in it. Permanent."
-                : `Deletes this workspace and ${count} ${count === 1 ? "canvas" : "canvases"}. Permanent.`
-            }
-            onConfirm={async () => {
-              // The mutation has always returned what it destroyed; the row
-              // just vanished and never said so.
-              const result = await remove({ workspaceId: workspace.workspace_id });
-              notify({
-                message: `Deleted "${workspace.name}" — ${result.canvases_deleted} ${
-                  result.canvases_deleted === 1 ? "canvas" : "canvases"
-                }, ${formatBytes(result.bytes_reclaimed)} freed.`,
-              });
-            }}
-          />
-        </div>
-      </div>
-      {workspace.description && (
-        <p className="muted workspace-lane-note">{workspace.description}</p>
-      )}
-      {/* What is actually in here, without going in. The titles are visible
-          rather than screen-reader-only: an 84px thumbnail is not legible,
-          and without them a workspace holding one canvas was a name above a
-          stamp-sized picture and a lane of empty paper. */}
-      {recent.length > 0 && (
-        <ul className="workspace-lane-strip">
-          {recent.map((c) => (
-            <LaneThumb key={c.canvas_id} canvas={c} />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
-}
-
 export function HomePage() {
   useDocumentTitle("Workspaces");
   const workspaces = useQuery(api.workspaces.listMine, {});
   const createWorkspace = useMutation(api.workspaces.createMine);
+  const renameWorkspace = useMutation(api.workspaces.renameMine);
+  const deleteWorkspace = useMutation(api.workspaces.deleteMine);
   const { notify } = useToast();
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -357,7 +225,7 @@ export function HomePage() {
         </form>
       )}
       <NodeSearch workspaceNames={workspaceNames}>
-        {workspaces === undefined && <ListSkeleton rows={3} />}
+        {workspaces === undefined && <CardGridSkeleton cards={6} label="Loading workspaces…" />}
         {workspaces?.length === 0 && (
           <EmptyState
             icon={Compass}
@@ -369,9 +237,14 @@ export function HomePage() {
             still counts as a stack child, so it used to add a gap between the
             empty state and the connect instructions. */}
         {workspaces !== undefined && workspaces.length > 0 && (
-          <ul className="card-list">
+          <ul className="card-grid home-workspace-grid">
             {workspaces.map((w) => (
-              <WorkspaceLane key={w.workspace_id} workspace={w} />
+              <WorkspaceCard
+                key={w.workspace_id}
+                workspace={w}
+                onRename={(name) => renameWorkspace({ workspaceId: w.workspace_id, name })}
+                onDelete={() => deleteWorkspace({ workspaceId: w.workspace_id })}
+              />
             ))}
           </ul>
         )}

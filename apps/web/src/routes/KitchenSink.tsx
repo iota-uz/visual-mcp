@@ -296,7 +296,7 @@ export function KitchenSinkPage() {
           <TextInput
             id="ks-search"
             label="Search canvas nodes"
-            className="node-search-field"
+            className="list-toolbar-search"
             leadingIcon={Search}
             value={search}
             onChange={(e) => setSearch(e.target.value)}

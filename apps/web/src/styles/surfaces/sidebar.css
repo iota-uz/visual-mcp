@@ -61,6 +61,15 @@
   box-shadow: inset 2px 0 0 var(--app-accent);
 }
 
+/* The sub-list's heading. It says what the list *is* — asset libraries, not
+   a second copy of the workspace list — without putting that word into each
+   link's accessible name, which belongs to the workspace. */
+.app-sidebar-subhead {
+  margin: var(--app-space-1) 0 var(--app-space-1);
+  padding-left: var(--app-space-4);
+  color: var(--app-muted);
+}
+
 .app-sidebar-workspaces {
   list-style: none;
   margin: 0 0 var(--app-space-2) 0;
@@ -191,6 +200,7 @@
      link keeps its aria-label. */
   .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-brand span,
   .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-email,
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-subhead,
   .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-more {
     display: none;
   }

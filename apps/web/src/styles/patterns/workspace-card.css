@@ -1,0 +1,73 @@
+/*
+ * A workspace as a card: what it is called, how much is in it, and a strip
+ * of what an agent put there most recently — so two workspaces can be told
+ * apart without opening either.
+ *
+ * It was a full-width lane, and the lane had the problem the whole card is
+ * the fix for: only the *name* was a link, while the row grew an accent ring
+ * on hover and the preview thumbnails inside it were each a link of their
+ * own. The contents looked more clickable than the container.
+ */
+.workspace-card {
+  gap: var(--app-space-2);
+}
+
+.workspace-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+/* Colour and underline stay off, because the affordance is now the whole
+   card: the ring, the cursor, and the hit area the ::after overlay draws. */
+.workspace-card-link {
+  min-width: 0;
+  font-family: var(--app-font-display);
+  font-size: var(--app-text-xl);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--app-ink);
+  text-decoration: none;
+}
+
+.workspace-card-count {
+  color: var(--app-muted);
+}
+
+.workspace-card-note {
+  margin: 0;
+  max-width: var(--app-measure);
+  font-size: var(--app-text-sm);
+  color: var(--app-muted);
+}
+
+/* Three, side by side. The lane fitted four titled 132px thumbnails; a grid
+   cell is a third of that width, so the titles go and the covers stay —
+   recognition, not navigation. */
+.workspace-card-covers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--app-space-2);
+  margin-top: auto;
+  padding-top: var(--app-space-1);
+}
+
+.workspace-card-cover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-paper);
+  color: var(--canvas-card-kind, var(--app-muted));
+}
+
+.workspace-card-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

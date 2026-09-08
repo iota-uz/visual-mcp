@@ -1,13 +1,5 @@
 /* Workspaces. */
 
-.node-search {
-  margin-bottom: var(--node-search-gap, var(--app-space-4));
-}
-
-.node-search-field {
-  max-width: 420px;
-}
-
 .node-search-count {
   font-size: var(--app-text-xs);
   margin: 0 0 var(--app-space-2);
@@ -25,130 +17,9 @@
   gap: var(--app-space-3);
 }
 
-/*
- * A workspace as a lane: what it is called, how much is in it, and a strip
- * of what an agent put there most recently — so you can tell two workspaces
- * apart without opening either.
- */
-.workspace-lane {
-  gap: var(--app-space-2);
-}
-
-.workspace-lane-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--app-space-3);
-  flex-wrap: wrap;
-}
-
-.workspace-lane-name {
-  display: flex;
-  align-items: baseline;
-  gap: var(--app-space-2);
-  min-width: 0;
-}
-
-.workspace-lane-name a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.workspace-lane-count {
-  flex: none;
-}
-
-.workspace-lane-note {
-  margin: 0;
-  font-size: var(--app-text-sm);
-}
-
-/* Dimmed rather than hidden: a `⋯` menu would put two destructive actions
-   behind a click, and hiding them outright would take them out of reach of
-   anyone not using a pointer. */
-.workspace-lane-actions {
-  opacity: var(--lane-actions-opacity, 0.55);
-  transition: opacity var(--app-duration-fast) var(--app-ease-out);
-}
-
-.workspace-lane:hover,
-.workspace-lane:focus-within {
-  --lane-actions-opacity: 1;
-}
-
-.workspace-lane-strip {
-  list-style: none;
-  display: flex;
-  gap: var(--app-space-2);
-  margin: var(--app-space-1) 0 0;
-  padding: 0;
-}
-
-.workspace-lane-strip li {
-  flex: 0 1 132px;
-  min-width: 0;
-}
-
-.workspace-lane-thumb {
-  display: flex;
-  flex-direction: column;
-  gap: var(--app-space-1);
-  text-decoration: none;
-  color: var(--app-ink);
-  min-width: 0;
-}
-
-.workspace-lane-frame {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 4 / 3;
-  border-radius: var(--app-radius-sm);
-  overflow: hidden;
-  border: 1px solid var(--app-line);
-  background: var(--app-paper);
-  color: var(--app-muted);
-  transition: border-color var(--app-duration-fast) var(--app-ease-out);
-}
-
-.workspace-lane-render-status {
-  position: absolute;
-  left: 0.3rem;
-  bottom: 0.3rem;
-  padding: 0.25rem;
-  font-size: 0;
-}
-
-.workspace-lane-frame img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.workspace-lane-thumb-title {
-  font-size: var(--app-text-xs);
-  line-height: 1.35;
-  color: var(--app-ink-soft);
-  /* Two lines, then ellipsis: agent-authored titles are sentences as often
-     as they are names, and a single clipped line reads as a truncation bug. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-@media (hover: hover) {
-  .workspace-lane-thumb:hover .workspace-lane-frame {
-    border-color: var(--app-accent);
-  }
-
-  .workspace-lane-thumb:hover .workspace-lane-thumb-title {
-    color: var(--app-accent-text);
-  }
-}
-
-.workspace-lane-thumb:focus-visible .workspace-lane-frame {
-  border-color: var(--app-accent);
+/* Workspaces carry more text per card than canvases do — a name at 24px, a
+   count, a description and a row of covers — so the floor is wider than the
+   grid's own. */
+.home-workspace-grid {
+  --card-grid-min: 300px;
 }
