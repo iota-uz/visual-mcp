@@ -68,3 +68,15 @@
   flex: 1 1 200px;
   font-size: var(--app-text-sm);
 }
+
+/* Covers and cards size themselves from their container, so here they need
+   one: a row is a wrapping flex line with no width of its own. */
+.ks-cover {
+  display: block;
+  width: 180px;
+}
+
+.ks-grid {
+  flex: 1 1 100%;
+  --card-grid-min: 260px;
+}

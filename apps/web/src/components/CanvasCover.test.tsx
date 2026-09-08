@@ -1,5 +1,5 @@
-import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { describe, expect, it } from "vitest";
 import { CanvasCover } from "./CanvasCover";
 

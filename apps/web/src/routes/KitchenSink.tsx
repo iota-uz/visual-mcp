@@ -1,3 +1,4 @@
+import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import {
   ArrowLeft,
   Ban,
@@ -16,6 +17,8 @@ import {
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../components/Badge";
+import { CanvasCard, type CanvasCardRow } from "../components/CanvasCard";
+import { CanvasCover } from "../components/CanvasCover";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConnectPanel } from "../components/ConnectPanel";
 import { CopyButton } from "../components/CopyButton";
@@ -34,6 +37,7 @@ import { Menu } from "../components/ui/Menu";
 import { Panel } from "../components/ui/Panel";
 import { SectionHeader } from "../components/ui/SectionHeader";
 import { Checkbox, Select, TextInput } from "../components/ui/TextInput";
+import { WorkspaceCard, type WorkspaceSummary } from "../components/WorkspaceCard";
 
 /*
  * Every primitive, every variant, every state, on one page — reachable at
@@ -82,6 +86,65 @@ function MenuStagedDelete() {
     </>
   );
 }
+
+/*
+ * Enough geometry to look like a canvas at cover size, and no more: the
+ * poster is stored as per-mille rectangles, so these are literal.
+ */
+const KS_POSTER: CanvasPoster = {
+  format: 1,
+  ar: 1.6,
+  n: 6,
+  p: 2,
+  rects: [
+    { x: 20, y: 60, w: 240, h: 200, r: "actors" },
+    { x: 330, y: 40, w: 260, h: 220, r: "primary" },
+    { x: 660, y: 90, w: 300, h: 240, k: "iframe" },
+    { x: 40, y: 420, w: 220, h: 180, r: "system" },
+    { x: 340, y: 460, w: 250, h: 200, r: "automation" },
+    { x: 690, y: 500, w: 240, h: 190, r: "exception" },
+  ],
+};
+
+const KS_CANVAS: CanvasCardRow = {
+  canvas_id: "cv_kitchen",
+  slug: "fast-settlement",
+  title: "Fast settlement",
+  description: "Claim intake through payout, with the two exception lanes.",
+  kind: "canvas",
+  visibility: "public",
+  updated_at: Date.now() - 1000 * 60 * 42,
+  thumbnail_url: null,
+  poster: KS_POSTER,
+  static_render_status: "ready",
+};
+
+/* The card in every content shape it has to survive: no description, no
+   poster at all, a non-canvas kind, and read-only (no ⋯ menu). */
+const KS_CANVASES: CanvasCardRow[] = [
+  KS_CANVAS,
+  {
+    ...KS_CANVAS,
+    canvas_id: "cv_kitchen_empty",
+    slug: "blank",
+    title: "A canvas nobody has put anything on yet, with a title long enough to wrap twice",
+    description: undefined,
+    visibility: "private",
+    poster: { format: 1, ar: 1.33, n: 0, p: 1, rects: [] },
+    static_render_status: "updating",
+  },
+  {
+    ...KS_CANVAS,
+    canvas_id: "cv_kitchen_pdf",
+    slug: "policy",
+    title: "Policy wording",
+    description: "An opaque artifact: no CanvasDoc, so no poster either.",
+    kind: "pdf",
+    visibility: "private",
+    poster: null,
+    static_render_status: "ready",
+  },
+];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -384,6 +447,109 @@ export function KitchenSinkPage() {
       <Section title="Confirm from a menu">
         <Row label="staged">
           <MenuStagedDelete />
+        </Row>
+      </Section>
+
+      <Section title="Canvas cover">
+        <Row label="poster">
+          <span className="ks-cover">
+            <CanvasCover kind="canvas" poster={KS_POSTER} />
+          </span>
+          <CanvasCover kind="canvas" poster={KS_POSTER} size="strip" className="ks-cover" />
+          <CanvasCover kind="canvas" poster={KS_POSTER} size="chip" />
+        </Row>
+        <Row label="empty canvas">
+          <span className="ks-cover">
+            <CanvasCover kind="canvas" poster={{ format: 1, ar: 1.33, n: 0, p: 1, rects: [] }} />
+          </span>
+        </Row>
+        <Row label="kind plate">
+          <span className="ks-cover">
+            <CanvasCover kind="pdf" poster={null} />
+          </span>
+          <span className="ks-cover">
+            <CanvasCover kind="image" poster={null} />
+          </span>
+          <span className="ks-cover">
+            <CanvasCover kind="html" poster={null} />
+          </span>
+        </Row>
+        {/* A dead URL is the interesting one: it degrades to the poster
+            rather than to "No render yet". Click nothing — the browser
+            fails the request and `onError` does the rest. */}
+        <Row label="dead render">
+          <span className="ks-cover">
+            <CanvasCover kind="canvas" poster={KS_POSTER} thumbnailUrl="/dev/no-such-render.png" />
+          </span>
+        </Row>
+      </Section>
+
+      <Section title="Card">
+        <Row label="canvas">
+          <ul className="card-grid ks-grid">
+            {KS_CANVASES.map((canvas) => (
+              <CanvasCard
+                key={canvas.canvas_id}
+                canvas={canvas}
+                workspaceSlug="osago"
+                onRename={async () => notify({ message: "Renamed." })}
+                onDelete={async () => {
+                  notify({ message: "Deleted." });
+                  return { bytes_reclaimed: 2048 };
+                }}
+              />
+            ))}
+          </ul>
+        </Row>
+        {/* No handlers: the card has to render without a ⋯ menu at all,
+            which is how a canvas someone else owns would look. */}
+        <Row label="read-only">
+          <ul className="card-grid ks-grid">
+            <CanvasCard canvas={KS_CANVAS} workspaceSlug="osago" />
+          </ul>
+        </Row>
+        <Row label="workspace">
+          <ul className="card-grid ks-grid">
+            <WorkspaceCard
+              workspace={{
+                workspace_id: "ws_kitchen" as WorkspaceSummary["workspace_id"],
+                slug: "osago",
+                name: "OSAGO",
+                description: "Motor third-party liability: intake, adjustment and payout.",
+                canvas_count: 3,
+                recent: KS_CANVASES.map((canvas) => ({
+                  canvas_id: canvas.canvas_id,
+                  title: canvas.title,
+                  kind: canvas.kind,
+                  thumbnail_url: canvas.thumbnail_url,
+                  poster: canvas.poster,
+                  static_render_status: canvas.static_render_status,
+                })),
+              }}
+              onRename={async () => notify({ message: "Renamed." })}
+              onDelete={async () => {
+                notify({ message: "Deleted." });
+                return { canvases_deleted: 3, bytes_reclaimed: 2048 };
+              }}
+            />
+          </ul>
+        </Row>
+        <Row label="no content">
+          <ul className="card-grid ks-grid">
+            <WorkspaceCard
+              workspace={{
+                workspace_id: "ws_kitchen_bare" as WorkspaceSummary["workspace_id"],
+                slug: "kasko",
+                name: "KASKO",
+                canvas_count: 0,
+              }}
+              onRename={async () => notify({ message: "Renamed." })}
+              onDelete={async () => {
+                notify({ message: "Deleted." });
+                return { canvases_deleted: 0, bytes_reclaimed: 0 };
+              }}
+            />
+          </ul>
         </Row>
       </Section>
 
