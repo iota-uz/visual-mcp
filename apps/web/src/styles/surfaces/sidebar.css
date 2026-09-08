@@ -64,9 +64,18 @@
 /* The sub-list's heading. It says what the list *is* — asset libraries, not
    a second copy of the workspace list — without putting that word into each
    link's accessible name, which belongs to the workspace. */
+/* Its own type rather than the `.eyebrow` utility, which looks identical
+   and is what this used to carry: utilities is the last layer, so its
+   `display: block` beat the rail's `display: none` below and the rail was
+   left with a heading over a list it had hidden. */
 .app-sidebar-subhead {
   margin: var(--app-space-1) 0 var(--app-space-1);
   padding-left: var(--app-space-4);
+  font-family: var(--app-font-mono);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
   color: var(--app-muted);
 }
 

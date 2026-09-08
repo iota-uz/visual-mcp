@@ -137,7 +137,7 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
                 of the workspace list without something saying so. The name
                 goes in this heading and never into each link's accessible
                 name, which is the workspace's own. */}
-            <p id="sidebar-asset-libraries" className="eyebrow app-sidebar-subhead">
+            <p id="sidebar-asset-libraries" className="app-sidebar-subhead">
               Asset libraries
             </p>
             <ul className="app-sidebar-workspaces" aria-labelledby="sidebar-asset-libraries">

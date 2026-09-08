@@ -24,6 +24,7 @@ refs:
   - https://github.com/iota-uz/visual-mcp/commit/ad103ad488dbd409685493ebe4571d3575594b41
   - https://github.com/iota-uz/visual-mcp/commit/e0df9f927235b0c1e51eb6219914f143e83b1c30
   - https://github.com/iota-uz/visual-mcp/commit/81a12c367142f50bc6e2053f67d3da6ebed92801
+  - https://github.com/iota-uz/visual-mcp/commit/602e2d2d7d291a9bbfad3964c31592d19dc2812f
 supersedes: []
 superseded_by: []
 ---
