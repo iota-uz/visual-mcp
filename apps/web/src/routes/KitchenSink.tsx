@@ -1,10 +1,13 @@
 import {
   ArrowLeft,
   Ban,
+  ChevronDown,
+  Copy,
+  Download,
   ExternalLink,
   History,
   Info,
-  Menu,
+  Menu as MenuIcon,
   Pencil,
   Search,
   Trash2,
@@ -27,6 +30,7 @@ import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { Menu } from "../components/ui/Menu";
 import { Panel } from "../components/ui/Panel";
 import { SectionHeader } from "../components/ui/SectionHeader";
 import { Checkbox, Select, TextInput } from "../components/ui/TextInput";
@@ -161,7 +165,7 @@ export function KitchenSinkPage() {
         </Row>
         <Row label="floating">
           <IconButton
-            icon={Menu}
+            icon={MenuIcon}
             label="Open navigation"
             iconSize={19}
             className="ks-static-trigger canvas-navigation-trigger"
@@ -172,6 +176,69 @@ export function KitchenSinkPage() {
             text="Details"
             iconSize={18}
             className="ks-static-trigger canvas-artifact-details-trigger"
+          />
+        </Row>
+      </Section>
+
+      <Section title="Menu">
+        <Row label="default">
+          <Menu
+            label="Actions for Claim intake"
+            items={[
+              { id: "open", label: "Open", icon: ExternalLink, to: "/" },
+              {
+                id: "copy",
+                label: "Copy ref",
+                icon: Copy,
+                onSelect: () => notify({ message: "Copied." }),
+              },
+              { id: "rename", label: "Rename", icon: Pencil, onSelect: () => {} },
+              { id: "sep", separator: true },
+              {
+                id: "delete",
+                label: "Delete canvas…",
+                icon: Trash2,
+                danger: true,
+                onSelect: () => {},
+              },
+            ]}
+          />
+        </Row>
+        {/* A trigger can be any IconButton — this is the canvas header's. */}
+        <Row label="labelled trigger">
+          <Menu
+            label="Export"
+            className="canvas-export"
+            trigger={{
+              icon: Download,
+              label: "Export canvas",
+              text: "Export",
+              iconSize: 16,
+              trailingIcon: ChevronDown,
+              className: "canvas-command-export",
+            }}
+            items={[
+              { id: "png", label: "Export page PNG 1×", onSelect: () => {} },
+              { id: "pdf", label: "Export page PDF", onSelect: () => {} },
+            ]}
+          />
+        </Row>
+        <Row label="disabled item, opens upward">
+          <Menu
+            label="Actions for Page 1"
+            side="top"
+            align="start"
+            items={[
+              { id: "duplicate", label: "Duplicate", icon: Copy, onSelect: () => {} },
+              {
+                id: "delete",
+                label: "Delete Page…",
+                icon: Trash2,
+                danger: true,
+                disabled: true,
+                onSelect: () => {},
+              },
+            ]}
           />
         </Row>
       </Section>
@@ -377,7 +444,7 @@ export function KitchenSinkPage() {
           </Button>
         </Row>
         <Row label="left">
-          <Button variant="secondary" icon={Menu} onClick={() => setDrawer("left")}>
+          <Button variant="secondary" icon={MenuIcon} onClick={() => setDrawer("left")}>
             Open navigation
           </Button>
         </Row>

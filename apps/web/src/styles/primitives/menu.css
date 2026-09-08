@@ -1,0 +1,108 @@
+/* The popup menu. See components/ui/Menu.tsx. */
+
+/* --- menu --- */
+.menu {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The default trigger: a quiet ⋯ square. Applied only when the call site
+   passes no className of its own, so a trigger that is a command-bar
+   control first — the canvas header's Export button — is not squared off. */
+.menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-1);
+  width: max(28px, var(--app-hit-min));
+  height: max(28px, var(--app-hit-min));
+  padding: 0;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-muted);
+  cursor: pointer;
+  transition:
+    background var(--app-transition),
+    color var(--app-transition);
+}
+
+.menu-trigger:hover,
+.menu-trigger[aria-expanded="true"] {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.menu-popup {
+  position: absolute;
+  z-index: calc(var(--app-z-chrome) + 1);
+  display: grid;
+  /* The hook, so a call site with longer labels widens its own menu without
+     a `.surface .menu-popup` selector of its own. */
+  width: var(--menu-width, max(180px, calc(var(--app-hit-min) * 4)));
+  padding: 4px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-md);
+}
+
+/* Side and alignment are props rather than the `:nth-last-child(-n + 2)`
+   the Pages rail used to flip its last two rows with: the rail knows which
+   rows are near the bottom, the stylesheet was guessing. */
+.menu-popup-bottom {
+  top: calc(100% + 4px);
+}
+
+.menu-popup-top {
+  bottom: calc(100% + 4px);
+}
+
+.menu-popup-end {
+  right: 0;
+}
+
+.menu-popup-start {
+  left: 0;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: max(32px, var(--app-hit-min));
+  gap: var(--app-space-2);
+  padding: 0 var(--app-space-2);
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--app-ink);
+  font: inherit;
+  font-size: var(--app-text-xs);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--app-paper);
+}
+
+.menu-item.is-danger {
+  color: var(--app-danger);
+}
+
+.menu-item:disabled,
+.menu-item[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  border: 0;
+  background: var(--app-line);
+}

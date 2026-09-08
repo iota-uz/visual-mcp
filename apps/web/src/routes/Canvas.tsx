@@ -40,7 +40,6 @@ import {
   Unplug,
 } from "lucide-react";
 import {
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -74,6 +73,7 @@ import { CopyableValue, RefChip } from "../components/ui/CopyableValue";
 import { Disclosure } from "../components/ui/Disclosure";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton, IconLink } from "../components/ui/IconButton";
+import { Menu } from "../components/ui/Menu";
 import { resolveRequestedCanvasPage, withCanvasNodeSelection } from "../lib/canvasLocation";
 import { convexSiteOrigin } from "../lib/convexSiteOrigin";
 import { describeExportWarnings, exportErrorMessage, exportNode } from "../lib/export";
@@ -944,134 +944,6 @@ function nextPageId(file: CanvasFile, title: string) {
 }
 
 /*
- * The per-page ⋯ menu used to declare `role="menu"` with `role="menuitem"`
- * children and implement none of the contract that promises: opening it
- * left focus on the trigger, arrow keys did nothing, and Escape was a
- * document-level listener that closed the menu without giving focus back.
- * A screen-reader user was told "menu" and handed something that only
- * responded to Tab.
- */
-function PageActionsMenu({
-  pageId,
-  pageTitle,
-  open,
-  canDelete,
-  onOpenChange,
-  onDuplicate,
-  onDelete,
-}: {
-  pageId: string;
-  pageTitle: string;
-  open: boolean;
-  canDelete: boolean;
-  onOpenChange: (open: boolean) => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-}) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const items = useCallback(
-    () =>
-      [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? [])].filter(
-        (item) => !item.disabled,
-      ),
-    [],
-  );
-
-  // Focus moves into the menu on open, which is the part that makes the
-  // arrow keys below reachable at all.
-  useEffect(() => {
-    if (open) items()[0]?.focus();
-  }, [open, items]);
-
-  function close(returnFocus: boolean) {
-    onOpenChange(false);
-    if (returnFocus) triggerRef.current?.focus();
-  }
-
-  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const list = items();
-    const index = list.indexOf(document.activeElement as HTMLButtonElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      // Wraps, as a menu should: ArrowUp from the first item is the
-      // fastest way to the destructive one at the bottom.
-      list[(index + delta + list.length) % list.length]?.focus();
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      list[0]?.focus();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      list.at(-1)?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      close(true);
-    } else if (event.key === "Tab") {
-      // Tabbing out of a menu dismisses it rather than leaving an orphaned
-      // popup behind the next control.
-      close(false);
-    }
-  }
-
-  return (
-    <div className="canvas-page-actions">
-      <IconButton
-        ref={triggerRef}
-        icon={MoreHorizontal}
-        label={`More actions for ${pageTitle}`}
-        iconSize={15}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => onOpenChange(!open)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            onOpenChange(true);
-          }
-        }}
-      />
-      {open && (
-        <div
-          ref={menuRef}
-          className="canvas-page-menu"
-          role="menu"
-          aria-label={`Actions for ${pageTitle}`}
-          data-page-menu={pageId}
-          onKeyDown={onMenuKeyDown}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              close(true);
-              onDuplicate();
-            }}
-          >
-            <Copy size={14} aria-hidden="true" />
-            Duplicate
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="is-danger"
-            disabled={!canDelete}
-            onClick={() => {
-              close(false);
-              onDelete();
-            }}
-          >
-            <Trash2 size={14} aria-hidden="true" />
-            Delete Page…
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/*
  * A page's world, small. The rail listed pages as bare text, so telling
  * "Overview" from "Payment states" meant opening both — and with a canvas
  * of any size the panel was 260px of white space holding three words.
@@ -1151,24 +1023,6 @@ export function PagesPanel({
   useEffect(() => {
     if (creating || editingId) nameInputRef.current?.focus();
   }, [creating, editingId]);
-
-  useEffect(() => {
-    if (!menuPageId) return;
-    const closeMenu = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest(`[data-page-menu="${menuPageId}"]`)) return;
-      setMenuPageId(null);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuPageId(null);
-    };
-    document.addEventListener("pointerdown", closeMenu);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeMenu);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuPageId]);
 
   useEffect(() => () => dragCleanupRef.current?.(), []);
 
@@ -1471,7 +1325,7 @@ export function PagesPanel({
             {busyLabel ? `${busyLabel}…` : ""}
           </p>
           <ol className="canvas-pages-list">
-            {ordered.map((page) => (
+            {ordered.map((page, index) => (
               <li
                 key={page.id}
                 data-page-id={page.id}
@@ -1564,14 +1418,35 @@ export function PagesPanel({
                     </Button>
                   </fieldset>
                 ) : editingId !== page.id ? (
-                  <PageActionsMenu
-                    pageId={page.id}
-                    pageTitle={page.title}
+                  <Menu
+                    className="canvas-page-actions"
+                    label={`Actions for ${page.title}`}
+                    trigger={{
+                      icon: MoreHorizontal,
+                      label: `More actions for ${page.title}`,
+                      iconSize: 15,
+                    }}
+                    /* The rail knows which rows are near its bottom; the
+                       stylesheet used to guess with :nth-last-child. */
+                    side={index >= ordered.length - 2 ? "top" : "bottom"}
                     open={menuPageId === page.id}
-                    canDelete={ordered.length > 1}
                     onOpenChange={(next) => setMenuPageId(next ? page.id : null)}
-                    onDuplicate={() => void duplicatePage(page.id)}
-                    onDelete={() => setPendingDeleteId(page.id)}
+                    items={[
+                      {
+                        id: "duplicate",
+                        label: "Duplicate",
+                        icon: Copy,
+                        onSelect: () => void duplicatePage(page.id),
+                      },
+                      {
+                        id: "delete",
+                        label: "Delete Page…",
+                        icon: Trash2,
+                        danger: true,
+                        disabled: ordered.length <= 1,
+                        onSelect: () => setPendingDeleteId(page.id),
+                      },
+                    ]}
                   />
                 ) : null}
               </li>

@@ -576,7 +576,7 @@
 }
 
 .canvas-page-drag-handle,
-.canvas-page-actions button,
+.canvas-page-actions > button,
 .canvas-pages-head button,
 .canvas-pages-panel.is-collapsed > button {
   display: inline-flex;
@@ -603,7 +603,7 @@
   }
 }
 
-.canvas-page-actions button:hover,
+.canvas-page-actions > button:hover,
 .canvas-pages-head button:hover {
   background: var(--app-paper);
   color: var(--app-ink);
@@ -613,43 +613,12 @@
   cursor: grabbing;
 }
 
-.canvas-page-menu {
-  position: absolute;
-  z-index: calc(var(--app-z-chrome) + 1);
-  top: 30px;
-  right: 0;
-  display: grid;
-  width: max(156px, calc(var(--app-hit-min) * 4));
-  padding: 4px;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-md);
-}
-
-.canvas-pages-list > li:nth-last-child(-n + 2) .canvas-page-menu {
-  top: auto;
-  bottom: 30px;
-}
-
-.canvas-page-actions .canvas-page-menu > button {
-  width: 100%;
-  height: max(32px, var(--app-hit-min));
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 0 8px;
-  color: var(--app-ink);
-  font-size: var(--app-text-xs);
-  white-space: nowrap;
-}
-
-.canvas-page-actions .canvas-page-menu > button.is-danger {
-  color: var(--app-danger);
-}
-
-.canvas-page-actions .canvas-page-menu > button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+/* The rail's ⋯ menu is the Menu primitive: the box, the rows, the danger
+   colour and the flip near the bottom of the list all live there now. The
+   rail only says how wide its labels need it — and the flip is a prop the
+   list passes, rather than a `:nth-last-child(-n + 2)` guess in CSS. */
+.canvas-page-actions {
+  --menu-width: max(156px, calc(var(--app-hit-min) * 4));
 }
 
 .canvas-page-delete-confirm {
@@ -1595,46 +1564,11 @@
   }
 }
 
-/* Header Export menu: the page ⋯ menu's popup, anchored under its trigger. */
+/* Header Export menu. The popup, its rows and its keyboard contract are
+   primitives/menu.css and components/ui/Menu.tsx; four export labels just
+   need more width than the ⋯ default. */
 .canvas-export {
-  position: relative;
-}
-
-.canvas-export-menu {
-  position: absolute;
-  z-index: calc(var(--app-z-chrome) + 1);
-  top: calc(100% + 4px);
-  right: 0;
-  display: grid;
-  width: max(196px, calc(var(--app-hit-min) * 5));
-  padding: 4px;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-md);
-}
-
-.canvas-export-menu > button {
-  display: inline-flex;
-  align-items: center;
-  width: 100%;
-  height: max(32px, var(--app-hit-min));
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--app-radius-sm, 6px);
-  background: transparent;
-  color: var(--app-ink);
-  font: inherit;
-  font-size: var(--app-text-xs);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.canvas-export-menu > button:hover,
-.canvas-export-menu > button:focus-visible {
-  background: var(--app-paper);
+  --menu-width: max(196px, calc(var(--app-hit-min) * 5));
 }
 
 .canvas-command-export[aria-busy] {

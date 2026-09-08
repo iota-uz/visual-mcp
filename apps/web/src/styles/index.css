@@ -28,6 +28,7 @@
 @import "./primitives/disclosure.css" layer(primitives);
 @import "./primitives/copyable.css" layer(primitives);
 @import "./primitives/drawer.css" layer(primitives);
+@import "./primitives/menu.css" layer(primitives);
 @import "./primitives/section-header.css" layer(primitives);
 @import "./primitives/empty-state.css" layer(primitives);
 @import "./primitives/loading.css" layer(primitives);
