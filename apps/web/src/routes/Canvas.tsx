@@ -624,7 +624,7 @@ function PublishControl({
               />
             </div>
           </Disclosure>
-          <Disclosure summary="Embed in Markdown" className="share-disclosure embed-disclosure">
+          <Disclosure summary="Embed in Markdown" className="share-disclosure">
             <EmbedControl
               title={title}
               publicSlug={publicSlug as string}

@@ -29,10 +29,8 @@
   flex-wrap: wrap;
 }
 
-/* The size is a hook rather than a `.container .title` override, so a
-   container can scale the heading without reaching into this rule. */
 .section-header-title {
-  font-size: var(--section-header-title-size, var(--app-text-2xl));
+  font-size: var(--app-text-2xl);
 }
 
 .section-header-actions {
@@ -42,6 +40,7 @@
 }
 
 .section-header-subtitle {
+  max-width: var(--app-measure);
   color: var(--app-muted);
   font-size: var(--app-text-sm);
   margin: var(--app-space-1) 0 0;

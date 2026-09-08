@@ -24,6 +24,7 @@
 
 .empty-state-hint {
   margin: 0;
+  max-width: var(--app-measure);
   color: var(--app-muted);
   font-size: var(--app-text-sm);
 }

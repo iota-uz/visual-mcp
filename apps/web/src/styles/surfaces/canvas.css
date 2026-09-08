@@ -1634,7 +1634,7 @@
 
 .canvas-export-menu > button:hover,
 .canvas-export-menu > button:focus-visible {
-  background: var(--app-surface-hover, var(--app-line));
+  background: var(--app-paper);
 }
 
 .canvas-command-export[aria-busy] {

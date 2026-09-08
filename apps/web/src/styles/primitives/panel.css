@@ -9,7 +9,7 @@
   border: 1px solid var(--panel-border, var(--app-line));
   border-radius: var(--app-radius-lg);
   background: var(--panel-surface, var(--app-white));
-  padding: var(--panel-padding, var(--app-space-4));
+  padding: var(--app-space-4);
   box-shadow: var(--panel-shadow, var(--app-shadow-sm));
 }
 

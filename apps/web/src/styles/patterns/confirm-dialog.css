@@ -10,7 +10,7 @@
 }
 
 .confirm-dialog::backdrop {
-  background: rgba(6, 27, 54, 0.42);
+  background: var(--app-scrim);
   backdrop-filter: blur(4px);
 }
 

@@ -211,7 +211,7 @@ export function AssetsPage() {
   }
 
   return (
-    <div className="page-stack assets-page">
+    <div className="page-stack">
       <PageHeader
         title={wsSlug ? "Workspace assets" : "Asset Library"}
         subtitle={
@@ -291,7 +291,7 @@ export function AssetsPage() {
       </div>
 
       {assets === null && (
-        <div className="asset-grid asset-grid-loading">
+        <div className="asset-grid">
           {Array.from({ length: 8 }, (_, index) => `asset-skeleton-${index + 1}`).map((key) => (
             <div key={key} className="asset-card-skeleton" />
           ))}

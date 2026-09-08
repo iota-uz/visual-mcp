@@ -275,7 +275,7 @@
 }
 
 .asset-lightbox::backdrop {
-  background: rgba(6, 27, 54, 0.78);
+  background: var(--app-scrim-strong);
   backdrop-filter: blur(8px);
 }
 

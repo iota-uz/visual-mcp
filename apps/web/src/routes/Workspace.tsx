@@ -130,7 +130,7 @@ export function WorkspacePage() {
           hint="Ask your agent to save one into this workspace over MCP."
         />
       ) : (
-        <ul className="canvas-grid">
+        <ul className="card-grid">
           {(canvases as GalleryCanvas[]).map((canvas) => (
             <CanvasCard key={canvas.canvas_id} canvas={canvas} workspaceSlug={wsSlug ?? ""} />
           ))}

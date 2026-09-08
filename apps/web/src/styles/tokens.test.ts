@@ -9,8 +9,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sourceFiles } from "./contract-sources";
 
 const read = (relative: string) =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
@@ -49,6 +51,17 @@ const SYNCED: Pair[] = [
   { app: "--app-kind-html", canvas: "--vc-role-support" },
   { app: "--app-kind-image", canvas: "--vc-role-secondary" },
   { app: "--app-kind-pdf", canvas: "--vc-role-exception" },
+  // Lane roles, mirrored a second time under their own names: the list
+  // surfaces draw canvas posters and tint a node by its lane, but theme.css
+  // is only loaded on the canvas and present routes.
+  { app: "--app-role-actors", canvas: "--vc-role-actors" },
+  { app: "--app-role-primary", canvas: "--vc-role-primary" },
+  { app: "--app-role-secondary", canvas: "--vc-role-secondary" },
+  { app: "--app-role-automation", canvas: "--vc-role-automation" },
+  { app: "--app-role-exception", canvas: "--vc-role-exception" },
+  { app: "--app-role-support", canvas: "--vc-role-support" },
+  { app: "--app-role-system", canvas: "--vc-role-system" },
+  { app: "--app-role-external", canvas: "--vc-role-external" },
 ];
 
 /** Deliberate departures. Re-syncing one of these is also a regression. */
@@ -76,5 +89,32 @@ describe("app tokens against the canvas palette", () => {
     expect(app.get(a), `${a} is not declared`).toBeDefined();
     expect(canvas.get(c), `${c} is not declared`).toBeDefined();
     expect(app.get(a), note).not.toBe(canvas.get(c));
+  });
+});
+
+/*
+ * A `var(--app-…)` whose token was never declared does not fail, warn, or
+ * show up in review — it silently falls back, and the fallback is usually
+ * whatever token happens to be named next to it. `--app-surface-hover`
+ * painted every export-menu hover with the *border* colour for exactly that
+ * reason, for as long as the rule existed.
+ */
+describe("every --app-* custom property is declared", () => {
+  // cwd is apps/web under vitest, the same anchor layout-contract.test.js uses.
+  const sources = sourceFiles(join(process.cwd(), "src"), /\.(css|tsx?)$/);
+
+  const declared = new Set<string>();
+  for (const { text } of sources) {
+    for (const [, name] of text.matchAll(/(--app-[\w-]+)\s*:/g)) if (name) declared.add(name);
+  }
+
+  it("resolves every reference to a declaration", () => {
+    const undeclared: string[] = [];
+    for (const { path, text } of sources) {
+      for (const [, name] of text.matchAll(/var\(\s*(--app-[\w-]+)/g)) {
+        if (name && !declared.has(name)) undeclared.push(`${name} (${path})`);
+      }
+    }
+    expect([...new Set(undeclared)]).toEqual([]);
   });
 });

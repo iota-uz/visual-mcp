@@ -30,7 +30,7 @@
 }
 
 .drawer::backdrop {
-  background: rgba(6, 27, 54, 0.34);
+  background: var(--app-scrim);
   opacity: 0;
   transition: opacity var(--app-duration-base) var(--app-ease-out);
 }

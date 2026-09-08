@@ -67,7 +67,7 @@ function TokenItem({
   onRevoke: () => Promise<unknown>;
 }) {
   return (
-    <li className="card-list-item row-item token-row">
+    <li className="card-list-item row-item">
       <div className="row-item-main">
         <strong>{token.name}</strong>
         <code className="token-row-prefix">{token.prefix}…</code>

@@ -53,11 +53,19 @@ export function CanvasSkeleton({ label = "Loading canvas…" }: { label?: string
   );
 }
 
-export function CardGridSkeleton({ cards = 3 }: { cards?: number }) {
+export function CardGridSkeleton({
+  cards = 3,
+  label = "Loading canvases…",
+}: {
+  cards?: number;
+  /* Home stands this in front of workspaces, not canvases, and the status
+     line is the only part of the skeleton a screen reader hears. */
+  label?: string;
+}) {
   return (
     <>
-      <SkeletonStatus label="Loading canvases…" />
-      <div className="canvas-grid" aria-hidden="true">
+      <SkeletonStatus label={label} />
+      <div className="card-grid" aria-hidden="true">
         {Array.from({ length: cards }, (_, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length placeholder, never reordered
           <div key={i} className="canvas-card skeleton-card">

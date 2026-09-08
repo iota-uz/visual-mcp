@@ -1,8 +1,8 @@
 /* The list and grid every collection in the app is rendered as. */
 
-/* --- card list / canvas grid --- */
+/* --- card list / card grid --- */
 .card-list,
-.canvas-grid {
+.card-grid {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -10,22 +10,25 @@
   gap: var(--app-space-3);
 }
 
-/* Hooks, so a container can scroll or inset the list without reaching in
-   with a `.container .card-list` selector of its own. */
+/* Hooks, so a container can scroll the list without reaching in with a
+   `.container .card-list` selector of its own. */
 .card-list {
-  margin-top: var(--card-list-inset, 0);
   max-height: var(--card-list-max-height, none);
   overflow-y: var(--card-list-overflow, visible);
 }
 
-.canvas-grid {
-  /* 220px cards left a mostly-empty page and gave the thumbnail — the only
-     way to recognise a canvas at a glance — barely any pixels. */
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+/* One grid for every collection of cards — canvases, workspaces, and the
+   skeleton that stands in for either. The floor is a hook rather than a
+   second class: workspaces carry more text per card than canvases do.
+   220px cards left a mostly-empty page and gave the cover — the only way to
+   recognise a canvas at a glance — barely any pixels. */
+.card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-grid-min, 280px), 1fr));
 }
 
 .card-list-item,
-.canvas-card {
+.canvas-card,
+.workspace-card {
   display: flex;
   /* A container that wants a different row shape — the version list wants
      one line, not a stack — sets these rather than writing a
@@ -54,7 +57,8 @@
  */
 @media (hover: hover) {
   .card-list-item:hover,
-  .canvas-card:hover {
+  .canvas-card:hover,
+  .workspace-card:hover {
     border-color: var(--app-accent);
     box-shadow: 0 0 0 3px var(--app-accent-soft);
   }
@@ -63,13 +67,43 @@
 /* Keyboard parity: the ring appears for whatever is focused inside a row,
    which is how a row is "hovered" without a pointer. */
 .card-list-item:focus-within,
-.canvas-card:focus-within {
+.canvas-card:focus-within,
+.workspace-card:focus-within {
   border-color: var(--app-accent);
   box-shadow: 0 0 0 3px var(--app-accent-soft);
 }
 
 @media (max-width: 640px) {
-  .canvas-grid {
+  .card-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/*
+ * The whole card as one hit area.
+ *
+ * A card cannot be an <a>: it carries a ⋯ menu, and later a rename field and
+ * an armed confirmation, none of which may be nested inside a link. So the
+ * card's *title* link grows an overlay over the card box instead. The card
+ * is the positioning context; the actions sit above the overlay in the same
+ * stacking context and keep their own clicks. The pointer cursor comes free,
+ * because the overlay is part of the anchor.
+ */
+.card-hit {
+  position: relative;
+}
+
+.card-hit-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* Anything interactive that is *not* the stretched link has to sit above it. */
+.card-hit-actions,
+.card-hit > .rename-form,
+.card-hit > .confirm-inline {
+  position: relative;
+  z-index: 1;
 }

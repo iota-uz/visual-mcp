@@ -44,6 +44,20 @@
   --app-kind-image: #2f9f6e;
   --app-kind-pdf: #d38f21;
 
+  /* The viewer's lane roles again, this time by role rather than by kind.
+     The list surfaces draw schematic canvas posters and have to tint a node
+     by the lane it sits in, but packages/canvas's theme.css — where
+     --vc-role-* live — is imported only by the canvas and present routes.
+     Mirrored by hand like the rest of this file; tokens.test.ts pairs them. */
+  --app-role-actors: #75879a;
+  --app-role-primary: #2f6df6;
+  --app-role-secondary: #2f9f6e;
+  --app-role-automation: #5a8f7a;
+  --app-role-exception: #d38f21;
+  --app-role-support: #7a56b2;
+  --app-role-system: #376db9;
+  --app-role-external: #2f9f6e;
+
   --app-font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --app-font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font-display: "Unbounded", var(--app-font-body);
@@ -54,6 +68,13 @@
   --app-text-lg: 18px;
   --app-text-xl: 24px;
   --app-text-2xl: 32px;
+
+  /* Line length. Long-form text in this app is a subtitle, a hint or a
+     description — a column, never a page — and at 1040px those run to ~150
+     characters, which is the "text spreads out" complaint. Applied per
+     rule, not globally: cards clamp their own text and must not inherit a
+     measure wider than the cell. */
+  --app-measure: 68ch;
 
   /* The eyebrow: packages/canvas's .vc-lane-label treatment, promoted to
      the app's section-labelling device. */
@@ -79,6 +100,13 @@
      side by side read as different materials. One material, one blur. */
   --app-surface-floating: rgba(255, 255, 255, 0.94);
   --app-surface-floating-blur: blur(12px);
+
+  /* Modal grounds. Two, because they do different jobs: chrome dialogs dim
+     the page enough to say "answer this first", while the asset lightbox is
+     a viewing surface and needs the page gone. Every ::backdrop in the app
+     reads one of these rather than picking its own alpha. */
+  --app-scrim: rgba(6, 27, 54, 0.38);
+  --app-scrim-strong: rgba(6, 27, 54, 0.78);
 
   --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
   --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
