@@ -1,7 +1,13 @@
 /* A canvas in the workspace gallery. */
 
 /* Kind is carried by colour as well as by an icon: the tint is the lane
-   role the viewer itself paints this kind of node with. */
+   role the viewer itself paints this kind of node with. The default matters:
+   kindIcon() falls back for an unknown kind and the tint has to as well, or
+   a kind added later is drawn in nothing. */
+.canvas-card {
+  --canvas-card-kind: var(--app-muted);
+}
+
 .canvas-card-canvas {
   --canvas-card-kind: var(--app-kind-canvas);
 }
@@ -18,18 +24,37 @@
   --canvas-card-kind: var(--app-kind-pdf);
 }
 
-/* The card container is the <li>, not the <a>, so curator actions can sit
-   inside the card without nesting buttons in an anchor. */
+/*
+ * The card container is the <li>, not the <a>: the ⋯ menu, the rename field
+ * and the armed confirmation all live inside the card, and none of them may
+ * be nested in a link. The title link stretches over the card instead
+ * (.card-hit-link in patterns/card-list.css), which is what makes the whole
+ * card clickable while leaving the actions clickable too.
+ */
 .canvas-card-link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--app-space-1);
   text-decoration: none;
   color: inherit;
 }
 
-/* Positions the kind and share marks against the image rather than the
-   card, so they stay on the artwork whatever the title wraps to. */
+/* Title block and ⋯, on one line. The menu sits where the "Shared" mark
+   used to, which is why that moved down to the metadata row. */
+.canvas-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.canvas-card-headings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  /* Without this a long unbroken title pushes the ⋯ off the card. */
+  min-width: 0;
+}
+
+/* Positions the kind mark and the render status against the image rather
+   than the card, so they stay on the artwork whatever the title wraps to. */
 .canvas-card-frame {
   position: relative;
   display: block;
@@ -100,10 +125,12 @@
   }
 }
 
-.canvas-card-kind,
-.canvas-card-shared {
+/* A mark over artwork, not a label: 22px square, and it has been sized for
+   an icon since it was written. */
+.canvas-card-kind {
   position: absolute;
   top: var(--app-space-2);
+  left: var(--app-space-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -111,17 +138,8 @@
   height: 22px;
   border-radius: var(--app-radius-sm);
   background: var(--app-white);
+  color: var(--canvas-card-kind);
   box-shadow: var(--app-shadow-sm);
-}
-
-.canvas-card-kind {
-  left: var(--app-space-2);
-  color: var(--canvas-card-kind, var(--app-muted));
-}
-
-.canvas-card-shared {
-  right: var(--app-space-2);
-  color: var(--app-success);
 }
 
 .canvas-card-title {
@@ -132,11 +150,15 @@
 /* Recency is the reason anyone opens a page sorted by it, so it reads as
    the card's subtitle rather than as the smallest grey thing on it. */
 .canvas-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
   font-size: var(--app-text-xs);
   color: var(--app-muted);
 }
 
 .canvas-card-description {
+  margin: 0;
   font-size: var(--app-text-sm);
   color: var(--app-muted);
   display: -webkit-box;
@@ -147,36 +169,10 @@
 }
 
 /*
- * The ref and the curator actions, revealed on hover or focus. 0fr → 1fr
- * animates the height directly — no measuring, no JS — and because the row
- * stays in the DOM it stays in the tab order, so it is reachable by keyboard
- * whether or not it happens to be visible.
+ * The hover-reveal ref row that used to end the card is gone, and "Copy
+ * ref" is a ⋯ menu item now. Growing the card's height from 0fr to 1fr on
+ * hover shifted every card below it in the grid — the list moved under the
+ * cursor — and on touch, where there is no hover, the row was simply always
+ * open. The reason it stayed in the DOM was keyboard reach; a menu item is
+ * in the tab order unconditionally, which is strictly better.
  */
-.canvas-card-reveal {
-  display: grid;
-  grid-template-rows: 0fr;
-  margin-top: auto;
-  transition: grid-template-rows var(--app-duration-base) var(--app-ease-out);
-}
-
-.canvas-card:hover .canvas-card-reveal,
-.canvas-card:focus-within .canvas-card-reveal {
-  grid-template-rows: 1fr;
-}
-
-.canvas-card-reveal-inner {
-  overflow: hidden;
-  min-height: 0;
-}
-
-.canvas-card-ref {
-  padding-top: var(--app-space-2);
-  border-top: 1px solid var(--app-line);
-}
-
-/* Touch has no hover, so there is nothing to reveal *from*: show it. */
-@media (hover: none) {
-  .canvas-card-reveal {
-    grid-template-rows: 1fr;
-  }
-}

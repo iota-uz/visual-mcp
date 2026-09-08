@@ -145,7 +145,7 @@ export function TokensPage() {
     <div className="page-stack">
       <PageHeader
         title="MCP tokens"
-        back={{ to: "/", label: "Workspaces" }}
+        crumbs={[{ to: "/", label: "Workspaces" }]}
         subtitle="A token is how Claude Code or Codex reaches this deployment. They last 90 days, and the full value is shown once — right after minting."
       />
 

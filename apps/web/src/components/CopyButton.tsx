@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { writeClipboard } from "../lib/clipboard";
 import { useToast } from "./Toast";
 import { Button } from "./ui/Button";
 
@@ -16,17 +17,9 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
   );
 
   async function handleCopy() {
-    try {
-      // The rejection path is real: a non-secure origin or a denied
-      // permission both reject here, and the button used to flip to
-      // "Copied" regardless — telling the user their token was on the
-      // clipboard when it wasn't.
-      await navigator.clipboard.writeText(value);
-    } catch (err: unknown) {
-      notify({
-        tone: "error",
-        message: `Couldn't copy to the clipboard: ${err instanceof Error ? err.message : String(err)}`,
-      });
+    const failure = await writeClipboard(value);
+    if (failure) {
+      notify({ tone: "error", message: `Couldn't copy to the clipboard: ${failure}` });
       return;
     }
     setCopied(true);

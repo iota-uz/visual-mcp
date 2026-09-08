@@ -223,7 +223,17 @@ export function AssetsPage() {
             "Reusable media available across your workspaces."
           )
         }
-        back={wsSlug ? { to: "/", label: "Workspaces" } : undefined}
+        /* Two crumbs, not one: the single Back arrow here went to the
+            workspace *list*, skipping the workspace whose assets you were
+            looking at. */
+        crumbs={
+          wsSlug
+            ? [
+                { to: "/", label: "Workspaces" },
+                { to: `/w/${wsSlug}`, label: wsSlug },
+              ]
+            : undefined
+        }
         actions={
           <div className="asset-header-actions">
             <Button variant="secondary" icon={Link2} onClick={() => setImportOpen((open) => !open)}>

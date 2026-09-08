@@ -114,7 +114,7 @@ export function KitchenSinkPage() {
       <PageHeader
         title="Kitchen sink"
         subtitle="Every primitive, every variant. Dev builds only."
-        back={{ to: "/", label: "Workspaces" }}
+        crumbs={[{ to: "/", label: "Workspaces" }]}
       />
 
       <Section title="Button">
@@ -447,7 +447,10 @@ export function KitchenSinkPage() {
           as="h3"
           title="Fast Settlement"
           subtitle="v3 · 2 hours ago"
-          back={{ to: "/", label: "osago" }}
+          crumbs={[
+            { to: "/", label: "Workspaces" },
+            { to: "/w/osago", label: "osago" },
+          ]}
           actions={
             <Button variant="ghost" size="sm" icon={Pencil}>
               Rename
@@ -503,7 +506,10 @@ export function KitchenSinkPage() {
             as="h3"
             title="Fast Settlement"
             subtitle="v3 · 2 hours ago"
-            back={{ to: "/", label: "osago" }}
+            crumbs={[
+              { to: "/", label: "Workspaces" },
+              { to: "/w/osago", label: "osago" },
+            ]}
             actions={
               <Button variant="ghost" size="sm" icon={Pencil}>
                 Rename

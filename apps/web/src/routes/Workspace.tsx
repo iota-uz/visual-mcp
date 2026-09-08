@@ -1,16 +1,16 @@
-import { useQuery } from "convex/react";
-import { Images, Unplug } from "lucide-react";
-import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { Images, LayoutDashboard, Search, Unplug, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+import { CanvasCard, type CanvasCardRow } from "../components/CanvasCard";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { CardGridSkeleton } from "../components/Skeleton";
-import { type StaticRenderState, StaticRenderStatus } from "../components/StaticRenderStatus";
-import { ButtonLink } from "../components/ui/Button";
-import { RefChip } from "../components/ui/CopyableValue";
-import { kindIcon } from "../lib/canvasKind";
-import { formatRelativeTime } from "../lib/formatDate";
+import { Button, ButtonLink } from "../components/ui/Button";
+import { IconButton } from "../components/ui/IconButton";
+import { Select, TextInput } from "../components/ui/TextInput";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 /*
@@ -26,68 +26,38 @@ import { useDocumentTitle } from "../lib/useDocumentTitle";
  * Assets keep their own page, one level down at `/w/:wsSlug/assets`.
  */
 
-interface GalleryCanvas {
-  canvas_id: string;
-  slug: string;
-  title: string;
-  description?: string;
-  kind: string;
-  visibility: "private" | "public";
-  updated_at: number;
-  thumbnail_url: string | null;
-  static_render_status: StaticRenderState;
+interface GalleryCanvas extends CanvasCardRow {
+  canvas_id: Id<"canvases">;
 }
 
-function CanvasCard({ canvas, workspaceSlug }: { canvas: GalleryCanvas; workspaceSlug: string }) {
-  const KindIcon = kindIcon(canvas.kind);
-  // A signed thumbnail URL can expire and its storage object can go
-  // missing, so "never rendered" and "the URL died" get the same honest
-  // placeholder rather than a broken-image glyph.
-  const [failed, setFailed] = useState(false);
-  const hasThumb = canvas.thumbnail_url && !failed;
+type Sort = "updated" | "title" | "kind";
 
-  return (
-    <li className={`canvas-card canvas-card-${canvas.kind}`}>
-      <Link to={`/c/${canvas.canvas_id}`} className="canvas-card-link">
-        <span className="canvas-card-frame">
-          {hasThumb ? (
-            <img
-              src={canvas.thumbnail_url as string}
-              alt=""
-              className="canvas-card-thumbnail"
-              loading="lazy"
-              decoding="async"
-              onError={() => setFailed(true)}
-            />
-          ) : (
-            <span className="canvas-card-thumbnail canvas-card-thumbnail-empty">
-              <KindIcon size={20} strokeWidth={1.5} aria-hidden="true" />
-              No render yet
-            </span>
-          )}
-          <span className="canvas-card-kind">{canvas.kind}</span>
-          {canvas.visibility === "public" && <span className="canvas-card-shared">Shared</span>}
-          <StaticRenderStatus state={canvas.static_render_status} />
-        </span>
-        <span className="canvas-card-title">{canvas.title}</span>
-        <span className="canvas-card-meta">
-          <time dateTime={new Date(canvas.updated_at).toISOString()}>
-            {formatRelativeTime(canvas.updated_at)}
-          </time>
-        </span>
-        {canvas.description && (
-          <span className="canvas-card-description">{canvas.description}</span>
-        )}
-      </Link>
-      {/* Outside the anchor: a copy button nested in a link is neither a
-          link nor a button to a screen reader, and steals the click. */}
-      <div className="canvas-card-reveal">
-        <div className="canvas-card-reveal-inner">
-          <RefChip className="canvas-card-ref" refValue={`${workspaceSlug}/${canvas.slug}`} />
-        </div>
-      </div>
-    </li>
-  );
+const SORTS: Array<{ value: Sort; label: string }> = [
+  { value: "updated", label: "Recently updated" },
+  { value: "title", label: "Title A–Z" },
+  { value: "kind", label: "Kind" },
+];
+
+/*
+ * Filter and sort are client-side on purpose: `listForWorkspace` already
+ * returns the whole list to render it, so a server round trip would buy
+ * nothing and cost a debounce. That is the opposite of Home's `?q=` search,
+ * which crosses workspaces and does have to ask the backend.
+ */
+function arrange(canvases: GalleryCanvas[], filter: string, sort: Sort): GalleryCanvas[] {
+  const needle = filter.trim().toLowerCase();
+  const matched = needle
+    ? canvases.filter((canvas) =>
+        [canvas.title, canvas.description ?? "", canvas.slug, canvas.kind].some((field) =>
+          field.toLowerCase().includes(needle),
+        ),
+      )
+    : canvases;
+  return [...matched].sort((a, b) => {
+    if (sort === "title") return a.title.localeCompare(b.title);
+    if (sort === "kind") return a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title);
+    return b.updated_at - a.updated_at;
+  });
 }
 
 export function WorkspacePage() {
@@ -96,24 +66,43 @@ export function WorkspacePage() {
   const canvases = useQuery(
     api.canvases.listForWorkspace,
     workspace ? { workspaceId: workspace.workspace_id } : "skip",
-  );
+  ) as GalleryCanvas[] | undefined;
+  const rename = useMutation(api.canvases.renameMine);
+  const remove = useMutation(api.canvases.deleteMine);
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<Sort>("updated");
   useDocumentTitle(workspace?.name);
 
+  const shown = useMemo(() => arrange(canvases ?? [], filter, sort), [canvases, filter, sort]);
+  const count = canvases?.length ?? 0;
+  const crumbs = [{ to: "/", label: "Workspaces" }];
+
   if (workspace === null) {
+    // Still inside the page shell: an address that resolves to nothing is
+    // exactly where you need the way out to be on screen.
     return (
-      <EmptyState
-        icon={Unplug}
-        title="No workspace at this address."
-        hint={<Link to="/">Back to workspaces</Link>}
-      />
+      <div className="page-stack">
+        <PageHeader title={wsSlug ?? "Workspace"} crumbs={crumbs} />
+        <EmptyState
+          icon={Unplug}
+          title="No workspace at this address."
+          hint={<Link to="/">Back to workspaces</Link>}
+        />
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="page-stack">
       <PageHeader
         title={workspace?.name ?? wsSlug ?? "Workspace"}
-        subtitle={workspace?.description}
+        crumbs={crumbs}
+        // Falls back to the count so the header is never a lone title on a
+        // workspace nobody wrote a description for.
+        subtitle={
+          workspace?.description ??
+          (canvases ? `${count} ${count === 1 ? "canvas" : "canvases"}` : undefined)
+        }
         actions={
           wsSlug ? (
             <ButtonLink to={`/w/${wsSlug}/assets`} variant="secondary" icon={Images}>
@@ -122,20 +111,80 @@ export function WorkspacePage() {
           ) : undefined
         }
       />
+      {count > 1 && (
+        <div className="list-toolbar">
+          <TextInput
+            id="canvas-filter"
+            label="Filter canvases"
+            className="list-toolbar-search"
+            leadingIcon={Search}
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setFilter("");
+            }}
+            placeholder="Filter canvases…"
+            trailingSlot={
+              filter && (
+                <IconButton
+                  icon={X}
+                  label="Clear filter"
+                  iconSize={14}
+                  className="field-action"
+                  onClick={() => setFilter("")}
+                />
+              )
+            }
+          />
+          <div className="list-toolbar-controls">
+            <Select
+              id="canvas-sort"
+              label="Sort canvases"
+              options={SORTS}
+              value={sort}
+              onChange={(event) => setSort(event.target.value as Sort)}
+            />
+          </div>
+        </div>
+      )}
       {canvases === undefined ? (
         <CardGridSkeleton cards={6} />
-      ) : canvases.length === 0 ? (
+      ) : count === 0 ? (
         <EmptyState
+          icon={LayoutDashboard}
           title="No canvases here yet."
           hint="Ask your agent to save one into this workspace over MCP."
+          action={
+            wsSlug ? (
+              <ButtonLink to={`/w/${wsSlug}/assets`} variant="ghost" icon={Images}>
+                Browse assets
+              </ButtonLink>
+            ) : undefined
+          }
+        />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title={`No canvases match “${filter.trim()}”.`}
+          action={
+            <Button variant="ghost" onClick={() => setFilter("")}>
+              Show all canvases
+            </Button>
+          }
         />
       ) : (
         <ul className="card-grid">
-          {(canvases as GalleryCanvas[]).map((canvas) => (
-            <CanvasCard key={canvas.canvas_id} canvas={canvas} workspaceSlug={wsSlug ?? ""} />
+          {shown.map((canvas) => (
+            <CanvasCard
+              key={canvas.canvas_id}
+              canvas={canvas}
+              workspaceSlug={wsSlug ?? ""}
+              onRename={(title) => rename({ canvasId: canvas.canvas_id, title })}
+              onDelete={() => remove({ canvasId: canvas.canvas_id })}
+            />
           ))}
         </ul>
       )}
-    </>
+    </div>
   );
 }

@@ -1,11 +1,22 @@
-import { ArrowLeft } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+
+export interface Crumb {
+  to: string;
+  label: string;
+}
 
 export interface SectionHeaderProps {
   title: ReactNode;
   subtitle?: ReactNode;
-  back?: { to: string; label: string };
+  /**
+   * The path down to this page, ancestors first. A trail rather than a
+   * single Back link because the app nests three deep: a workspace's assets
+   * used to offer one arrow, and it went to the workspace *list*, skipping
+   * the workspace you were inside.
+   */
+  crumbs?: Crumb[];
   actions?: ReactNode;
   /**
    * The heading level. It matters: this used to be a hardcoded `<h1>`, and
@@ -19,17 +30,24 @@ export interface SectionHeaderProps {
 export function SectionHeader({
   title,
   subtitle,
-  back,
+  crumbs,
   actions,
   as: Heading = "h2",
   className,
 }: SectionHeaderProps) {
   return (
     <header className={["section-header", className].filter(Boolean).join(" ")}>
-      {back && (
-        <Link to={back.to} className="section-header-back">
-          <ArrowLeft size={14} aria-hidden="true" /> {back.label}
-        </Link>
+      {crumbs && crumbs.length > 0 && (
+        <nav aria-label="Breadcrumb" className="section-header-crumbs">
+          <ol>
+            {crumbs.map((crumb) => (
+              <li key={crumb.to}>
+                <Link to={crumb.to}>{crumb.label}</Link>
+                <ChevronRight size={12} aria-hidden="true" />
+              </li>
+            ))}
+          </ol>
+        </nav>
       )}
       <div className="section-header-row">
         <Heading className="section-header-title">{title}</Heading>

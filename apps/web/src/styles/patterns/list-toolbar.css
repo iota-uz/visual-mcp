@@ -1,0 +1,25 @@
+/* Filter and sort above a list. Modelled on the asset library's toolbar,
+   which had the same job and built it from raw <input> and <label> markup. */
+
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--app-space-3);
+  padding-bottom: var(--app-space-3);
+  border-bottom: 1px solid var(--app-line);
+}
+
+.list-toolbar-search {
+  /* Grows into the space the controls leave, up to a readable field. A
+     filter box the width of the page reads as a search *engine*. */
+  flex: 1 1 220px;
+  max-width: 420px;
+}
+
+.list-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
