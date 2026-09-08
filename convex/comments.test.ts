@@ -5,6 +5,14 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
+/**
+ * Cover geometry is required by these mutations so tsc enumerates every
+ * caller (the field is optional on the row). What the geometry *is* is
+ * covered by packages/canvas/test/poster.test.ts; here it only has to be
+ * present and valid.
+ */
+const POSTER = { format: 1 as const, ar: 1.33, n: 0, p: 1, rects: [] };
+
 const modules = import.meta.glob("./**/*.ts");
 
 async function seedCanvasWithNode(t: ReturnType<typeof convexTest>) {
@@ -107,6 +115,7 @@ describe("canvas comments", () => {
     // distinguishable numbers rather than both being zero.
     const docStorageId = await t.run((ctx) => ctx.storage.store(new Blob(["{}"])));
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       canvasId,
       docStorageId,
       createdBy: actorId,

@@ -11,6 +11,7 @@ export * from "./note-metrics.js";
 export * from "./overlap.js";
 export * from "./patch.js";
 export * from "./phone-frame.js";
+export * from "./poster.js";
 export * from "./prototype.js";
 export * from "./render.js";
 export * from "./router.js";

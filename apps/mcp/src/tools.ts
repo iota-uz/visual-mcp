@@ -56,6 +56,7 @@ import {
   CANVAS_DOC_COLLECTIONS,
   type CanvasDocPatchOperation,
 } from "@visual-canvas/canvas/patch.js";
+import { type CanvasPoster, canvasPoster } from "@visual-canvas/canvas/poster.js";
 import { routeEdges } from "@visual-canvas/canvas/router.js";
 import { type CanvasSearchRow, canvasSearchRows } from "@visual-canvas/canvas/search-rows.js";
 import { canvasSnapshotEntryHtml } from "@visual-canvas/canvas/snapshot-entry.js";
@@ -1735,6 +1736,7 @@ async function prepareSaveDoc(
     iframeEntrypoints: string[];
     imagePaths: string[];
     nodes: CanvasSearchRow[];
+    poster: CanvasPoster;
   };
   stored: Id<"_storage">[];
 }> {
@@ -1782,6 +1784,9 @@ async function prepareSaveDoc(
         ),
       ],
       nodes: canvasSearchRows(doc),
+      // Every MCP write of a whole document funnels through here, so this is
+      // the one place the agent-authored path has to compute a cover.
+      poster: canvasPoster(doc),
     },
   };
 }

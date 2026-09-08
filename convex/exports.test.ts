@@ -6,6 +6,14 @@ import type { Id } from "./_generated/dataModel";
 import { sha256Hex } from "./lib/hash";
 import schema from "./schema";
 
+/**
+ * Cover geometry is required by these mutations so tsc enumerates every
+ * caller (the field is optional on the row). What the geometry *is* is
+ * covered by packages/canvas/test/poster.test.ts; here it only has to be
+ * present and valid.
+ */
+const POSTER = { format: 1 as const, ar: 1.33, n: 0, p: 1, rects: [] };
+
 const modules = import.meta.glob("./**/*.ts");
 
 const ENV = { url: process.env.WORKER_URL, token: process.env.WORKER_TOKEN };
@@ -58,6 +66,7 @@ async function seed(t: ReturnType<typeof convexTest>) {
     kind: "canvas",
   });
   await t.mutation(internal.canvases.putDoc, {
+    poster: POSTER,
     iframeEntrypoints: [],
     canvasId: created.canvasId,
     docStorageId: await t.run((ctx) =>

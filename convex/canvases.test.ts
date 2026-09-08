@@ -5,6 +5,14 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
+/**
+ * Cover geometry is required by these mutations so tsc enumerates every
+ * caller (the field is optional on the row). What the geometry *is* is
+ * covered by packages/canvas/test/poster.test.ts; here it only has to be
+ * present and valid.
+ */
+const POSTER = { format: 1 as const, ar: 1.33, n: 0, p: 1, rects: [] };
+
 const modules = import.meta.glob("./**/*.ts");
 
 const VALID_IDENTITY = {
@@ -655,6 +663,7 @@ describe("canvases.publish", () => {
       createdBy,
       changes: [],
       doc: {
+        poster: POSTER,
         storageId: firstDoc,
         contentHash: "doc-one",
         entryStorageId: firstEntry,
@@ -685,6 +694,7 @@ describe("canvases.publish", () => {
       createdBy,
       changes: [],
       doc: {
+        poster: POSTER,
         storageId: secondDoc,
         contentHash: "doc-two",
         entryStorageId: secondEntry,
@@ -891,6 +901,7 @@ describe("canvases.listVersionsMine", () => {
     const docStorageId = await seedStorage(t, "{}");
 
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId,
       docStorageId,
@@ -899,6 +910,7 @@ describe("canvases.listVersionsMine", () => {
       nodes: [],
     });
     const { versionId: v2Id } = await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId,
       docStorageId,
@@ -972,6 +984,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     const docStorageId = await seedStorage(t, "{}");
 
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId,
       docStorageId,
@@ -987,6 +1000,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
       ],
     });
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId,
       docStorageId,
@@ -1012,6 +1026,7 @@ describe("canvases.putDoc + searchNodes (PLAN.md section 4/9: canvasNodes search
     const { canvasId, createdBy } = await seedCanvasDocCanvas(t);
     const docStorageId = await seedStorage(t, "{}");
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId,
       docStorageId,
@@ -1102,6 +1117,7 @@ describe("canvases.patchManualEditMine", () => {
       prototype: { interactions: [] },
     };
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, JSON.stringify(doc)),
@@ -1890,6 +1906,7 @@ describe("canvases.removeByRef", () => {
     });
     const docStorageId = await seedStorage(t, "{}");
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId,
@@ -1971,6 +1988,7 @@ describe("canvases.removeByRef", () => {
 
     const docStorageId = await seedStorage(t, "{}");
     const saved = await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId,
@@ -2187,6 +2205,7 @@ describe("canvases.restoreVersionByRef", () => {
       contentHash: "v1",
     });
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:1}"),
@@ -2201,6 +2220,7 @@ describe("canvases.restoreVersionByRef", () => {
       contentHash: "v2",
     });
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:2}"),
@@ -2222,6 +2242,7 @@ describe("canvases.restoreVersionByRef", () => {
     expect(files).toMatchObject([{ relPath: "/src/state.txt", contentHash: "v1" }]);
 
     const docEdit = await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "{v:3}"),
@@ -2317,6 +2338,7 @@ describe("canvases.restoreVersionByRef", () => {
       kind: "canvas",
     });
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "v1"),
@@ -2327,6 +2349,7 @@ describe("canvases.restoreVersionByRef", () => {
       async (ctx) => (await ctx.db.get(created.canvasId))?.currentVersionId,
     );
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "v2"),
@@ -2356,6 +2379,7 @@ describe("canvases.restoreVersionByRef", () => {
       kind: "canvas",
     });
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, "doc"),
@@ -2449,6 +2473,7 @@ test("arrow edits validate ports, require authentication and honor draft concurr
     prototype: { interactions: [] },
   };
   await t.mutation(internal.canvases.putDoc, {
+    poster: POSTER,
     iframeEntrypoints: [],
     canvasId: created.canvasId,
     docStorageId: await seedStorage(t, JSON.stringify(file)),
@@ -2553,6 +2578,7 @@ describe("canvases.patchManualEditMine: human-authored content", () => {
       prototype: { interactions: [] },
     };
     await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
       iframeEntrypoints: [],
       canvasId: created.canvasId,
       docStorageId: await seedStorage(t, JSON.stringify(file)),
@@ -2713,5 +2739,95 @@ describe("canvases.patchManualEditMine: human-authored content", () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+/*
+ * The cover is denormalised onto the row because it cannot be computed where
+ * it is read — `ctx.storage` in a query has no way to open the document blob.
+ * Denormalised state has two failure modes, and these are both of them.
+ */
+describe("canvases.poster", () => {
+  const withRects = {
+    format: 1 as const,
+    ar: 1.5,
+    n: 2,
+    p: 1,
+    rects: [{ x: 0, y: 0, w: 500, h: 500 }],
+  };
+
+  test("a metadata-only save keeps the cover it already had", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy);
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Claim intake",
+      kind: "canvas",
+      createdBy,
+    });
+    await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      createdBy,
+      changes: [],
+      doc: {
+        poster: withRects,
+        storageId: await seedStorage(t, "{}"),
+        contentHash: "doc-one",
+        entryStorageId: await seedStorage(t, "entry"),
+        entrySize: 5,
+        entryContentHash: "entry-one",
+        iframeEntrypoints: [],
+        imagePaths: [],
+        nodes: [],
+      },
+    });
+
+    // Renaming goes through the same mutation with `doc` undefined; the
+    // cover has to be carried forward with the doc pointers beside it.
+    await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      createdBy,
+      changes: [],
+      metadata: { title: "Claim intake v2" },
+    });
+
+    const [row] = await t
+      .withIdentity(VALID_IDENTITY)
+      .query(api.canvases.listForWorkspace, { workspaceId });
+    expect(row?.poster).toEqual(withRects);
+  });
+
+  test("restoring a checkpoint restores that checkpoint's cover", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const created = await t.mutation(internal.canvases.upsertByRef, {
+      ref: "osago/report",
+      createdBy,
+      kind: "canvas",
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      poster: withRects,
+      iframeEntrypoints: [],
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "{v:1}"),
+      createdBy,
+      nodes: [],
+    });
+    await t.mutation(internal.canvases.putDoc, {
+      poster: POSTER,
+      iframeEntrypoints: [],
+      canvasId: created.canvasId,
+      docStorageId: await seedStorage(t, "{v:2}"),
+      createdBy,
+      nodes: [],
+    });
+
+    await t.mutation(internal.canvases.restoreVersionByRef, { ref: "osago/report", version: 1 });
+
+    const rows = await t
+      .withIdentity(VALID_IDENTITY)
+      .query(api.canvases.listForWorkspace, { workspaceId: created.workspaceId });
+    expect(rows.find((row) => row.canvas_id === created.canvasId)?.poster).toEqual(withRects);
   });
 });

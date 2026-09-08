@@ -8,6 +8,7 @@ import {
   type CanvasNote,
   type CommentAnchor,
   type CommentMarker,
+  canvasPosterForDoc,
   formatElementRef,
   layoutCanvas,
   mountViewport,
@@ -53,6 +54,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { useSessionUser } from "../auth";
+import { CanvasCover } from "../components/CanvasCover";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
@@ -943,43 +945,6 @@ function nextPageId(file: CanvasFile, title: string) {
   return id;
 }
 
-/*
- * A page's world, small. The rail listed pages as bare text, so telling
- * "Overview" from "Payment states" meant opening both — and with a canvas
- * of any size the panel was 260px of white space holding three words.
- *
- * Drawn from the doc the panel already has: no fetch, no render pass, just
- * the node rects normalised into the box. Lanes and stages are left out on
- * purpose — at this size they are one flat wash that hides the nodes.
- */
-function PageThumb({ doc }: { doc: CanvasDoc }) {
-  const nodes = doc.nodes;
-  if (nodes.length === 0) {
-    return <span className="canvas-page-thumb is-empty" aria-hidden="true" />;
-  }
-  const left = Math.min(...nodes.map((node) => node.rect.x));
-  const top = Math.min(...nodes.map((node) => node.rect.y));
-  const right = Math.max(...nodes.map((node) => node.rect.x + node.rect.w));
-  const bottom = Math.max(...nodes.map((node) => node.rect.y + node.rect.h));
-  const width = Math.max(1, right - left);
-  const height = Math.max(1, bottom - top);
-  return (
-    <span className="canvas-page-thumb" aria-hidden="true">
-      {nodes.slice(0, 24).map((node) => (
-        <i
-          key={node.id}
-          style={{
-            left: `${((node.rect.x - left) / width) * 100}%`,
-            top: `${((node.rect.y - top) / height) * 100}%`,
-            width: `${Math.max(4, (node.rect.w / width) * 100)}%`,
-            height: `${Math.max(6, (node.rect.h / height) * 100)}%`,
-          }}
-        />
-      ))}
-    </span>
-  );
-}
-
 export function PagesPanel({
   file,
   activePageId,
@@ -1394,7 +1359,7 @@ export function PagesPanel({
                       setValue(page.title);
                     }}
                   >
-                    <PageThumb doc={page.doc} />
+                    <CanvasCover kind="canvas" poster={canvasPosterForDoc(page.doc)} size="chip" />
                     <span className="canvas-page-label">
                       <span className="canvas-page-title">{page.title}</span>
                       <small>

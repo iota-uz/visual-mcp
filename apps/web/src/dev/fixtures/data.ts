@@ -18,6 +18,38 @@ const DAY = 24 * HOUR;
  */
 const now = Date.now();
 
+/*
+ * A poster with real geometry, so the schematic cover renders here and not
+ * only against a seeded backend. The empty-canvas branch — a poster with no
+ * rects, which is a different fact from `poster: null` — is covered by
+ * CanvasCover.test.tsx rather than by inventing a fifth fixture row.
+ */
+const POSTER = {
+  format: 1 as const,
+  ar: 1.4,
+  n: 6,
+  p: 2,
+  rects: [
+    { x: 0, y: 0, w: 180, h: 220, r: "actors" as const },
+    { x: 240, y: 40, w: 220, h: 180, r: "primary" as const },
+    { x: 520, y: 0, w: 300, h: 260, r: "primary" as const, k: "iframe" as const },
+    { x: 240, y: 380, w: 220, h: 200, r: "automation" as const },
+    { x: 560, y: 420, w: 240, h: 180, r: "exception" as const },
+    { x: 860, y: 300, w: 140, h: 700, r: "system" as const },
+  ],
+};
+
+/**
+ * A 4x3 PNG, so the real-thumbnail branch is reachable without a worker:
+ * every row here used to be `thumbnail_url: null`, which meant the branch
+ * the gallery prefers was never exercised by a fixture.
+ */
+const THUMBNAIL_URL =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#dce4ed"/><rect x="0.4" y="0.4" width="1.4" height="0.9" fill="#2f6df6"/><rect x="2.2" y="1.4" width="1.4" height="1.2" fill="#7a56b2"/></svg>',
+  );
+
 const CANVASES = [
   {
     canvas_id: "cv_intake",
@@ -29,6 +61,7 @@ const CANVASES = [
     static_render_status: "updating" as const,
     updated_at: now - 12 * MINUTE,
     thumbnail_url: null,
+    poster: POSTER,
   },
   {
     canvas_id: "cv_settlement",
@@ -40,7 +73,9 @@ const CANVASES = [
     static_render_status: "stale" as const,
     public_slug: "fixturepublicshare",
     updated_at: now - 3 * HOUR,
-    thumbnail_url: null,
+    // The one row with a real picture: a PNG always wins over a poster.
+    thumbnail_url: THUMBNAIL_URL,
+    poster: null,
   },
   {
     canvas_id: "cv_coverage",
@@ -51,6 +86,7 @@ const CANVASES = [
     static_render_status: "error" as const,
     updated_at: now - 30 * HOUR,
     thumbnail_url: null,
+    poster: null,
   },
   {
     canvas_id: "cv_terms",
@@ -62,7 +98,10 @@ const CANVASES = [
     visibility: "private" as const,
     static_render_status: "ready" as const,
     updated_at: now - 34 * DAY,
+    // kind=pdf has no document to derive geometry from, so it never gets a
+    // poster and falls through to its kind plate.
     thumbnail_url: null,
+    poster: null,
   },
 ];
 
@@ -78,6 +117,7 @@ const WORKSPACES = [
       title: c.title,
       kind: c.kind,
       thumbnail_url: c.thumbnail_url,
+      poster: c.poster,
       static_render_status: c.static_render_status,
     })),
   },

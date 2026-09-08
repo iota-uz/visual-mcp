@@ -26,6 +26,50 @@ export const CanvasSearchRowValidator = v.object({
   searchText: v.string(),
 });
 
+/** Mirror of `PosterRole` in @visual-canvas/canvas/poster. */
+const PosterRoleValidator = v.union(
+  v.literal("actors"),
+  v.literal("primary"),
+  v.literal("secondary"),
+  v.literal("automation"),
+  v.literal("exception"),
+  v.literal("support"),
+  v.literal("system"),
+  v.literal("external"),
+);
+
+/**
+ * Mirror of `CanvasPoster` in @visual-canvas/canvas/poster: schematic cover
+ * geometry for a list view, denormalised onto the row.
+ *
+ * It has to be on the row because it cannot be computed where it is read:
+ * `ctx.storage` in a query exposes only `getUrl`, so `listCanvases` — which
+ * must stay a query to stay reactive — cannot open the document blob at all.
+ *
+ * Budget: ~50-65 bytes per rect, ~2 KB at the 32-rect cap, nowhere near the
+ * 1 MiB document limit. The binding constraint is `workspaces.listMine`,
+ * which `take(200)`s every canvas of every workspace to compute a count, so
+ * this is safe while workspaces x canvases-per-workspace stays under ~2500.
+ * Past that the fix is to denormalise `workspaces.canvasCount` and stop
+ * reading 200 rows for an integer — not to move the poster.
+ */
+export const CanvasPosterValidator = v.object({
+  format: v.literal(1),
+  ar: v.number(),
+  n: v.number(),
+  p: v.number(),
+  rects: v.array(
+    v.object({
+      x: v.number(),
+      y: v.number(),
+      w: v.number(),
+      h: v.number(),
+      r: v.optional(PosterRoleValidator),
+      k: v.optional(v.union(v.literal("iframe"), v.literal("image"))),
+    }),
+  ),
+});
+
 // The app owns user creation through auth.ts's createOrUpdateUser callback.
 // Auth support tables still use this row id for sessions and accounts.
 const { users: _authUsers, ...authSupportTables } = authTables;
@@ -265,6 +309,11 @@ export default defineSchema({
     // not observe later draft changes or unrelated checkpoints.
     publishedVersionId: v.optional(v.id("canvasVersions")),
     thumbnailId: v.optional(v.id("_storage")),
+    // Additive to thumbnailId, never a substitute for it: that one is the
+    // worker's PNG and the og:image of a public share card. Optional because
+    // html/image/pdf have no document to derive geometry from, and because
+    // rows written before this field existed have none until the backfill.
+    poster: v.optional(CanvasPosterValidator),
     staticRenderStatus: v.optional(StaticRenderStatusValidator),
     staticRenderError: v.optional(v.string()),
     staticRenderUpdatedAt: v.optional(v.number()),
@@ -298,6 +347,10 @@ export default defineSchema({
     cssStorageId: v.optional(v.id("_storage")),
     entryStorageId: v.optional(v.id("_storage")),
     iframeEntrypoints: v.array(v.string()),
+    // The checkpoint's own cover, so restoreVersion — a mutation, which
+    // cannot read the blob it restores — can put the geometry back the same
+    // way it puts the search rows back.
+    poster: v.optional(CanvasPosterValidator),
     // Set only after this immutable checkpoint has actually been public.
     // Historical embed URLs must never expose an unpublished checkpoint.
     publishedAt: v.optional(v.number()),

@@ -17,6 +17,8 @@
  * previous run left behind.
  */
 
+import { type CanvasPoster, canvasPoster } from "@visual-canvas/canvas/poster.js";
+import { CanvasFileSchema } from "@visual-canvas/canvas/types.js";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -491,6 +493,8 @@ export const write = internalMutation({
       publicSlug?: string;
       /** Set for kind=canvas. */
       docStorageId?: Id<"_storage">;
+      /** Cover geometry, for kind=canvas only — the other kinds have no doc. */
+      poster?: CanvasPoster;
       /** Set for the other three; also registered as the primary artifact. */
       entry?: {
         storageId: Id<"_storage">;
@@ -512,6 +516,7 @@ export const write = internalMutation({
         draftEditCount: 0,
         draftUpdatedAt: input.updatedAt,
         draftDocStorageId: input.docStorageId,
+        poster: input.poster,
         draftEntryStorageId: input.entry?.storageId,
         draftIframeEntrypoints: [],
         storageBytesUsed: 0,
@@ -527,6 +532,7 @@ export const write = internalMutation({
         docStorageId: input.docStorageId,
         entryStorageId: input.entry?.storageId,
         iframeEntrypoints: [],
+        poster: input.poster,
         publishedAt: input.publicSlug ? input.updatedAt : undefined,
       });
       await ctx.db.patch(canvasId, {
@@ -558,6 +564,9 @@ export const write = internalMutation({
       kind: "canvas",
       updatedAt: now - 12 * MINUTE,
       docStorageId: args.docStorageId,
+      // The local stack has no render worker, so the seeded canvas has no
+      // PNG and never will. Its cover is the poster — which is the point.
+      poster: canvasPoster(CanvasFileSchema.parse(CANVAS_FILE)),
     });
     await ctx.db.insert("canvasVersions", {
       canvasId: claimIntake,

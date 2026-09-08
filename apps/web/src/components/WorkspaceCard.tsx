@@ -1,9 +1,10 @@
+import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { Images, LayoutDashboard, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { kindIcon } from "../lib/canvasKind";
 import { formatBytes } from "../lib/formatBytes";
+import { CanvasCover } from "./CanvasCover";
 import { ConfirmButton } from "./ConfirmButton";
 import { RenameForm } from "./RenameForm";
 import type { StaticRenderState } from "./StaticRenderStatus";
@@ -16,6 +17,7 @@ export interface RecentCanvas {
   title: string;
   kind: string;
   thumbnail_url: string | null;
+  poster: CanvasPoster | null;
   static_render_status: StaticRenderState;
 }
 
@@ -105,7 +107,14 @@ export function WorkspaceCard({
       {recent.length > 0 && (
         <div className="workspace-card-covers" aria-hidden="true">
           {recent.map((canvas) => (
-            <WorkspaceCover key={canvas.canvas_id} canvas={canvas} />
+            <CanvasCover
+              key={canvas.canvas_id}
+              kind={canvas.kind}
+              poster={canvas.poster}
+              thumbnailUrl={canvas.thumbnail_url}
+              size="strip"
+              className={`canvas-card-${canvas.kind}`}
+            />
           ))}
         </div>
       )}
@@ -141,21 +150,5 @@ export function WorkspaceCard({
         />
       )}
     </li>
-  );
-}
-
-function WorkspaceCover({ canvas }: { canvas: RecentCanvas }) {
-  const KindIcon = kindIcon(canvas.kind);
-  // A signed thumbnail URL can expire and its storage object can go missing;
-  // the placeholder covers both, not just "never had one".
-  const [failed, setFailed] = useState(false);
-  return (
-    <span className={`workspace-card-cover canvas-card-${canvas.kind}`}>
-      {canvas.thumbnail_url && !failed ? (
-        <img src={canvas.thumbnail_url} alt="" loading="lazy" onError={() => setFailed(true)} />
-      ) : (
-        <KindIcon size={16} strokeWidth={1.5} aria-hidden="true" />
-      )}
-    </span>
   );
 }

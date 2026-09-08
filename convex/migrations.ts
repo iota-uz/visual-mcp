@@ -1,4 +1,6 @@
 import { Migrations } from "@convex-dev/migrations";
+import { canvasPoster } from "@visual-canvas/canvas/poster.js";
+import { CanvasFileSchema } from "@visual-canvas/canvas/types.js";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
@@ -14,7 +16,7 @@ import {
 } from "./lib/assetSecurity";
 import { deleteObject, headObject, putObject } from "./lib/objectStore";
 import { slugify } from "./lib/slug";
-import schema from "./schema";
+import schema, { CanvasPosterValidator } from "./schema";
 
 const migrations = new Migrations(components.migrations, { schema });
 
@@ -308,6 +310,112 @@ export const promoteLegacyCanvasAssets = migrations.define({
     }
     await ctx.db.delete(file._id);
     await ctx.db.delete(preparation._id);
+  },
+});
+
+/*
+ * Canvas covers, for rows written before `canvases.poster` existed.
+ *
+ * `migrations.define` cannot do this: `migrateOne` runs in a mutation, and a
+ * mutation's `ctx.storage` has no `get()` — only an action can open the
+ * document blob. So this mirrors the shape of the legacy-asset preparation
+ * above: an action driving a paginated query, patching one row at a time.
+ *
+ * Idempotent twice over — the filter skips rows that already have a cover,
+ * and the write is conditional on the document hash it was computed from, so
+ * a save that lands mid-backfill is never clobbered.
+ */
+export const listCanvasesMissingPoster = internalQuery({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(schema.doc("canvases")),
+  handler: async (ctx, args) => ctx.db.query("canvases").order("asc").paginate(args.paginationOpts),
+});
+
+export const attachBackfilledPoster = internalMutation({
+  args: {
+    canvasId: v.id("canvases"),
+    expectedDocContentHash: v.optional(v.string()),
+    poster: CanvasPosterValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const canvas = await ctx.db.get(args.canvasId);
+    if (!canvas) return false;
+    // Someone saved between the read and this write: their poster is newer
+    // than the one computed from the blob this action opened.
+    if (canvas.poster !== undefined) return false;
+    if (canvas.draftDocContentHash !== args.expectedDocContentHash) return false;
+    await ctx.db.patch(args.canvasId, { poster: args.poster });
+    // The current checkpoint too, so restoring to head keeps the cover.
+    if (canvas.currentVersionId) {
+      const current = await ctx.db.get(canvas.currentVersionId);
+      if (current && current.poster === undefined) {
+        await ctx.db.patch(current._id, { poster: args.poster });
+      }
+    }
+    return true;
+  },
+});
+
+export const backfillCanvasPosters = internalAction({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    candidates: v.number(),
+    updated: v.number(),
+    raced: v.number(),
+    errors: v.array(v.object({ canvasId: v.id("canvases"), error: v.string() })),
+  }),
+  handler: async (ctx) => {
+    let cursor: string | null = null;
+    let isDone = false;
+    let scanned = 0;
+    let candidates = 0;
+    let updated = 0;
+    let raced = 0;
+    const errors: { canvasId: Id<"canvases">; error: string }[] = [];
+
+    while (!isDone) {
+      const page: {
+        page: Doc<"canvases">[];
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.migrations.listCanvasesMissingPoster, {
+        paginationOpts: { numItems: 20, cursor },
+      });
+      for (const canvas of page.page) {
+        scanned += 1;
+        // Only kind=canvas has a document to derive geometry from
+        // (adr/product/agent-authored-dual-format-canvas.md).
+        if (canvas.kind !== "canvas") continue;
+        if (canvas.poster !== undefined) continue;
+        if (!canvas.draftDocStorageId) continue;
+        candidates += 1;
+        try {
+          const blob = await ctx.storage.get(canvas.draftDocStorageId);
+          if (!blob) throw new Error("draft document blob is missing");
+          const file = CanvasFileSchema.parse(JSON.parse(await blob.text()));
+          const applied: boolean = await ctx.runMutation(
+            internal.migrations.attachBackfilledPoster,
+            {
+              canvasId: canvas._id,
+              expectedDocContentHash: canvas.draftDocContentHash,
+              poster: canvasPoster(file),
+            },
+          );
+          if (applied) updated += 1;
+          else raced += 1;
+        } catch (error) {
+          errors.push({
+            canvasId: canvas._id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+    return { scanned, candidates, updated, raced, errors };
   },
 });
 

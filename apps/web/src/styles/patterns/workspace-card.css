@@ -52,22 +52,3 @@
   margin-top: auto;
   padding-top: var(--app-space-1);
 }
-
-.workspace-card-cover {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-paper);
-  color: var(--canvas-card-kind, var(--app-muted));
-}
-
-.workspace-card-cover img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}

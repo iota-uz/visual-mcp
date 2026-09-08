@@ -1,0 +1,136 @@
+/*
+ * A canvas's face in a list: the worker's PNG when there is one, otherwise
+ * the schematic poster, otherwise a plate saying what kind of thing it is.
+ * See components/CanvasCover.tsx.
+ */
+
+.canvas-cover {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--app-radius-md);
+  background: var(--app-white);
+  /* The viewer's own dot grid, so a schematic reads as a canvas rather than
+     as a chart. */
+  background-image: radial-gradient(circle, var(--app-grid-dot) 1px, transparent 1.2px);
+  background-size: 12px 12px;
+  color: var(--canvas-card-kind, var(--app-muted));
+}
+
+.canvas-cover-card {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+.canvas-cover-strip {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background-size: 8px 8px;
+}
+
+/* The Pages rail's 44 x 32, unchanged: at that size the arrangement is what
+   distinguishes one page from another and everything else is noise. */
+.canvas-cover-chip {
+  flex: none;
+  width: 44px;
+  height: 32px;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-xs);
+  background-size: 6px 6px;
+}
+
+.canvas-cover-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * The art keeps the document's own aspect inside whatever frame it is given,
+ * so a 40:1 timeline letterboxes instead of stretching. `margin: auto`
+ * centres whichever axis is the short one.
+ */
+.canvas-cover-art {
+  position: relative;
+  display: block;
+  aspect-ratio: var(--cover-ar, 4 / 3);
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+}
+
+/*
+ * Node blocks. The minimum sizes are presentation, not data: a poster is
+ * stored as pure geometry so this can be changed without recomputing one.
+ */
+.canvas-cover-art > i {
+  position: absolute;
+  min-width: 4%;
+  min-height: 6%;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--app-role-primary) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="actors"] {
+  background: color-mix(in srgb, var(--app-role-actors) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="secondary"] {
+  background: color-mix(in srgb, var(--app-role-secondary) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="automation"] {
+  background: color-mix(in srgb, var(--app-role-automation) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="exception"] {
+  background: color-mix(in srgb, var(--app-role-exception) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="support"] {
+  background: color-mix(in srgb, var(--app-role-support) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="system"] {
+  background: color-mix(in srgb, var(--app-role-system) 45%, var(--app-line));
+}
+
+.canvas-cover-art > i[data-role="external"] {
+  background: color-mix(in srgb, var(--app-role-external) 45%, var(--app-line));
+}
+
+/* An embedded screen or picture is an outline, not a fill: at cover size a
+   solid block would claim to be content it cannot show. */
+.canvas-cover-art > i[data-kind] {
+  border: 1px solid color-mix(in srgb, currentColor 45%, var(--app-line));
+  background: var(--app-white);
+}
+
+/* Colour at 44px is noise, so the rail draws one grey. */
+.canvas-cover-chip .canvas-cover-art > i {
+  background: color-mix(in srgb, var(--app-accent) 45%, var(--app-line));
+  border: 0;
+}
+
+/* An empty canvas is a different fact from a cover nobody has computed: the
+   grid alone, with nothing on it. */
+.canvas-cover-art.is-empty {
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--app-paper);
+}

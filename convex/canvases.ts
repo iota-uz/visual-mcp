@@ -7,6 +7,7 @@ import {
   restoreNodesIntoFile,
 } from "@visual-canvas/canvas/layout.js";
 import { applyCanvasDocPatch } from "@visual-canvas/canvas/patch.js";
+import { type CanvasPoster, canvasPoster } from "@visual-canvas/canvas/poster.js";
 import { renderCanvas } from "@visual-canvas/canvas/render.js";
 import { canvasSearchRows } from "@visual-canvas/canvas/search-rows.js";
 import { THEME_CSS } from "@visual-canvas/canvas/theme-css.js";
@@ -50,7 +51,7 @@ import {
 import { slugify } from "./lib/slug";
 import { ThemeIdValidator, ThemeOverrideValidator, validateThemeOverride } from "./lib/theme";
 import { randomPublicSlug } from "./lib/tokenFormat";
-import { CanvasSearchRowValidator } from "./schema";
+import { CanvasPosterValidator, CanvasSearchRowValidator } from "./schema";
 
 const ArtifactTypeValidator = v.union(
   v.literal("pdf"),
@@ -438,6 +439,11 @@ async function listCanvases(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
     rows.map(async (row) => ({
       ...toSummary(row),
       thumbnail_url: row.thumbnailId ? await ctx.storage.getUrl(row.thumbnailId) : null,
+      // Deliberately here and not in toSummary: that projection is spread by
+      // getCanvas, which serves both the MCP detail payload and the public
+      // published projection, and neither has any use for ~2 KB of list
+      // chrome per canvas.
+      poster: row.poster ?? null,
     })),
   );
 }
@@ -875,6 +881,7 @@ export const saveCanvasFileMine = action({
             ),
           ],
           nodes: canvasSearchRows(file),
+          poster: canvasPoster(file),
         },
       });
       return {
@@ -1028,6 +1035,10 @@ export const putDoc = internalMutation({
     createdBy: v.id("users"),
     expectedVersion: v.optional(v.number()),
     nodes: v.array(CanvasSearchRowValidator),
+    // Required in the args though optional on the row: required is what
+    // makes tsc enumerate every caller, and every caller has already parsed
+    // the file it is about to store.
+    poster: CanvasPosterValidator,
   },
   handler: async (ctx, args) => {
     const canvas = await ctx.db.get(args.canvasId);
@@ -1058,6 +1069,7 @@ export const putDoc = internalMutation({
       cssStorageId: args.cssStorageId,
       entryStorageId: args.entryStorageId,
       iframeEntrypoints: args.iframeEntrypoints,
+      poster: args.poster,
     });
 
     const files = await ctx.db
@@ -1105,6 +1117,7 @@ export const putDoc = internalMutation({
       draftCssStorageId: args.cssStorageId,
       draftEntryStorageId: args.entryStorageId,
       draftIframeEntrypoints: args.iframeEntrypoints,
+      poster: args.poster,
       draftEditCount: 0,
       draftUpdatedAt: Date.now(),
       updatedAt: Date.now(),
@@ -1275,6 +1288,8 @@ type CheckpointSource = {
   cssStorageId?: Id<"_storage">;
   entryStorageId?: Id<"_storage">;
   iframeEntrypoints: string[];
+  /** Cover geometry, so a restored checkpoint restores its cover too. */
+  poster?: CanvasPoster;
 };
 
 async function createCheckpointFromDraft(
@@ -1385,6 +1400,7 @@ export const commitSaveContent = internalMutation({
         iframeEntrypoints: v.array(v.string()),
         imagePaths: v.array(v.string()),
         nodes: v.array(CanvasSearchRowValidator),
+        poster: CanvasPosterValidator,
       }),
     ),
   },
@@ -1723,10 +1739,15 @@ export const commitSaveContent = internalMutation({
     let cssStorageId = canvas.draftCssStorageId;
     let entryStorageId = canvas.draftEntryStorageId;
     let iframeEntrypoints = canvas.draftIframeEntrypoints;
+    // Carried forward with the doc pointers, and for the same reason: this
+    // mutation also runs for a title, theme or visibility change, where
+    // `args.doc` is undefined and the existing cover is still the cover.
+    let poster = canvas.poster;
     if (args.doc && docChanged) {
       docStorageId = args.doc.storageId;
       docContentHash = args.doc.contentHash;
       iframeEntrypoints = args.doc.iframeEntrypoints;
+      poster = args.doc.poster;
     } else if (args.doc) {
       await ctx.storage.delete(args.doc.storageId).catch(() => undefined);
     }
@@ -1775,6 +1796,7 @@ export const commitSaveContent = internalMutation({
       cssStorageId,
       entryStorageId,
       iframeEntrypoints,
+      poster,
     };
     const mustCheckpoint = !current || publishRequested;
     let checkpoint = current ? { versionId: current._id, version: current.version } : null;
@@ -1806,6 +1828,7 @@ export const commitSaveContent = internalMutation({
       draftCssStorageId: cssStorageId,
       draftEntryStorageId: entryStorageId,
       draftIframeEntrypoints: iframeEntrypoints,
+      poster,
       currentVersionId: checkpoint.versionId,
       publishedVersionId: publishRequested
         ? checkpoint.versionId
@@ -2573,6 +2596,7 @@ export const patchManualEditMine = action({
             ),
           ],
           nodes: canvasSearchRows(patchedFile),
+          poster: canvasPoster(patchedFile),
         },
       });
       return {
@@ -3951,6 +3975,7 @@ async function restoreVersion(
       cssStorageId: target.cssStorageId,
       entryStorageId: target.entryStorageId,
       iframeEntrypoints: target.iframeEntrypoints,
+      poster: target.poster,
     },
   });
   await ctx.db.patch(canvasId, {
@@ -3963,6 +3988,11 @@ async function restoreVersion(
     draftCssStorageId: target.cssStorageId,
     draftEntryStorageId: target.entryStorageId,
     draftIframeEntrypoints: target.iframeEntrypoints,
+    // The checkpoint's own cover, not the current one: restoring older
+    // geometry under the current picture would be a lie. A checkpoint from
+    // before posters existed has none, and the card falls back to its kind
+    // plate until the next save — honest, where stale geometry would not be.
+    poster: target.poster,
     thumbnailId: undefined,
     updatedAt: Date.now(),
   });

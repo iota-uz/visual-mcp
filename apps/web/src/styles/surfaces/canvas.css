@@ -489,35 +489,6 @@
   cursor: pointer;
 }
 
-/*
- * A page's world at 44 x 32. Nodes are flat blocks: at this size their
- * content is noise, but their arrangement is exactly what distinguishes
- * one page from another at a glance.
- */
-.canvas-page-thumb {
-  position: relative;
-  display: block;
-  overflow: hidden;
-  flex: none;
-  width: 44px;
-  height: 32px;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-xs);
-  background: var(--app-white);
-  background-image: radial-gradient(circle, var(--app-grid-dot) 0.5px, transparent 0.6px);
-  background-size: 6px 6px;
-}
-
-.canvas-page-thumb i {
-  position: absolute;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--app-accent) 45%, var(--app-line));
-}
-
-.canvas-page-thumb.is-empty {
-  background-image: none;
-}
-
 .canvas-page-label {
   display: flex;
   min-width: 0;
@@ -533,7 +504,9 @@
   white-space: nowrap;
 }
 
-.canvas-pages-list > li.is-active .canvas-page-thumb {
+/* Surface-specific: the rail marks the page you are on. The chip itself is
+   patterns/canvas-cover.css, shared with the gallery. */
+.canvas-pages-list > li.is-active .canvas-cover {
   border-color: color-mix(in srgb, var(--app-accent) 45%, var(--app-line));
 }
 

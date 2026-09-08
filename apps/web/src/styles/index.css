@@ -35,6 +35,7 @@
 @import "./primitives/skeleton.css" layer(primitives);
 @import "./primitives/toast.css" layer(primitives);
 @import "./patterns/card-list.css" layer(patterns);
+@import "./patterns/canvas-cover.css" layer(patterns);
 @import "./patterns/canvas-card.css" layer(patterns);
 @import "./patterns/workspace-card.css" layer(patterns);
 @import "./patterns/list-toolbar.css" layer(patterns);

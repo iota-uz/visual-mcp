@@ -1,3 +1,4 @@
+import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
 import { Copy, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -6,6 +7,7 @@ import { writeClipboard } from "../lib/clipboard";
 import { formatBytes } from "../lib/formatBytes";
 import { formatRelativeTime } from "../lib/formatDate";
 import { Badge } from "./Badge";
+import { CanvasCover } from "./CanvasCover";
 import { ConfirmButton } from "./ConfirmButton";
 import { RenameForm } from "./RenameForm";
 import { listRenderState, type StaticRenderState, StaticRenderStatus } from "./StaticRenderStatus";
@@ -21,6 +23,8 @@ export interface CanvasCardRow {
   visibility: "private" | "public";
   updated_at: number;
   thumbnail_url: string | null;
+  /** Schematic cover geometry; only `kind: "canvas"` ever has one. */
+  poster: CanvasPoster | null;
   static_render_status: StaticRenderState;
 }
 
@@ -49,14 +53,9 @@ export interface CanvasCardProps {
  */
 export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: CanvasCardProps) {
   const KindIcon = kindIcon(canvas.kind);
-  // A signed thumbnail URL can expire and its storage object can go
-  // missing, so "never rendered" and "the URL died" get the same honest
-  // placeholder rather than a broken-image glyph.
-  const [failed, setFailed] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const { notify } = useToast();
-  const hasThumb = canvas.thumbnail_url && !failed;
   const canvasRef = `${workspaceSlug}/${canvas.slug}`;
 
   async function copyRef() {
@@ -71,21 +70,11 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
   return (
     <li className={`canvas-card card-hit canvas-card-${canvas.kind}`}>
       <span className="canvas-card-frame">
-        {hasThumb ? (
-          <img
-            src={canvas.thumbnail_url as string}
-            alt=""
-            className="canvas-card-thumbnail"
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          <span className="canvas-card-thumbnail canvas-card-thumbnail-empty">
-            <KindIcon size={20} strokeWidth={1.5} aria-hidden="true" />
-            No render yet
-          </span>
-        )}
+        <CanvasCover
+          kind={canvas.kind}
+          poster={canvas.poster}
+          thumbnailUrl={canvas.thumbnail_url}
+        />
         {/* The chip is 22px square and always was: it is a mark over
             artwork, so it carries the icon and lets a screen reader read
             the word. It used to be handed the word itself, which spilled
