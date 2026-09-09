@@ -612,30 +612,27 @@ describe("reactive viewport reconciliation", () => {
     expect(container.querySelector<HTMLElement>('[data-comment-id="c2"]')?.hidden).toBe(false);
   });
 
-  test("threads sharing an anchor are one pin, counted and coloured by the worst", () => {
+  test("two threads on one node are two pins, each with its own status", () => {
     const { container, controller } = mountEditable(multiDoc(), {
       onCommentDraft: vi.fn(),
       comments: [
-        { id: "c1", nodeId: "native", status: "completed" },
-        { id: "c2", nodeId: "native", status: "open" },
+        { id: "c1", nodeId: "native", local: { x: 0.2, y: 0.3 }, status: "completed" },
+        { id: "c2", nodeId: "native", local: { x: 0.8, y: 0.7 }, status: "open" },
       ],
     });
-    // Two pins on one corner read as a smudge however far they are nudged
-    // apart, so the anchor gets one pin.
-    const pins = container.querySelectorAll(".vc-comment-marker");
-    expect(pins).toHaveLength(1);
-    const pin = pins[0] as HTMLElement;
-    expect(pin).toHaveTextContent("2");
-    // Open outranks completed: the pin shows the work still to do, and
-    // clicking it opens that thread rather than the finished one.
-    expect(pin.dataset.status).toBe("open");
-    expect(pin.dataset.commentId).toBe("c2");
+    const pins = [...container.querySelectorAll<HTMLElement>(".vc-comment-marker")];
+    expect(pins).toHaveLength(2);
+    const completed = pins.find((pin) => pin.dataset.commentId === "c1");
+    const open = pins.find((pin) => pin.dataset.commentId === "c2");
+    expect(completed?.dataset.status).toBe("completed");
+    expect(open?.dataset.status).toBe("open");
+    expect(completed?.style.transform).not.toBe(open?.style.transform);
 
-    // The panel says which thread it has open; the pin says so too.
     controller.setActiveComment("c1");
-    expect(pin.hasAttribute("data-active")).toBe(true);
+    expect(completed?.hasAttribute("data-active")).toBe(true);
+    expect(open?.hasAttribute("data-active")).toBe(false);
     controller.setActiveComment(null);
-    expect(pin.hasAttribute("data-active")).toBe(false);
+    expect(completed?.hasAttribute("data-active")).toBe(false);
   });
 
   test("the Comment tool hands the app an anchor instead of drawing anything", () => {
@@ -652,7 +649,11 @@ describe("reactive viewport reconciliation", () => {
 
     dispatchPointer(native, "pointerdown", ...toScreen(120, 120));
     expect(onCommentDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "native", point: expect.anything() }),
+      expect.objectContaining({
+        nodeId: "native",
+        point: expect.anything(),
+        local: expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      }),
     );
     // Placing a comment neither selects the node nor starts a drag.
     expect(controller.getSelection()).toEqual([]);
