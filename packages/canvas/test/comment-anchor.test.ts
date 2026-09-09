@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  clampLocal,
-  localFromWorld,
-  worldFromCommentAnchor,
-} from "../src/comment-anchor.js";
+import { clampLocal, localFromWorld, worldFromCommentAnchor } from "../src/comment-anchor.js";
 
 const node = { x: 100, y: 50, w: 200, h: 100 };
 
@@ -24,7 +20,10 @@ test("a node comment without local sits at the top-right", () => {
 });
 
 test("a missing node with a nodeId does not paint", () => {
-  assert.equal(worldFromCommentAnchor(undefined, { nodeId: "gone", local: { x: 0.5, y: 0.5 } }), null);
+  assert.equal(
+    worldFromCommentAnchor(undefined, { nodeId: "gone", local: { x: 0.5, y: 0.5 } }),
+    null,
+  );
 });
 
 test("a page comment sits on its world point", () => {
