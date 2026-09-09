@@ -1274,7 +1274,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
         window.removeEventListener("message", onMsg);
       }
       window.addEventListener("message", onMsg);
-      win.postMessage({ type: IFRAME_HIT_TEST, requestId, x: point.x, y: point.y }, "*");
+      win.postMessage(
+        { type: IFRAME_HIT_TEST, requestId, nx: point.nx, ny: point.ny, x: point.x, y: point.y },
+        "*",
+      );
     });
   }
 

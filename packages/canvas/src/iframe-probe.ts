@@ -12,38 +12,47 @@ export type IframeHit = {
   rect: { x: number; y: number; w: number; h: number };
 };
 
-export type IframeHitTestRequest = {
-  type: typeof IFRAME_HIT_TEST;
-  requestId: string;
+export type IframeContentPoint = {
+  /** Layout pixels inside the iframe document viewport. */
   x: number;
   y: number;
+  /** 0–1 of the *visual* iframe box in the parent. */
+  nx: number;
+  ny: number;
 };
 
-export type IframeHitTestResult = {
-  type: typeof IFRAME_HIT_TEST_RESULT;
-  requestId: string;
-  hit: IframeHit | null;
+type IframeBox = {
+  getBoundingClientRect(): DOMRect;
+  clientWidth: number;
+  clientHeight: number;
+  closest?: (selector: string) => Element | null;
 };
 
 /**
- * Map a parent-frame click onto the iframe's layout coordinates.
- * The screen is CSS-scaled (`--vc-iframe-scale`); `getBoundingClientRect`
- * is visual, `clientWidth` is the authored viewport.
+ * Map a parent-frame click onto the iframe's document.
+ *
+ * The screen sits inside a CSS-scaled shell (`.vc-device-shell` /
+ * `.vc-iframe-viewport`). `iframe.getBoundingClientRect()` can ignore that
+ * ancestor transform and report the unscaled layout box, which shifts
+ * hit-tests toward the left/top of the mockup. The wrapper div's rect is
+ * the visual box the pointer actually hit.
  */
 export function iframeContentPoint(
-  iframe: { getBoundingClientRect(): DOMRect; clientWidth: number; clientHeight: number },
+  iframe: IframeBox,
   clientX: number,
   clientY: number,
-): { x: number; y: number } | null {
-  const rect = iframe.getBoundingClientRect();
-  if (!(rect.width > 0) || !(rect.height > 0)) return null;
+): IframeContentPoint | null {
+  const visual = (iframe.closest?.(".vc-iframe-viewport") as IframeBox | null) ?? iframe;
+  const rect = visual.getBoundingClientRect();
+  const layoutW = iframe.clientWidth;
+  const layoutH = iframe.clientHeight;
+  if (!(rect.width > 0) || !(rect.height > 0) || !(layoutW > 0) || !(layoutH > 0)) return null;
   if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
     return null;
   }
-  return {
-    x: ((clientX - rect.left) * iframe.clientWidth) / rect.width,
-    y: ((clientY - rect.top) * iframe.clientHeight) / rect.height,
-  };
+  const nx = (clientX - rect.left) / rect.width;
+  const ny = (clientY - rect.top) / rect.height;
+  return { x: nx * layoutW, y: ny * layoutH, nx, ny };
 }
 
 /**
@@ -61,6 +70,9 @@ export function iframeHitTestSource(): string {
     "const val=el.getAttribute('value');",
     "if(val&&(type==='submit'||type==='button'||type==='reset'))return val.trim().slice(0,120);",
     "const alt=el.getAttribute('alt');if(alt&&alt.trim())return alt.trim().slice(0,120);",
+    "let own='';for(const n of el.childNodes){if(n.nodeType===3)own+=n.textContent;}",
+    "own=own.replace(/\\s+/g,' ').trim();",
+    "if(own)return own.slice(0,120);",
     "return ((el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim()).slice(0,120);",
     "}",
     "function vcRole(el){",
@@ -79,16 +91,33 @@ export function iframeHitTestSource(): string {
     "if(!el||el.nodeType!==1)return false;",
     "const tag=el.tagName.toLowerCase();",
     "if(tag==='input'&&(el.getAttribute('type')||'').toLowerCase()==='hidden')return false;",
-    "if('a button input select textarea summary label option'.split(' ').includes(tag))return true;",
+    "if('a button input select textarea summary label option p'.split(' ').includes(tag))return true;",
     "if(/^h[1-6]$/.test(tag))return true;",
     "const role=el.getAttribute('role');",
     "if(role&&'button link tab menuitem checkbox radio switch textbox searchbox combobox slider option heading'.split(' ').includes(role))return true;",
     "return el.getAttribute('contenteditable')==='true';",
     "}",
-    "function vcTarget(el){",
+    "function vcOwnText(el){",
+    "let t='';for(const n of el.childNodes){if(n.nodeType===3)t+=n.textContent;}",
+    "t=t.replace(/\\s+/g,' ').trim();",
+    "return t.length>0&&t.length<=120;",
+    "}",
+    "function vcCandidate(el){",
+    "return !!(el&&el.getAttribute&&(el.getAttribute('data-vc-id')||vcInteractive(el)||vcOwnText(el)));",
+    "}",
+    "function vcPick(x,y){",
+    "const stack=(document.elementsFromPoint(x,y)||[]).filter(el=>el&&el!==document.documentElement&&el!==document.body);",
+    "let best=null,bestArea=Infinity;",
+    "for(const el of stack){",
+    "if(!vcCandidate(el))continue;",
+    "const r=el.getBoundingClientRect();",
+    "const area=Math.max(1,r.width*r.height);",
+    "if(area<bestArea){best=el;bestArea=area;}",
+    "}",
+    "if(best)return best;",
+    "let el=stack[0]||document.elementFromPoint(x,y);",
     "while(el&&el!==document.documentElement&&el!==document.body){",
-    "if(el.getAttribute&&el.getAttribute('data-vc-id'))return el;",
-    "if(vcInteractive(el))return el;",
+    "if(vcCandidate(el))return el;",
     "el=el.parentElement;}",
     "return null;}",
     "function vcHit(el){",
@@ -100,8 +129,11 @@ export function iframeHitTestSource(): string {
     "addEventListener('message',e=>{",
     "if(e.source!==parent||!e.data)return;",
     "if(e.data.type==='visual-canvas:hit-test'){",
-    "const from=document.elementFromPoint(e.data.x,e.data.y);",
-    "parent.postMessage({type:'visual-canvas:hit-test-result',requestId:e.data.requestId,hit:vcHit(vcTarget(from))},'*');",
+    "const vw=window.innerWidth||document.documentElement.clientWidth;",
+    "const vh=window.innerHeight||document.documentElement.clientHeight;",
+    "const x=typeof e.data.nx==='number'?e.data.nx*vw:e.data.x;",
+    "const y=typeof e.data.ny==='number'?e.data.ny*vh:e.data.y;",
+    "parent.postMessage({type:'visual-canvas:hit-test-result',requestId:e.data.requestId,hit:vcHit(vcPick(x,y))},'*');",
     "}",
     "if(e.data.type==='visual-canvas:locate'&&typeof e.data.el==='string'){",
     "let found=null;try{found=document.querySelector('[data-vc-id=\"'+CSS.escape(e.data.el)+'\"]');}catch(err){}",
