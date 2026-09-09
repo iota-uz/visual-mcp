@@ -122,6 +122,41 @@ describe("WorkspacePage", () => {
     expect(screen.getAllByRole("link", { name: /Zebra|Alpha/ })[0]).toHaveTextContent("Alpha");
   });
 
+  test("renames the workspace on title double-click", async () => {
+    const user = userEvent.setup();
+    const rename = vi.fn().mockResolvedValue({ name: "OSAGO v2" });
+    useMutationMock.mockReturnValue(rename);
+    backend(WORKSPACE, [canvas()]);
+    renderWorkspace();
+
+    await user.dblClick(screen.getByRole("button", { name: "OSAGO" }));
+    const field = screen.getByRole("textbox", { name: "Workspace name" });
+    await user.clear(field);
+    await user.type(field, "  OSAGO v2{Enter}");
+    expect(rename).toHaveBeenCalledWith({ workspaceId: "ws1", name: "OSAGO v2" });
+  });
+
+  test("cancels a workspace rename on Escape and ignores an empty name", async () => {
+    const user = userEvent.setup();
+    const rename = vi.fn().mockResolvedValue({ name: "Nope" });
+    useMutationMock.mockReturnValue(rename);
+    backend(WORKSPACE, [canvas()]);
+    renderWorkspace();
+
+    await user.dblClick(screen.getByRole("button", { name: "OSAGO" }));
+    await user.type(screen.getByRole("textbox", { name: "Workspace name" }), "Nope{Escape}");
+    expect(rename).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "OSAGO" })).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "OSAGO" }).focus();
+    await user.keyboard("{F2}");
+    const field = screen.getByRole("textbox", { name: "Workspace name" });
+    await user.clear(field);
+    await user.keyboard("{Enter}");
+    expect(rename).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "OSAGO" })).toBeInTheDocument();
+  });
+
   test("renames a canvas through the ⋯ menu", async () => {
     const user = userEvent.setup();
     const rename = vi.fn().mockResolvedValue({ title: "Renamed" });

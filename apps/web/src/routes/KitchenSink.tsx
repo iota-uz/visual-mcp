@@ -173,6 +173,7 @@ export function KitchenSinkPage() {
   const [search, setSearch] = useState("europrotocol");
   const [checked, setChecked] = useState(true);
   const [renaming, setRenaming] = useState(false);
+  const [sectionTitle, setSectionTitle] = useState("Fast Settlement");
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
 
   return (
@@ -614,7 +615,11 @@ export function KitchenSinkPage() {
       <Section title="Section header">
         <SectionHeader
           as="h3"
-          title="Fast Settlement"
+          title={sectionTitle}
+          onRename={async (name) => {
+            setSectionTitle(name);
+          }}
+          renameLabel="Section title"
           subtitle="v3 · 2 hours ago"
           crumbs={[
             { to: "/", label: "Workspaces" },

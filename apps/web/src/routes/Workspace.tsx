@@ -68,6 +68,7 @@ export function WorkspacePage() {
     workspace ? { workspaceId: workspace.workspace_id } : "skip",
   ) as GalleryCanvas[] | undefined;
   const rename = useMutation(api.canvases.renameMine);
+  const renameWorkspace = useMutation(api.workspaces.renameMine);
   const remove = useMutation(api.canvases.deleteMine);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<Sort>("updated");
@@ -97,6 +98,12 @@ export function WorkspacePage() {
       <PageHeader
         title={workspace?.name ?? wsSlug ?? "Workspace"}
         crumbs={crumbs}
+        onRename={
+          workspace
+            ? (name) => renameWorkspace({ workspaceId: workspace.workspace_id, name })
+            : undefined
+        }
+        renameLabel="Workspace name"
         // Falls back to the count so the header is never a lone title on a
         // workspace nobody wrote a description for.
         subtitle={

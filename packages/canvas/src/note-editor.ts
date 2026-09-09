@@ -99,6 +99,10 @@ export function mountNoteEditor(options: NoteEditorOptions): NoteEditorControlle
     pointerId: number;
   } | null = null;
   let cancelling = false;
+  // Same window the viewport uses for node-title rename: pointerdown's
+  // preventDefault + capture suppress the browser's `dblclick`, so the
+  // second press has to be recognized here.
+  let lastClick: { id: string; at: number } | null = null;
 
   const noteById = (id: string): CanvasNote | undefined =>
     provisional?.note.id === id ? provisional.note : options.notes().find((n) => n.id === id);
@@ -402,6 +406,7 @@ export function mountNoteEditor(options: NoteEditorOptions): NoteEditorControlle
       // A press anywhere else means "done with this note" — except on the
       // chrome that acts on it, which must keep the selection it needs.
       if (selected && !target.closest(CONTEXT_MENU_CHROME_SELECTOR)) select(null);
+      lastClick = null;
       return;
     }
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -414,6 +419,18 @@ export function mountNoteEditor(options: NoteEditorOptions): NoteEditorControlle
     if (!options.editable) return;
     const note = noteById(id);
     if (!note) return;
+    const now = Date.now();
+    const doubleTap =
+      lastClick !== null &&
+      lastClick.id === id &&
+      now - lastClick.at < 500 &&
+      !target.closest(".vc-note-resize");
+    if (doubleTap) {
+      lastClick = null;
+      beginEdit(id);
+      return;
+    }
+    if (editing?.id === id) return;
     try {
       container.setPointerCapture(event.pointerId);
     } catch {
@@ -463,7 +480,11 @@ export function mountNoteEditor(options: NoteEditorOptions): NoteEditorControlle
     const finished = drag;
     drag = null;
     container.classList.remove("is-moving-note");
-    if (!finished.moved) return;
+    if (!finished.moved) {
+      lastClick = { id: finished.id, at: Date.now() };
+      return;
+    }
+    lastClick = null;
     const note = noteById(finished.id);
     if (!note) return;
     const previous: CanvasNote = { ...note, ...finished.origin };
@@ -474,6 +495,7 @@ export function mountNoteEditor(options: NoteEditorOptions): NoteEditorControlle
   }
 
   function onPointerCancel(): void {
+    lastClick = null;
     if (!drag) return;
     const note = noteById(drag.id);
     if (note) {

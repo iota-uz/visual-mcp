@@ -51,6 +51,50 @@
   font-size: var(--app-text-2xl);
 }
 
+.section-header-title.is-editing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.section-header-rename-hit {
+  appearance: none;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: text;
+  border-radius: var(--app-radius-sm);
+}
+
+.section-header-rename-hit:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.section-header-rename {
+  display: block;
+  box-sizing: border-box;
+  field-sizing: content;
+  width: auto;
+  min-width: 8ch;
+  max-width: min(40ch, 100%);
+  margin: 0;
+  padding: var(--app-space-1) var(--app-space-2);
+  border: 1px solid var(--app-accent);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-paper);
+  color: inherit;
+  font: inherit;
+}
+
 .section-header-actions {
   display: flex;
   align-items: center;
