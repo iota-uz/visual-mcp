@@ -2012,7 +2012,7 @@
   border-radius: var(--vc-radius-lg);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--vc-shadow-md);
-  cursor: crosshair;
+  cursor: pointer;
   touch-action: none;
 }
 .vc-minimap.is-scrubbing {

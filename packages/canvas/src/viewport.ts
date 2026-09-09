@@ -270,7 +270,7 @@ export const LONG_PRESS_SLOP_PX = 10;
  */
 export const PINCH_ACTIVATE_PX = 10;
 export const MIN_PINCH_SPAN_PX = 24;
-/** How far a finger must travel on the minimap before it scrubs the camera. */
+/** How far a pointer must travel on the minimap before it scrubs the camera. */
 export const MINIMAP_SCRUB_SLOP_PX = 6;
 
 /**
@@ -2871,6 +2871,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // The comment popover is portalled inside this container, so without
     // this a press inside the composer would drop a second pin under it.
     if (target.closest(".vc-comment-overlay")) return;
+    if (target.closest(".vc-minimap")) return;
     if (target.closest("input, textarea, button, a, summary, details, [contenteditable]")) return;
     /*
      * Anywhere else with a popover open means "I am done here". Armed on
@@ -3663,12 +3664,26 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     container.focus({ preventScroll: true });
   }
 
-  function centreOnMinimapPoint(clientX: number, clientY: number): void {
+  function worldFromMinimapClient(clientX: number, clientY: number): Point {
     const rect = minimap.getBoundingClientRect();
-    const worldX = (clientX - rect.left - miniOffsetX) / miniScale;
-    const worldY = (clientY - rect.top - miniOffsetY) / miniScale;
-    view.x = viewportRect.width / 2 - worldX * view.scale;
-    view.y = viewportRect.height / 2 - worldY * view.scale;
+    return {
+      x: (clientX - rect.left - miniOffsetX) / miniScale,
+      y: (clientY - rect.top - miniOffsetY) / miniScale,
+    };
+  }
+
+  function centreOnMinimapPoint(clientX: number, clientY: number, snapNode = false): void {
+    if (!miniScale) return;
+    let { x, y } = worldFromMinimapClient(clientX, clientY);
+    if (snapNode) {
+      const node = nodeAtWorld({ x, y });
+      if (node) {
+        x = node.x + node.w / 2;
+        y = node.y + node.h / 2;
+      }
+    }
+    view.x = viewportRect.width / 2 - x * view.scale;
+    view.y = viewportRect.height / 2 - y * view.scale;
     clampPan();
     applyView();
   }
@@ -3679,48 +3694,60 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
    * this whole path untestable.
    */
   let minimapPointerId: number | null = null;
-  let minimapScrub: { x: number; y: number; active: boolean } | null = null;
+  let minimapScrub: {
+    x: number;
+    y: number;
+    active: boolean;
+    pointerType: string;
+  } | null = null;
 
   /*
-   * Press *and drag*. The minimap used to be click-to-centre only — it had
-   * no pointermove at all — so the viewport rectangle drawn on it looked
-   * like a handle and behaved like a picture.
+   * Aim, then commit. Hover and press must not move the camera — the
+   * viewport rectangle used to glue itself to the cursor on mousedown, so
+   * a screen on a 220px map could not be targeted. A mouse click (not a
+   * drag) jumps once; a drag past the slop scrubs. A finger tap still
+   * does nothing: the same mis-grab that would teleport the camera has
+   * nothing to undo it.
    */
   function onMinimapPointerDown(event: PointerEvent): void {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
     stopFlick();
     minimapPointerId = event.pointerId;
     minimap.setPointerCapture?.(event.pointerId);
-    minimap.classList.add("is-scrubbing");
-    /*
-     * With a cursor the press is aimed, so click-to-centre stays. A finger
-     * lands on a 160px picture in the corner of the screen, where a mis-grab
-     * would teleport the camera with nothing to undo it — so a touch has to
-     * travel before it moves anything, and a tap does nothing at all.
-     */
-    const immediate = resolvedPointer !== "coarse";
-    minimapScrub = { x: event.clientX, y: event.clientY, active: immediate };
-    if (immediate) centreOnMinimapPoint(event.clientX, event.clientY);
+    minimapScrub = {
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      pointerType: event.pointerType,
+    };
   }
 
   function onMinimapPointerMove(event: PointerEvent): void {
     if (minimapPointerId !== event.pointerId || !minimapScrub) return;
     event.preventDefault();
+    event.stopPropagation();
     if (!minimapScrub.active) {
       const travelled =
         Math.abs(event.clientX - minimapScrub.x) + Math.abs(event.clientY - minimapScrub.y);
       if (travelled <= MINIMAP_SCRUB_SLOP_PX) return;
       minimapScrub.active = true;
+      minimap.classList.add("is-scrubbing");
     }
     centreOnMinimapPoint(event.clientX, event.clientY);
   }
 
   function onMinimapPointerUp(event: PointerEvent): void {
+    event.stopPropagation();
+    const scrub = minimapScrub;
     if (minimapPointerId === event.pointerId) {
       minimap.releasePointerCapture?.(event.pointerId);
       minimapPointerId = null;
       minimapScrub = null;
+      if (event.type === "pointerup" && scrub && !scrub.active && scrub.pointerType !== "touch") {
+        centreOnMinimapPoint(event.clientX, event.clientY, true);
+      }
     }
     minimap.classList.remove("is-scrubbing");
     scheduleIframeSync(0);

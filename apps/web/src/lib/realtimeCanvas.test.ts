@@ -1,4 +1,10 @@
-import { type CanvasDoc, layoutCanvas, mountViewport, type Theme } from "@visual-canvas/canvas";
+import {
+  type CanvasDoc,
+  layoutCanvas,
+  MINIMAP_SCRUB_SLOP_PX,
+  mountViewport,
+  type Theme,
+} from "@visual-canvas/canvas";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const anchors = [
@@ -137,6 +143,54 @@ describe("reactive viewport reconciliation", () => {
     container.setPointerCapture = vi.fn();
     document.body.appendChild(container);
     return container;
+  }
+
+  function stubMinimapRect(minimap: HTMLElement) {
+    minimap.getBoundingClientRect = () =>
+      ({
+        x: 980,
+        y: 690,
+        left: 980,
+        top: 690,
+        right: 1_160,
+        bottom: 764,
+        width: 180,
+        height: 74,
+        toJSON() {},
+      }) as DOMRect;
+  }
+
+  function minimapClientForWorld(
+    minimap: HTMLElement,
+    canvas: ReturnType<typeof layoutCanvas>,
+    worldX: number,
+    worldY: number,
+  ) {
+    const rect = minimap.getBoundingClientRect();
+    const innerW = Math.max(1, rect.width - 12);
+    const innerH = Math.max(1, rect.height - 12);
+    const miniScale = Math.min(innerW / canvas.width, innerH / canvas.height);
+    const miniOffsetX = (rect.width - canvas.width * miniScale) / 2;
+    const miniOffsetY = (rect.height - canvas.height * miniScale) / 2;
+    return {
+      x: rect.left + miniOffsetX + worldX * miniScale,
+      y: rect.top + miniOffsetY + worldY * miniScale,
+    };
+  }
+
+  function mountMinimap(canvas: ReturnType<typeof layoutCanvas>) {
+    const container = viewportContainer();
+    const controller = mount({
+      container,
+      canvas,
+      initialView: { x: 0, y: 0, scale: 1 },
+    });
+    const minimap = container.querySelector<HTMLElement>(".vc-minimap");
+    if (!minimap) throw new Error("missing minimap");
+    stubMinimapRect(minimap);
+    controller.updateCanvas(canvas);
+    flushFrames();
+    return { container, controller, minimap };
   }
 
   test("updates structure and routes without resetting camera or a stable iframe", () => {
@@ -1088,6 +1142,65 @@ describe("reactive viewport reconciliation", () => {
     flushFrames();
     expect(container).not.toHaveClass("is-camera-animating");
     controller.dispose();
+  });
+
+  test("minimap hover and press do not move the camera; a mouse click jumps once", () => {
+    const positioned = layoutCanvas(doc());
+    const { minimap, controller } = mountMinimap(positioned);
+    const before = controller.getView();
+
+    dispatchPointer(minimap, "pointermove", 1_020, 710);
+    expect(controller.getView()).toEqual(before);
+
+    dispatchPointer(minimap, "pointerdown", 1_020, 710);
+    expect(controller.getView()).toEqual(before);
+
+    dispatchPointer(minimap, "pointerup", 1_020, 710);
+    expect(controller.getView()).not.toEqual(before);
+  });
+
+  test("a mouse drag on the minimap past the slop scrubs; a nudge still counts as a click", () => {
+    const positioned = layoutCanvas(doc());
+    const { minimap, controller } = mountMinimap(positioned);
+    const origin = controller.getView();
+
+    dispatchPointer(minimap, "pointerdown", 1_020, 710);
+    dispatchPointer(minimap, "pointermove", 1_020 + MINIMAP_SCRUB_SLOP_PX, 710);
+    expect(controller.getView()).toEqual(origin);
+    dispatchPointer(minimap, "pointerup", 1_020 + MINIMAP_SCRUB_SLOP_PX, 710);
+    const afterClick = controller.getView();
+    expect(afterClick).not.toEqual(origin);
+
+    dispatchPointer(minimap, "pointerdown", 1_020, 710);
+    expect(controller.getView()).toEqual(afterClick);
+    dispatchPointer(minimap, "pointermove", 1_120, 740);
+    const scrubbing = controller.getView();
+    expect(scrubbing).not.toEqual(afterClick);
+    dispatchPointer(minimap, "pointermove", 1_040, 700);
+    expect(controller.getView()).not.toEqual(scrubbing);
+    dispatchPointer(minimap, "pointerup", 1_040, 700);
+  });
+
+  test("a minimap click on a node centres that node, not the exact press point", () => {
+    const positioned = layoutCanvas(doc());
+    const native = positioned.nodes.find((node) => node.id === "native");
+    if (!native) throw new Error("missing native node");
+
+    const first = mountMinimap(positioned);
+    const a = minimapClientForWorld(first.minimap, positioned, native.x + 10, native.y + 10);
+    dispatchPointer(first.minimap, "pointerdown", a.x, a.y);
+    dispatchPointer(first.minimap, "pointerup", a.x, a.y);
+
+    const second = mountMinimap(positioned);
+    const b = minimapClientForWorld(
+      second.minimap,
+      positioned,
+      native.x + native.w - 10,
+      native.y + native.h - 10,
+    );
+    dispatchPointer(second.minimap, "pointerdown", b.x, b.y);
+    dispatchPointer(second.minimap, "pointerup", b.x, b.y);
+    expect(second.controller.getView()).toEqual(first.controller.getView());
   });
 });
 
