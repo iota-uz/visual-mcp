@@ -7,6 +7,7 @@ import {
   type CanvasNode,
   type CanvasNote,
   type CommentAnchor,
+  type CommentDraftAnchor,
   type CommentMarker,
   canvasPosterForDoc,
   formatElementRef,
@@ -119,6 +120,7 @@ export function CanvasViewport({
   commentPopover,
   onCommentActivate,
   onCommentDraft,
+  onCommentReanchor,
   onCommentDismiss,
   prototypeFlags,
   resolvePresentUrl,
@@ -157,7 +159,8 @@ export function CanvasViewport({
   /** Rendered into the viewport's own positioned host, over the drawing. */
   commentPopover?: ReactNode;
   onCommentActivate?: (commentId: string) => void;
-  onCommentDraft?: (anchor: { nodeId?: string; point: { x: number; y: number } }) => void;
+  onCommentDraft?: (anchor: CommentDraftAnchor) => void;
+  onCommentReanchor?: (commentId: string, anchor: CommentDraftAnchor) => void;
   onCommentDismiss?: () => void;
   /** Which nodes take part in the prototype, for the ring and the Start flag. */
   prototypeFlags?: ReadonlyMap<string, PrototypeNodeFlags>;
@@ -212,6 +215,8 @@ export function CanvasViewport({
   onCommentActivateRef.current = onCommentActivate;
   const onCommentDraftRef = useRef(onCommentDraft);
   onCommentDraftRef.current = onCommentDraft;
+  const onCommentReanchorRef = useRef(onCommentReanchor);
+  onCommentReanchorRef.current = onCommentReanchor;
   const onCommentDismissRef = useRef(onCommentDismiss);
   onCommentDismissRef.current = onCommentDismiss;
   const commentsEnabled = Boolean(onCommentDraft);
@@ -380,8 +385,9 @@ export function CanvasViewport({
       ...(commentsEnabled
         ? {
             onCommentActivate: (commentId: string) => onCommentActivateRef.current?.(commentId),
-            onCommentDraft: (anchor: { nodeId?: string; point: { x: number; y: number } }) =>
-              onCommentDraftRef.current?.(anchor),
+            onCommentDraft: (anchor: CommentDraftAnchor) => onCommentDraftRef.current?.(anchor),
+            onCommentReanchor: (commentId: string, anchor: CommentDraftAnchor) =>
+              onCommentReanchorRef.current?.(commentId, anchor),
             onCommentDismiss: () => onCommentDismissRef.current?.(),
           }
         : {}),
@@ -1953,10 +1959,7 @@ export function CanvasPage() {
     },
     [setEditorMode],
   );
-  const [commentDraft, setCommentDraft] = useState<{
-    nodeId?: string;
-    point: { x: number; y: number };
-  } | null>(null);
+  const [commentDraft, setCommentDraft] = useState<CommentDraftAnchor | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const commentThreads = useQuery(
     api.comments.listMine,
@@ -1965,6 +1968,7 @@ export function CanvasPage() {
       : "skip",
   );
   const createComment = useMutation(api.comments.createMine);
+  const reanchorComment = useMutation(api.comments.reanchorMine);
   const replyToComment = useMutation(api.comments.replyMine);
   const setCommentStatus = useMutation(api.comments.setStatusMine);
   const deleteComment = useMutation(api.comments.deleteMine);
@@ -1978,6 +1982,7 @@ export function CanvasPage() {
           id: thread.comment_id,
           nodeId: thread.node_id,
           point: thread.point,
+          local: thread.local,
           status: thread.status,
         })),
     [commentThreads],
@@ -1997,7 +2002,11 @@ export function CanvasPage() {
   const commentAnchor = useMemo<CommentAnchor | null>(() => {
     if (commentDraft) return { ...commentDraft, draft: true };
     if (!activeThread) return null;
-    return { nodeId: activeThread.node_id, point: activeThread.point };
+    return {
+      nodeId: activeThread.node_id,
+      point: activeThread.point,
+      local: activeThread.local,
+    };
   }, [commentDraft, activeThread]);
   const closeCommentPopover = useCallback(() => {
     setCommentDraft(null);
@@ -2818,6 +2827,15 @@ export function CanvasPage() {
                 setActiveCommentId(null);
                 setCommentDraft(anchor);
               }}
+              onCommentReanchor={(commentId, anchor) => {
+                void reanchorComment({
+                  commentId: commentId as Id<"canvasComments">,
+                  nodeId: anchor.nodeId,
+                  point: anchor.nodeId ? undefined : anchor.point,
+                  local: anchor.local,
+                  targetLabel: anchor.targetLabel,
+                });
+              }}
               onCommentDismiss={closeCommentPopover}
               commentPopover={
                 canvasId && activePageId ? (
@@ -2826,8 +2844,12 @@ export function CanvasPage() {
                       // Remount when the pin moves: "clear the box because
                       // you pointed somewhere else" is a new component, not
                       // an effect that reaches in and resets state.
-                      key={`${commentDraft.nodeId ?? "page"}:${Math.round(commentDraft.point.x)}:${Math.round(commentDraft.point.y)}`}
-                      anchorLabel={commentAnchorLabel(doc ?? null, commentDraft.nodeId)}
+                      key={`${commentDraft.nodeId ?? "page"}:${commentDraft.local ? `${commentDraft.local.x}:${commentDraft.local.y}` : `${Math.round(commentDraft.point.x)}:${Math.round(commentDraft.point.y)}`}`}
+                      anchorLabel={commentAnchorLabel(
+                        doc ?? null,
+                        commentDraft.nodeId,
+                        commentDraft.targetLabel,
+                      )}
                       onCancel={() => setCommentDraft(null)}
                       onSubmit={async (body) => {
                         const created = await createComment({
@@ -2835,6 +2857,8 @@ export function CanvasPage() {
                           pageId: activePageId,
                           nodeId: commentDraft.nodeId,
                           point: commentDraft.nodeId ? undefined : commentDraft.point,
+                          local: commentDraft.local,
+                          targetLabel: commentDraft.targetLabel,
                           body,
                         });
                         // Straight from composing into the thread that was
@@ -2848,7 +2872,11 @@ export function CanvasPage() {
                     <CommentThreadPopover
                       key={activeThread.comment_id}
                       thread={activeThread}
-                      anchorLabel={commentAnchorLabel(doc ?? null, activeThread.node_id)}
+                      anchorLabel={commentAnchorLabel(
+                        doc ?? null,
+                        activeThread.node_id,
+                        activeThread.target_label,
+                      )}
                       onClose={() => setActiveCommentId(null)}
                       onReply={(body) =>
                         replyToComment({

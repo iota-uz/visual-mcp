@@ -3360,6 +3360,8 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
     page_id: z.string(),
     node_id: z.string().optional(),
     point: z.object({ x: z.number(), y: z.number() }).optional(),
+    local: z.object({ x: z.number(), y: z.number() }).optional(),
+    target_label: z.string().optional(),
     body: z.string(),
     status: z.enum(["open", "completed", "resolved"]),
     author_kind: z.enum(["human", "agent"]),
@@ -3404,16 +3406,22 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
     {
       title: "Comment on a canvas",
       description:
-        "Pins a comment to one node (node_id) or to a point on a Page (at), so a person and an " +
-        "agent can talk about a specific thing rather than the whole document. Comments an agent " +
-        "writes are labelled as such. New comments start `open`; work through them with " +
-        "comment_list, then comment_complete.",
+        "Pins a comment to a spot inside a node (node_id + local 0–1 of the node rect) or to a " +
+        "point on a Page (at), so a person and an agent can talk about a specific control rather " +
+        "than the whole frame. `at` is ignored with node_id. Comments an agent writes are labelled " +
+        "as such. New comments start `open`; work through them with comment_list, then " +
+        "comment_complete.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
           ref: RefArg,
           page_id: z.string().optional().describe("Defaults to the file's default Page."),
           node_id: z.string().optional().describe("Anchor the comment to this node."),
+          local: z
+            .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+            .strict()
+            .optional()
+            .describe("Spot inside the node, 0–1 of its rect. Ignored without node_id."),
           at: z
             .object({ x: z.number(), y: z.number() })
             .strict()
@@ -3445,12 +3453,52 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           pageId: page.id,
           nodeId: input.node_id,
           point: input.at,
+          local: input.local,
           body: input.body,
           authorId: principal.userId,
           authorKind: "agent",
         });
         return result(thread);
       }),
+  );
+
+  server.registerTool(
+    "comment_reanchor",
+    {
+      title: "Move a comment pin",
+      description:
+        "Moves an existing comment onto a new spot inside a node (node_id + local) or onto a " +
+        "page point (at). People also do this by dragging the pin in the editor.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({
+          comment_id: CommentIdArg,
+          node_id: z.string().optional().describe("Move the pin onto this node."),
+          local: z
+            .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+            .strict()
+            .optional()
+            .describe("Spot inside the node, 0–1 of its rect. Ignored without node_id."),
+          at: z
+            .object({ x: z.number(), y: z.number() })
+            .strict()
+            .optional()
+            .describe("World point on empty page space. Ignored with node_id."),
+        })
+        .strict(),
+      outputSchema: CommentThreadSchema,
+    },
+    async (input) =>
+      runTool(async () =>
+        result(
+          await ctx.runMutation(internal.comments.reanchor, {
+            commentId: await resolveCommentId(input.comment_id),
+            nodeId: input.node_id,
+            point: input.at,
+            local: input.local,
+          }),
+        ),
+      ),
   );
 
   server.registerTool(

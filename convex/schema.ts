@@ -564,11 +564,11 @@ export default defineSchema({
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
 
   /**
-   * Human feedback pinned to a canvas, one of its Pages, or one node on a
-   * Page — the channel the agent reads before it edits and writes back to
-   * after. A node comment stores the node *id*, never a copy of its rect,
-   * so moving or resizing the node cannot detach it; a page comment stores
-   * a world point instead.
+   * Human feedback pinned to a canvas, one of its Pages, or a spot inside
+   * a node — the channel the agent reads before it edits and writes back
+   * to after. A node comment stores the node id plus optional local 0–1
+   * coords so the pin rides move/resize; a page comment stores a world
+   * point instead.
    */
   canvasComments: defineTable({
     canvasId: v.id("canvases"),
@@ -577,6 +577,13 @@ export default defineSchema({
     nodeId: v.optional(v.string()),
     /** Set for a comment dropped on empty page space, in world coordinates. */
     point: v.optional(v.object({ x: v.number(), y: v.number() })),
+    /**
+     * Spot inside the node, 0–1 of its rect. Present on new node comments;
+     * absent means the legacy pin at the frame's top-right.
+     */
+    local: v.optional(v.object({ x: v.number(), y: v.number() })),
+    /** Best-effort name of a native-body control under the click. Never a selector. */
+    targetLabel: v.optional(v.string()),
     body: v.string(),
     /**
      * `completed` is the agent saying "done, here is what I changed";

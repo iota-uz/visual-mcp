@@ -53,6 +53,10 @@ Labels are placed off the stroke and avoid cards/other labels. Narrow gaps use a
 
 \`notes\` is a CanvasDoc collection of plain-text sticky notes pinned to world coordinates: \`{id,x,y,w,text,color?,size?,author}\`. People write them in the editor (Note tool) as feedback on the work; the agent writes its own as annotations. Read them before editing: \`canvas_get\` with \`doc_projection:{collections:["notes"]}\` returns them, \`open_notes_by_human\` counts the human ones, and \`canvas_find\` searches their text. Add one with \`notes.add {id,x,y,w,text,color?,size?}\` (colors yellow|blue|green|pink|neutral, sizes s|m|l, width 120..2000) or \`canvas.sticky({...})\` in canvas_run; \`author\` is stamped server-side and never taken from the payload. A human note is read-only text for the agent: move, resize or recolor it, but a text change is rejected with \`note_owned_by_human\`. Notes are not comments; use comments to reply to a person.
 
+## Comments
+
+A comment is a thread with a person, pinned to a spot. \`comment_create\` with \`node_id\` plus \`local:{x,y}\` (0–1 of the node rect) puts the pin on a control inside a screen; omit \`local\` for the legacy top-right of the frame; \`at:{x,y}\` without \`node_id\` is empty page space. \`comment_list\` returns \`local\` and optional \`target_label\`. People drag pins in the editor; \`comment_reanchor\` does the same from MCP. Do not treat a world \`at\` as a point on a node — it goes stale when the node moves.
+
 ## Delivery
 
 Use the returned URLs. \`canvas_url\` is the signed-in viewer, \`present_url\` is immersive canvas playback, and \`share_url\` exists only for public canvases. Never construct URLs.`,

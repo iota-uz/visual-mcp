@@ -46,6 +46,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Комментарий якорится к точке внутри ноды и перетаскивается** — [запись](adr/product/in-node-comment-anchors.md) · accepted · 2026-09-09 (запрос сопровождающего)
 - **Списковые экраны — карточка-ссылка целиком, действия в меню ⋯, удаление жёсткое** — [запись](adr/product/workspace-and-canvas-lists.md) · accepted · 2026-09-08 (`aea8d2c`…`81a12c3`)
 - **Человек авторит на канвасе два вида контента — sticky notes и заголовок ноды** — [запись](adr/product/human-authored-canvas-content.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Play, Download и Rename живут в caption ноды, в контекстном меню и в inspector** — [запись](adr/product/canvas-node-actions.md) · accepted · 2026-09-07 (запрос сопровождающего)

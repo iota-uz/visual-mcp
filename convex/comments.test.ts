@@ -61,10 +61,66 @@ describe("canvas comments", () => {
     expect(thread.status).toBe("open");
     expect(thread.node_id).toBe("intake");
     expect(thread.author_kind).toBe("human");
-    // Trimmed, and no point: a node comment travels with the node, so a
-    // stored coordinate could only ever go stale.
+    // Trimmed, and no world point: a node comment travels with the node.
     expect(thread.body).toBe("Make the CTA the primary action");
     expect(thread.point).toBeUndefined();
+    expect(thread.local).toBeUndefined();
+  });
+
+  test("a node comment keeps a local spot inside the frame", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, asHuman } = await seedCanvasWithNode(t);
+    const thread = await asHuman.mutation(api.comments.createMine, {
+      canvasId,
+      pageId: "overview",
+      nodeId: "intake",
+      point: { x: 10, y: 20 },
+      local: { x: 0.25, y: 1.4 },
+      targetLabel: "  Submit claim  ",
+      body: "This button is too quiet",
+    });
+    expect(thread.node_id).toBe("intake");
+    expect(thread.point).toBeUndefined();
+    expect(thread.local).toEqual({ x: 0.25, y: 1 });
+    expect(thread.target_label).toBe("Submit claim");
+  });
+
+  test("reanchor moves a pin onto another node or onto the page", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, asHuman } = await seedCanvasWithNode(t);
+    await t.run((ctx) =>
+      ctx.db.insert("canvasDraftNodes", {
+        canvasId,
+        pageId: "overview",
+        entity: "node",
+        entityId: "review",
+        title: "Review",
+        searchText: "Review",
+      }),
+    );
+    const thread = await asHuman.mutation(api.comments.createMine, {
+      canvasId,
+      pageId: "overview",
+      nodeId: "intake",
+      local: { x: 0.2, y: 0.3 },
+      body: "Move me",
+    });
+    const onReview = await asHuman.mutation(api.comments.reanchorMine, {
+      commentId: thread.comment_id as Id<"canvasComments">,
+      nodeId: "review",
+      local: { x: 0.8, y: 0.1 },
+    });
+    expect(onReview.node_id).toBe("review");
+    expect(onReview.local).toEqual({ x: 0.8, y: 0.1 });
+    expect(onReview.point).toBeUndefined();
+
+    const onPage = await asHuman.mutation(api.comments.reanchorMine, {
+      commentId: thread.comment_id as Id<"canvasComments">,
+      point: { x: 40, y: 50 },
+    });
+    expect(onPage.node_id).toBeUndefined();
+    expect(onPage.local).toBeUndefined();
+    expect(onPage.point).toEqual({ x: 40, y: 50 });
   });
 
   test("a comment on empty page space keeps its world point", async () => {

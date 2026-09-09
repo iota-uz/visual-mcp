@@ -65,6 +65,8 @@ function shape(comment: Doc<"canvasComments">, replies: Doc<"canvasCommentReplie
     page_id: comment.pageId,
     node_id: comment.nodeId,
     point: comment.point,
+    local: comment.local,
+    target_label: comment.targetLabel,
     body: comment.body,
     status: comment.status,
     author_kind: comment.authorKind,
@@ -144,11 +146,64 @@ async function countOpen(ctx: QueryCtx, canvasId: Id<"canvases">): Promise<numbe
   return open.length;
 }
 
+const LocalValidator = v.object({ x: v.number(), y: v.number() });
+const MAX_TARGET_LABEL = 120;
+
+function clampUnit(n: number): number {
+  if (!Number.isFinite(n)) return n > 0 ? 1 : 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+function normalizeLocal(
+  local: { x: number; y: number } | undefined,
+): { x: number; y: number } | undefined {
+  if (!local) return undefined;
+  return {
+    x: Math.round(clampUnit(local.x) * 10_000) / 10_000,
+    y: Math.round(clampUnit(local.y) * 10_000) / 10_000,
+  };
+}
+
+function normalizeTargetLabel(label: string | undefined): string | undefined {
+  const trimmed = label?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > MAX_TARGET_LABEL ? trimmed.slice(0, MAX_TARGET_LABEL) : trimmed;
+}
+
+function resolveAnchor(args: {
+  nodeId?: string;
+  point?: { x: number; y: number };
+  local?: { x: number; y: number };
+  targetLabel?: string;
+}): {
+  nodeId?: string;
+  point?: { x: number; y: number };
+  local?: { x: number; y: number };
+  targetLabel?: string;
+} {
+  if (args.nodeId) {
+    return {
+      nodeId: args.nodeId,
+      point: undefined,
+      local: normalizeLocal(args.local),
+      targetLabel: normalizeTargetLabel(args.targetLabel),
+    };
+  }
+  return {
+    nodeId: undefined,
+    point: args.point,
+    local: undefined,
+    targetLabel: undefined,
+  };
+}
+
 interface CreateArgs {
   canvasId: Id<"canvases">;
   pageId: string;
   nodeId?: string;
   point?: { x: number; y: number };
+  local?: { x: number; y: number };
+  targetLabel?: string;
   body: string;
   authorId: Id<"users">;
   authorKind: ActorKind;
@@ -192,13 +247,16 @@ async function createComment(ctx: MutationCtx, args: CreateArgs): Promise<Commen
     );
   }
   const now = Date.now();
+  const anchor = resolveAnchor(args);
   const id = await ctx.db.insert("canvasComments", {
     canvasId: args.canvasId,
     pageId: args.pageId,
-    nodeId: args.nodeId,
-    // A node comment rides its node; a stored point would only ever be a
-    // stale copy of where that node used to be.
-    point: args.nodeId ? undefined : args.point,
+    nodeId: anchor.nodeId,
+    // A world point on a node would go stale the moment the node moved.
+    // `local` rides the rect; a page comment keeps `point`.
+    point: anchor.point,
+    local: anchor.local,
+    targetLabel: anchor.targetLabel,
     body,
     status: "open",
     authorId: args.authorId,
@@ -209,6 +267,37 @@ async function createComment(ctx: MutationCtx, args: CreateArgs): Promise<Commen
   const created = await ctx.db.get(id);
   if (!created) throw new Error("Comment insert did not land.");
   return shape(created, []);
+}
+
+async function reanchorComment(
+  ctx: MutationCtx,
+  args: {
+    commentId: Id<"canvasComments">;
+    nodeId?: string;
+    point?: { x: number; y: number };
+    local?: { x: number; y: number };
+    targetLabel?: string;
+  },
+): Promise<CommentThread> {
+  const comment = await loadComment(ctx, args.commentId);
+  if (args.nodeId && (await nodeIsMissing(ctx, comment.canvasId, comment.pageId, args.nodeId))) {
+    throw new Error(
+      `node_not_found: "${args.nodeId}" is not a node on page "${comment.pageId}" of this canvas.`,
+    );
+  }
+  if (!args.nodeId && !args.point) {
+    throw new Error("reanchor_needs_target: pass a node_id (with optional local) or a page point.");
+  }
+  const anchor = resolveAnchor(args);
+  await ctx.db.patch(comment._id, {
+    nodeId: anchor.nodeId,
+    point: anchor.point,
+    local: anchor.local,
+    targetLabel: anchor.targetLabel,
+    updatedAt: Date.now(),
+  });
+  const refreshed = await loadComment(ctx, comment._id);
+  return shape(refreshed, await repliesOf(ctx, comment._id));
 }
 
 async function loadComment(
@@ -357,11 +446,24 @@ export const create = internalMutation({
     pageId: v.string(),
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
+    local: v.optional(LocalValidator),
+    targetLabel: v.optional(v.string()),
     body: v.string(),
     authorId: v.id("users"),
     authorKind: ActorKindValidator,
   },
   handler: async (ctx, args) => createComment(ctx, args),
+});
+
+export const reanchor = internalMutation({
+  args: {
+    commentId: v.id("canvasComments"),
+    nodeId: v.optional(v.string()),
+    point: v.optional(PointValidator),
+    local: v.optional(LocalValidator),
+    targetLabel: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => reanchorComment(ctx, args),
 });
 
 export const list = internalQuery({
@@ -436,12 +538,29 @@ export const createMine = mutation({
     pageId: v.string(),
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
+    local: v.optional(LocalValidator),
+    targetLabel: v.optional(v.string()),
     body: v.string(),
   },
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
     const authorId = await requireUserId(ctx, identity);
     return createComment(ctx, { ...args, authorId, authorKind: "human" });
+  },
+});
+
+export const reanchorMine = mutation({
+  args: {
+    commentId: v.id("canvasComments"),
+    nodeId: v.optional(v.string()),
+    point: v.optional(PointValidator),
+    local: v.optional(LocalValidator),
+    targetLabel: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    await requireUserId(ctx, identity);
+    return reanchorComment(ctx, args);
   },
 });
 

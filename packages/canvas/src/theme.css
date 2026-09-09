@@ -1437,7 +1437,7 @@
   background: var(--vc-accent);
   color: #fff;
   font: 700 11px / 1 var(--vc-body);
-  cursor: pointer;
+  cursor: grab;
   pointer-events: auto;
   box-shadow:
     0 1px 1px rgba(9, 27, 51, 0.12),
@@ -1501,6 +1501,13 @@
   animation: vc-pin-drop var(--vc-duration-fast) var(--vc-ease-out);
   cursor: default;
   pointer-events: none;
+}
+.vc-comment-marker.is-dragging {
+  cursor: grabbing;
+  z-index: 2;
+}
+.vc-viewport.is-dragging-comment {
+  cursor: grabbing;
 }
 @keyframes vc-pin-drop {
   from {

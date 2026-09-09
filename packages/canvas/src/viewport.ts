@@ -1,5 +1,6 @@
 import { renderAnnotation } from "./annotation.js";
 import { placeBesideRect, placeExitOnNode, type ScreenRect } from "./chrome-placement.js";
+import { localFromWorld, worldFromCommentAnchor } from "./comment-anchor.js";
 import {
   CONTEXT_MENU_CHROME_SELECTOR,
   type ContextCommandId,
@@ -120,6 +121,7 @@ export interface CommentMarker {
   id: string;
   nodeId?: string;
   point?: Point;
+  local?: Point;
   status: "open" | "completed" | "resolved";
 }
 
@@ -131,8 +133,16 @@ export interface CommentMarker {
 export interface CommentAnchor {
   nodeId?: string;
   point?: Point;
+  local?: Point;
   draft?: boolean;
 }
+
+export type CommentDraftAnchor = {
+  nodeId?: string;
+  point: Point;
+  local?: Point;
+  targetLabel?: string;
+};
 
 export interface ViewportSize {
   width: number;
@@ -771,7 +781,9 @@ export interface ViewportOptions {
   /** A pin was clicked — open that thread. */
   onCommentActivate?: (commentId: string) => void;
   /** The Comment tool was used on a node, or on empty page space. */
-  onCommentDraft?: (anchor: { nodeId?: string; point: Point }) => void;
+  onCommentDraft?: (anchor: CommentDraftAnchor) => void;
+  /** A pin was dropped on a new node spot or on the page. */
+  onCommentReanchor?: (commentId: string, anchor: CommentDraftAnchor) => void;
   /** A press landed outside the open popover, or the tool changed under it. */
   onCommentDismiss?: () => void;
 }
@@ -1107,17 +1119,23 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   draftPin.setAttribute("aria-hidden", "true");
 
   /**
-   * One pin per *anchor*, not per thread. Two comments on the same node
-   * share a corner, and two pins on one corner read as a smudge however
-   * they are nudged apart — so the anchor gets a single pin carrying the
-   * count, and clicking it opens the most urgent thread of the group. The
-   * pin therefore always has a number in it; there is no blank state.
+   * One pin per thread. Clustering by node used to make sense when every
+   * node comment sat on the same corner; distinct local spots must not
+   * collapse into one badge.
    */
   function commentAnchorKey(marker: CommentMarker): string | null {
-    if (marker.nodeId) return `node:${marker.nodeId}`;
-    if (marker.point) return `pt:${Math.round(marker.point.x)}:${Math.round(marker.point.y)}`;
-    return null;
+    return `id:${marker.id}`;
   }
+
+  let pinDrag: {
+    id: string;
+    pin: HTMLElement;
+    startX: number;
+    startY: number;
+    origin: { x: number; y: number };
+    moved: boolean;
+    pointerId: number;
+  } | null = null;
 
   /** Open outranks completed: the pin shows the work still to do. */
   function clusterStatus(markers: CommentMarker[]): CommentMarker["status"] {
@@ -1193,20 +1211,61 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     }
   }
 
-  /** A node comment hangs off the frame's top-right corner; a page comment
-      sits on the point that was clicked. Null means the node is gone. */
+  /** A node comment hangs off its local spot (or the frame's top-right when
+      it has none); a page comment sits on the point that was clicked. */
   function anchorScreenPoint(anchor: {
     nodeId?: string;
     point?: Point;
+    local?: Point;
   }): { x: number; y: number } | null {
     const node = anchor.nodeId ? nodeById.get(anchor.nodeId) : undefined;
-    const world = node
-      ? { x: node.x + node.w, y: node.y }
-      : anchor.nodeId
-        ? null
-        : (anchor.point ?? null);
+    const world = worldFromCommentAnchor(node, anchor);
     if (!world) return null;
     return { x: world.x * view.scale + view.x, y: world.y * view.scale + view.y };
+  }
+
+  function nativeTargetLabel(target: HTMLElement): string | undefined {
+    if (!target.closest(".vc-native-body")) return undefined;
+    const named = target.closest<HTMLElement>(
+      ".vc-native-body [aria-label], .vc-native-body button, .vc-native-body a, .vc-native-body label, .vc-native-body h1, .vc-native-body h2, .vc-native-body h3",
+    );
+    const el = named ?? target;
+    if (el.classList.contains("vc-native-body")) return undefined;
+    const label =
+      el.getAttribute("aria-label")?.trim() || el.textContent?.replace(/\s+/g, " ").trim();
+    if (!label) return undefined;
+    return label.length > 120 ? `${label.slice(0, 119)}…` : label;
+  }
+
+  function nodeAtWorld(world: Point): PositionedNode | undefined {
+    let hit: PositionedNode | undefined;
+    for (const node of nodeById.values()) {
+      if (
+        world.x >= node.x &&
+        world.x <= node.x + node.w &&
+        world.y >= node.y &&
+        world.y <= node.y + node.h
+      ) {
+        hit = node;
+      }
+    }
+    return hit;
+  }
+
+  function draftFromClient(
+    clientX: number,
+    clientY: number,
+    target: HTMLElement,
+  ): CommentDraftAnchor {
+    const point = worldPointFromClient(clientX, clientY);
+    const nodeId = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
+    const node = nodeId ? nodeById.get(nodeId) : undefined;
+    return {
+      nodeId,
+      point,
+      local: node ? localFromWorld(node, point) : undefined,
+      targetLabel: nativeTargetLabel(target),
+    };
   }
 
   function positionComments(): void {
@@ -1714,9 +1773,11 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       return;
     }
     if (id === "add-comment") {
+      const node = commentNodeId ? nodeById.get(commentNodeId) : undefined;
       opts.onCommentDraft?.({
         nodeId: commentNodeId,
         point: world,
+        local: node ? localFromWorld(node, world) : undefined,
       });
       return;
     }
@@ -1960,6 +2021,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     // selecting and dragging in.
     if (next !== activeTool && commentOverlayAnchor?.draft) opts.onCommentDismiss?.();
     if (next !== activeTool) closeContextMenu();
+    if (next === "comment") deactivateIframe();
     activeTool = next;
     paintToolState(true);
   }
@@ -1971,7 +2033,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
 
   function anchorKey(anchor: CommentAnchor | null): string | null {
     if (!anchor) return null;
-    return `${anchor.draft ? "draft" : "thread"}:${anchor.nodeId ?? ""}:${Math.round(anchor.point?.x ?? 0)}:${Math.round(anchor.point?.y ?? 0)}`;
+    return `${anchor.draft ? "draft" : "thread"}:${anchor.nodeId ?? ""}:${Math.round(anchor.point?.x ?? 0)}:${Math.round(anchor.point?.y ?? 0)}:${anchor.local ? `${anchor.local.x}:${anchor.local.y}` : ""}`;
   }
 
   function setCommentAnchor(anchor: CommentAnchor | null): void {
@@ -2825,14 +2887,8 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
      */
     if (activeTool === "comment" && commentsEnabled) {
       commentDismissAt = null;
-      const overNode = target.closest<HTMLElement>(".vc-node")?.dataset.nodeId;
-      opts.onCommentDraft?.({
-        nodeId: overNode,
-        point: {
-          x: (event.clientX - viewportRect.left - view.x) / view.scale,
-          y: (event.clientY - viewportRect.top - view.y) / view.scale,
-        },
-      });
+      if (activeIframeId) deactivateIframe();
+      opts.onCommentDraft?.(draftFromClient(event.clientX, event.clientY, target));
       return;
     }
     // The Note tool is one-shot like the Comment tool: one press drops a
@@ -3003,7 +3059,75 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     clearDragClasses();
   }
 
+  function onCommentPinPointerDown(event: PointerEvent): void {
+    if (!opts.editable || !opts.onCommentReanchor) return;
+    const pin = (event.target as HTMLElement).closest<HTMLElement>("[data-comment-id]");
+    const id = pin?.dataset.commentId;
+    if (!pin || !id || pin.hasAttribute("data-draft")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    commentDismissAt = null;
+    try {
+      container.setPointerCapture(event.pointerId);
+    } catch {
+      // jsdom / synthetic events have no pointer to capture.
+    }
+    const marker = commentMarkers.find((item) => item.id === id);
+    const at = marker ? anchorScreenPoint(marker) : { x: 0, y: 0 };
+    pinDrag = {
+      id,
+      pin,
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: at ?? { x: 0, y: 0 },
+      moved: false,
+      pointerId: event.pointerId,
+    };
+  }
+
+  function finishPinDrag(event: PointerEvent, cancelled: boolean): void {
+    if (!pinDrag || pinDrag.pointerId !== event.pointerId) return;
+    const finished = pinDrag;
+    pinDrag = null;
+    container.classList.remove("is-dragging-comment");
+    finished.pin.classList.remove("is-dragging");
+    if (cancelled || !finished.moved) {
+      if (!cancelled && !finished.moved) opts.onCommentActivate?.(finished.id);
+      positionComments();
+      return;
+    }
+    const world = worldPointFromClient(event.clientX, event.clientY);
+    const node = nodeAtWorld(world);
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const label = target instanceof HTMLElement ? nativeTargetLabel(target) : undefined;
+    if (node) {
+      opts.onCommentReanchor?.(finished.id, {
+        nodeId: node.id,
+        point: world,
+        local: localFromWorld(node, world),
+        targetLabel: label,
+      });
+    } else {
+      opts.onCommentReanchor?.(finished.id, { point: world });
+    }
+  }
+
   function onPointerMove(event: PointerEvent): void {
+    if (pinDrag && pinDrag.pointerId === event.pointerId) {
+      event.preventDefault();
+      const dx = event.clientX - pinDrag.startX;
+      const dy = event.clientY - pinDrag.startY;
+      if (!pinDrag.moved && Math.abs(dx) + Math.abs(dy) <= dragThresholdPx()) return;
+      if (!pinDrag.moved) {
+        pinDrag.moved = true;
+        container.classList.add("is-dragging-comment");
+        pinDrag.pin.classList.add("is-dragging");
+        opts.onCommentDismiss?.();
+      }
+      pinDrag.pin.style.transform = `translate(${pinDrag.origin.x + dx}px, ${pinDrag.origin.y + dy}px)`;
+      return;
+    }
     if (activePointers.has(event.pointerId)) {
       activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     }
@@ -3113,6 +3237,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onPointerUp(event: PointerEvent): void {
+    if (pinDrag && pinDrag.pointerId === event.pointerId) {
+      finishPinDrag(event, false);
+      return;
+    }
     if (commentDismissAt) {
       const moved =
         Math.hypot(event.clientX - commentDismissAt.x, event.clientY - commentDismissAt.y) >
@@ -3247,6 +3375,10 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   }
 
   function onPointerCancel(event: PointerEvent): void {
+    if (pinDrag && pinDrag.pointerId === event.pointerId) {
+      finishPinDrag(event, true);
+      return;
+    }
     commentDismissAt = null;
     activePointers.delete(event.pointerId);
     cancelLongPress();
@@ -3440,6 +3572,17 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     else if (event.key === "Escape") {
       if (shortcutHelpOpen()) {
         toggleShortcutHelp(false);
+        return;
+      }
+      if (pinDrag) {
+        finishPinDrag(
+          {
+            pointerId: pinDrag.pointerId,
+            clientX: pinDrag.startX,
+            clientY: pinDrag.startY,
+          } as PointerEvent,
+          true,
+        );
         return;
       }
       cancelDrag();
@@ -3986,6 +4129,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   if (commentsEnabled) {
     overlayResize?.observe(commentOverlay);
     commentsLayer.addEventListener("click", onCommentLayerClick);
+    commentsLayer.addEventListener("pointerdown", onCommentPinPointerDown);
     container.querySelector(".vc-shortcut-comment")?.removeAttribute("hidden");
     rebuildComments();
   }
@@ -4040,6 +4184,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       chromeResize?.disconnect();
       overlayResize?.disconnect();
       commentsLayer.removeEventListener("click", onCommentLayerClick);
+      commentsLayer.removeEventListener("pointerdown", onCommentPinPointerDown);
       multiselectPanel.removeEventListener("click", onMultiselectClick);
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);

@@ -10,6 +10,8 @@ export interface CommentThread {
   page_id: string;
   node_id?: string;
   point?: { x: number; y: number };
+  local?: { x: number; y: number };
+  target_label?: string;
   body: string;
   status: "open" | "completed" | "resolved";
   author_kind: "human" | "agent";
@@ -34,11 +36,15 @@ export interface CommentDraft {
  * not its id. "On Intake" is a comment about something; "On node_3" is a
  * database row.
  */
-export function commentAnchorLabel(doc: CanvasDoc | null, nodeId: string | undefined): string {
+export function commentAnchorLabel(
+  doc: CanvasDoc | null,
+  nodeId: string | undefined,
+  targetLabel?: string,
+): string {
   if (!nodeId) return "On this page";
   const title = doc?.nodes.find((node) => node.id === nodeId)?.caption.title;
-  // A node can be deleted out from under a thread. Saying so beats a pin
-  // that silently stands for nothing.
+  const nodeName = title ? title : `${nodeId} (deleted)`;
+  if (targetLabel) return `On ${nodeName} · ${targetLabel}`;
   return title ? `On ${title}` : `On ${nodeId} (deleted)`;
 }
 
