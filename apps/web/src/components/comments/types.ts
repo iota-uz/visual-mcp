@@ -9,9 +9,13 @@ export interface CommentThread {
   comment_id: string;
   page_id: string;
   node_id?: string;
+  node_title?: string;
   point?: { x: number; y: number };
   local?: { x: number; y: number };
-  target_label?: string;
+  el?: string;
+  role?: string;
+  name?: string;
+  where?: string;
   body: string;
   status: "open" | "completed" | "resolved";
   author_kind: "human" | "agent";
@@ -39,12 +43,14 @@ export interface CommentDraft {
 export function commentAnchorLabel(
   doc: CanvasDoc | null,
   nodeId: string | undefined,
-  targetLabel?: string,
+  name?: string,
+  el?: string,
 ): string {
   if (!nodeId) return "On this page";
   const title = doc?.nodes.find((node) => node.id === nodeId)?.caption.title;
   const nodeName = title ? title : `${nodeId} (deleted)`;
-  if (targetLabel) return `On ${nodeName} · ${targetLabel}`;
+  const control = name?.trim() || (el ? `#${el}` : "");
+  if (control) return `On ${nodeName} · ${control}`;
   return title ? `On ${title}` : `On ${nodeId} (deleted)`;
 }
 

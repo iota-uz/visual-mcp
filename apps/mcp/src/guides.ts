@@ -55,7 +55,7 @@ Labels are placed off the stroke and avoid cards/other labels. Narrow gaps use a
 
 ## Comments
 
-A comment is a thread with a person, pinned to a spot. \`comment_create\` with \`node_id\` plus \`local:{x,y}\` (0–1 of the node rect) puts the pin on a control inside a screen; omit \`local\` for the legacy top-right of the frame; \`at:{x,y}\` without \`node_id\` is empty page space. \`comment_list\` returns \`local\` and optional \`target_label\`. People drag pins in the editor; \`comment_reanchor\` does the same from MCP. Do not treat a world \`at\` as a point on a node — it goes stale when the node moves.
+A comment is a thread with a person, pinned to a control. Identity is \`el\` (\`data-vc-id\`) plus \`role\` and accessible \`name\`. Call \`screen_tree\` on the iframe node to list every control as \`{el, role, name, tag}\` — do not snapshot to find the widget. \`comment_list\` returns \`where\` such as "On Invite · Submit claim (button)" and the same \`el\`. Create with \`comment_create {node_id, el}\`; \`local\` (0–1 of the node rect) is only a fallback for image, PDF, or empty padding. \`at\` without \`node_id\` is empty page space. HTML saves stamp \`data-vc-id\` on interactive elements and headings; keep author-supplied ids. People drag pins onto another control; \`comment_reanchor\` does the same from MCP. The locator is \`canvas://workspace/canvas?node=<id>&el=<id>\`.
 
 ## Delivery
 

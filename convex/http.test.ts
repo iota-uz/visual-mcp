@@ -530,6 +530,7 @@ describe("GET /s/:slug", () => {
     expect(allowed.status).toBe(200);
     const html = await allowed.text();
     expect(html).toMatch(/visual-canvas:readiness/);
+    expect(html).toMatch(/visual-canvas:hit-test/);
     expect(html).toMatch(/visual-canvas:lifecycle/);
     expect(html).toMatch(/visual-canvas:suspend/);
     expect(html).toMatch(/visual-canvas:resume/);
@@ -618,6 +619,7 @@ describe("GET /i/:capability", () => {
             '<img src="/assets/screens/screen.png">',
             '<script>const runtime="/src/runtime.js";</script>',
             '<img src="https://cdn.example/assets/external.png">',
+            "<button>Live</button>",
           ].join(""),
         ],
         ["/src/screen.css", ".hero{background:url(/assets/background.png)}"],
@@ -648,6 +650,8 @@ describe("GET /i/:capability", () => {
     expect(html).toContain(`runtime="/i/${token}/src/runtime.js"`);
     expect(html).toContain('src="https://cdn.example/assets/external.png"');
     expect(html).toContain("visual-canvas:readiness");
+    expect(html).toContain("visual-canvas:hit-test");
+    expect(html).toContain("data-vc-id");
     expect(html).toContain("data-visual-canvas-theme");
     expect(html).toContain("--color-primary: #2563eb");
     expect(html).toContain("window.visualCanvasTheme=");

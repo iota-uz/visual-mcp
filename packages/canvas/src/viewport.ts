@@ -15,6 +15,13 @@ import {
 } from "./context-menu.js";
 import { DEVICE_CAPTION_HEIGHT, deviceFrameScale, deviceShellSize } from "./device-frame.js";
 import { mountEdgeEditor } from "./edge-editor.js";
+import {
+  IFRAME_HIT_TEST,
+  IFRAME_HIT_TEST_MS,
+  IFRAME_HIT_TEST_RESULT,
+  type IframeHit,
+  iframeContentPoint,
+} from "./iframe-probe.js";
 import { groupBounds, type PositionedCanvas, type PositionedNode } from "./layout.js";
 import { mountNoteEditor, type NoteChanges } from "./note-editor.js";
 import { PHONE_FRAME, phoneFrameScale } from "./phone-frame.js";
@@ -31,6 +38,7 @@ import type {
   Point,
   Rect,
 } from "./types.js";
+import { describeDomElement } from "./vc-id.js";
 
 // A wide camera range supports both whole-system overviews and close visual
 // inspection. At the limits, one canvas unit spans 0.5%–800% of a CSS pixel.
@@ -141,7 +149,9 @@ export type CommentDraftAnchor = {
   nodeId?: string;
   point: Point;
   local?: Point;
-  targetLabel?: string;
+  el?: string;
+  role?: string;
+  name?: string;
 };
 
 export interface ViewportSize {
@@ -1112,6 +1122,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
   let commentOverlayAnchor: CommentAnchor | null = null;
   /** Press position while a dismissal is armed; see onPointerDown. */
   let commentDismissAt: { x: number; y: number } | null = null;
+  let commentHitSeq = 0;
   let commentOverlayKey: string | null = null;
   const draftPin = document.createElement("span");
   draftPin.className = "vc-comment-marker";
@@ -1224,17 +1235,75 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     return { x: world.x * view.scale + view.x, y: world.y * view.scale + view.y };
   }
 
-  function nativeTargetLabel(target: HTMLElement): string | undefined {
-    if (!target.closest(".vc-native-body")) return undefined;
-    const named = target.closest<HTMLElement>(
-      ".vc-native-body [aria-label], .vc-native-body button, .vc-native-body a, .vc-native-body label, .vc-native-body h1, .vc-native-body h2, .vc-native-body h3",
-    );
-    const el = named ?? target;
-    if (el.classList.contains("vc-native-body")) return undefined;
-    const label =
-      el.getAttribute("aria-label")?.trim() || el.textContent?.replace(/\s+/g, " ").trim();
-    if (!label) return undefined;
-    return label.length > 120 ? `${label.slice(0, 119)}…` : label;
+  function describeNative(target: HTMLElement): { el?: string; role?: string; name?: string } {
+    const body = target.closest(".vc-native-body");
+    if (!body) return {};
+    return describeDomElement(target, body);
+  }
+
+  function iframeForNode(nodeId: string | undefined): HTMLIFrameElement | undefined {
+    if (!nodeId) return undefined;
+    const owner = nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
+    const iframe = owner?.querySelector("iframe");
+    return iframe instanceof HTMLIFrameElement ? iframe : undefined;
+  }
+
+  function requestIframeHit(
+    iframe: HTMLIFrameElement,
+    clientX: number,
+    clientY: number,
+  ): Promise<IframeHit | null> {
+    const point = iframeContentPoint(iframe, clientX, clientY);
+    const win = iframe.contentWindow;
+    if (!point || !win) return Promise.resolve(null);
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, IFRAME_HIT_TEST_MS);
+      function onMsg(event: MessageEvent) {
+        if (event.source !== win) return;
+        if (event.data?.type !== IFRAME_HIT_TEST_RESULT) return;
+        if (event.data.requestId !== requestId) return;
+        cleanup();
+        resolve((event.data.hit as IframeHit | null) ?? null);
+      }
+      function cleanup() {
+        window.clearTimeout(timer);
+        window.removeEventListener("message", onMsg);
+      }
+      window.addEventListener("message", onMsg);
+      win.postMessage({ type: IFRAME_HIT_TEST, requestId, x: point.x, y: point.y }, "*");
+    });
+  }
+
+  function identityFromHit(hit: IframeHit | null): { el?: string; role?: string; name?: string } {
+    if (!hit) return {};
+    return {
+      ...(hit.el ? { el: hit.el } : {}),
+      ...(hit.role ? { role: hit.role } : {}),
+      ...(hit.name ? { name: hit.name } : {}),
+    };
+  }
+
+  function placeCommentDraft(clientX: number, clientY: number, target: HTMLElement): void {
+    const geometric = draftFromClient(clientX, clientY, target);
+    const native = describeNative(target);
+    const iframe = iframeForNode(geometric.nodeId);
+    commentHitSeq += 1;
+    const seq = commentHitSeq;
+    if (!iframe?.contentWindow) {
+      opts.onCommentDraft?.({ ...geometric, ...native });
+      return;
+    }
+    opts.onCommentDraft?.({ ...geometric, ...native });
+    void requestIframeHit(iframe, clientX, clientY).then((hit) => {
+      if (seq !== commentHitSeq) return;
+      const identity = identityFromHit(hit);
+      if (!identity.el && !identity.name) return;
+      opts.onCommentDraft?.({ ...geometric, ...identity });
+    });
   }
 
   function nodeAtWorld(world: Point): PositionedNode | undefined {
@@ -1264,7 +1333,6 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       nodeId,
       point,
       local: node ? localFromWorld(node, point) : undefined,
-      targetLabel: nativeTargetLabel(target),
     };
   }
 
@@ -1773,12 +1841,12 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
       return;
     }
     if (id === "add-comment") {
-      const node = commentNodeId ? nodeById.get(commentNodeId) : undefined;
-      opts.onCommentDraft?.({
-        nodeId: commentNodeId,
-        point: world,
-        local: node ? localFromWorld(node, world) : undefined,
-      });
+      const clientX = contextAnchor?.clientX ?? viewportRect.left + viewportRect.width / 2;
+      const clientY = contextAnchor?.clientY ?? viewportRect.top + viewportRect.height / 2;
+      const owner = commentNodeId
+        ? nodesRoot.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(commentNodeId)}"]`)
+        : nodesRoot;
+      placeCommentDraft(clientX, clientY, owner ?? nodesRoot);
       return;
     }
     if (id === "copy-link" && selectedNodeId) {
@@ -2889,7 +2957,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     if (activeTool === "comment" && commentsEnabled) {
       commentDismissAt = null;
       if (activeIframeId) deactivateIframe();
-      opts.onCommentDraft?.(draftFromClient(event.clientX, event.clientY, target));
+      placeCommentDraft(event.clientX, event.clientY, target);
       return;
     }
     // The Note tool is one-shot like the Comment tool: one press drops a
@@ -3101,17 +3169,25 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     const world = worldPointFromClient(event.clientX, event.clientY);
     const node = nodeAtWorld(world);
     const target = document.elementFromPoint(event.clientX, event.clientY);
-    const label = target instanceof HTMLElement ? nativeTargetLabel(target) : undefined;
-    if (node) {
-      opts.onCommentReanchor?.(finished.id, {
-        nodeId: node.id,
-        point: world,
-        local: localFromWorld(node, world),
-        targetLabel: label,
-      });
-    } else {
+    const native = target instanceof HTMLElement ? describeNative(target) : {};
+    if (!node) {
       opts.onCommentReanchor?.(finished.id, { point: world });
+      return;
     }
+    const geometric: CommentDraftAnchor = {
+      nodeId: node.id,
+      point: world,
+      local: localFromWorld(node, world),
+      ...native,
+    };
+    const iframe = iframeForNode(node.id);
+    if (!iframe?.contentWindow) {
+      opts.onCommentReanchor?.(finished.id, geometric);
+      return;
+    }
+    void requestIframeHit(iframe, event.clientX, event.clientY).then((hit) => {
+      opts.onCommentReanchor?.(finished.id, { ...geometric, ...identityFromHit(hit) });
+    });
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -4195,6 +4271,7 @@ export function mountViewport(opts: ViewportOptions): ViewportController {
     selectNote: (id) => noteEditor.select(id),
     addNote,
     dispose() {
+      commentHitSeq += 1;
       finishRename(false);
       noteEditor.destroy();
       edgeEditor.destroy();

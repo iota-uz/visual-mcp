@@ -69,6 +69,12 @@ import {
   CanvasFileSchema,
   resolveCanvasPage,
 } from "@visual-canvas/canvas/types.js";
+import {
+  findScreenElement,
+  flattenScreenTree,
+  screenTree,
+  stampHtmlSource,
+} from "@visual-canvas/canvas/vc-id.js";
 import { normalizeCanvasPath } from "@visual-canvas/runtime/paths/index.js";
 import { inferArtifactInfo } from "@visual-canvas/runtime/render/artifact-info.js";
 import {
@@ -1001,7 +1007,7 @@ async function prepareSaveFiles(
           bytes = new Uint8Array(await blob.arrayBuffer());
         }
       } else {
-        const text = file.text as string;
+        const text = stampHtmlSource(displayPath, file.text as string);
         bytes = new TextEncoder().encode(text);
         const inferred = inferArtifactInfo(relPath).mime;
         size = bytes.byteLength;
@@ -1952,7 +1958,8 @@ async function commitPreparedFileChanges(
         continue;
       }
       assertEditableText(change.path, change.content);
-      const bytes = new TextEncoder().encode(change.content);
+      const content = stampHtmlSource(change.path, change.content);
+      const bytes = new TextEncoder().encode(content);
       const mimeType = inferArtifactInfo(change.path).mime;
       const storageId = await ctx.storage.store(new Blob([bytes], { type: mimeType }));
       stored.push(storageId);
@@ -1962,7 +1969,7 @@ async function commitPreparedFileChanges(
         expectedHash: change.expectedHash,
         storageId,
         size: bytes.byteLength,
-        contentHash: await sha256Hex(change.content),
+        contentHash: await sha256Hex(content),
       });
     }
     const committed = await ctx.runMutation(internal.canvases.commitFilePatch, {
@@ -3354,14 +3361,29 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
   );
   /* --- comments: the human → agent → human feedback loop --- */
 
+  const ScreenElementSchema = z.object({
+    el: z.string(),
+    role: z.string(),
+    name: z.string(),
+    tag: z.string(),
+  });
+
   const CommentThreadSchema = z.object({
     comment_id: z.string(),
     canvas_id: z.string(),
     page_id: z.string(),
     node_id: z.string().optional(),
+    node_title: z.string().optional(),
     point: z.object({ x: z.number(), y: z.number() }).optional(),
     local: z.object({ x: z.number(), y: z.number() }).optional(),
-    target_label: z.string().optional(),
+    el: z.string().optional().describe("data-vc-id of the control. Identity; not a CSS selector."),
+    role: z.string().optional(),
+    name: z.string().optional().describe("Accessible name of the control."),
+    where: z
+      .string()
+      .describe(
+        "Read this first: node title plus the control's accessible name. el is the locator; screen_tree lists every el on the screen.",
+      ),
     body: z.string(),
     status: z.enum(["open", "completed", "resolved"]),
     author_kind: z.enum(["human", "agent"]),
@@ -3406,22 +3428,30 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
     {
       title: "Comment on a canvas",
       description:
-        "Pins a comment to a spot inside a node (node_id + local 0–1 of the node rect) or to a " +
-        "point on a Page (at), so a person and an agent can talk about a specific control rather " +
-        "than the whole frame. `at` is ignored with node_id. Comments an agent writes are labelled " +
-        "as such. New comments start `open`; work through them with comment_list, then " +
-        "comment_complete.",
+        "Pins a comment to a control inside a node (node_id + el from screen_tree), to a geometric " +
+        "fallback on image/PDF/empty padding (node_id + local 0–1), or to empty page space (at). " +
+        "Prefer el. `at` is ignored with node_id. Comments an agent writes are labelled as such. " +
+        "New comments start `open`; work through them with comment_list, then comment_complete.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({
           ref: RefArg,
           page_id: z.string().optional().describe("Defaults to the file's default Page."),
           node_id: z.string().optional().describe("Anchor the comment to this node."),
+          el: z
+            .string()
+            .regex(/^[a-z][a-z0-9_-]{0,79}$/)
+            .optional()
+            .describe("data-vc-id from screen_tree. Preferred identity of the control."),
+          role: z.string().max(40).optional(),
+          name: z.string().max(120).optional(),
           local: z
             .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
             .strict()
             .optional()
-            .describe("Spot inside the node, 0–1 of its rect. Ignored without node_id."),
+            .describe(
+              "Pin paint / fallback when there is no inner element. Ignored without node_id.",
+            ),
           at: z
             .object({ x: z.number(), y: z.number() })
             .strict()
@@ -3448,12 +3478,36 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
               "Read the page with canvas_get to see its node ids.",
           );
         }
+        let role = input.role;
+        let name = input.name;
+        if (input.el && input.node_id) {
+          const node = page.doc.nodes.find((candidate) => candidate.id === input.node_id);
+          if (node?.kind === "iframe") {
+            const htmlFile = await loadEditableFile(ctx, input.ref, node.source.entrypoint);
+            const found = findScreenElement(htmlFile.content, input.el);
+            if (!found) {
+              const known = flattenScreenTree(screenTree(htmlFile.content))
+                .slice(0, 12)
+                .map((element) => `${element.el} (${element.role}: ${element.name})`)
+                .join(", ");
+              throw new Error(
+                `element_not_found: "${input.el}" is not a data-vc-id on "${node.source.entrypoint}". ` +
+                  `Call screen_tree. Known: ${known || "(none)"}.`,
+              );
+            }
+            role = role ?? found.role;
+            name = name ?? found.name;
+          }
+        }
         const thread = await ctx.runMutation(internal.comments.create, {
           canvasId: loaded.detail.canvas.canvas_id as Id<"canvases">,
           pageId: page.id,
           nodeId: input.node_id,
           point: input.at,
           local: input.local,
+          el: input.el,
+          role,
+          name,
           body: input.body,
           authorId: principal.userId,
           authorKind: "agent",
@@ -3467,18 +3521,25 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
     {
       title: "Move a comment pin",
       description:
-        "Moves an existing comment onto a new spot inside a node (node_id + local) or onto a " +
-        "page point (at). People also do this by dragging the pin in the editor.",
+        "Moves an existing comment onto a control (node_id + el from screen_tree), a geometric " +
+        "fallback (node_id + local), or a page point (at). People also do this by dragging the pin.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: z
         .object({
           comment_id: CommentIdArg,
           node_id: z.string().optional().describe("Move the pin onto this node."),
+          el: z
+            .string()
+            .regex(/^[a-z][a-z0-9_-]{0,79}$/)
+            .optional()
+            .describe("data-vc-id from screen_tree."),
+          role: z.string().max(40).optional(),
+          name: z.string().max(120).optional(),
           local: z
             .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
             .strict()
             .optional()
-            .describe("Spot inside the node, 0–1 of its rect. Ignored without node_id."),
+            .describe("Pin paint / fallback. Ignored without node_id."),
           at: z
             .object({ x: z.number(), y: z.number() })
             .strict()
@@ -3496,6 +3557,9 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
             nodeId: input.node_id,
             point: input.at,
             local: input.local,
+            el: input.el,
+            role: input.role,
+            name: input.name,
           }),
         ),
       ),
@@ -3507,8 +3571,9 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
       title: "Read canvas comments",
       description:
         "Lists comment threads on a canvas, oldest first. Defaults to the open ones — the work " +
-        "queue a person left for the agent. Narrow to one Page or one node, or pass status to " +
-        "review what has already been completed or resolved.",
+        "queue a person left for the agent. Read `where` and `el`/`name`/`role`. Call screen_tree " +
+        "on the node to see every control; do not snapshot to identify the widget. Narrow to one " +
+        "Page or one node, or pass status to review completed or resolved.",
       annotations: { readOnlyHint: true },
       inputSchema: z
         .object({
@@ -3538,6 +3603,75 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           ctx.runQuery(internal.comments.openCount, { canvasId }),
         ]);
         return result({ comments, open_count: openCount });
+      }),
+  );
+
+  server.registerTool(
+    "screen_tree",
+    {
+      title: "List controls on a screen",
+      description:
+        "Returns the accessibility tree of one iframe screen as {el, role, name, tag}. el is the " +
+        "data-vc-id used by comment_create and canvas://...?node=&el=. Call this instead of " +
+        "canvas_snapshot to identify a widget. Omit node_id to list every iframe on the page.",
+      annotations: { readOnlyHint: true },
+      inputSchema: z
+        .object({
+          ref: RefArg,
+          page_id: z.string().optional(),
+          node_id: z
+            .string()
+            .optional()
+            .describe("Iframe node id. Omit to list every screen on the page."),
+        })
+        .strict(),
+      outputSchema: z.object({
+        screens: z.array(
+          z.object({
+            node_id: z.string(),
+            node_title: z.string(),
+            path: z.string(),
+            elements: z.array(ScreenElementSchema),
+          }),
+        ),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const loaded = await loadCanvasFileByRef(ctx, input.ref);
+        const page = resolveCanvasPage(loaded.file, input.page_id);
+        if (input.page_id && page.id !== input.page_id) {
+          throw new Error(`page_not_found: ${input.page_id}`);
+        }
+        const nodes = page.doc.nodes.filter((node) => {
+          if (node.kind !== "iframe") return false;
+          return input.node_id === undefined || node.id === input.node_id;
+        });
+        if (input.node_id && nodes.length === 0) {
+          throw new Error(
+            `node_not_found: "${input.node_id}" is not an iframe node on page "${page.id}".`,
+          );
+        }
+        const screens = await Promise.all(
+          nodes.map(async (node) => {
+            if (node.kind !== "iframe") {
+              throw new Error(`node_not_found: "${node.id}" is not an iframe.`);
+            }
+            const htmlFile = await loadEditableFile(ctx, input.ref, node.source.entrypoint);
+            return {
+              node_id: node.id,
+              node_title: node.caption.title,
+              path: node.source.entrypoint,
+              elements: flattenScreenTree(screenTree(htmlFile.content)).map((element) => ({
+                el: element.el,
+                role: element.role,
+                name: element.name,
+                tag: element.tag,
+              })),
+            };
+          }),
+        );
+        return result({ screens });
       }),
   );
 
@@ -5118,7 +5252,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
           ref_id: z
             .string()
             .optional()
-            .describe("A copied canvas://workspace/canvas?node=<id> element ref."),
+            .describe("A copied canvas://workspace/canvas?node=<id>[&el=<id>] element ref."),
           page_id: z.string().optional().describe("Select a Page; defaults to defaultPageId."),
           response_mode: z
             .enum(["compact", "full"])
@@ -5376,11 +5510,24 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
                 `but node "${elementRef.nodeId}" does not. Read the current doc or search its nodes.`,
             );
           }
+          let element: { el: string; role: string; name: string; tag: string } | undefined;
+          if (elementRef.el && resolved.node.kind === "iframe") {
+            const htmlFile = await loadEditableFile(ctx, ref, resolved.node.source.entrypoint);
+            const found = findScreenElement(htmlFile.content, elementRef.el);
+            if (!found) {
+              throw new Error(
+                `element_not_found: node "${elementRef.nodeId}" has no control "${elementRef.el}". Call screen_tree.`,
+              );
+            }
+            element = { el: found.el, role: found.role, name: found.name, tag: found.tag };
+          }
           selection = {
-            ref_id: formatElementRef(ref, resolved.node.id),
+            ref_id: formatElementRef(ref, resolved.node.id, elementRef.el),
             type: "node",
             node_id: resolved.node.id,
             page_id: selectedPage.id,
+            ...(elementRef.el ? { el: elementRef.el } : {}),
+            ...(element ? { element } : {}),
             node: resolved.node,
             context: resolved.context,
           };

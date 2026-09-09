@@ -76,13 +76,18 @@ describe("canvas comments", () => {
       nodeId: "intake",
       point: { x: 10, y: 20 },
       local: { x: 0.25, y: 1.4 },
-      targetLabel: "  Submit claim  ",
+      el: "submit-claim",
+      role: " button ",
+      name: "  Submit claim  ",
       body: "This button is too quiet",
     });
     expect(thread.node_id).toBe("intake");
     expect(thread.point).toBeUndefined();
     expect(thread.local).toEqual({ x: 0.25, y: 1 });
-    expect(thread.target_label).toBe("Submit claim");
+    expect(thread.el).toBe("submit-claim");
+    expect(thread.role).toBe("button");
+    expect(thread.name).toBe("Submit claim");
+    expect(thread.where).toBe("On Intake · Submit claim (button)");
   });
 
   test("reanchor moves a pin onto another node or onto the page", async () => {
@@ -109,9 +114,14 @@ describe("canvas comments", () => {
       commentId: thread.comment_id as Id<"canvasComments">,
       nodeId: "review",
       local: { x: 0.8, y: 0.1 },
+      el: "confirm",
+      role: "button",
+      name: "Confirm",
     });
     expect(onReview.node_id).toBe("review");
     expect(onReview.local).toEqual({ x: 0.8, y: 0.1 });
+    expect(onReview.el).toBe("confirm");
+    expect(onReview.name).toBe("Confirm");
     expect(onReview.point).toBeUndefined();
 
     const onPage = await asHuman.mutation(api.comments.reanchorMine, {
@@ -120,6 +130,7 @@ describe("canvas comments", () => {
     });
     expect(onPage.node_id).toBeUndefined();
     expect(onPage.local).toBeUndefined();
+    expect(onPage.el).toBeUndefined();
     expect(onPage.point).toEqual({ x: 40, y: 50 });
   });
 
@@ -147,6 +158,20 @@ describe("canvas comments", () => {
         body: "typo'd anchor",
       }),
     ).rejects.toThrow(/node_not_found/);
+  });
+
+  test("an invalid data-vc-id is refused", async () => {
+    const t = convexTest(schema, modules);
+    const { canvasId, asHuman } = await seedCanvasWithNode(t);
+    await expect(
+      asHuman.mutation(api.comments.createMine, {
+        canvasId,
+        pageId: "overview",
+        nodeId: "intake",
+        el: "Nope",
+        body: "bad id",
+      }),
+    ).rejects.toThrow(/invalid_el/);
   });
 
   test("an empty body is not a comment", async () => {

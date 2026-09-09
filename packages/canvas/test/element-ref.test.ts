@@ -19,11 +19,25 @@ test("formats and parses a canonical node locator", () => {
   });
 });
 
+test("formats and parses a control inside a node", () => {
+  const refId = formatElementRef("osago/claims", "invite", "submit-claim");
+  assert.equal(refId, "canvas://osago/claims?node=invite&el=submit-claim");
+  assert.deepEqual(parseElementRef(refId), {
+    canvasRef: "osago/claims",
+    workspaceSlug: "osago",
+    canvasSlug: "claims",
+    nodeId: "invite",
+    el: "submit-claim",
+  });
+});
+
 test("rejects ambiguous and non-canonical element refs", () => {
   for (const value of [
     "canvas://osago/fast-settlement",
     "canvas://osago/fast-settlement?node=a&node=b",
     "canvas://osago/fast-settlement?node=a&version=2",
+    "canvas://osago/fast-settlement?el=submit&node=a",
+    "canvas://osago/fast-settlement?node=a&el=Nope",
     "canvas://osago/fast-settlement?node=a#fragment",
     "canvas://osago/fast-settlement?node=space here",
     "https://osago/fast-settlement?node=a",

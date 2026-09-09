@@ -13,6 +13,8 @@
  * differ only in the `actorKind` they pass and in who authenticated them.
  */
 
+import { describeCommentAnchor } from "@visual-canvas/canvas/comment-anchor.js";
+import { VC_ID_PATTERN } from "@visual-canvas/canvas/vc-id.js";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -58,15 +60,31 @@ async function loadCanvas(ctx: QueryCtx, canvasId: Id<"canvases">): Promise<Doc<
   return canvas;
 }
 
-function shape(comment: Doc<"canvasComments">, replies: Doc<"canvasCommentReplies">[]) {
+function shape(
+  comment: Doc<"canvasComments">,
+  replies: Doc<"canvasCommentReplies">[],
+  nodeTitle?: string,
+) {
   return {
     comment_id: comment._id as string,
     canvas_id: comment.canvasId as string,
     page_id: comment.pageId,
     node_id: comment.nodeId,
+    node_title: nodeTitle,
     point: comment.point,
     local: comment.local,
-    target_label: comment.targetLabel,
+    el: comment.el,
+    role: comment.role,
+    name: comment.name,
+    where: describeCommentAnchor({
+      nodeId: comment.nodeId,
+      nodeTitle,
+      local: comment.local,
+      point: comment.point,
+      el: comment.el,
+      role: comment.role,
+      name: comment.name,
+    }),
     body: comment.body,
     status: comment.status,
     author_kind: comment.authorKind,
@@ -91,10 +109,37 @@ function shape(comment: Doc<"canvasComments">, replies: Doc<"canvasCommentReplie
 }
 export type CommentThread = ReturnType<typeof shape>;
 
+async function nodeTitlesFor(
+  ctx: QueryCtx,
+  canvasId: Id<"canvases">,
+  comments: Doc<"canvasComments">[],
+): Promise<Map<string, string>> {
+  const needed = [
+    ...new Set(
+      comments
+        .filter((comment) => comment.nodeId)
+        .map((comment) => `${comment.pageId}:${comment.nodeId}`),
+    ),
+  ];
+  if (needed.length === 0) return new Map();
+  const rows = await ctx.db
+    .query("canvasDraftNodes")
+    .withIndex("by_canvas", (q) => q.eq("canvasId", canvasId))
+    .take(1_001);
+  const titles = new Map<string, string>();
+  for (const row of rows) {
+    if (row.entity !== "node") continue;
+    titles.set(`${row.pageId}:${row.entityId}`, row.title);
+  }
+  return titles;
+}
+
 async function readThreads(
   ctx: QueryCtx,
+  canvasId: Id<"canvases">,
   comments: Doc<"canvasComments">[],
 ): Promise<CommentThread[]> {
+  const titles = await nodeTitlesFor(ctx, canvasId, comments);
   return await Promise.all(
     comments.map(async (comment) =>
       shape(
@@ -103,6 +148,7 @@ async function readThreads(
           .query("canvasCommentReplies")
           .withIndex("by_comment", (q) => q.eq("commentId", comment._id))
           .take(MAX_REPLIES_READ),
+        comment.nodeId ? titles.get(`${comment.pageId}:${comment.nodeId}`) : undefined,
       ),
     ),
   );
@@ -135,7 +181,7 @@ async function listThreads(ctx: QueryCtx, args: ListArgs): Promise<CommentThread
       (status === "all" || row.status === status),
   );
   const limited = args.limit ? filtered.slice(0, args.limit) : filtered;
-  return await readThreads(ctx, limited);
+  return await readThreads(ctx, args.canvasId, limited);
 }
 
 async function countOpen(ctx: QueryCtx, canvasId: Id<"canvases">): Promise<number> {
@@ -147,7 +193,8 @@ async function countOpen(ctx: QueryCtx, canvasId: Id<"canvases">): Promise<numbe
 }
 
 const LocalValidator = v.object({ x: v.number(), y: v.number() });
-const MAX_TARGET_LABEL = 120;
+const MAX_NAME = 120;
+const MAX_ROLE = 40;
 
 function clampUnit(n: number): number {
   if (!Number.isFinite(n)) return n > 0 ? 1 : 0;
@@ -164,36 +211,54 @@ function normalizeLocal(
   };
 }
 
-function normalizeTargetLabel(label: string | undefined): string | undefined {
-  const trimmed = label?.trim();
+function normalizeEl(el: string | undefined): string | undefined {
+  const trimmed = el?.trim();
   if (!trimmed) return undefined;
-  return trimmed.length > MAX_TARGET_LABEL ? trimmed.slice(0, MAX_TARGET_LABEL) : trimmed;
+  if (!VC_ID_PATTERN.test(trimmed)) {
+    throw new Error(`invalid_el: "${trimmed}" is not a data-vc-id (lowercase slug).`);
+  }
+  return trimmed;
 }
 
-function resolveAnchor(args: {
+function normalizeRole(role: string | undefined): string | undefined {
+  const trimmed = role?.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  return trimmed.length > MAX_ROLE ? trimmed.slice(0, MAX_ROLE) : trimmed;
+}
+
+function normalizeName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > MAX_NAME ? trimmed.slice(0, MAX_NAME) : trimmed;
+}
+
+type CommentAnchor = {
   nodeId?: string;
   point?: { x: number; y: number };
   local?: { x: number; y: number };
-  targetLabel?: string;
-}): {
-  nodeId?: string;
-  point?: { x: number; y: number };
-  local?: { x: number; y: number };
-  targetLabel?: string;
-} {
+  el?: string;
+  role?: string;
+  name?: string;
+};
+
+function resolveAnchor(args: CommentAnchor): CommentAnchor {
   if (args.nodeId) {
     return {
       nodeId: args.nodeId,
       point: undefined,
       local: normalizeLocal(args.local),
-      targetLabel: normalizeTargetLabel(args.targetLabel),
+      el: normalizeEl(args.el),
+      role: normalizeRole(args.role),
+      name: normalizeName(args.name),
     };
   }
   return {
     nodeId: undefined,
     point: args.point,
     local: undefined,
-    targetLabel: undefined,
+    el: undefined,
+    role: undefined,
+    name: undefined,
   };
 }
 
@@ -203,7 +268,9 @@ interface CreateArgs {
   nodeId?: string;
   point?: { x: number; y: number };
   local?: { x: number; y: number };
-  targetLabel?: string;
+  el?: string;
+  role?: string;
+  name?: string;
   body: string;
   authorId: Id<"users">;
   authorKind: ActorKind;
@@ -253,10 +320,12 @@ async function createComment(ctx: MutationCtx, args: CreateArgs): Promise<Commen
     pageId: args.pageId,
     nodeId: anchor.nodeId,
     // A world point on a node would go stale the moment the node moved.
-    // `local` rides the rect; a page comment keeps `point`.
+    // `el` is the control; `local` paints the pin and is the fallback.
     point: anchor.point,
     local: anchor.local,
-    targetLabel: anchor.targetLabel,
+    el: anchor.el,
+    role: anchor.role,
+    name: anchor.name,
     body,
     status: "open",
     authorId: args.authorId,
@@ -266,7 +335,12 @@ async function createComment(ctx: MutationCtx, args: CreateArgs): Promise<Commen
   });
   const created = await ctx.db.get(id);
   if (!created) throw new Error("Comment insert did not land.");
-  return shape(created, []);
+  const titles = await nodeTitlesFor(ctx, args.canvasId, [created]);
+  return shape(
+    created,
+    [],
+    created.nodeId ? titles.get(`${created.pageId}:${created.nodeId}`) : undefined,
+  );
 }
 
 async function reanchorComment(
@@ -276,7 +350,9 @@ async function reanchorComment(
     nodeId?: string;
     point?: { x: number; y: number };
     local?: { x: number; y: number };
-    targetLabel?: string;
+    el?: string;
+    role?: string;
+    name?: string;
   },
 ): Promise<CommentThread> {
   const comment = await loadComment(ctx, args.commentId);
@@ -293,11 +369,12 @@ async function reanchorComment(
     nodeId: anchor.nodeId,
     point: anchor.point,
     local: anchor.local,
-    targetLabel: anchor.targetLabel,
+    el: anchor.el,
+    role: anchor.role,
+    name: anchor.name,
     updatedAt: Date.now(),
   });
-  const refreshed = await loadComment(ctx, comment._id);
-  return shape(refreshed, await repliesOf(ctx, comment._id));
+  return presentThread(ctx, await loadComment(ctx, comment._id));
 }
 
 async function loadComment(
@@ -307,6 +384,18 @@ async function loadComment(
   const comment = await ctx.db.get(commentId);
   if (!comment) throw new Error(`comment_not_found: ${commentId}`);
   return comment;
+}
+
+async function presentThread(
+  ctx: QueryCtx,
+  comment: Doc<"canvasComments">,
+): Promise<CommentThread> {
+  const titles = await nodeTitlesFor(ctx, comment.canvasId, [comment]);
+  return shape(
+    comment,
+    await repliesOf(ctx, comment._id),
+    comment.nodeId ? titles.get(`${comment.pageId}:${comment.nodeId}`) : undefined,
+  );
 }
 
 async function addReply(
@@ -330,14 +419,7 @@ async function addReply(
     createdAt: now,
   });
   await ctx.db.patch(comment._id, { updatedAt: now });
-  const refreshed = await loadComment(ctx, comment._id);
-  return shape(
-    refreshed,
-    await ctx.db
-      .query("canvasCommentReplies")
-      .withIndex("by_comment", (q) => q.eq("commentId", comment._id))
-      .take(MAX_REPLIES_READ),
-  );
+  return presentThread(ctx, await loadComment(ctx, comment._id));
 }
 
 /**
@@ -380,8 +462,7 @@ async function completeComment(
     resolvedBy: undefined,
     updatedAt: now,
   });
-  const refreshed = await loadComment(ctx, comment._id);
-  return shape(refreshed, await repliesOf(ctx, comment._id));
+  return presentThread(ctx, await loadComment(ctx, comment._id));
 }
 
 async function repliesOf(ctx: QueryCtx, commentId: Id<"canvasComments">) {
@@ -434,8 +515,7 @@ async function setCommentStatus(
       updatedAt: now,
     });
   }
-  const refreshed = await loadComment(ctx, comment._id);
-  return shape(refreshed, await repliesOf(ctx, comment._id));
+  return presentThread(ctx, await loadComment(ctx, comment._id));
 }
 
 /* --- MCP-facing (the tool layer authenticates and passes the principal) --- */
@@ -447,7 +527,9 @@ export const create = internalMutation({
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
     local: v.optional(LocalValidator),
-    targetLabel: v.optional(v.string()),
+    el: v.optional(v.string()),
+    role: v.optional(v.string()),
+    name: v.optional(v.string()),
     body: v.string(),
     authorId: v.id("users"),
     authorKind: ActorKindValidator,
@@ -461,7 +543,9 @@ export const reanchor = internalMutation({
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
     local: v.optional(LocalValidator),
-    targetLabel: v.optional(v.string()),
+    el: v.optional(v.string()),
+    role: v.optional(v.string()),
+    name: v.optional(v.string()),
   },
   handler: async (ctx, args) => reanchorComment(ctx, args),
 });
@@ -539,7 +623,9 @@ export const createMine = mutation({
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
     local: v.optional(LocalValidator),
-    targetLabel: v.optional(v.string()),
+    el: v.optional(v.string()),
+    role: v.optional(v.string()),
+    name: v.optional(v.string()),
     body: v.string(),
   },
   handler: async (ctx, args) => {
@@ -555,7 +641,9 @@ export const reanchorMine = mutation({
     nodeId: v.optional(v.string()),
     point: v.optional(PointValidator),
     local: v.optional(LocalValidator),
-    targetLabel: v.optional(v.string()),
+    el: v.optional(v.string()),
+    role: v.optional(v.string()),
+    name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);

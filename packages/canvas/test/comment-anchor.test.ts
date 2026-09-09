@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clampLocal, localFromWorld, worldFromCommentAnchor } from "../src/comment-anchor.js";
+import {
+  clampLocal,
+  describeCommentAnchor,
+  localFromWorld,
+  worldFromCommentAnchor,
+} from "../src/comment-anchor.js";
 
 const node = { x: 100, y: 50, w: 200, h: 100 };
 
@@ -28,4 +33,30 @@ test("a missing node with a nodeId does not paint", () => {
 
 test("a page comment sits on its world point", () => {
   assert.deepEqual(worldFromCommentAnchor(undefined, { point: { x: 9, y: 8 } }), { x: 9, y: 8 });
+});
+
+test("describeCommentAnchor is a sentence an agent can read", () => {
+  assert.equal(
+    describeCommentAnchor({
+      nodeId: "intake",
+      nodeTitle: "Invite",
+      el: "submit-claim",
+      role: "button",
+      name: "Submit claim",
+      local: { x: 0.25, y: 0.8 },
+    }),
+    "On Invite · Submit claim (button)",
+  );
+  assert.equal(
+    describeCommentAnchor({ nodeId: "intake", nodeTitle: "Invite", local: { x: 0.25, y: 0.8 } }),
+    "On Invite, 25% from the left, 80% from the top",
+  );
+  assert.equal(
+    describeCommentAnchor({ nodeId: "intake", nodeTitle: "Invite" }),
+    "On Invite (whole frame)",
+  );
+  assert.equal(
+    describeCommentAnchor({ point: { x: 640.4, y: 120.6 } }),
+    "On the page at (640, 121)",
+  );
 });

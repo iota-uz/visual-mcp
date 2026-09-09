@@ -1,6 +1,8 @@
 import { CanvasFileSchema, resolveCanvasPage } from "@visual-canvas/canvas";
+import { iframeHitTestSource } from "@visual-canvas/canvas/iframe-probe.js";
 import type { CanvasSnapshotTarget } from "@visual-canvas/canvas/snapshot-entry.js";
 import type { Theme } from "@visual-canvas/canvas/themes.js";
+import { stampVcIds } from "@visual-canvas/canvas/vc-id.js";
 import {
   compileThemeToCssVariables,
   type resolveTheme,
@@ -80,7 +82,7 @@ function iframeCsp(nonce: string): string {
 }
 
 function iframeBridge(nonce: string): string {
-  return `<script nonce="${nonce}">(function(){const send=(state,detail)=>parent.postMessage({type:'visual-canvas:readiness',state,detail},'*');const style=document.createElement('style');style.textContent='html[data-visual-canvas-suspended] *,html[data-visual-canvas-suspended] *::before,html[data-visual-canvas-suspended] *::after{animation-play-state:paused!important}';document.head.appendChild(style);addEventListener('message',e=>{if(e.source!==parent||e.data?.type!=='visual-canvas:lifecycle'||!['suspend','resume'].includes(e.data.state))return;const suspended=e.data.state==='suspend';document.documentElement.toggleAttribute('data-visual-canvas-suspended',suspended);window.visualCanvasSuspended=suspended;dispatchEvent(new CustomEvent(suspended?'visual-canvas:suspend':'visual-canvas:resume'));parent.postMessage({type:'visual-canvas:lifecycle-ack',state:suspended?'suspended':'active'},'*')});addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();parent.postMessage({type:'visual-canvas:escape'},'*')}});Promise.all([document.fonts?document.fonts.ready:Promise.resolve(),Promise.all(Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.addEventListener('load',r,{once:true});i.addEventListener('error',()=>j(new Error('image '+i.src)),{once:true})}))),window.visualCanvasScreenReady||Promise.resolve()]).then(()=>send('ready')).catch(e=>send('partial',String(e&&e.message||e)));})();</script>`;
+  return `<script nonce="${nonce}">(function(){const send=(state,detail)=>parent.postMessage({type:'visual-canvas:readiness',state,detail},'*');const style=document.createElement('style');style.textContent='html[data-visual-canvas-suspended] *,html[data-visual-canvas-suspended] *::before,html[data-visual-canvas-suspended] *::after{animation-play-state:paused!important}';document.head.appendChild(style);addEventListener('message',e=>{if(e.source!==parent||e.data?.type!=='visual-canvas:lifecycle'||!['suspend','resume'].includes(e.data.state))return;const suspended=e.data.state==='suspend';document.documentElement.toggleAttribute('data-visual-canvas-suspended',suspended);window.visualCanvasSuspended=suspended;dispatchEvent(new CustomEvent(suspended?'visual-canvas:suspend':'visual-canvas:resume'));parent.postMessage({type:'visual-canvas:lifecycle-ack',state:suspended?'suspended':'active'},'*')});addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();parent.postMessage({type:'visual-canvas:escape'},'*')}});Promise.all([document.fonts?document.fonts.ready:Promise.resolve(),Promise.all(Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.addEventListener('load',r,{once:true});i.addEventListener('error',()=>j(new Error('image '+i.src)),{once:true})}))),window.visualCanvasScreenReady||Promise.resolve()]).then(()=>send('ready')).catch(e=>send('partial',String(e&&e.message||e)));${iframeHitTestSource()}})();</script>`;
 }
 
 const SCOPED_CANVAS_TEXT_MIME =
@@ -135,6 +137,9 @@ async function prepareScopedCanvasBlob(
     source = source.includes("</head>")
       ? source.replace("</head>", `${bootstrap}</head>`)
       : bootstrap + source;
+  }
+  if (bridgeNonce && /^text\/html(?:;|$)/i.test(mimeType)) {
+    source = stampVcIds(source);
   }
   if (bridgeNonce) {
     source = source.includes("</body>")

@@ -1,7 +1,7 @@
 ---
 id: in-node-comment-anchors
 title: Комментарий якорится к точке внутри ноды и перетаскивается
-status: accepted
+status: superseded
 date: 2026-09-09
 deciders: [diyorkhaydarov]
 area: product
@@ -18,7 +18,7 @@ applies_to:
 tags: [product, comments, canvas, editor-ux]
 refs: []
 supersedes: []
-superseded_by: []
+superseded_by: [element-id-comment-anchors]
 ---
 
 ## Контекст
@@ -73,6 +73,11 @@ iframe при выборе Comment выключается.
 `createComment` больше не выбрасывает координаты клика: при `nodeId`
 пишет `local`. `comment_create` принимает `local`. Старые нодовые
 комментарии без `local` рисуются как раньше.
+
+Агент не видит DOM внутри iframe. `comment_list` отдаёт предложение
+`where` («On Invite, 25% from the left, 80% from the top») и `look` —
+готовый target для `canvas_snapshot` этой ноды. `local` остаётся
+машиночитаемым, не селектором.
 
 ## Как проверить
 

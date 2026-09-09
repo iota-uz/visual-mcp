@@ -578,12 +578,17 @@ export default defineSchema({
     /** Set for a comment dropped on empty page space, in world coordinates. */
     point: v.optional(v.object({ x: v.number(), y: v.number() })),
     /**
-     * Spot inside the node, 0–1 of its rect. Present on new node comments;
-     * absent means the legacy pin at the frame's top-right.
+     * Spot inside the node, 0–1 of its rect. Pin paint and the fallback when
+     * there is no inner element (image, PDF, empty padding). Absent means
+     * the legacy pin at the frame's top-right.
      */
     local: v.optional(v.object({ x: v.number(), y: v.number() })),
-    /** Best-effort name of a native-body control under the click. Never a selector. */
-    targetLabel: v.optional(v.string()),
+    /** `data-vc-id` of the control inside the node. Identity; not a selector. */
+    el: v.optional(v.string()),
+    /** Implicit or explicit ARIA role of that control. */
+    role: v.optional(v.string()),
+    /** Accessible name of that control. */
+    name: v.optional(v.string()),
     body: v.string(),
     /**
      * `completed` is the agent saying "done, here is what I changed";

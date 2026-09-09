@@ -2833,7 +2833,9 @@ export function CanvasPage() {
                   nodeId: anchor.nodeId,
                   point: anchor.nodeId ? undefined : anchor.point,
                   local: anchor.local,
-                  targetLabel: anchor.targetLabel,
+                  el: anchor.el,
+                  role: anchor.role,
+                  name: anchor.name,
                 });
               }}
               onCommentDismiss={closeCommentPopover}
@@ -2848,7 +2850,8 @@ export function CanvasPage() {
                       anchorLabel={commentAnchorLabel(
                         doc ?? null,
                         commentDraft.nodeId,
-                        commentDraft.targetLabel,
+                        commentDraft.name,
+                        commentDraft.el,
                       )}
                       onCancel={() => setCommentDraft(null)}
                       onSubmit={async (body) => {
@@ -2858,7 +2861,9 @@ export function CanvasPage() {
                           nodeId: commentDraft.nodeId,
                           point: commentDraft.nodeId ? undefined : commentDraft.point,
                           local: commentDraft.local,
-                          targetLabel: commentDraft.targetLabel,
+                          el: commentDraft.el,
+                          role: commentDraft.role,
+                          name: commentDraft.name,
                           body,
                         });
                         // Straight from composing into the thread that was
@@ -2875,7 +2880,8 @@ export function CanvasPage() {
                       anchorLabel={commentAnchorLabel(
                         doc ?? null,
                         activeThread.node_id,
-                        activeThread.target_label,
+                        activeThread.name,
+                        activeThread.el,
                       )}
                       onClose={() => setActiveCommentId(null)}
                       onReply={(body) =>

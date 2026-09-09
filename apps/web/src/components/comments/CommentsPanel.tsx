@@ -38,7 +38,7 @@ export function CommentsPanel({
 
   function renderThread(thread: CommentThread) {
     const isActive = thread.comment_id === activeId;
-    const anchor = commentAnchorLabel(doc, thread.node_id, thread.target_label);
+    const anchor = thread.where ?? commentAnchorLabel(doc, thread.node_id, thread.name, thread.el);
     /* What was said last, whoever said it. For a completed thread that is
        the agent's claim, which is exactly the thing this row exists to
        tell you about — a reply count would not. */

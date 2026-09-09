@@ -1,3 +1,5 @@
+import { VC_ID_PATTERN } from "./vc-id.js";
+
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export class ElementRefError extends Error {
@@ -12,6 +14,8 @@ export interface ParsedElementRef {
   workspaceSlug: string;
   canvasSlug: string;
   nodeId: string;
+  /** Inner `data-vc-id` on the node's HTML, when the ref names a control. */
+  el?: string;
 }
 
 export interface ElementSelection {
@@ -30,8 +34,8 @@ function assertSlug(value: string, label: string): void {
   }
 }
 
-/** Formats the canonical, current-version locator for one CanvasDoc node. */
-export function formatElementRef(canvasRef: string, nodeId: string): string {
+/** Formats the canonical locator for a node, or a control inside it. */
+export function formatElementRef(canvasRef: string, nodeId: string, el?: string): string {
   const parts = canvasRef.split("/");
   if (parts.length !== 2) {
     throw new ElementRefError('canvasRef must be "workspace-slug/canvas-slug".');
@@ -40,7 +44,12 @@ export function formatElementRef(canvasRef: string, nodeId: string): string {
   assertSlug(workspaceSlug, "workspace slug");
   assertSlug(canvasSlug, "canvas slug");
   if (!nodeId) throw new ElementRefError("node id must be non-empty.");
-  return `canvas://${workspaceSlug}/${canvasSlug}?node=${encodeURIComponent(nodeId)}`;
+  const base = `canvas://${workspaceSlug}/${canvasSlug}?node=${encodeURIComponent(nodeId)}`;
+  if (el === undefined || el === "") return base;
+  if (!VC_ID_PATTERN.test(el)) {
+    throw new ElementRefError("el must be a lowercase data-vc-id slug.");
+  }
+  return `${base}&el=${encodeURIComponent(el)}`;
 }
 
 /** Strictly parses an element ref instead of guessing at malformed locators. */
@@ -53,8 +62,11 @@ export function parseElementRef(value: unknown): ParsedElementRef {
   try {
     url = new URL(value);
   } catch {
-    throw new ElementRefError("invalid_ref_id: expected canvas://workspace/canvas?node=<id>.");
+    throw new ElementRefError(
+      "invalid_ref_id: expected canvas://workspace/canvas?node=<id>[&el=<id>].",
+    );
   }
+  const keys = [...url.searchParams.keys()];
   if (
     url.protocol !== "canvas:" ||
     url.username ||
@@ -62,15 +74,20 @@ export function parseElementRef(value: unknown): ParsedElementRef {
     url.port ||
     url.hash ||
     url.pathname.split("/").filter(Boolean).length !== 1 ||
-    [...url.searchParams.keys()].some((key) => key !== "node") ||
-    url.searchParams.getAll("node").length !== 1
+    keys[0] !== "node" ||
+    url.searchParams.getAll("node").length !== 1 ||
+    (keys.length === 2 && (keys[1] !== "el" || url.searchParams.getAll("el").length !== 1)) ||
+    keys.length > 2
   ) {
-    throw new ElementRefError("invalid_ref_id: expected canvas://workspace/canvas?node=<id>.");
+    throw new ElementRefError(
+      "invalid_ref_id: expected canvas://workspace/canvas?node=<id>[&el=<id>].",
+    );
   }
 
   const workspaceSlug = url.hostname;
   const canvasSlug = url.pathname.slice(1);
   const nodeId = url.searchParams.get("node") ?? "";
+  const el = url.searchParams.get("el") ?? undefined;
   assertSlug(workspaceSlug, "workspace slug");
   assertSlug(canvasSlug, "canvas slug");
   if (!nodeId) throw new ElementRefError("invalid_ref_id: node id must be non-empty.");
@@ -80,8 +97,9 @@ export function parseElementRef(value: unknown): ParsedElementRef {
     workspaceSlug,
     canvasSlug,
     nodeId,
+    ...(el ? { el } : {}),
   };
-  if (formatElementRef(parsed.canvasRef, parsed.nodeId) !== value) {
+  if (formatElementRef(parsed.canvasRef, parsed.nodeId, parsed.el) !== value) {
     throw new ElementRefError("invalid_ref_id: ref_id must use the canonical encoded form.");
   }
   return parsed;

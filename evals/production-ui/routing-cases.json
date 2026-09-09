@@ -44,6 +44,7 @@
   { "query": "Inspect the actual image bytes for this asset", "expected": "asset_get" },
   { "query": "Attach the approved logo to this canvas", "expected": "asset_attach" },
   { "query": "Leave feedback pinned to this node", "expected": "comment_create" },
+  { "query": "List the buttons and fields on this screen by id", "expected": "screen_tree" },
   { "query": "Read the unresolved feedback queue", "expected": "comment_list" },
   { "query": "Reply to this feedback thread", "expected": "comment_reply" },
   { "query": "Mark the requested change complete", "expected": "comment_complete" },
