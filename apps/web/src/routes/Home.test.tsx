@@ -209,11 +209,11 @@ describe("HomePage", () => {
     await user.click(screen.getByRole("button", { name: "Actions for OSAGO" }));
     await user.click(screen.getByRole("menuitem", { name: "Rename" }));
 
-    const input = screen.getByLabelText("Workspace name");
+    const input = screen.getByRole("textbox", { name: "Workspace name" });
     await user.clear(input);
-    await user.type(input, "  OSAGO v2  ");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.type(input, "  OSAGO v2{Enter}");
 
     expect(mutation).toHaveBeenCalledWith({ workspaceId: "ws1", name: "OSAGO v2" });
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 });

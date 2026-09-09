@@ -89,9 +89,19 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
 
       <div className="canvas-card-head">
         <div className="canvas-card-headings">
-          <Link to={`/c/${canvas.canvas_id}`} className="canvas-card-link card-hit-link">
-            <span className="canvas-card-title">{canvas.title}</span>
-          </Link>
+          {renaming && onRename ? (
+            <RenameForm
+              initial={canvas.title}
+              label="Canvas title"
+              className="canvas-card-title"
+              onSave={onRename}
+              onDone={() => setRenaming(false)}
+            />
+          ) : (
+            <Link to={`/c/${canvas.canvas_id}`} className="canvas-card-link card-hit-link">
+              <span className="canvas-card-title">{canvas.title}</span>
+            </Link>
+          )}
           <span className="canvas-card-meta">
             <time dateTime={new Date(canvas.updated_at).toISOString()}>
               {formatRelativeTime(canvas.updated_at)}
@@ -136,14 +146,6 @@ export function CanvasCard({ canvas, workspaceSlug, onRename, onDelete }: Canvas
 
       {canvas.description && <p className="canvas-card-description">{canvas.description}</p>}
 
-      {renaming && onRename && (
-        <RenameForm
-          initial={canvas.title}
-          label="Canvas title"
-          onSave={onRename}
-          onDone={() => setRenaming(false)}
-        />
-      )}
       {confirming && onDelete && (
         /* Already armed: choosing "Delete canvas…" in the menu was the
            first of the two decisions. */

@@ -67,9 +67,19 @@ export function WorkspaceCard({
   return (
     <li className="workspace-card card-hit">
       <div className="workspace-card-head">
-        <Link to={`/w/${workspace.slug}`} className="workspace-card-link card-hit-link">
-          {workspace.name}
-        </Link>
+        {renaming ? (
+          <RenameForm
+            initial={workspace.name}
+            label="Workspace name"
+            className="workspace-card-link"
+            onSave={onRename}
+            onDone={() => setRenaming(false)}
+          />
+        ) : (
+          <Link to={`/w/${workspace.slug}`} className="workspace-card-link card-hit-link">
+            {workspace.name}
+          </Link>
+        )}
         <Menu
           triggerRef={menuRef}
           className="card-hit-actions"
@@ -121,14 +131,6 @@ export function WorkspaceCard({
         </div>
       )}
 
-      {renaming && (
-        <RenameForm
-          initial={workspace.name}
-          label="Workspace name"
-          onSave={onRename}
-          onDone={() => setRenaming(false)}
-        />
-      )}
       {confirming && (
         <ConfirmButton
           defaultArmed

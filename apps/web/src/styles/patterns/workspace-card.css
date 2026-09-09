@@ -31,6 +31,10 @@
   text-decoration: none;
 }
 
+.workspace-card-link.inline-rename-wrap {
+  flex: 1;
+}
+
 .workspace-card-count {
   color: var(--app-muted);
 }

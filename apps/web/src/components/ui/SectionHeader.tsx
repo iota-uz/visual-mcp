@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
+import { RenameForm } from "../RenameForm";
 
 export interface Crumb {
   to: string;
@@ -91,83 +92,16 @@ function EditableHeading({
   renameLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(title);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const closed = useRef(false);
-  const id = useId();
-
-  useEffect(() => {
-    if (!editing) setValue(title);
-  }, [title, editing]);
-
-  useEffect(() => {
-    if (!editing) return;
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [editing]);
-
-  function startEdit() {
-    if (busy) return;
-    closed.current = false;
-    setError(null);
-    setValue(title);
-    setEditing(true);
-  }
-
-  function cancel() {
-    closed.current = true;
-    setValue(title);
-    setError(null);
-    setEditing(false);
-  }
-
-  async function commit() {
-    if (closed.current) return;
-    const next = value.trim();
-    if (!next || next === title) {
-      cancel();
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await onRename(next);
-      closed.current = true;
-      setEditing(false);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   if (editing) {
     return (
       <Heading className="section-header-title is-editing">
-        <input
-          id={id}
-          ref={inputRef}
-          className="section-header-rename"
-          aria-label={renameLabel}
-          aria-invalid={error ? true : undefined}
-          value={value}
-          size={Math.max(8, value.length + 1)}
-          disabled={busy}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void commit();
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              cancel();
-            }
-          }}
+        <RenameForm
+          initial={title}
+          label={renameLabel}
+          onSave={onRename}
+          onDone={() => setEditing(false)}
         />
-        {error && <span className="error-text">{error}</span>}
       </Heading>
     );
   }
@@ -178,11 +112,11 @@ function EditableHeading({
         type="button"
         className="section-header-rename-hit"
         title="Double-click to rename"
-        onDoubleClick={startEdit}
+        onDoubleClick={() => setEditing(true)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === "F2" || event.key === " ") {
             event.preventDefault();
-            startEdit();
+            setEditing(true);
           }
         }}
       >

@@ -102,7 +102,7 @@
 
 /* Anything interactive that is *not* the stretched link has to sit above it. */
 .card-hit-actions,
-.card-hit > .rename-form,
+.card-hit .inline-rename-wrap,
 .card-hit > .confirm-inline {
   position: relative;
   z-index: 1;

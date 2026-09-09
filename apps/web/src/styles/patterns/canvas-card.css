@@ -147,6 +147,10 @@
   line-height: 1.3;
 }
 
+.canvas-card-title.inline-rename-wrap {
+  width: 100%;
+}
+
 /* Recency is the reason anyone opens a page sorted by it, so it reads as
    the card's subtitle rather than as the smallest grey thing on it. */
 .canvas-card-meta {

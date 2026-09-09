@@ -1,6 +1,4 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Button } from "./ui/Button";
-import { TextInput } from "./ui/TextInput";
 
 interface RenameFormProps {
   initial: string;
@@ -8,43 +6,46 @@ interface RenameFormProps {
   label: string;
   onSave: (next: string) => Promise<unknown>;
   onDone: () => void;
+  className?: string;
 }
 
 /*
- * Inline rename: swaps the title in place for an input, submits on Enter,
- * cancels on Escape or blur-free explicit Cancel. Deliberately not a modal
- * — renaming is a one-field, low-stakes edit and a dialog would be heavier
- * than the thing it edits. The parent owns the "am I editing?" flag so the
- * same component works for a list row, a card, and a page header.
+ * The title becomes a field. Enter and blur save, Escape or an empty value
+ * cancel. No Save/Cancel buttons: those were heavier than the one word they
+ * edited, and the page heading already renamed this way on double-click.
+ * The parent owns "am I editing?" so the same field works in a card, a
+ * drawer, and a heading.
  */
-export function RenameForm({ initial, label, onSave, onDone }: RenameFormProps) {
+export function RenameForm({ initial, label, onSave, onDone, className }: RenameFormProps) {
   const [value, setValue] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Two rows in the same list can be editing at once, so the field's id has
-  // to be unique per instance rather than per component.
+  const closed = useRef(false);
   const id = useId();
 
-  // Focus via ref rather than the autoFocus attribute: autoFocus steals
-  // focus on hydration in ways screen readers announce badly (and biome's
-  // a11y/noAutofocus rejects it).
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function cancel() {
+    closed.current = true;
+    onDone();
+  }
+
+  async function commit() {
+    if (closed.current) return;
     const next = value.trim();
     if (!next || next === initial) {
-      onDone();
+      cancel();
       return;
     }
     setBusy(true);
     setError(null);
     try {
       await onSave(next);
+      closed.current = true;
       onDone();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -54,25 +55,29 @@ export function RenameForm({ initial, label, onSave, onDone }: RenameFormProps) 
   }
 
   return (
-    <form className="rename-form" onSubmit={handleSubmit}>
-      <TextInput
+    <span className={["inline-rename-wrap", className].filter(Boolean).join(" ")}>
+      <input
         id={id}
-        label={label}
-        inputRef={inputRef}
+        ref={inputRef}
+        className="inline-rename"
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
         value={value}
+        size={Math.max(8, value.length + 1)}
         disabled={busy}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onDone();
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void commit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            cancel();
+          }
         }}
       />
-      <Button type="submit" variant="primary" size="sm" disabled={busy || !value.trim()}>
-        Save
-      </Button>
-      <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>
-        Cancel
-      </Button>
       {error && <span className="error-text">{error}</span>}
-    </form>
+    </span>
   );
 }

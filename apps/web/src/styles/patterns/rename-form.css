@@ -2,17 +2,26 @@
 
 /* --- inline rename --- */
 
-/* Compact and already-accented, because the field replaces a title in
-   place: it has to read as "this text is now editable", not as a form. */
-.rename-form {
+.inline-rename-wrap {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--app-space-2);
-  width: 100%;
-  --field-flex: 1;
-  --field-min-width: 120px;
-  --field-font-size: var(--app-text-sm);
-  --field-border-color: var(--app-accent);
-  --field-padding: var(--app-space-1) var(--app-space-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--app-space-1);
+  min-width: 0;
+}
+
+.inline-rename {
+  display: block;
+  box-sizing: border-box;
+  field-sizing: content;
+  width: auto;
+  min-width: 8ch;
+  max-width: min(40ch, 100%);
+  margin: 0;
+  padding: var(--app-space-1) var(--app-space-2);
+  border: 1px solid var(--app-accent);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-paper);
+  color: inherit;
+  font: inherit;
 }
