@@ -2045,6 +2045,7 @@ const SaveOutputSchema = z.object({
 
 const AssetRecordOutputSchema = z.object({
   asset_id: z.string(),
+  revision_id: z.string(),
   asset_ref: z.string(),
   scope: z.enum(["personal", "workspace"]),
   workspace_slug: z.string().nullable(),
@@ -4322,6 +4323,7 @@ export function registerTools(
         .strict(),
       outputSchema: z.object({
         asset_ref: z.string(),
+        revision_id: z.string(),
         revision: z.number().int().positive(),
         mime_type: z.string(),
         size_bytes: z.number().int().nonnegative(),
@@ -4337,6 +4339,7 @@ export function registerTools(
         });
         const payload = {
           asset_ref: asset.assetRef,
+          revision_id: asset.assetVersionId,
           revision: asset.revision,
           mime_type: asset.mimeType,
           size_bytes: asset.size,

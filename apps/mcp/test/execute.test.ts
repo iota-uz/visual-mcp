@@ -1,3 +1,5 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ExecuteRequest, handleExecute } from "../../worker/src/execute.js";
 import type { AgentGateway } from "../src/gateway.js";
@@ -51,33 +53,43 @@ function fixture(mixedAssets = false) {
               slug: input.slug,
               name: "Farq",
             }
-          : {
-              page: mixedAssets
-                ? ["image", "audio"]
-                    .filter((kind) => !input.kind || input.kind === kind)
-                    .map((kind) => ({
-                      asset_id: `asset-${kind}`,
-                      asset_ref: `asset://workspace/farq/${kind}@1`,
-                      scope: "workspace",
-                      workspace_slug: "farq",
-                      slug: kind,
-                      name: kind,
-                      description: null,
-                      tags: [],
-                      kind,
-                      revision: 1,
-                      revision_id: `revision-${kind}`,
-                      mime_type: kind === "audio" ? "audio/mpeg" : "image/png",
-                      size_bytes: 10,
-                      content_hash: "a".repeat(64),
-                      original_filename: kind,
-                      updated_at: 1,
-                      object_key: `fixtures/${kind}`,
-                    }))
-                : [],
-              isDone: true,
-              continueCursor: "",
-            },
+          : input.ref
+            ? {
+                assetRef: input.ref,
+                assetVersionId: "revision-audio",
+                revision: 1,
+                mimeType: "audio/mpeg",
+                size: 10,
+                contentHash: "a".repeat(64),
+                objectKey: "fixtures/audio",
+              }
+            : {
+                page: mixedAssets
+                  ? ["image", "audio"]
+                      .filter((kind) => !input.kind || input.kind === kind)
+                      .map((kind) => ({
+                        asset_id: `asset-${kind}`,
+                        asset_ref: `asset://workspace/farq/${kind}@1`,
+                        scope: "workspace",
+                        workspace_slug: "farq",
+                        slug: kind,
+                        name: kind,
+                        description: null,
+                        tags: [],
+                        kind,
+                        revision: 1,
+                        revision_id: `revision-${kind}`,
+                        mime_type: kind === "audio" ? "audio/mpeg" : "image/png",
+                        size_bytes: 10,
+                        content_hash: "a".repeat(64),
+                        original_filename: kind,
+                        updated_at: 1,
+                        object_key: `fixtures/${kind}`,
+                      }))
+                  : [],
+                isDone: true,
+                continueCursor: "",
+              },
     }),
     call: async (_op: string, req: { name: string; input: Record<string, unknown> }) => {
       const { name, input } = req;
@@ -247,7 +259,7 @@ function fixture(mixedAssets = false) {
     }
     throw new Error("Execution did not settle");
   }
-  return { tool, wait, jobs, effects, workerUrls, counts: () => ({ workerCalls, writes }) };
+  return { app, tool, wait, jobs, effects, workerUrls, counts: () => ({ workerCalls, writes }) };
 }
 test.each([
   ["worker.local", "http://worker.local:8080/execute"],
@@ -269,6 +281,48 @@ test.each([
     expect(f.jobs.get(jobId)?.result).toMatchObject({ success: true, emitted: [{ ok: true }] });
   },
 );
+test("installed SDK client validates populated asset list/get against published output JSON Schema", async () => {
+  vi.stubEnv("S3_ASSET_ENDPOINT", "https://storage.example.test");
+  vi.stubEnv("S3_ASSET_BUCKET", "fixture");
+  vi.stubEnv("S3_ASSET_ACCESS_KEY_ID", "fixture-access");
+  vi.stubEnv("S3_ASSET_SECRET_ACCESS_KEY", "fixture-secret");
+  const f = fixture(true);
+  const client = new Client({ name: "asset-schema-regression", version: "1" });
+  const transport = new StreamableHTTPClientTransport(new URL("http://mcp.local/mcp"), {
+    requestInit: { headers: { authorization: "Bearer fixture" } },
+    fetch: async (input, init) => f.app.fetch(new Request(input, init)),
+  });
+  try {
+    await client.connect(transport);
+    await client.listTools();
+    const listed = await client.callTool({
+      name: "asset_list",
+      arguments: { scope: "workspace", workspace: "farq" },
+    });
+    expect(listed.isError).not.toBe(true);
+    expect(listed.structuredContent).toMatchObject({
+      assets: [
+        { kind: "image", revision_id: "revision-image" },
+        { kind: "audio", revision_id: "revision-audio" },
+      ],
+    });
+    const audio = await client.callTool({
+      name: "asset_list",
+      arguments: { scope: "workspace", workspace: "farq", kind: "audio" },
+    });
+    expect(audio.structuredContent).toMatchObject({ count: 1, assets: [{ kind: "audio" }] });
+    const got = await client.callTool({
+      name: "asset_get",
+      arguments: { asset_ref: "asset://workspace/farq/audio@1" },
+    });
+    expect(got.structuredContent).toMatchObject({
+      revision_id: "revision-audio",
+      mime_type: "audio/mpeg",
+    });
+  } finally {
+    await client.close();
+  }
+});
 test("populated mixed audio library works directly and through execute, including audio filter", async () => {
   vi.stubEnv("S3_ASSET_ENDPOINT", "https://storage.example.test");
   vi.stubEnv("S3_ASSET_BUCKET", "fixture");
