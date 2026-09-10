@@ -433,17 +433,21 @@ function DraftStudio({
           </div>
         )
       ) : (
-        <div className="video-studio-workspace">
-          <aside className="video-studio-navigator" aria-label="Project scenes">
-            <SceneNavigator
-              document={script.document}
-              selectedId={activeSceneId}
-              onSelect={(next) => {
-                setSceneId(next);
-                setShotId("");
-              }}
-            />
-          </aside>
+        <div
+          className={`video-studio-workspace${mode === "timeline" ? " video-studio-workspace-timeline" : ""}`}
+        >
+          {mode !== "timeline" && (
+            <aside className="video-studio-navigator" aria-label="Project scenes">
+              <SceneNavigator
+                document={script.document}
+                selectedId={activeSceneId}
+                onSelect={(next) => {
+                  setSceneId(next);
+                  setShotId("");
+                }}
+              />
+            </aside>
+          )}
 
           <main className="video-editing-column">
             {mode === "story" && (

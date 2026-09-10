@@ -102,6 +102,14 @@
   grid-template-columns: 224px minmax(0, 1fr) 44px;
 }
 
+.video-studio-workspace-timeline {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+}
+
+.video-studio-workspace-timeline:has(.video-studio-inspector:not([open])) {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
 .video-studio-navigator {
   min-width: 0;
   overflow-y: auto;
@@ -225,6 +233,11 @@
   .video-studio-workspace,
   .video-studio-workspace:has(.video-studio-inspector:not([open])) {
     grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .video-studio-workspace-timeline,
+  .video-studio-workspace-timeline:has(.video-studio-inspector:not([open])) {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .video-studio-inspector,

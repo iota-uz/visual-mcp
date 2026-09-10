@@ -144,6 +144,7 @@ test("timeline exposes a temporal workspace and focused caption controls", async
   const user = userEvent.setup();
   mount();
   await user.click(screen.getByRole("button", { name: "Timeline" }));
+  expect(screen.queryByRole("complementary", { name: "Project scenes" })).not.toBeInTheDocument();
   expect(screen.getByRole("slider", { name: "Playhead" })).toHaveValue("0");
   expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await user.click(screen.getByRole("button", { name: "Add caption" }));
