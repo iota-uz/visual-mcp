@@ -7,6 +7,7 @@ import {
   StaleDependency,
 } from "../packages/video/src/contracts";
 import { patchDependencies } from "./lib/videoDependencies";
+import { purgeVideoProject } from "./lib/videoPurge";
 import { initializeVideoWorkflow } from "./lib/videoWorkflow";
 
 const pointer = (path: readonly PropertyKey[]) =>
@@ -364,17 +365,115 @@ const listProjectsDefinition = queryDefinition({
       .paginate(args.paginationOpts);
     return {
       ...rows,
-      page: rows.page
-        .filter((p) => !args.query || p.title.toLowerCase().includes(args.query.toLowerCase()))
-        .map((p) => ({
-          projectId: p._id,
-          workspaceId: p.workspaceId,
-          title: p.title,
-          revisionId: p.revisionId,
-          updatedAt: p.updatedAt,
-          reviewUrl: `/v/${p._id}`,
-        })),
+      page: await Promise.all(
+        rows.page
+          .filter((p) => !args.query || p.title.toLowerCase().includes(args.query.toLowerCase()))
+          .map((p) => summarizeProject(ctx, p)),
+      ),
     };
+  },
+});
+async function summarizeProject(
+  ctx: QueryCtx | MutationCtx,
+  p: {
+    _id: Id<"videoProjects">;
+    workspaceId: Id<"workspaces">;
+    title: string;
+    brief: string;
+    revisionId: string;
+    updatedAt: number;
+  },
+) {
+  const brief = Brief.parse(JSON.parse(p.brief));
+  const drafts = await ctx.db
+    .query("videoDrafts")
+    .withIndex("by_projectId_and_language", (q) => q.eq("projectId", p._id))
+    .take(2);
+  return {
+    projectId: p._id,
+    workspaceId: p.workspaceId,
+    title: p.title,
+    revisionId: p.revisionId,
+    updatedAt: p.updatedAt,
+    reviewUrl: `/v/${p._id}`,
+    topic: brief.topic,
+    languages: drafts.map((d) => d.language),
+  };
+}
+const listMineDefinition = queryDefinition({
+  args: {},
+  handler: async (ctx) => {
+    await user(ctx);
+    const workspaces = (await ctx.db.query("workspaces").take(50)).filter(
+      (workspace) => workspace.archivedAt === undefined,
+    );
+    const groups = [];
+    for (const workspace of workspaces) {
+      const rows = await ctx.db
+        .query("videoProjects")
+        .withIndex("by_workspaceId_and_updatedAt", (q) => q.eq("workspaceId", workspace._id))
+        .order("desc")
+        .take(20);
+      if (rows.length === 0) continue;
+      groups.push({
+        workspaceId: workspace._id,
+        slug: workspace.slug,
+        name: workspace.name,
+        projects: await Promise.all(rows.map((p) => summarizeProject(ctx, p))),
+      });
+    }
+    return groups;
+  },
+});
+const renameProjectDefinition = mutationDefinition({
+  args: { projectId: v.id("videoProjects"), title: v.string() },
+  handler: async (ctx, args) => {
+    await user(ctx);
+    const p = await project(ctx, args.projectId);
+    const title = args.title.trim();
+    if (!title || title.length > 500) fail("VALIDATION_ERROR", "A nonempty title is required");
+    const brief = Brief.parse(JSON.parse(p.brief));
+    const format = Format.parse(JSON.parse(p.format));
+    const revisionId = await digest({ title, brief, format });
+    await ctx.db.patch(p._id, { title, revisionId, updatedAt: Date.now() });
+    return { title, revisionId };
+  },
+});
+const deleteProjectDefinition = mutationDefinition({
+  args: { projectId: v.id("videoProjects") },
+  handler: async (ctx, args) => {
+    await user(ctx);
+    await project(ctx, args.projectId);
+    await purgeVideoProject(ctx, args.projectId);
+    return { deleted: true };
+  },
+});
+const latestRenderDefinition = queryDefinition({
+  args: {
+    projectId: v.id("videoProjects"),
+    language: language,
+  },
+  handler: async (ctx, args) => {
+    await user(ctx);
+    await project(ctx, args.projectId);
+    const states = ["succeeded"] as const;
+    for (const state of states) {
+      const jobs = await ctx.db
+        .query("videoJobs")
+        .withIndex("by_projectId_and_state", (q) =>
+          q.eq("projectId", args.projectId).eq("state", state),
+        )
+        .take(32);
+      const renders = jobs
+        .filter((job) => job.kind === "render" && job.versionId)
+        .sort((a, b) => b.createdAt - a.createdAt);
+      for (const job of renders) {
+        const version = job.versionId ? await ctx.db.get(job.versionId) : null;
+        if (version?.language === args.language)
+          return { jobId: job._id, versionId: version._id, createdAt: job.createdAt };
+      }
+    }
+    return null;
   },
 });
 const getDraftDefinition = queryDefinition({
@@ -731,6 +830,10 @@ const getVersionDefinition = queryDefinition({
 export const createProject = mutation(createProjectDefinition);
 export const getProject = query(getProjectDefinition);
 export const listProjects = query(listProjectsDefinition);
+export const listMine = query(listMineDefinition);
+export const renameProject = mutation(renameProjectDefinition);
+export const deleteProject = mutation(deleteProjectDefinition);
+export const latestRender = query(latestRenderDefinition);
 export const getDraft = query(getDraftDefinition);
 export const patchScript = mutation(patchScriptDefinition);
 export const patchTimeline = mutation(patchTimelineDefinition);

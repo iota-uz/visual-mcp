@@ -12,6 +12,10 @@ export function TimelineEditor({
   disabled: boolean;
 }) {
   const fps = document.fps.numerator / document.fps.denominator;
+  const durationSeconds = document.durationFrames / fps;
+  function toFrames(seconds: number) {
+    return Math.max(1, Math.round(seconds * fps));
+  }
   function addText() {
     const trackId = `caption_${crypto.randomUUID().replaceAll("-", "")}`;
     onChange({
@@ -63,23 +67,28 @@ export function TimelineEditor({
       <TextInput
         id="timeline-duration"
         type="number"
-        label="Duration in frames"
+        label="Duration (seconds)"
         labelVisible
-        min={1}
-        max={72000}
-        step={1}
-        value={document.durationFrames}
+        min={0.1}
+        max={2400}
+        step={0.1}
+        value={Number(durationSeconds.toFixed(2))}
         readOnly={disabled}
         onChange={(event) => {
           const value = Number(event.target.value);
-          if (Number.isInteger(value) && value > 0)
-            onChange({ ...document, durationFrames: value });
+          if (Number.isFinite(value) && value > 0)
+            onChange({ ...document, durationFrames: toFrames(value) });
         }}
       />
       <p className="video-hint">
-        {(document.durationFrames / fps).toFixed(2)} seconds at {fps.toFixed(2)} fps. Timing changes
-        do not start a render.
+        {durationSeconds.toFixed(2)} s at {fps.toFixed(2)} fps. Timing changes do not start a
+        render.
       </p>
+      <div className="video-timeline-ruler" aria-hidden="true">
+        <span>0s</span>
+        <span>{(durationSeconds / 2).toFixed(1)}s</span>
+        <span>{durationSeconds.toFixed(1)}s</span>
+      </div>
       {document.trackOrder.length === 0 && (
         <p className="video-hint">
           No clips placed yet. Your agent can arrange pinned media here; add a caption track to
@@ -104,37 +113,43 @@ export function TimelineEditor({
                         marginLeft: `${Math.min(100, (clip.startFrame / document.durationFrames) * 100)}%`,
                         width: `${Math.min(100, (clip.durationFrames / document.durationFrames) * 100)}%`,
                       }}
-                    />
+                    >
+                      {clip.source.kind === "text"
+                        ? clip.source.text || "Caption"
+                        : clip.source.kind === "component"
+                          ? clip.source.component.resourceId
+                          : "Clip"}
+                    </span>
                   </div>
                   <div className="video-field-pair">
                     <TextInput
                       id={`${trackId}-${clipId}-start`}
-                      label="Start frame"
+                      label="Start (seconds)"
                       labelVisible
                       type="number"
                       min={0}
-                      step={1}
-                      value={clip.startFrame}
+                      step={0.1}
+                      value={Number((clip.startFrame / fps).toFixed(2))}
                       readOnly={disabled}
                       onChange={(event) => {
                         const value = Number(event.target.value);
-                        if (Number.isInteger(value) && value >= 0)
-                          patch(trackId, clipId, { startFrame: value });
+                        if (Number.isFinite(value) && value >= 0)
+                          patch(trackId, clipId, { startFrame: Math.round(value * fps) });
                       }}
                     />
                     <TextInput
                       id={`${trackId}-${clipId}-length`}
-                      label="Length in frames"
+                      label="Length (seconds)"
                       labelVisible
                       type="number"
-                      min={1}
-                      step={1}
-                      value={clip.durationFrames}
+                      min={0.1}
+                      step={0.1}
+                      value={Number((clip.durationFrames / fps).toFixed(2))}
                       readOnly={disabled}
                       onChange={(event) => {
                         const value = Number(event.target.value);
-                        if (Number.isInteger(value) && value > 0)
-                          patch(trackId, clipId, { durationFrames: value });
+                        if (Number.isFinite(value) && value > 0)
+                          patch(trackId, clipId, { durationFrames: toFrames(value) });
                       }}
                     />
                   </div>

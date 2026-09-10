@@ -1,6 +1,7 @@
-import { Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
+import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
 import { TextInput } from "../ui/TextInput";
 
@@ -8,13 +9,25 @@ export function StoryboardEditor({
   document,
   onChange,
   disabled,
+  selectedId,
+  onSelect,
+  onOpenShot,
 }: {
   document: ScriptDocument;
   onChange: (next: ScriptDocument) => void;
   disabled: boolean;
+  selectedId?: string;
+  onSelect?: (id: string) => void;
+  onOpenShot?: (shotId: string) => void;
 }) {
-  const [selected, setSelected] = useState<string>();
+  const [localSelected, setLocalSelected] = useState<string>();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const selected = selectedId ?? localSelected;
   const id = selected && document.scenesById[selected] ? selected : document.sceneOrder[0];
+  function select(next: string) {
+    onSelect?.(next);
+    setLocalSelected(next);
+  }
   const scene = id ? document.scenesById[id] : undefined;
   function addScene() {
     const newId = `scene_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -34,7 +47,27 @@ export function StoryboardEditor({
         },
       },
     });
-    setSelected(newId);
+    select(newId);
+  }
+  function move(delta: number) {
+    if (!id) return;
+    const index = document.sceneOrder.indexOf(id);
+    const next = index + delta;
+    if (index < 0 || next < 0 || next >= document.sceneOrder.length) return;
+    const order = [...document.sceneOrder];
+    const scene = order[index];
+    if (!scene) return;
+    order.splice(index, 1);
+    order.splice(next, 0, scene);
+    onChange({ ...document, sceneOrder: order });
+  }
+  function removeScene() {
+    if (!id) return;
+    const { [id]: _removed, ...scenesById } = document.scenesById;
+    const sceneOrder = document.sceneOrder.filter((sceneId) => sceneId !== id);
+    onChange({ ...document, sceneOrder, scenesById });
+    select(sceneOrder[0] ?? "");
+    setConfirmDelete(false);
   }
   function patch(patch: Partial<ScriptDocument["scenesById"][string]>) {
     if (id && scene)
@@ -47,14 +80,57 @@ export function StoryboardEditor({
     <section className="video-storyboard" aria-label="Storyboard">
       <div className="video-section-heading">
         <h2>Storyboard</h2>
-        <Button
-          icon={Plus}
-          size="sm"
-          onClick={addScene}
-          disabled={disabled || document.sceneOrder.length >= 100}
-        >
-          Add scene
-        </Button>
+        <div className="video-actions">
+          <Button
+            icon={Plus}
+            size="sm"
+            onClick={addScene}
+            disabled={disabled || document.sceneOrder.length >= 100}
+          >
+            Add scene
+          </Button>
+          {id && (
+            <>
+              <Button
+                size="sm"
+                icon={ChevronLeft}
+                disabled={disabled || document.sceneOrder.indexOf(id) <= 0}
+                onClick={() => move(-1)}
+              >
+                Earlier
+              </Button>
+              <Button
+                size="sm"
+                iconEnd={ChevronRight}
+                disabled={
+                  disabled || document.sceneOrder.indexOf(id) >= document.sceneOrder.length - 1
+                }
+                onClick={() => move(1)}
+              >
+                Later
+              </Button>
+              {confirmDelete ? (
+                <ConfirmButton
+                  defaultArmed
+                  confirmLabel="Delete scene"
+                  description="Removes this scene from the draft. Shots planned on it are lost."
+                  onDisarm={() => setConfirmDelete(false)}
+                  onConfirm={async () => removeScene()}
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  icon={Trash2}
+                  disabled={disabled}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete scene
+                </Button>
+              )}
+            </>
+          )}
+        </div>
       </div>
       <TextInput
         id="script-premise"
@@ -72,7 +148,7 @@ export function StoryboardEditor({
             className="video-scene-card"
             key={sceneId}
             aria-pressed={id === sceneId}
-            onClick={() => setSelected(sceneId)}
+            onClick={() => select(sceneId)}
           >
             <span className="video-scene-number">Scene {index + 1}</span>
             <strong>{document.scenesById[sceneId]?.purpose || "Untitled scene"}</strong>
@@ -160,7 +236,7 @@ export function StoryboardEditor({
                 if (!shot) return null;
                 return (
                   <article className="video-shot" key={shotId}>
-                    <strong>{shot.purpose || shotId}</strong>
+                    <strong>{shot.purpose || "Untitled shot"}</strong>
                     <span>
                       {shot.method === "higgsfield"
                         ? "Generative motion"
@@ -169,14 +245,13 @@ export function StoryboardEditor({
                           : "Remotion"}
                     </span>
                     <p>{shot.subjectAction}</p>
-                    <p className="video-hint">Camera: {shot.cameraMotion || "Not specified"}</p>
-                    {shot.startImage && (
-                      <p className="video-hint">Pinned keyframe: {shot.startImage.assetId}</p>
-                    )}
                     {shot.selectedVideo && (
-                      <p className="video-hint">
-                        Selected clip: {shot.selectedVideo.assetId}. Selection is not approval.
-                      </p>
+                      <p className="video-hint">Candidate chosen for this shot.</p>
+                    )}
+                    {onOpenShot && (
+                      <Button size="sm" onClick={() => onOpenShot(shotId)}>
+                        Open in Shots
+                      </Button>
                     )}
                   </article>
                 );

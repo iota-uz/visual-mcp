@@ -14,6 +14,7 @@ import { useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
 import { CopyableValue } from "../components/ui/CopyableValue";
 import { TextInput } from "../components/ui/TextInput";
+import { WorkspaceChrome } from "../components/WorkspaceChrome";
 import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
@@ -134,6 +135,7 @@ export function AssetsPage() {
   const finalizeUpload = useAction(api.assets.finalizeUploadMine);
   const importAsset = useAction(api.assets.importUrlMine);
   const archiveAsset = useMutation(api.assets.archiveMine);
+  const renameWorkspace = useMutation(api.workspaces.renameMine);
   const { notify } = useToast();
   useDocumentTitle(wsSlug ? `${wsSlug} assets` : "Asset Library");
 
@@ -226,61 +228,62 @@ export function AssetsPage() {
     }
   }
 
+  const headerActions = (
+    <div className="asset-header-actions">
+      {workspace && (
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => setMediaPane(mediaPane === "image" ? null : "image")}
+          >
+            Generate image
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => setMediaPane(mediaPane === "upload" ? null : "upload")}
+          >
+            Upload media
+          </Button>
+        </>
+      )}
+      <Button variant="secondary" icon={Link2} onClick={() => setImportOpen((open) => !open)}>
+        Import URL
+      </Button>
+      {!wsSlug && (
+        <label className={`btn btn-primary${uploading ? " disabled" : ""}`}>
+          <Upload size={15} aria-hidden="true" />
+          {uploading ? "Uploading…" : "Upload"}
+          <input type="file" multiple hidden disabled={uploading} onChange={uploadFiles} />
+        </label>
+      )}
+    </div>
+  );
+
   return (
     <div className="page-stack">
-      <PageHeader
-        title={wsSlug ? "Workspace assets" : "Asset Library"}
-        subtitle={
-          wsSlug ? (
+      {wsSlug ? (
+        <WorkspaceChrome
+          slug={wsSlug}
+          workspace={workspace ?? undefined}
+          onRename={
+            workspace
+              ? (name) => renameWorkspace({ workspaceId: workspace.workspace_id, name })
+              : undefined
+          }
+          subtitle={
             <>
-              Reusable media for <strong>{wsSlug}</strong>.
+              Reusable media for <strong>{workspace?.name ?? wsSlug}</strong>.
             </>
-          ) : (
-            "Reusable media available across your workspaces."
-          )
-        }
-        /* Two crumbs, not one: the single Back arrow here went to the
-            workspace *list*, skipping the workspace whose assets you were
-            looking at. */
-        crumbs={
-          wsSlug
-            ? [
-                { to: "/", label: "Workspaces" },
-                { to: `/w/${wsSlug}`, label: wsSlug },
-              ]
-            : undefined
-        }
-        actions={
-          <div className="asset-header-actions">
-            {workspace && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => setMediaPane(mediaPane === "image" ? null : "image")}
-                >
-                  Generate image
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => setMediaPane(mediaPane === "upload" ? null : "upload")}
-                >
-                  Upload media
-                </Button>
-              </>
-            )}
-            <Button variant="secondary" icon={Link2} onClick={() => setImportOpen((open) => !open)}>
-              Import URL
-            </Button>
-            {!workspace && (
-              <label className={`btn btn-primary${uploading ? " disabled" : ""}`}>
-                <Upload size={15} aria-hidden="true" />
-                {uploading ? "Uploading…" : "Upload"}
-                <input type="file" multiple hidden disabled={uploading} onChange={uploadFiles} />
-              </label>
-            )}
-          </div>
-        }
-      />
+          }
+          actions={headerActions}
+        />
+      ) : (
+        <PageHeader
+          title="Asset Library"
+          subtitle="Reusable media available across your workspaces."
+          actions={headerActions}
+        />
+      )}
 
       {workspace && mediaPane && (
         <section aria-label="Media action">

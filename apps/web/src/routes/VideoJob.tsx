@@ -1,6 +1,6 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { z } from "zod";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -58,6 +58,13 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
       <p>
         No accessible job at this address. <Link to="/">Back to workspaces</Link>
       </p>
+    );
+  if (job.projectId)
+    return (
+      <Navigate
+        to={`/v/${job.projectId}?production=1&job=${job.jobId}${job.kind === "render" && job.state === "succeeded" ? `&mode=review&render=${job.jobId}` : ""}`}
+        replace
+      />
     );
   async function act(kind: "cancel" | "reconcile") {
     setPending(true);

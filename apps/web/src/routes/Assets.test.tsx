@@ -40,7 +40,8 @@ describe("AssetsPage", () => {
     renderAssets();
 
     expect(await screen.findByText("No assets here yet.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Canvases" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Canvases" })).toHaveAttribute("href", "/w/osago");
+    expect(screen.getByRole("link", { name: "Videos" })).toHaveAttribute("href", "/w/osago/videos");
     expect(screen.getByRole("button", { name: "audio" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "all" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/Reusable media for/)).toHaveTextContent("Reusable media for osago.");

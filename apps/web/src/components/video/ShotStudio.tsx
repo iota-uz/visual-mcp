@@ -18,6 +18,7 @@ export function ShotStudio({
   onChange,
   locked,
   unsaved,
+  sceneId: sceneIdProp,
 }: {
   workspaceId: Id<"workspaces">;
   projectId: Id<"videoProjects">;
@@ -27,9 +28,15 @@ export function ShotStudio({
   onChange: (value: ScriptDocument) => void;
   locked: boolean;
   unsaved: boolean;
+  sceneId?: string;
 }) {
   const [sceneChoice, setSceneChoice] = useState("");
-  const sceneId = document.scenesById[sceneChoice] ? sceneChoice : document.sceneOrder[0];
+  const requestedScene = sceneIdProp && document.scenesById[sceneIdProp] ? sceneIdProp : undefined;
+  const sceneId = requestedScene
+    ? requestedScene
+    : document.scenesById[sceneChoice]
+      ? sceneChoice
+      : document.sceneOrder[0];
   const scene = sceneId ? document.scenesById[sceneId] : undefined;
   const [shotChoice, setShotChoice] = useState("");
   const shotId = scene?.shotsById[shotChoice] ? shotChoice : scene?.shotOrder[0];
@@ -55,18 +62,20 @@ export function ShotStudio({
         <p>Add a scene to plan a shot.</p>
       ) : (
         <>
-          <Select
-            id="shot-scene"
-            label="Scene"
-            labelVisible
-            disabled={locked}
-            value={sceneId}
-            onChange={(event) => setSceneChoice(event.target.value)}
-            options={document.sceneOrder.map((id) => ({
-              value: id,
-              label: document.scenesById[id]?.purpose || id,
-            }))}
-          />
+          {!sceneIdProp && (
+            <Select
+              id="shot-scene"
+              label="Scene"
+              labelVisible
+              disabled={locked}
+              value={sceneId}
+              onChange={(event) => setSceneChoice(event.target.value)}
+              options={document.sceneOrder.map((id) => ({
+                value: id,
+                label: document.scenesById[id]?.purpose || id,
+              }))}
+            />
+          )}
           <Button
             disabled={locked || scene.shotOrder.length >= 100}
             size="sm"
@@ -253,53 +262,59 @@ function PinnedSource({
       </p>
       <div className="video-keyframe-library">
         {library.map((item) => (
-          <Button
+          <button
+            type="button"
             key={item.revision_id}
-            size="sm"
+            className="video-keyframe-thumb"
             disabled={disabled}
+            aria-pressed={source?.revisionId === item.revision_id}
             onClick={() => onSelected({ assetId: item.asset_id, revisionId: item.revision_id })}
           >
-            {item.name}
-          </Button>
+            <img src={item.preview_url} alt="" />
+            <span>{item.name}</span>
+          </button>
         ))}
       </div>
-      <TextInput
-        id="shot-source-asset"
-        label="Asset ID"
-        labelVisible
-        value={assetId}
-        disabled={disabled}
-        onChange={(event) => setAssetId(event.target.value)}
-      />
-      <TextInput
-        id="shot-source-revision"
-        label="Asset revision ID"
-        labelVisible
-        value={revisionId}
-        disabled={disabled}
-        onChange={(event) => setRevisionId(event.target.value)}
-      />
-      <Button
-        size="sm"
-        disabled={disabled || !assetId || !revisionId}
-        onClick={() => {
-          const asset = {
-            assetId: assetId as Id<"assets">,
-            revisionId: revisionId as Id<"assetVersions">,
-          };
-          void preview({ workspaceId, asset })
-            .then((result) => {
-              if (!result.mimeType.startsWith("image/")) throw new Error();
-              onSelected(asset);
-              setMessage("Pinned start image selected.");
-            })
-            .catch(() =>
-              setMessage("Select an accessible image and its exact revision in this workspace."),
-            );
-        }}
-      >
-        Pin start image
-      </Button>
+      <details className="video-advanced">
+        <summary>Pin exact revision</summary>
+        <TextInput
+          id="shot-source-asset"
+          label="Asset ID"
+          labelVisible
+          value={assetId}
+          disabled={disabled}
+          onChange={(event) => setAssetId(event.target.value)}
+        />
+        <TextInput
+          id="shot-source-revision"
+          label="Asset revision ID"
+          labelVisible
+          value={revisionId}
+          disabled={disabled}
+          onChange={(event) => setRevisionId(event.target.value)}
+        />
+        <Button
+          size="sm"
+          disabled={disabled || !assetId || !revisionId}
+          onClick={() => {
+            const asset = {
+              assetId: assetId as Id<"assets">,
+              revisionId: revisionId as Id<"assetVersions">,
+            };
+            void preview({ workspaceId, asset })
+              .then((result) => {
+                if (!result.mimeType.startsWith("image/")) throw new Error();
+                onSelected(asset);
+                setMessage("Pinned start image selected.");
+              })
+              .catch(() =>
+                setMessage("Select an accessible image and its exact revision in this workspace."),
+              );
+          }}
+        >
+          Pin start image
+        </Button>
+      </details>
       {message && <p role="status">{message}</p>}
     </div>
   );
@@ -373,6 +388,8 @@ function ShotCandidates({
   const [message, setMessage] = useState("");
   const [durationMs, setDurationMs] = useState(5000);
   const [time, setTime] = useState(0);
+  const [reasonFor, setReasonFor] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const pending = useDurableJobIntent<Parameters<typeof submit>[0]>(
     `shot:${workspaceId}:${draftId}:${sceneId}:${shotId}`,
   );
@@ -504,7 +521,19 @@ function ShotCandidates({
                   time={time}
                   selected={shot.selectedVideo?.revisionId === asset.revisionId}
                   disabled={disabled}
-                  onSelect={(reason) => onSelect(asset, reason, job.jobId)}
+                  choosing={reasonFor === job.jobId}
+                  reason={reason}
+                  onReason={setReason}
+                  onStartChoose={() => {
+                    setReasonFor(job.jobId);
+                    setReason("");
+                  }}
+                  onCancelChoose={() => setReasonFor(null)}
+                  onSelect={(value) => {
+                    onSelect(asset, value, job.jobId);
+                    setReasonFor(null);
+                    setReason("");
+                  }}
                 />
               )}
             </article>
@@ -525,6 +554,11 @@ function CandidatePlayer({
   time,
   selected,
   disabled,
+  choosing,
+  reason,
+  onReason,
+  onStartChoose,
+  onCancelChoose,
   onSelect,
 }: {
   workspaceId: Id<"workspaces">;
@@ -532,6 +566,11 @@ function CandidatePlayer({
   time: number;
   selected: boolean;
   disabled: boolean;
+  choosing: boolean;
+  reason: string;
+  onReason: (value: string) => void;
+  onStartChoose: () => void;
+  onCancelChoose: () => void;
   onSelect: (reason: string) => void;
 }) {
   const preview = useAction(api.videoMedia.previewAsset);
@@ -575,18 +614,35 @@ function CandidatePlayer({
         {asset.assetId} @ {asset.revisionId}
       </p>
       {error && <p role="alert">{error}</p>}
-      <Button
-        disabled={disabled || selected || !url}
-        size="sm"
-        onClick={() => {
-          const reason = window.prompt(
-            "Why choose this candidate? Selection changes the shot plan, not the timeline or approval.",
-          );
-          if (reason?.trim()) onSelect(reason);
-        }}
-      >
-        {selected ? "Selected candidate" : "Choose this candidate"}
-      </Button>
+      {choosing ? (
+        <div className="video-form">
+          <TextInput
+            id={`shot-reason-${asset.revisionId}`}
+            label="Why this candidate?"
+            labelVisible
+            value={reason}
+            onChange={(event) => onReason(event.target.value)}
+          />
+          <p className="video-hint">Choosing a clip updates the shot plan. It is not approval.</p>
+          <div className="video-actions">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={disabled || !reason.trim()}
+              onClick={() => onSelect(reason.trim())}
+            >
+              Choose candidate
+            </Button>
+            <Button size="sm" onClick={onCancelChoose}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button disabled={disabled || selected || !url} size="sm" onClick={onStartChoose}>
+          {selected ? "Selected candidate" : "Choose this candidate"}
+        </Button>
+      )}
     </>
   );
 }

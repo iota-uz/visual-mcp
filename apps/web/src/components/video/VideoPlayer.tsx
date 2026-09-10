@@ -27,6 +27,7 @@ export function VideoPlayer({
   seekMs,
   region,
   onRefresh,
+  onRegion,
 }: {
   asset: VideoReviewAsset;
   onLoaded: (ready: boolean) => void;
@@ -34,6 +35,7 @@ export function VideoPlayer({
   seekMs?: number;
   region?: VideoRegion;
   onRefresh?: () => void;
+  onRegion?: (region: VideoRegion) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const playback = useRef({ hash: asset.sha256, time: 0, paused: true });
@@ -43,6 +45,7 @@ export function VideoPlayer({
   const lastFrame = Math.max(0, asset.frameCount - 1);
   const lastAnchorMs = Math.ceil((lastFrame / fps) * 1000);
   const [frame, setFrame] = useState(0);
+  const drag = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (seekMs !== undefined && video.current) {
       video.current.pause();
@@ -125,6 +128,35 @@ export function VideoPlayer({
             )}
             Your browser cannot play this video. Use the download link.
           </video>
+          {onRegion && (
+            <button
+              type="button"
+              className="video-region-draw"
+              aria-label="Mark a region on this frame"
+              onPointerDown={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                drag.current = {
+                  x: (event.clientX - box.left) / box.width,
+                  y: (event.clientY - box.top) / box.height,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerUp={(event) => {
+                if (!drag.current) return;
+                const box = event.currentTarget.getBoundingClientRect();
+                const x = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+                const y = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
+                const origin = drag.current;
+                drag.current = null;
+                onRegion({
+                  x: Math.min(origin.x, x),
+                  y: Math.min(origin.y, y),
+                  width: Math.max(0.02, Math.abs(x - origin.x)),
+                  height: Math.max(0.02, Math.abs(y - origin.y)),
+                });
+              }}
+            />
+          )}
           {region && (
             <div
               className="video-region-overlay"

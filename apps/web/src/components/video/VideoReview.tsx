@@ -116,6 +116,7 @@ export function VideoReview({
           seekMs={anchor?.startMs}
           region={anchor?.region}
           onRefresh={() => void refresh()}
+          onRegion={(next) => setAnchor({ text: "", startMs: time, region: next })}
         />
       ) : (
         <Button onClick={() => void refresh()}>Load preview</Button>

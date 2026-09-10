@@ -395,3 +395,38 @@ test("requires authenticated session and validates rational fps", async () => {
     }),
   ).rejects.toThrow("FPS");
 });
+const qref = (name: string) => makeFunctionReference<"query">(`video:${name}`);
+test("renames a project and hard-deletes its drafts", async () => {
+  const { t, as, workspaceId } = await setup();
+  const created = await as.mutation(ref("createProject"), {
+    ...input,
+    workspaceId,
+    idempotencyKey: "rename-delete",
+  });
+  const renamed = await as.mutation(ref("renameProject"), {
+    projectId: created.projectId,
+    title: "Renamed reel",
+  });
+  expect(renamed.title).toBe("Renamed reel");
+  const listed = await as.query(qref("listProjects"), {
+    workspaceId,
+    paginationOpts: { numItems: 10, cursor: null },
+  });
+  expect(listed.page[0]?.title).toBe("Renamed reel");
+  expect(listed.page[0]?.topic).toBe("Тест");
+  expect(listed.page[0]?.languages).toEqual(["ru", "uz"]);
+  await as.mutation(ref("deleteProject"), { projectId: created.projectId });
+  const after = await as.query(qref("listProjects"), {
+    workspaceId,
+    paginationOpts: { numItems: 10, cursor: null },
+  });
+  expect(after.page).toEqual([]);
+  await t.run(async (ctx) => {
+    expect(await ctx.db.get("videoProjects", created.projectId)).toBeNull();
+    const drafts = await ctx.db
+      .query("videoDrafts")
+      .withIndex("by_projectId_and_language", (q) => q.eq("projectId", created.projectId))
+      .take(4);
+    expect(drafts).toEqual([]);
+  });
+});

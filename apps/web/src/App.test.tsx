@@ -68,6 +68,9 @@ describe("Sidebar", () => {
     ["/w/insurance", "Workspaces"],
     ["/assets", "Assets"],
     ["/w/insurance/assets", "Assets"],
+    ["/videos", "Videos"],
+    ["/w/insurance/videos", "Videos"],
+    ["/v/project-1", "Videos"],
   ])("marks the rail item that owns %s", (path, active) => {
     renderAt(path);
     expect(screen.getByRole("link", { name: active })).toHaveClass("active");

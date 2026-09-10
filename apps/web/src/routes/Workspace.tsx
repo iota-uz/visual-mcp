@@ -6,11 +6,11 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { CanvasCard, type CanvasCardRow } from "../components/CanvasCard";
 import { EmptyState } from "../components/EmptyState";
-import { PageHeader } from "../components/PageHeader";
 import { CardGridSkeleton } from "../components/Skeleton";
 import { Button, ButtonLink } from "../components/ui/Button";
 import { IconButton } from "../components/ui/IconButton";
 import { Select, TextInput } from "../components/ui/TextInput";
+import { WorkspaceChrome } from "../components/WorkspaceChrome";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
 /*
@@ -76,14 +76,12 @@ export function WorkspacePage() {
 
   const shown = useMemo(() => arrange(canvases ?? [], filter, sort), [canvases, filter, sort]);
   const count = canvases?.length ?? 0;
-  const crumbs = [{ to: "/", label: "Workspaces" }];
-
   if (workspace === null) {
     // Still inside the page shell: an address that resolves to nothing is
     // exactly where you need the way out to be on screen.
     return (
       <div className="page-stack">
-        <PageHeader title={wsSlug ?? "Workspace"} crumbs={crumbs} />
+        <WorkspaceChrome slug={wsSlug ?? "workspace"} workspace={null} />
         <EmptyState
           icon={Unplug}
           title="No workspace at this address."
@@ -95,32 +93,17 @@ export function WorkspacePage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title={workspace?.name ?? wsSlug ?? "Workspace"}
-        crumbs={crumbs}
+      <WorkspaceChrome
+        slug={wsSlug ?? ""}
+        workspace={workspace ?? undefined}
         onRename={
           workspace
             ? (name) => renameWorkspace({ workspaceId: workspace.workspace_id, name })
             : undefined
         }
-        renameLabel="Workspace name"
-        // Falls back to the count so the header is never a lone title on a
-        // workspace nobody wrote a description for.
         subtitle={
           workspace?.description ??
           (canvases ? `${count} ${count === 1 ? "canvas" : "canvases"}` : undefined)
-        }
-        actions={
-          wsSlug ? (
-            <>
-              <ButtonLink to={`/w/${wsSlug}/videos`} variant="secondary">
-                Video Studio
-              </ButtonLink>
-              <ButtonLink to={`/w/${wsSlug}/assets`} variant="secondary" icon={Images}>
-                Assets
-              </ButtonLink>
-            </>
-          ) : undefined
         }
       />
       {count > 1 && (

@@ -58,6 +58,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Video Studio — коллекция воркспейса и иммерсивный редактор** — [запись](adr/product/video-studio-surfaces.md) · accepted · 2026-09-10 (запрос пользователя)
+
 - **Карта канваса — прицел, затем commit; hover не двигает камеру** — [запись](adr/product/canvas-minimap-aim-then-commit.md) · accepted · 2026-09-09 (запрос сопровождающего)
 - **Комментарий якорится к элементу по data-vc-id, а не к процентам кадра** — [запись](adr/product/element-id-comment-anchors.md) · accepted · 2026-09-09 (запрос сопровождающего)
 - **Комментарий якорится к точке внутри ноды и перетаскивается** — [запись](adr/product/in-node-comment-anchors.md) · superseded · 2026-09-09 (запрос сопровождающего)

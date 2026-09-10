@@ -1,7 +1,29 @@
-.video-studio {
-  max-width: 1500px;
-  margin: 0 auto;
+.video-studio-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--app-paper);
+  padding-top: var(--app-canvas-bar-h);
+}
+.video-studio-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: var(--app-space-6);
+  align-items: start;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: var(--app-space-6);
+}
+.video-studio-review {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--app-space-6) var(--app-space-6);
 }
 .video-workspace {
   display: grid;
@@ -181,15 +203,10 @@
   padding-top: var(--app-space-3);
 }
 .video-clip-bar {
-  height: 12px;
+  height: 22px;
   border-radius: var(--app-radius-xs);
   background: var(--app-paper);
   overflow: hidden;
-}
-.video-clip-bar span {
-  display: block;
-  height: 100%;
-  background: var(--app-accent);
 }
 .video-shot {
   padding: var(--app-space-3);
@@ -222,32 +239,34 @@
   font-size: var(--app-text-xs);
   color: var(--app-muted);
 }
-.video-project-list {
+.video-project-card {
+  padding: var(--app-space-3) var(--app-space-4);
+}
+.video-project-card-frame {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 180px;
+  margin-bottom: var(--app-space-2);
+  border-radius: var(--app-radius-md);
+  background: var(--app-ink);
+  color: var(--app-white);
+}
+.video-project-group {
   display: grid;
   gap: var(--app-space-3);
 }
-.video-project-link {
-  display: flex;
-  align-items: center;
-  gap: var(--app-space-4);
-  padding: var(--app-space-4);
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
+.video-project-group h2 {
+  margin: 0;
+  font-size: var(--app-text-lg);
+}
+.video-project-group h2 a {
+  color: inherit;
   text-decoration: none;
-  color: var(--app-ink);
-  background: var(--app-white);
 }
-.video-project-link:hover {
-  border-color: var(--app-accent);
-}
-.video-project-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 64px;
-  height: 72px;
-  background: var(--app-accent-soft);
+.video-project-group h2 a:hover {
   color: var(--app-accent-text);
-  border-radius: var(--app-radius-sm);
 }
 .video-projects {
   min-width: 0;
@@ -279,7 +298,7 @@
 }
 .video-player-frame {
   position: relative;
-  width: min(100%, 360px);
+  width: min(100%, 420px);
 }
 .video-player-frame video {
   display: block;
@@ -291,6 +310,15 @@
   pointer-events: none;
   border: 2px solid var(--app-accent-text);
   background: var(--app-accent-soft);
+}
+.video-region-draw {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
 }
 .video-approval {
   display: grid;
@@ -388,7 +416,65 @@
   flex-wrap: wrap;
   gap: var(--app-space-2);
 }
+.video-keyframe-thumb {
+  display: grid;
+  gap: var(--app-space-1);
+  width: 88px;
+  padding: 0;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-white);
+  color: var(--app-ink);
+  cursor: pointer;
+  text-align: left;
+}
+.video-keyframe-thumb img {
+  width: 100%;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--app-radius-xs);
+}
+.video-keyframe-thumb span {
+  padding: 0 var(--app-space-1) var(--app-space-1);
+  font-size: var(--app-text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-keyframe-thumb[aria-pressed="true"] {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px var(--app-accent-soft);
+}
+.video-advanced {
+  display: grid;
+  gap: var(--app-space-3);
+}
+.video-advanced summary {
+  cursor: pointer;
+  font-size: var(--app-text-sm);
+  color: var(--app-muted);
+}
+.video-timeline-ruler {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--app-text-xs);
+  color: var(--app-muted);
+}
+.video-clip-bar span {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 var(--app-space-1);
+  background: var(--app-accent);
+  font-size: 9px;
+  color: var(--app-white);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 @media (max-width: 1000px) {
+  .video-studio-body,
   .video-workspace {
     grid-template-columns: minmax(0, 1fr);
   }

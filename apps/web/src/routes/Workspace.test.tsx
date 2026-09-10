@@ -68,6 +68,24 @@ describe("WorkspacePage", () => {
     useMutationMock.mockReturnValue(vi.fn().mockResolvedValue({ bytes_reclaimed: 0 }));
   });
 
+  test("treats canvases, videos and assets as peer collections", () => {
+    backend(WORKSPACE, [canvas()]);
+    renderWorkspace();
+    const collections = screen.getByRole("navigation", { name: "Workspace collections" });
+    expect(within(collections).getByRole("link", { name: "Canvases" })).toHaveAttribute(
+      "href",
+      "/w/osago",
+    );
+    expect(within(collections).getByRole("link", { name: "Videos" })).toHaveAttribute(
+      "href",
+      "/w/osago/videos",
+    );
+    expect(within(collections).getByRole("link", { name: "Assets" })).toHaveAttribute(
+      "href",
+      "/w/osago/assets",
+    );
+  });
+
   test("offers the way back to the workspace list", () => {
     backend(WORKSPACE, [canvas()]);
     renderWorkspace();

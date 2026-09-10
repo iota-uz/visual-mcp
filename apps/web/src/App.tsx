@@ -1,5 +1,5 @@
 import { useConvexAuth, useQuery } from "convex/react";
-import { Blocks, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
+import { Blocks, Film, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -23,6 +23,9 @@ import { WorkspacePage } from "./routes/Workspace";
 
 const VideoProjectsPage = lazy(() =>
   import("./routes/VideoProjects").then((module) => ({ default: module.VideoProjectsPage })),
+);
+const VideoAllPage = lazy(() =>
+  import("./routes/VideoProjects").then((module) => ({ default: module.VideoAllPage })),
 );
 const VideoStudioPage = lazy(() =>
   import("./routes/VideoStudio").then((module) => ({ default: module.VideoStudioPage })),
@@ -94,6 +97,11 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   // rail has one item for each, and the path says which is showing.
   const onWorkspaces = pathname === "/" || /^\/w\/[^/]+$/.test(pathname);
   const onWorkspaceAssets = /^\/w\/[^/]+\/assets$/.test(pathname);
+  const onVideos =
+    pathname === "/videos" ||
+    /^\/w\/[^/]+\/videos$/.test(pathname) ||
+    pathname.startsWith("/v/") ||
+    pathname.startsWith("/jobs/");
 
   function handleSignOut() {
     // Ends the Convex session and drops the stored tokens; the Google
@@ -140,6 +148,10 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
         >
           <Images size={16} aria-hidden="true" />
           <span>Assets</span>
+        </NavLink>
+        <NavLink to="/videos" className={() => sidebarLinkClass({ isActive: onVideos })}>
+          <Film size={16} aria-hidden="true" />
+          <span>Videos</span>
         </NavLink>
         {workspaces && workspaces.length > 0 && (
           <>
@@ -283,7 +295,9 @@ function Page({ label, children }: { label?: string; children: ReactNode }) {
 function AuthenticatedApp() {
   const { pathname } = useLocation();
   const isCanvasRoute = pathname.startsWith("/c/");
+  const isVideoStudioRoute = pathname.startsWith("/v/");
   const isPresentRoute = isCanvasRoute && pathname.endsWith("/present");
+  const isEditorRoute = (isCanvasRoute || isVideoStudioRoute) && !isPresentRoute;
   const [navigationOpen, setNavigationOpen] = useState(false);
 
   // A canvas owns the whole workspace. If its drawer was open and the user
@@ -295,12 +309,12 @@ function AuthenticatedApp() {
   useEffect(() => setNavigationOpen(false), [pathname]);
 
   return (
-    <div className={`app-shell${isCanvasRoute ? " app-shell-canvas" : ""}`}>
+    <div className={`app-shell${isEditorRoute ? " app-shell-canvas" : ""}`}>
       <a href="#main" className="skip-link">
         Skip to content
       </a>
       <ConnectionBanner />
-      {isCanvasRoute && !isPresentRoute ? (
+      {isEditorRoute ? (
         <>
           <IconButton
             icon={Menu}
@@ -337,6 +351,16 @@ function AuthenticatedApp() {
               <Page label="This job is unavailable or you do not have access.">
                 <Suspense fallback={<p role="status">Loading job…</p>}>
                   <VideoJobPage />
+                </Suspense>
+              </Page>
+            }
+          />
+          <Route
+            path="/videos"
+            element={
+              <Page label="Video projects failed to load.">
+                <Suspense fallback={<p role="status">Loading Video Studio…</p>}>
+                  <VideoAllPage />
                 </Suspense>
               </Page>
             }

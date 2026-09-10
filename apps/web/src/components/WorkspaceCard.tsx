@@ -1,5 +1,5 @@
 import type { CanvasPoster } from "@visual-canvas/canvas/poster.js";
-import { Images, LayoutDashboard, Pencil, Trash2 } from "lucide-react";
+import { Film, Images, LayoutDashboard, Pencil, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -91,6 +91,7 @@ export function WorkspaceCard({
               icon: LayoutDashboard,
               to: `/w/${workspace.slug}`,
             },
+            { id: "videos", label: "Videos", icon: Film, to: `/w/${workspace.slug}/videos` },
             // The sidebar's workspace links are asset-library shortcuts and
             // say so nowhere else; this is where that library is findable
             // from the surface workspaces actually live on.

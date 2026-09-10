@@ -28,7 +28,8 @@
 
 .card-list-item,
 .canvas-card,
-.workspace-card {
+.workspace-card,
+.video-project-card {
   display: flex;
   /* A container that wants a different row shape — the version list wants
      one line, not a stack — sets these rather than writing a
@@ -58,7 +59,8 @@
 @media (hover: hover) {
   .card-list-item:hover,
   .canvas-card:hover,
-  .workspace-card:hover {
+  .workspace-card:hover,
+  .video-project-card:hover {
     border-color: var(--app-accent);
     box-shadow: 0 0 0 3px var(--app-accent-soft);
   }
@@ -68,7 +70,8 @@
    which is how a row is "hovered" without a pointer. */
 .card-list-item:focus-within,
 .canvas-card:focus-within,
-.workspace-card:focus-within {
+.workspace-card:focus-within,
+.video-project-card:focus-within {
   border-color: var(--app-accent);
   box-shadow: 0 0 0 3px var(--app-accent-soft);
 }
