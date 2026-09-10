@@ -1,8 +1,9 @@
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
+import { Menu } from "../ui/Menu";
 import { TextInput } from "../ui/TextInput";
 
 export function StoryboardEditor({
@@ -12,6 +13,7 @@ export function StoryboardEditor({
   selectedId,
   onSelect,
   onOpenShot,
+  showSceneNavigator = true,
 }: {
   document: ScriptDocument;
   onChange: (next: ScriptDocument) => void;
@@ -19,6 +21,7 @@ export function StoryboardEditor({
   selectedId?: string;
   onSelect?: (id: string) => void;
   onOpenShot?: (shotId: string) => void;
+  showSceneNavigator?: boolean;
 }) {
   const [localSelected, setLocalSelected] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -79,7 +82,14 @@ export function StoryboardEditor({
   return (
     <section className="video-storyboard" aria-label="Storyboard">
       <div className="video-section-heading">
-        <h2>Storyboard</h2>
+        <div className="video-section-title">
+          <h2>Storyboard</h2>
+          <span>
+            {scene
+              ? `Scene ${document.sceneOrder.indexOf(id ?? "") + 1} of ${document.sceneOrder.length}`
+              : "Start with the opening scene"}
+          </span>
+        </div>
         <div className="video-actions">
           <Button
             icon={Plus}
@@ -118,15 +128,19 @@ export function StoryboardEditor({
                   onConfirm={async () => removeScene()}
                 />
               ) : (
-                <Button
-                  size="sm"
-                  variant="danger"
-                  icon={Trash2}
-                  disabled={disabled}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  Delete scene
-                </Button>
+                <Menu
+                  label={`Actions for scene ${document.sceneOrder.indexOf(id) + 1}`}
+                  items={[
+                    {
+                      id: "delete-scene",
+                      label: "Delete scene…",
+                      icon: Trash2,
+                      danger: true,
+                      disabled,
+                      onSelect: () => setConfirmDelete(true),
+                    },
+                  ]}
+                />
               )}
             </>
           )}
@@ -150,29 +164,32 @@ export function StoryboardEditor({
           placeholder="Describe the premise, audience, hook, and intended outcome…"
         />
       </div>
-      <nav className="video-scene-strip" aria-label="Scenes">
-        {document.sceneOrder.map((sceneId, index) => (
-          <button
-            type="button"
-            className="video-scene-card"
-            key={sceneId}
-            aria-pressed={id === sceneId}
-            onClick={() => select(sceneId)}
-          >
-            <span className="video-scene-number">Scene {index + 1}</span>
-            <strong>{document.scenesById[sceneId]?.purpose || "Untitled scene"}</strong>
-            <span>
-              {document.scenesById[sceneId]?.narration || "Add narration and a visual direction"}
-            </span>
-          </button>
-        ))}
-      </nav>
+      {showSceneNavigator && (
+        <SceneNavigator document={document} selectedId={id} onSelect={select} />
+      )}
       {!scene ? (
-        <p className="video-hint">
-          Add the opening scene. Describe its purpose before choosing how to produce it.
-        </p>
+        <div className="video-story-empty">
+          <ClapperboardMark />
+          <div>
+            <h3>Plan the opening scene</h3>
+            <p>
+              Give it a purpose, narration, and visual direction before choosing how to produce the
+              shot.
+            </p>
+          </div>
+          <Button icon={Plus} onClick={addScene} disabled={disabled} variant="primary">
+            Add opening scene
+          </Button>
+        </div>
       ) : (
         <div className="video-scene-editor" key={id}>
+          <div className="video-scene-editor-heading">
+            <div>
+              <span>Editing scene {document.sceneOrder.indexOf(id ?? "") + 1}</span>
+              <strong>{scene.purpose || "Untitled scene"}</strong>
+            </div>
+            <SceneReadiness scene={scene} />
+          </div>
           <TextInput
             id="scene-purpose"
             label="Scene purpose"
@@ -270,5 +287,79 @@ export function StoryboardEditor({
         </div>
       )}
     </section>
+  );
+}
+
+export function SceneNavigator({
+  document,
+  selectedId,
+  onSelect,
+}: {
+  document: ScriptDocument;
+  selectedId?: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <nav className="video-scene-navigator" aria-label="Scenes">
+      <div className="video-scene-navigator-heading">
+        <strong>Scenes</strong>
+        <span>{document.sceneOrder.length}</span>
+      </div>
+      <div className="video-scene-list">
+        {document.sceneOrder.map((sceneId, index) => {
+          const scene = document.scenesById[sceneId];
+          const ready = scene ? sceneReadiness(scene).ready : false;
+          return (
+            <button
+              type="button"
+              className="video-scene-card"
+              key={sceneId}
+              aria-current={selectedId === sceneId ? "true" : undefined}
+              onClick={() => onSelect(sceneId)}
+            >
+              <span className="video-scene-index">{String(index + 1).padStart(2, "0")}</span>
+              <span className="video-scene-copy">
+                <strong>{scene?.purpose || "Untitled scene"}</strong>
+                <small>
+                  {scene?.shotOrder.length
+                    ? `${scene.shotOrder.length} shot${scene.shotOrder.length === 1 ? "" : "s"}`
+                    : scene?.narration || "Narration and shots needed"}
+                </small>
+              </span>
+              {ready ? (
+                <CheckCircle2 size={15} aria-label="Scene brief ready" />
+              ) : (
+                <Circle size={15} aria-label="Scene brief incomplete" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function SceneReadiness({ scene }: { scene: ScriptDocument["scenesById"][string] }) {
+  const readiness = sceneReadiness(scene);
+  return (
+    <span className={`video-scene-readiness${readiness.ready ? " is-ready" : ""}`}>
+      {readiness.ready ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+      {readiness.complete}/3 brief fields
+    </span>
+  );
+}
+
+function sceneReadiness(scene: ScriptDocument["scenesById"][string]) {
+  const complete = [scene.purpose, scene.narration, scene.visual.description].filter((value) =>
+    value.trim(),
+  ).length;
+  return { complete, ready: complete === 3 };
+}
+
+function ClapperboardMark() {
+  return (
+    <span className="video-story-empty-mark" aria-hidden="true">
+      01
+    </span>
   );
 }

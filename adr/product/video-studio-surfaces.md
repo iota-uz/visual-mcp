@@ -23,7 +23,7 @@ applies_to:
 tags: [product, web-ui, video]
 refs: []
 supersedes: []
-superseded_by: []
+superseded_by: [video-studio-workbench]
 ---
 
 ## Контекст

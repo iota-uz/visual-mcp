@@ -15,13 +15,18 @@ type Target = Parameters<
 >[0]["target"];
 type Feedback = { text: string; startMs?: number; endMs?: number; region?: VideoRegion };
 type Preview = { videoUrl: string; posterUrl: string; captionsUrl: string; expiresAt: number };
+type CapturedRegion = { id: string; startMs: number; region: VideoRegion };
 export function VideoReview({
   jobId,
   projectId,
+  workspaceId,
+  onOpenRender,
   onBlocked,
 }: {
   jobId: Id<"videoJobs">;
   projectId: Id<"videoProjects">;
+  workspaceId: Id<"workspaces">;
+  onOpenRender: (jobId: Id<"videoJobs">) => void;
   onBlocked: (value: boolean) => void;
 }) {
   const metadata = useQuery(api.videoReview.renderMetadata, { jobId });
@@ -34,6 +39,8 @@ export function VideoReview({
   const [busy, setBusy] = useState(false);
   const [time, setTime] = useState(0);
   const [anchor, setAnchor] = useState<Feedback | undefined>();
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [capturedRegion, setCapturedRegion] = useState<CapturedRegion>();
   const approvalKey = useRef(crypto.randomUUID());
   const heading = useRef<HTMLHeadingElement>(null);
   const focusTarget = metadata ? jobId : null;
@@ -72,18 +79,23 @@ export function VideoReview({
     <section className="video-review" aria-label="Review exact render">
       <header className="video-review-heading">
         <div>
-          <span className="video-review-kicker">Final check</span>
+          <span className="video-review-kicker">
+            Final check · {metadata.language.toUpperCase()}
+          </span>
           <h2 ref={heading} tabIndex={-1}>
-            Review · {metadata.language.toUpperCase()}
+            Review this export
           </h2>
           <p>
             Watch the exact export, check sound and captions, then approve or leave a timecoded
             note.
           </p>
         </div>
-        <Badge tone={metadata.stale ? "warning" : "success"}>
-          {metadata.stale ? "Older candidate" : "Current candidate"}
-        </Badge>
+        <div className="video-review-status">
+          <Badge tone={metadata.stale ? "warning" : "success"}>
+            {metadata.stale ? "Older candidate" : "Current candidate"}
+          </Badge>
+          <span>{(metadata.videoDurationMs / 1000).toFixed(1)} seconds</span>
+        </div>
       </header>
       {metadata.stale && (
         <p className="video-warning">
@@ -91,26 +103,12 @@ export function VideoReview({
           to the newer draft.
         </p>
       )}
-      <Disclosure summary="Render engine provenance">
-        {metadata.engine ? (
-          <>
-            <p className="video-hint">
-              Remotion {metadata.engine.remotionVersion} · FFmpeg {metadata.engine.ffmpegVersion} ·
-              worker build {metadata.engine.workerBuildSha ?? "not recorded"}
-            </p>
-            {metadata.engine.fonts.map((font) => (
-              <p className="video-hint" key={font.family}>
-                {font.family}: <code>{font.sha256}</code>
-              </p>
-            ))}
-          </>
-        ) : (
-          <p className="video-hint">
-            Engine provenance was not recorded for this historical render; current deployment
-            versions do not describe it.
-          </p>
-        )}
-      </Disclosure>
+      <RenderCandidates
+        workspaceId={workspaceId}
+        projectId={projectId}
+        activeJobId={jobId}
+        onOpenRender={onOpenRender}
+      />
       {error && <p role="alert">{error}</p>}
       <div className="video-review-workspace">
         <div className="video-review-screen">
@@ -126,7 +124,13 @@ export function VideoReview({
               seekMs={anchor?.startMs}
               region={anchor?.region}
               onRefresh={() => void refresh()}
-              onRegion={(next) => setAnchor({ text: "", startMs: time, region: next })}
+              annotationMode={annotationMode}
+              onAnnotationModeChange={setAnnotationMode}
+              onRegion={(next) => {
+                const selection = { id: crypto.randomUUID(), startMs: time, region: next };
+                setAnchor({ text: "", startMs: time, region: next });
+                setCapturedRegion(selection);
+              }}
             />
           ) : (
             <div className="video-review-loading">
@@ -185,15 +189,135 @@ export function VideoReview({
             target={{ kind: "render", jobId }}
             time={time}
             durationMs={metadata.videoDurationMs}
+            capturedRegion={capturedRegion}
             onAnchor={setAnchor}
             onBlocked={onBlocked}
           />
         </aside>
       </div>
       <p className="video-review-integrity">
-        Version {metadata.versionId} · MP4 SHA-256 <code>{metadata.sha256}</code>
+        Approval is bound to this saved version and exact MP4.
       </p>
+      <Disclosure
+        summary="Technical details and render provenance"
+        className="video-review-technical"
+      >
+        <p className="video-hint">
+          Version <code>{metadata.versionId}</code>
+          <br />
+          MP4 SHA-256 <code>{metadata.sha256}</code>
+        </p>
+        {metadata.engine ? (
+          <>
+            <p className="video-hint">
+              Remotion {metadata.engine.remotionVersion} · FFmpeg {metadata.engine.ffmpegVersion} ·
+              worker build {metadata.engine.workerBuildSha ?? "not recorded"}
+            </p>
+            {metadata.engine.fonts.map((font) => (
+              <p className="video-hint" key={font.family}>
+                {font.family}: <code>{font.sha256}</code>
+              </p>
+            ))}
+          </>
+        ) : (
+          <p className="video-hint">
+            Engine provenance was not recorded for this historical render; current deployment
+            versions do not describe it.
+          </p>
+        )}
+      </Disclosure>
     </section>
+  );
+}
+
+function RenderCandidates({
+  workspaceId,
+  projectId,
+  activeJobId,
+  onOpenRender,
+}: {
+  workspaceId: Id<"workspaces">;
+  projectId: Id<"videoProjects">;
+  activeJobId: Id<"videoJobs">;
+  onOpenRender: (jobId: Id<"videoJobs">) => void;
+}) {
+  const jobs = usePaginatedQuery(
+    api.videoJobs.listJobs,
+    { workspaceId, projectId, kind: "render" },
+    { initialNumItems: 10 },
+  );
+  const renders = jobs.results.filter((job) => job.state === "succeeded");
+  if (jobs.status === "LoadingFirstPage") {
+    return (
+      <p className="video-candidates-loading" role="status">
+        Loading saved exports…
+      </p>
+    );
+  }
+  if (!renders.length) return null;
+  return (
+    <nav className="video-candidates" aria-label="Saved render candidates">
+      <div className="video-candidates-heading">
+        <strong>Saved exports</strong>
+        <span>Opening an export does not approve it.</span>
+      </div>
+      <div className="video-candidate-list">
+        {renders.map((render) => (
+          <RenderCandidate
+            key={render.jobId}
+            jobId={render.jobId}
+            active={render.jobId === activeJobId}
+            onOpenRender={onOpenRender}
+          />
+        ))}
+        {jobs.status === "CanLoadMore" && (
+          <Button size="sm" variant="ghost" onClick={() => jobs.loadMore(10)}>
+            Earlier exports
+          </Button>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function RenderCandidate({
+  jobId,
+  active,
+  onOpenRender,
+}: {
+  jobId: Id<"videoJobs">;
+  active: boolean;
+  onOpenRender: (jobId: Id<"videoJobs">) => void;
+}) {
+  const metadata = useQuery(api.videoReview.renderMetadata, { jobId });
+  const version = useQuery(
+    api.video.getVersion,
+    metadata ? { versionId: metadata.versionId } : "skip",
+  );
+  return (
+    <Button
+      size="sm"
+      variant={active ? "secondary" : "ghost"}
+      className="video-candidate"
+      aria-current={active ? "true" : undefined}
+      disabled={!metadata || active}
+      onClick={() => onOpenRender(jobId)}
+    >
+      {metadata ? (
+        <>
+          <span className="video-candidate-title">
+            <span>{metadata.language.toUpperCase()}</span>
+            <strong>{version?.label ?? "Saved version"}</strong>
+          </span>
+          <span className="video-candidate-state">
+            {metadata.stale ? "Older draft" : "Current draft"}
+            {metadata.approval ? " · Approved by you" : " · Not approved"}
+          </span>
+        </>
+      ) : (
+        "Loading export…"
+      )}
+    </Button>
   );
 }
 
@@ -202,6 +326,7 @@ export function VideoFeedback({
   target,
   time,
   durationMs,
+  capturedRegion,
   onAnchor,
   onBlocked,
 }: {
@@ -209,6 +334,7 @@ export function VideoFeedback({
   target: Target;
   time?: number;
   durationMs?: number;
+  capturedRegion?: CapturedRegion;
   onAnchor?: (body: Feedback) => void;
   onBlocked: (value: boolean) => void;
 }) {
@@ -221,6 +347,7 @@ export function VideoFeedback({
       snapshot={draft}
       time={time}
       durationMs={durationMs}
+      capturedRegion={capturedRegion}
       onAnchor={onAnchor}
       onBlocked={onBlocked}
     />
@@ -232,6 +359,7 @@ function FeedbackEditor({
   snapshot,
   time,
   durationMs,
+  capturedRegion,
   onAnchor,
   onBlocked,
 }: {
@@ -240,6 +368,7 @@ function FeedbackEditor({
   snapshot: { revision: number; body: Feedback; postedCommentId?: string | null };
   time?: number;
   durationMs?: number;
+  capturedRegion?: CapturedRegion;
   onAnchor?: (body: Feedback) => void;
   onBlocked: (value: boolean) => void;
 }) {
@@ -260,6 +389,18 @@ function FeedbackEditor({
           .revision,
       ),
   );
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  const appliedCapture = useRef<string | null>(null);
+  useEffect(() => {
+    if (!capturedRegion || appliedCapture.current === capturedRegion.id) return;
+    appliedCapture.current = capturedRegion.id;
+    editorRef.current.edit({
+      ...editorRef.current.document,
+      startMs: capturedRegion.startMs,
+      region: capturedRegion.region,
+    });
+  }, [capturedRegion]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const pending = useRef<Parameters<typeof addComment>[0] | null>(null);
@@ -295,224 +436,245 @@ function FeedbackEditor({
   }
   return (
     <section className="video-feedback" aria-label="Feedback">
-      <h3>Feedback</h3>
-      <label className="video-field">
-        Your note
-        <textarea
-          aria-label="Your feedback"
-          value={editor.document.text}
-          disabled={disabled || pending.current !== null}
-          maxLength={16000}
-          onChange={(event) => editor.edit({ ...editor.document, text: event.target.value })}
-        />
-      </label>
-      {time !== undefined && (
-        <div className="video-actions">
-          <Button
-            size="sm"
-            disabled={disabled}
-            onClick={() => editor.edit({ ...editor.document, startMs: time })}
-          >
-            Anchor at {(time / 1000).toFixed(2)} s
-          </Button>
-          <Button
-            size="sm"
-            disabled={disabled}
-            onClick={() => {
-              const { startMs: _start, endMs: _end, region: _region, ...body } = editor.document;
-              editor.edit(body);
-            }}
-          >
-            Whole video
-          </Button>
+      <div className="video-feedback-composer">
+        <div className="video-feedback-heading">
+          <h3>Leave a note</h3>
+          {editor.document.startMs !== undefined ? (
+            <Badge tone="info">At {(editor.document.startMs / 1000).toFixed(2)} s</Badge>
+          ) : (
+            <Badge>Whole video</Badge>
+          )}
         </div>
-      )}
-      {editor.document.startMs !== undefined && (
-        <>
-          <div className="video-field-pair">
-            <TextInput
-              id="review-start"
-              label="Start (ms)"
-              labelVisible
-              type="number"
-              min={0}
-              value={editor.document.startMs}
-              disabled={disabled}
-              onChange={(event) =>
-                editor.edit({ ...editor.document, startMs: Number(event.target.value) })
-              }
-            />
-            <TextInput
-              id="review-end"
-              label="End (ms, optional)"
-              labelVisible
-              type="number"
-              min={0}
-              value={editor.document.endMs ?? ""}
-              disabled={disabled}
-              onChange={(event) => {
-                const { endMs: _, ...body } = editor.document;
-                editor.edit(
-                  event.target.value ? { ...body, endMs: Number(event.target.value) } : body,
-                );
-              }}
-            />
-          </div>
-          <Checkbox
-            label="Mark a region (normalized coordinates)"
-            disabled={disabled}
-            checked={!!editor.document.region}
-            onChange={(event) => {
-              const { region: _, ...body } = editor.document;
-              editor.edit(
-                event.target.checked
-                  ? { ...body, region: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 } }
-                  : body,
-              );
-            }}
+        <label className="video-field">
+          What should change?
+          <textarea
+            aria-label="Your feedback"
+            placeholder="Describe the issue and the desired result…"
+            value={editor.document.text}
+            disabled={disabled || pending.current !== null}
+            maxLength={16000}
+            onChange={(event) => editor.edit({ ...editor.document, text: event.target.value })}
           />
-          {editor.document.region && (
-            <div className="video-region-fields">
-              {(["x", "y", "width", "height"] as const).map((field) => (
-                <TextInput
-                  key={field}
-                  id={`region-${field}`}
-                  label={field}
-                  labelVisible
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  disabled={disabled}
-                  value={editor.document.region?.[field] ?? 0}
-                  onChange={(event) =>
-                    editor.edit({
-                      ...editor.document,
-                      region: {
-                        ...(editor.document.region ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
-                        [field]: Number(event.target.value),
-                      },
-                    })
-                  }
-                />
-              ))}
-              <Button size="sm" onClick={() => onAnchor?.(editor.document)}>
-                Show anchor
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-      <p className="video-hint" role="status">
-        Feedback draft: {editor.state}
-      </p>
-      {editor.error && (
-        <div role="alert">
-          <p>{editor.error}</p>
-          <pre>{JSON.stringify(editor.savedDocument, null, 2)}</pre>
-          <Button onClick={editor.useSaved}>Use saved draft</Button>
-          <Button onClick={() => void editor.save()}>Retry save</Button>
-        </div>
-      )}
-      <div className="video-actions">
-        <Button
-          disabled={
-            disabled ||
-            alreadyPosted ||
-            !editor.document.text.trim() ||
-            editor.dirty ||
-            editor.awaitingSubscription
-          }
-          onClick={() => void post()}
-        >
-          {alreadyPosted
-            ? "Draft already posted — edit to create another note"
-            : "Post saved comment"}
-        </Button>
-        <Button
-          disabled={disabled || pending.current !== null}
-          onClick={() => editor.edit({ text: "" })}
-        >
-          Clear draft
-        </Button>
-      </div>
-      {message && <p role="status">{message}</p>}
-      {comments.results.map((comment) => (
-        <article key={comment._id} className="video-comment">
-          <div className="video-actions">
-            <Badge>
-              {comment.authorKind} · {comment.status}
-            </Badge>
-            {comment.body.startMs !== undefined && (
-              <Button
-                size="sm"
-                disabled={durationMs !== undefined && comment.body.startMs >= durationMs}
-                onClick={() => onAnchor?.(comment.body)}
-              >
-                At {(comment.body.startMs / 1000).toFixed(2)} s
-                {durationMs !== undefined && comment.body.startMs >= durationMs
-                  ? " · historical anchor outside video frames"
-                  : ""}
-              </Button>
-            )}
-          </div>
-          <p>{comment.body.text}</p>
-          {comment.completion && (
-            <p className="video-hint">
-              Agent/work completion: {comment.completion.summary}. This is not human resolution.
-            </p>
-          )}
-          <div className="video-actions">
+        </label>
+        {time !== undefined && (
+          <div className="video-actions video-feedback-anchor-actions">
             <Button
               size="sm"
+              disabled={disabled}
+              onClick={() => editor.edit({ ...editor.document, startMs: time })}
+            >
+              Use current frame · {(time / 1000).toFixed(2)} s
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disabled}
               onClick={() => {
-                void setStatus({
-                  commentId: comment._id,
-                  expectedRevision: comment.revision,
-                  idempotencyKey: crypto.randomUUID(),
-                  status: comment.status === "resolved" ? "open" : "resolved",
-                }).catch(() =>
-                  setMessage(
-                    "Only the note author can resolve it. Refresh if another reviewer changed it.",
-                  ),
-                );
+                const { startMs: _start, endMs: _end, region: _region, ...body } = editor.document;
+                editor.edit(body);
               }}
             >
-              {comment.status === "resolved" ? "Reopen my note" : "Resolve my note"}
+              Apply to whole video
             </Button>
-            {time !== undefined && (
+          </div>
+        )}
+        {capturedRegion && appliedCapture.current === capturedRegion.id && (
+          <p className="video-feedback-capture" role="status">
+            Region attached at {(capturedRegion.startMs / 1000).toFixed(2)} s. Add your note, then
+            post it.
+          </p>
+        )}
+        {editor.document.startMs !== undefined && (
+          <Disclosure
+            summary="Time range and region coordinates"
+            className="video-feedback-advanced"
+          >
+            <div className="video-field-pair">
+              <TextInput
+                id="review-start"
+                label="Start (ms)"
+                labelVisible
+                type="number"
+                min={0}
+                value={editor.document.startMs}
+                disabled={disabled}
+                onChange={(event) =>
+                  editor.edit({ ...editor.document, startMs: Number(event.target.value) })
+                }
+              />
+              <TextInput
+                id="review-end"
+                label="End (ms, optional)"
+                labelVisible
+                type="number"
+                min={0}
+                value={editor.document.endMs ?? ""}
+                disabled={disabled}
+                onChange={(event) => {
+                  const { endMs: _, ...body } = editor.document;
+                  editor.edit(
+                    event.target.value ? { ...body, endMs: Number(event.target.value) } : body,
+                  );
+                }}
+              />
+            </div>
+            {editor.document.region && (
+              <div className="video-region-fields">
+                {(["x", "y", "width", "height"] as const).map((field) => (
+                  <TextInput
+                    key={field}
+                    id={`region-${field}`}
+                    label={field}
+                    labelVisible
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    disabled={disabled}
+                    value={editor.document.region?.[field] ?? 0}
+                    onChange={(event) =>
+                      editor.edit({
+                        ...editor.document,
+                        region: {
+                          ...(editor.document.region ?? {
+                            x: 0.1,
+                            y: 0.1,
+                            width: 0.8,
+                            height: 0.8,
+                          }),
+                          [field]: Number(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                ))}
+                <Button size="sm" onClick={() => onAnchor?.(editor.document)}>
+                  Show anchor
+                </Button>
+              </div>
+            )}
+          </Disclosure>
+        )}
+        <p className="video-hint" role="status">
+          Feedback draft: {editor.state}
+        </p>
+        {editor.error && (
+          <div role="alert">
+            <p>{editor.error}</p>
+            <pre>{JSON.stringify(editor.savedDocument, null, 2)}</pre>
+            <Button onClick={editor.useSaved}>Use saved draft</Button>
+            <Button onClick={() => void editor.save()}>Retry save</Button>
+          </div>
+        )}
+        <div className="video-actions">
+          <Button
+            disabled={
+              disabled ||
+              alreadyPosted ||
+              !editor.document.text.trim() ||
+              editor.dirty ||
+              editor.awaitingSubscription
+            }
+            onClick={() => void post()}
+          >
+            {alreadyPosted
+              ? "Draft already posted — edit to create another note"
+              : "Post saved comment"}
+          </Button>
+          <Button
+            disabled={disabled || pending.current !== null}
+            onClick={() => editor.edit({ text: "" })}
+          >
+            Clear draft
+          </Button>
+        </div>
+        {message && <p role="status">{message}</p>}
+      </div>
+      <div className="video-feedback-history">
+        <div className="video-feedback-heading">
+          <h3>Review notes</h3>
+          <span className="video-feedback-count">
+            {comments.results.length ? `${comments.results.length} loaded` : "No notes yet"}
+          </span>
+        </div>
+        {comments.results.map((comment) => (
+          <article key={comment._id} className="video-comment">
+            <header className="video-comment-heading">
+              <Badge>{comment.status === "resolved" ? "Resolved" : "Open"}</Badge>
+              <span className="video-comment-author">
+                {comment.authorKind === "human" ? "Human reviewer" : "Agent"}
+              </span>
+              {comment.body.startMs !== undefined && (
+                <Button
+                  size="sm"
+                  disabled={durationMs !== undefined && comment.body.startMs >= durationMs}
+                  onClick={() => onAnchor?.(comment.body)}
+                >
+                  At {(comment.body.startMs / 1000).toFixed(2)} s
+                  {durationMs !== undefined && comment.body.startMs >= durationMs
+                    ? " · historical anchor outside video frames"
+                    : ""}
+                </Button>
+              )}
+            </header>
+            <p>{comment.body.text}</p>
+            {comment.completion && (
+              <p className="video-hint">
+                Agent/work completion: {comment.completion.summary}. This is not human resolution.
+              </p>
+            )}
+            <div className="video-actions">
               <Button
                 size="sm"
                 onClick={() => {
-                  const reason = window.prompt(
-                    "Why move this note to the current time? Its previous anchor will be retained.",
-                  );
-                  if (!reason?.trim()) return;
-                  const { endMs: _end, ...body } = comment.body;
-                  void reanchor({
+                  void setStatus({
                     commentId: comment._id,
                     expectedRevision: comment.revision,
                     idempotencyKey: crypto.randomUUID(),
-                    target,
-                    body: { ...body, startMs: time },
-                    reason,
+                    status: comment.status === "resolved" ? "open" : "resolved",
                   }).catch(() =>
                     setMessage(
-                      "Anchor was not moved. Only the author can move a current note; keep its time within this render.",
+                      "Only the note author can resolve it. Refresh if another reviewer changed it.",
                     ),
                   );
                 }}
               >
-                Move my note to current time
+                {comment.status === "resolved" ? "Reopen my note" : "Resolve my note"}
               </Button>
-            )}
-          </div>
-          <CommentHistory commentId={comment._id} />
-        </article>
-      ))}
-      {comments.status === "CanLoadMore" && (
-        <Button onClick={() => comments.loadMore(10)}>More comments</Button>
-      )}
+              {time !== undefined && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const reason = window.prompt(
+                      "Why move this note to the current time? Its previous anchor will be retained.",
+                    );
+                    if (!reason?.trim()) return;
+                    const { endMs: _end, ...body } = comment.body;
+                    void reanchor({
+                      commentId: comment._id,
+                      expectedRevision: comment.revision,
+                      idempotencyKey: crypto.randomUUID(),
+                      target,
+                      body: { ...body, startMs: time },
+                      reason,
+                    }).catch(() =>
+                      setMessage(
+                        "Anchor was not moved. Only the author can move a current note; keep its time within this render.",
+                      ),
+                    );
+                  }}
+                >
+                  Move my note to current time
+                </Button>
+              )}
+            </div>
+            <CommentHistory commentId={comment._id} />
+          </article>
+        ))}
+        {comments.status === "CanLoadMore" && (
+          <Button onClick={() => comments.loadMore(10)}>Load earlier notes</Button>
+        )}
+      </div>
     </section>
   );
 }

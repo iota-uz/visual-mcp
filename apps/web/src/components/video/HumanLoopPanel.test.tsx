@@ -38,12 +38,14 @@ beforeEach(() => {
 test("human archive is explicit, preserves original CAS, and does not resume or approve", async () => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<HumanLoopPanel projectId={"project" as Id<"videoProjects">} language="ru" />);
-  expect(screen.getByRole("button", { name: "Resume existing experiment" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Resume improvement" })).toBeDisabled();
+  expect(screen.queryByLabelText("Reason for human pause or replanning")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Archive pending proposal" }));
   await userEvent.type(
     screen.getByLabelText("Reason for human pause or replanning"),
     "New direction after review",
   );
-  await userEvent.click(screen.getByRole("button", { name: "Archive pending proposal" }));
+  await userEvent.click(screen.getByRole("button", { name: "Archive proposal" }));
   await waitFor(() => expect(mocks.mutation).toHaveBeenCalledOnce());
   expect(mocks.mutation.mock.calls[0]).toEqual([
     "videoWorkflow:abandonPending",
@@ -54,13 +56,14 @@ test("human archive is explicit, preserves original CAS, and does not resume or 
       reason: "New direction after review",
     },
   ]);
-  expect(screen.getByText(/Rounds 2 \/ 3/)).toBeInTheDocument();
+  expect(screen.getByText("Rounds")).toBeInTheDocument();
+  expect(screen.getByText("2 / 3")).toBeInTheDocument();
 });
 test("exhausted limits cannot be reset by resume", () => {
   mocks.iteration = 3;
   mocks.pending = [];
   render(<HumanLoopPanel projectId={"project" as Id<"videoProjects">} language="ru" />);
-  expect(screen.getByRole("button", { name: "Resume existing experiment" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Resume improvement" })).toBeDisabled();
   expect(screen.getByText(/separately defined experiment/)).toBeInTheDocument();
   expect(mocks.mutation).not.toHaveBeenCalled();
 });

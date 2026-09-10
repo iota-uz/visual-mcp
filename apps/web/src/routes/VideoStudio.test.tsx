@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -126,6 +126,18 @@ test("renders honest empty media state and no human approval shortcut", () => {
   ).not.toBeInTheDocument();
   expect(screen.getByLabelText("Main idea").tagName).toBe("TEXTAREA");
   expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
+  expect(screen.getByRole("navigation", { name: "Scenes" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Opening/ })).toHaveAttribute("aria-current", "true");
+});
+
+test("shots retain selected scene context instead of becoming an unlabelled empty form", async () => {
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Shots" }));
+  const context = screen.getByRole("region", { name: "Selected scene context" });
+  expect(context).toHaveTextContent("Opening");
+  expect(within(context).getByText("ru narration")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
 });
 
 test("timeline exposes a temporal workspace and focused caption controls", async () => {
@@ -134,7 +146,7 @@ test("timeline exposes a temporal workspace and focused caption controls", async
   await user.click(screen.getByRole("button", { name: "Timeline" }));
   expect(screen.getByRole("slider", { name: "Playhead" })).toHaveValue("0");
   expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled();
-  await user.click(screen.getByRole("button", { name: "Add captions" }));
+  await user.click(screen.getByRole("button", { name: "Add caption" }));
   expect(screen.getByRole("region", { name: "Selected clip settings" })).toBeInTheDocument();
   expect(screen.getByLabelText("Caption text")).toBeInTheDocument();
 });
@@ -147,6 +159,22 @@ test("language switch reads independent draft and blocks while edits are unsaved
   await user.type(screen.getByLabelText("Narration"), " changed");
   expect(screen.getByRole("button", { name: "Русский" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save version" })).toBeDisabled();
+});
+
+test("language loading preserves the previous workspace as read-only context", async () => {
+  const original = query.getMockImplementation();
+  if (!original) throw new Error("Expected the query test double to be configured");
+  query.mockImplementation((ref, args) => {
+    if (getFunctionName(ref) === "video:getDraft" && args !== "skip" && args.draftId === "uz") {
+      return undefined;
+    }
+    return original(ref, args);
+  });
+  mount();
+  await userEvent.click(screen.getByRole("button", { name: "O‘zbekcha" }));
+  expect(screen.getByText("Loading the Uzbek draft…")).toBeInTheDocument();
+  expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
+  expect(screen.getByLabelText("Narration")).toHaveAttribute("readonly");
 });
 
 test("script writes use exact draft revision and scoped canonical paths", async () => {

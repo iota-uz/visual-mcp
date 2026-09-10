@@ -73,8 +73,11 @@ test("archive preserves original/new hash distinction and only loads historical 
       <ReelsArchive projectId={"project" as Id<"videoProjects">} />
     </MemoryRouter>,
   );
-  await userEvent.click(screen.getByText("Original Reels archive"));
-  expect(screen.getByText(/not current approvals/)).toBeInTheDocument();
+  await userEvent.click(screen.getByText("Imported project provenance"));
+  expect(
+    screen.getByText("They are not current approvals, active jobs or trusted quality evidence."),
+  ).toBeInTheDocument();
+  await userEvent.click(screen.getByText("Open expert archive tools"));
   expect(screen.getByText("native-sha")).toBeInTheDocument();
   expect(screen.getByText("original-version-sha")).toBeInTheDocument();
   expect(mocks.preview).not.toHaveBeenCalled();
@@ -99,5 +102,5 @@ test("non-imported projects show no archive controls", () => {
       <ReelsArchive projectId={"project" as Id<"videoProjects">} />
     </MemoryRouter>,
   );
-  expect(screen.queryByText("Original Reels archive")).not.toBeInTheDocument();
+  expect(screen.queryByText("Imported project provenance")).not.toBeInTheDocument();
 });

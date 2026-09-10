@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { z } from "zod";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import { Badge } from "../Badge";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import { Select } from "../ui/TextInput";
@@ -38,72 +39,96 @@ export function ReelsArchive({ projectId }: { projectId: Id<"videoProjects"> }) 
   const versions = Versions.safeParse(archive.nativeVersions);
   const mappings = Mappings.safeParse(archive.assetMap);
   return (
-    <Disclosure summary="Original Reels archive">
-      <p className="video-warning">
-        Imported fixture archive. Original records and feedback identities are preserved but
-        unverified. Historical approvals, job states and critic results are not current approvals,
-        active work or trusted evidence.
-      </p>
-      <p className="video-hint">{archive.warning}</p>
-      <p className="video-hint">
-        Original backup SHA-256: <code>{archive.sourceBackupSha256}</code>
-        <br />
-        Archive JSON SHA-256: <code>{archive.archiveSha256}</code>
-      </p>
-      <Button
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          setError("");
-          void preview({ workspaceId: archive.workspaceId, asset: archive.archiveAsset })
-            .then((result) => setUrl(result.url))
-            .catch(() =>
-              setError(
-                "Archive download link unavailable. Retry to obtain a fresh authenticated link.",
-              ),
-            )
-            .finally(() => setBusy(false));
-        }}
-      >
-        Get archive download link
-      </Button>
-      {url && (
-        <p>
-          <a href={url} target="_blank" rel="noreferrer">
-            Download immutable original records (JSON)
-          </a>
+    <Disclosure summary="Imported project provenance" className="video-archive">
+      <div className="video-archive-intro">
+        <Badge tone="warning">Historical data</Badge>
+        <div>
+          <strong>Original Reels records are preserved for reference.</strong>
+          <p className="video-hint video-archive-intro-copy">
+            They are not current approvals, active jobs or trusted quality evidence.
+          </p>
+        </div>
+      </div>
+      <Disclosure summary="Open expert archive tools" className="video-archive-expert">
+        <p className="video-warning">
+          Imported fixture archive. Original records and feedback identities are preserved but
+          unverified. Historical approvals, job states and critic results are not current approvals,
+          active work or trusted evidence.
         </p>
-      )}
-      {error && <p role="alert">{error}</p>}
-      {versions.success ? (
-        <ul>
-          {versions.data.map((version) => (
-            <li key={version.versionId}>
-              {version.language.toUpperCase()}: original {version.sourceVersionId} →{" "}
-              <Link
-                to={`/v/${projectId}?version=${version.versionId}&language=${version.language}`}
-              >
-                new native checkpoint
-              </Link>
-              <p className="video-hint">
-                New manifest SHA-256: <code>{version.manifestSha256}</code>. Not the original
-                version hash.
-              </p>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p role="alert">
-          Native version mapping is unavailable; original archive remains downloadable.
-        </p>
-      )}
-      {mappings.success && (
-        <ArchiveRows
-          migrationId={archive._id}
-          workspaceId={archive.workspaceId}
-          mappings={mappings.data}
-        />
-      )}
+        <p className="video-hint">{archive.warning}</p>
+        <dl className="video-archive-hashes">
+          <div>
+            <dt>Original backup SHA-256</dt>
+            <dd>
+              <code>{archive.sourceBackupSha256}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Archive JSON SHA-256</dt>
+            <dd>
+              <code>{archive.archiveSha256}</code>
+            </dd>
+          </div>
+        </dl>
+        <Button
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError("");
+            void preview({ workspaceId: archive.workspaceId, asset: archive.archiveAsset })
+              .then((result) => setUrl(result.url))
+              .catch(() =>
+                setError(
+                  "Archive download link unavailable. Retry to obtain a fresh authenticated link.",
+                ),
+              )
+              .finally(() => setBusy(false));
+          }}
+        >
+          Get archive download link
+        </Button>
+        {url && (
+          <p>
+            <a href={url} target="_blank" rel="noreferrer">
+              Download immutable original records (JSON)
+            </a>
+          </p>
+        )}
+        {error && <p role="alert">{error}</p>}
+        {versions.success ? (
+          <div className="video-archive-versions">
+            <h3>Imported checkpoints</h3>
+            <ul>
+              {versions.data.map((version) => (
+                <li key={version.versionId}>
+                  <strong>{version.language.toUpperCase()}</strong>: original{" "}
+                  {version.sourceVersionId} →{" "}
+                  <Link
+                    to={`/v/${projectId}?version=${version.versionId}&language=${version.language}`}
+                  >
+                    native checkpoint
+                  </Link>
+                  <p className="video-hint">
+                    New manifest SHA-256: <code>{version.manifestSha256}</code>. Not the original
+                    version hash.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p role="alert">
+            Native version mapping is unavailable; original archive remains downloadable.
+          </p>
+        )}
+        {mappings.success && (
+          <ArchiveRows
+            migrationId={archive._id}
+            workspaceId={archive.workspaceId}
+            mappings={mappings.data}
+          />
+        )}
+      </Disclosure>
     </Disclosure>
   );
 }
@@ -136,7 +161,17 @@ function ArchiveRows({
           "run",
         ].map((value) => ({
           value,
-          label: value,
+          label:
+            {
+              version: "Versions",
+              feedback: "Feedback",
+              approval: "Approvals",
+              job: "Jobs",
+              observation: "Observations",
+              asset: "Assets",
+              "asset-import": "Asset imports",
+              run: "Runs",
+            }[value] ?? value,
         }))}
       />
       <HistoricalPage
@@ -185,7 +220,7 @@ function HistoricalPage({
           ? mappings.find((item) => item.sha256 === hash && item.mimeType.startsWith("video/"))
           : undefined;
         return (
-          <article className="video-comment" key={row._id}>
+          <article className="video-comment video-archive-record" key={row._id}>
             <strong>
               {row.kind} · {row.sourceId}
             </strong>

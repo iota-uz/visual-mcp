@@ -1,0 +1,340 @@
+.video-review-status {
+  display: grid;
+  justify-items: end;
+  gap: var(--app-space-2);
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-candidates {
+  display: grid;
+  gap: var(--app-space-2);
+  min-width: 0;
+  padding: var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: color-mix(in srgb, var(--app-paper) 80%, white);
+}
+
+.video-candidates-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+}
+
+.video-candidates-heading strong {
+  font-size: var(--app-text-sm);
+}
+
+.video-candidates-heading span,
+.video-candidates-loading {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-candidate-list {
+  display: flex;
+  gap: var(--app-space-2);
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.video-candidate.btn {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 176px;
+  max-width: 240px;
+  justify-items: stretch;
+  gap: 2px;
+  text-align: left;
+}
+
+.video-candidate[aria-current="true"] {
+  border-color: var(--app-accent);
+  box-shadow: inset 3px 0 0 var(--app-accent);
+  opacity: 1;
+}
+
+.video-candidate-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
+.video-candidate-title > span {
+  color: var(--app-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.video-candidate-title strong,
+.video-candidate-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-candidate-state {
+  color: var(--app-muted);
+  font-size: 10px;
+}
+
+.video-review-screen .video-player {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  height: 100%;
+  color: #e8eef6;
+}
+
+.video-review-screen .video-player-heading {
+  align-items: center;
+  padding: var(--app-space-3) var(--app-space-4);
+  border-bottom: 1px solid #26364a;
+  background: #121d29;
+}
+
+.video-player-heading > div {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+.video-player-language,
+.video-player-dimensions {
+  color: #91a3b8;
+  font-size: var(--app-text-xs);
+}
+
+.video-review-screen .video-player-stage {
+  min-height: 0;
+  padding: var(--app-space-6);
+  border: 0;
+  border-radius: 0;
+  background: #090f16;
+}
+
+.video-player-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--app-space-3) var(--app-space-4);
+  border-top: 1px solid #26364a;
+  background: #121d29;
+}
+
+.video-player-controls .btn {
+  color: #dce6f1;
+}
+
+.video-player-controls > a {
+  margin-left: auto;
+  color: #a9c3ff;
+  font-size: var(--app-text-sm);
+}
+
+.video-frame-stepper {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #34465a;
+  border-radius: var(--app-radius-xs);
+}
+
+.video-frame-stepper .btn {
+  border: 0;
+  border-radius: 0;
+}
+
+.video-frame-stepper output {
+  display: grid;
+  min-width: 104px;
+  padding: 0 var(--app-space-3);
+  color: #f4f7fb;
+  font: 600 var(--app-text-xs) var(--app-font-mono);
+  text-align: center;
+}
+
+.video-frame-stepper output span {
+  color: #8fa2b7;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.video-player-technical-summary {
+  margin: 0;
+  padding: 0 var(--app-space-4) var(--app-space-3);
+  background: #121d29;
+  color: #7f92a7;
+  font: 500 10px var(--app-font-mono);
+}
+
+.video-region-draw {
+  outline: 1px dashed rgba(255, 255, 255, 0.7);
+  outline-offset: -8px;
+  background: rgba(56, 112, 203, 0.08);
+  touch-action: none;
+}
+
+.video-region-draw:focus-visible {
+  outline: 2px solid #9bbcff;
+  outline-offset: -4px;
+}
+
+.video-region-overlay {
+  border-color: #ffcf64;
+  background: rgba(255, 207, 100, 0.16);
+  box-shadow: 0 0 0 1px rgba(12, 20, 29, 0.65);
+}
+
+.video-review-notes {
+  min-height: 0;
+  max-height: min(78vh, 780px);
+  overflow: auto;
+  background: var(--app-white);
+}
+
+.video-review-notes .video-approval {
+  margin: 0;
+  padding: var(--app-space-4);
+  border-bottom: 1px solid var(--app-line);
+}
+
+.video-feedback {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.video-feedback-composer,
+.video-feedback-history {
+  display: grid;
+  gap: var(--app-space-3);
+  padding: var(--app-space-4);
+}
+
+.video-feedback-history {
+  border-top: 1px solid var(--app-line);
+  background: color-mix(in srgb, var(--app-paper) 82%, white);
+}
+
+.video-feedback-heading,
+.video-comment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.video-feedback-heading h3 {
+  margin: 0;
+}
+
+.video-feedback-count,
+.video-comment-author {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-feedback-composer textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.video-feedback-capture {
+  margin: 0;
+  padding: var(--app-space-2) var(--app-space-3);
+  border-left: 3px solid var(--app-role-system);
+  background: var(--app-accent-soft);
+  font-size: var(--app-text-sm);
+}
+
+.video-feedback-advanced {
+  margin: 0;
+}
+
+.video-comment {
+  margin: 0;
+  background: var(--app-white);
+}
+
+.video-comment-heading .btn {
+  margin-left: auto;
+}
+
+.video-review-integrity {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-review-technical {
+  margin: 0;
+}
+
+@media (max-width: 899px) {
+  .video-review-workspace {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .video-review-notes {
+    max-height: none;
+  }
+
+  .video-review-screen .video-player-frame {
+    height: min(62vh, 640px);
+  }
+}
+
+@media (max-width: 639px) {
+  .video-review-heading {
+    display: grid;
+  }
+
+  .video-review-status {
+    display: flex;
+    justify-items: start;
+  }
+
+  .video-candidates-heading {
+    display: grid;
+    gap: 2px;
+  }
+
+  .video-player-controls,
+  .video-frame-stepper,
+  .video-feedback-anchor-actions,
+  .video-comment-heading {
+    flex-wrap: wrap;
+  }
+
+  .video-player-controls > a {
+    margin-left: 0;
+  }
+
+  .video-frame-stepper {
+    width: 100%;
+  }
+
+  .video-frame-stepper output {
+    flex: 1;
+  }
+
+  .video-region-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-region-draw {
+    scroll-behavior: auto;
+  }
+}

@@ -59,7 +59,64 @@ test("AAC container padding cannot invent frames or out-of-video anchors", () =>
   );
   const video = screen.getByLabelText("Video preview");
   fireEvent.timeUpdate(video, { target: { currentTime: 2.048 } });
-  expect(screen.getByText(/Frame 59 of 59/)).toBeInTheDocument();
+  expect(screen.getByText(/Frame 60 \/ 60/)).toBeInTheDocument();
   expect(onTime).toHaveBeenLastCalledWith(1967);
-  expect(screen.getByText(/video 2.000 s \(container 2.048 s\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Video 2.000 s · container 2.048 s/)).toBeInTheDocument();
+});
+test("region drawing is an explicit mode and the exact-frame controls seek predictably", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const onRegion = vi.fn();
+  const onTime = vi.fn();
+  const view = render(
+    <VideoPlayer
+      asset={{
+        jobId: "job",
+        versionId: "version",
+        language: "ru",
+        sha256: "hash",
+        videoUrl: "https://example.test/video",
+        width: 100,
+        height: 100,
+        durationMs: 2000,
+        containerDurationMs: 2000,
+        videoDurationMs: 2000,
+        frameCount: 60,
+        fps: { numerator: 30, denominator: 1 },
+        partial: false,
+      }}
+      onLoaded={() => {}}
+      onTime={onTime}
+      onRegion={onRegion}
+    />,
+  );
+  expect(screen.queryByLabelText("Mark a region on this frame")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Mark region" }));
+  // The parent owns the mode so a controlled rerender is deliberate.
+  view.rerender(
+    <VideoPlayer
+      asset={{
+        jobId: "job",
+        versionId: "version",
+        language: "ru",
+        sha256: "hash",
+        videoUrl: "https://example.test/video",
+        width: 100,
+        height: 100,
+        durationMs: 2000,
+        containerDurationMs: 2000,
+        videoDurationMs: 2000,
+        frameCount: 60,
+        fps: { numerator: 30, denominator: 1 },
+        partial: false,
+      }}
+      onLoaded={() => {}}
+      onTime={onTime}
+      onRegion={onRegion}
+      annotationMode
+      onAnnotationModeChange={() => {}}
+    />,
+  );
+  expect(screen.getByLabelText("Mark a region on this frame")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Next frame" }));
+  expect(onTime).toHaveBeenLastCalledWith(34);
 });

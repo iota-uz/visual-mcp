@@ -60,4 +60,10 @@
 @import "./surfaces/tokens-page.css" layer(surfaces);
 @import "./surfaces/canvas.css" layer(surfaces);
 @import "./surfaces/video.css" layer(surfaces);
+@import "./surfaces/video-shell.css" layer(surfaces);
+@import "./surfaces/video-storyboard.css" layer(surfaces);
+@import "./surfaces/video-shots.css" layer(surfaces);
+@import "./surfaces/video-timeline.css" layer(surfaces);
+@import "./surfaces/video-review.css" layer(surfaces);
+@import "./surfaces/video-production.css" layer(surfaces);
 @import "./surfaces/kitchen-sink.css" layer(surfaces);

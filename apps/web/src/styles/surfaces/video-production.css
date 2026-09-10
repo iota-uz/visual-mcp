@@ -1,0 +1,198 @@
+.video-human-loop,
+.video-jobs {
+  display: grid;
+  gap: var(--app-space-4);
+}
+
+.video-human-loop .video-section-heading,
+.video-jobs .video-section-heading {
+  align-items: flex-start;
+}
+
+.video-human-loop .video-section-heading h2,
+.video-jobs .video-section-heading h2 {
+  margin-bottom: var(--app-space-1);
+}
+
+.video-human-loop .video-section-heading p,
+.video-jobs .video-section-heading p {
+  margin: 0;
+}
+
+.video-loop-guidance {
+  margin: 0;
+  padding: var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-paper);
+  font-size: var(--app-text-sm);
+}
+
+.video-loop-intent {
+  display: grid;
+  gap: var(--app-space-3);
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--app-space-4);
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+  background: var(--app-paper);
+}
+
+.video-archive,
+.video-job-group {
+  min-width: 0;
+}
+
+.video-loop-intent-copy {
+  margin: var(--app-space-1) 0 0;
+}
+
+.video-loop-intent textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.video-loop-advanced,
+.video-job-technical,
+.video-archive-expert {
+  margin: 0;
+}
+
+.video-loop-facts,
+.video-job-facts,
+.video-archive-hashes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--app-space-3);
+  margin: var(--app-space-3) 0;
+}
+
+.video-loop-facts div,
+.video-job-facts div,
+.video-archive-hashes div {
+  min-width: 0;
+}
+
+.video-loop-facts dt,
+.video-job-facts dt,
+.video-archive-hashes dt {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-loop-facts dd,
+.video-job-facts dd,
+.video-archive-hashes dd {
+  margin: var(--app-space-1) 0 0;
+  overflow-wrap: anywhere;
+  font-size: var(--app-text-sm);
+}
+
+.video-job {
+  margin: 0;
+}
+
+.video-job-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: var(--app-space-3);
+}
+
+.video-job-summary-main {
+  display: grid;
+  min-width: 0;
+}
+
+.video-job-summary-main > span {
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-job-summary-meta {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--app-space-2);
+}
+
+.video-job-summary-meta time {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-job-body {
+  display: grid;
+  gap: var(--app-space-3);
+  padding-top: var(--app-space-2);
+}
+
+.video-job-stage {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-paper);
+}
+
+.video-job-stage span {
+  color: var(--app-muted);
+  font-size: var(--app-text-xs);
+}
+
+.video-job-stage strong {
+  font-size: var(--app-text-sm);
+  text-transform: capitalize;
+}
+
+.video-archive-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--app-space-3);
+  padding: var(--app-space-3) 0;
+}
+
+.video-archive-intro-copy {
+  margin: var(--app-space-1) 0 0;
+}
+
+.video-archive-expert > summary {
+  color: var(--app-muted);
+}
+
+.video-archive-versions {
+  margin-top: var(--app-space-4);
+}
+
+.video-archive-versions h3 {
+  margin-bottom: var(--app-space-2);
+}
+
+.video-archive-record {
+  background: var(--app-paper);
+}
+
+@media (max-width: 639px) {
+  .video-loop-facts,
+  .video-job-facts,
+  .video-archive-hashes {
+    grid-template-columns: 1fr;
+  }
+
+  .video-job-summary {
+    align-items: flex-start;
+  }
+
+  .video-job-summary-meta {
+    display: grid;
+    justify-items: end;
+  }
+}

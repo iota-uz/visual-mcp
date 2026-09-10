@@ -1,0 +1,191 @@
+/* Timeline interaction layer. The base material lives in video.css. */
+.video-timeline {
+  height: max-content;
+}
+
+.video-timeline-toolbar-actions,
+.video-icon-controls,
+.video-clip-actions,
+.video-trim-controls,
+.video-track-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+.video-icon-controls {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #35465a;
+  border-radius: var(--app-radius-xs);
+  background: #182331;
+}
+.video-icon-controls button,
+.video-track-controls button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #aebccc;
+  cursor: pointer;
+}
+.video-icon-controls button {
+  width: 30px;
+  height: 28px;
+}
+.video-icon-controls button:hover:not(:disabled),
+.video-track-controls button:hover,
+.video-track-controls button[aria-pressed="true"] {
+  background: #2a3a4e;
+  color: white;
+}
+.video-icon-controls button:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+.video-icon-controls button:focus-visible,
+.video-track-controls button:focus-visible,
+.video-ruler-scrubber:focus-visible {
+  outline: 2px solid #72a0ff;
+  outline-offset: -2px;
+}
+.video-ruler-scale {
+  isolation: isolate;
+}
+.video-track-ruler,
+.video-track-row {
+  grid-template-columns: 176px minmax(0, 1fr);
+}
+.video-ruler-scrubber {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: crosshair;
+  opacity: 0;
+}
+.video-track-label {
+  min-width: 176px;
+}
+.video-timeline-empty {
+  margin-left: 176px;
+}
+.video-track-label > span {
+  flex: 1;
+}
+.video-track-controls {
+  gap: 1px;
+  margin-left: auto;
+}
+.video-track-controls button {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+}
+.video-track-row[data-track-disabled="true"] .video-track-lane {
+  opacity: 0.34;
+}
+.video-timeline-clip-shell {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  min-width: 22px;
+}
+.video-timeline-clip-shell > .video-timeline-clip {
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 10px;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.video-timeline-clip-shell[data-dragging="true"] > .video-timeline-clip {
+  z-index: 4;
+  cursor: grabbing;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 8px 18px rgba(0, 0, 0, 0.28);
+}
+.video-clip-trim-handle {
+  position: absolute;
+  z-index: 5;
+  top: 3px;
+  bottom: 3px;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.78);
+  cursor: ew-resize;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 120ms ease;
+}
+.video-clip-trim-handle-start {
+  left: 3px;
+}
+.video-clip-trim-handle-end {
+  right: 3px;
+}
+.video-timeline-clip-shell:hover .video-clip-trim-handle,
+.video-timeline-clip-shell:focus-within .video-clip-trim-handle,
+.video-timeline-clip-shell[data-dragging="true"] .video-clip-trim-handle {
+  opacity: 1;
+}
+.video-clip-trim-handle:focus-visible {
+  opacity: 1;
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+.video-clip-trim-handle:disabled {
+  cursor: default;
+  opacity: 0;
+}
+.video-timeline-toolbar-actions .btn[aria-pressed="true"] {
+  border-color: #72a0ff;
+  background: #294b7d;
+  color: #fff;
+}
+.video-clip-actions,
+.video-trim-controls {
+  flex-wrap: wrap;
+  margin: 0;
+}
+.video-trim-controls {
+  padding: var(--app-space-2);
+  border: 1px solid #314154;
+  border-radius: var(--app-radius-xs);
+  background: #131e2a;
+}
+.video-trim-controls > span {
+  margin-right: var(--app-space-1);
+  color: #91a3b8;
+  font-size: var(--app-text-xs);
+  font-weight: 650;
+}
+.video-clip-actions .btn-danger {
+  margin-left: auto;
+}
+@media (max-width: 720px) {
+  .video-timeline-toolbar-actions {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .video-clip-actions .btn-danger {
+    margin-left: 0;
+  }
+}
+@media (pointer: coarse) {
+  .video-icon-controls button,
+  .video-track-controls button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .video-clip-trim-handle {
+    width: 18px;
+    opacity: 0.8;
+  }
+}

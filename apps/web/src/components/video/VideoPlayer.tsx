@@ -1,3 +1,4 @@
+import { BoxSelect, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 
@@ -28,6 +29,8 @@ export function VideoPlayer({
   region,
   onRefresh,
   onRegion,
+  annotationMode = false,
+  onAnnotationModeChange,
 }: {
   asset: VideoReviewAsset;
   onLoaded: (ready: boolean) => void;
@@ -36,6 +39,8 @@ export function VideoPlayer({
   region?: VideoRegion;
   onRefresh?: () => void;
   onRegion?: (region: VideoRegion) => void;
+  annotationMode?: boolean;
+  onAnnotationModeChange?: (active: boolean) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const playback = useRef({ hash: asset.sha256, time: 0, paused: true });
@@ -46,6 +51,15 @@ export function VideoPlayer({
   const lastAnchorMs = Math.ceil((lastFrame / fps) * 1000);
   const [frame, setFrame] = useState(0);
   const drag = useRef<{ x: number; y: number } | null>(null);
+  function seekToFrame(nextFrame: number) {
+    const target = Math.max(0, Math.min(lastFrame, nextFrame));
+    if (video.current) {
+      video.current.pause();
+      video.current.currentTime = target / fps;
+    }
+    setFrame(target);
+    onTime(Math.ceil((target / fps) * 1000));
+  }
   useEffect(() => {
     if (seekMs !== undefined && video.current) {
       video.current.pause();
@@ -55,10 +69,11 @@ export function VideoPlayer({
   return (
     <section className="video-player" aria-label="Rendered video">
       <div className="video-player-heading">
-        <strong>
-          {asset.language.toUpperCase()} · {asset.partial ? "Partial preview" : "Exact MP4"}
-        </strong>
-        <span>
+        <div>
+          <strong>{asset.partial ? "Partial preview" : "Exact MP4"}</strong>
+          <span className="video-player-language">{asset.language.toUpperCase()}</span>
+        </div>
+        <span className="video-player-dimensions">
           {asset.width} × {asset.height}
         </span>
       </div>
@@ -128,7 +143,7 @@ export function VideoPlayer({
             )}
             Your browser cannot play this video. Use the download link.
           </video>
-          {onRegion && (
+          {onRegion && annotationMode && (
             <button
               type="button"
               className="video-region-draw"
@@ -154,6 +169,10 @@ export function VideoPlayer({
                   width: Math.max(0.02, Math.abs(x - origin.x)),
                   height: Math.max(0.02, Math.abs(y - origin.y)),
                 });
+                onAnnotationModeChange?.(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") onAnnotationModeChange?.(false);
               }}
             />
           )}
@@ -172,16 +191,53 @@ export function VideoPlayer({
           )}
         </div>
       </div>
-      <div className="video-actions">
-        <span className="video-hint">
-          Frame {frame} of {lastFrame} · {(frame / fps).toFixed(3)} s · video{" "}
-          {(asset.videoDurationMs / 1000).toFixed(3)} s (container{" "}
-          {(asset.containerDurationMs / 1000).toFixed(3)} s)
-        </span>
+      <fieldset className="video-player-controls">
+        <legend className="visually-hidden">Frame review controls</legend>
+        <div className="video-frame-stepper">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={ChevronLeft}
+            aria-label="Previous frame"
+            disabled={frame <= 0 || error}
+            onClick={() => seekToFrame(frame - 1)}
+          >
+            Previous
+          </Button>
+          <output aria-live="off">
+            Frame {frame + 1} / {lastFrame + 1}
+            <span>{(frame / fps).toFixed(3)} s</span>
+          </output>
+          <Button
+            size="sm"
+            variant="ghost"
+            iconEnd={ChevronRight}
+            aria-label="Next frame"
+            disabled={frame >= lastFrame || error}
+            onClick={() => seekToFrame(frame + 1)}
+          >
+            Next
+          </Button>
+        </div>
+        {onRegion && (
+          <Button
+            size="sm"
+            variant={annotationMode ? "secondary" : "ghost"}
+            icon={annotationMode ? X : BoxSelect}
+            aria-pressed={annotationMode}
+            onClick={() => onAnnotationModeChange?.(!annotationMode)}
+          >
+            {annotationMode ? "Cancel region" : "Mark region"}
+          </Button>
+        )}
         <a href={asset.videoUrl} download>
           Download {asset.partial ? "preview" : "MP4"}
         </a>
-      </div>
+      </fieldset>
+      <p className="video-player-technical-summary">
+        Video {(asset.videoDurationMs / 1000).toFixed(3)} s · container{" "}
+        {(asset.containerDurationMs / 1000).toFixed(3)} s · {fps.toFixed(3)} fps
+      </p>
       {error && (
         <div role="alert">
           <p>The video could not load. Your feedback is unchanged.</p>

@@ -47,9 +47,28 @@ test("adding shot preserves stable scene identity and defaults to deterministic 
     />,
   );
   await userEvent.click(screen.getByRole("button", { name: "Add shot" }));
-  const next = onChange.mock.calls[0]![0];
+  const next = onChange.mock.calls[0]?.[0];
+  expect(next).toBeDefined();
+  if (!next) throw new Error("Expected the shot draft to change");
   expect(next.sceneOrder).toEqual(["scene"]);
   const key = next.scenesById.scene.shotOrder[0];
   expect(key).toMatch(/^shot-/);
   expect(next.scenesById.scene.shotsById[key].method).toBe("remotion");
+});
+
+test("keeps the selected scene brief visible while planning its first shot", () => {
+  render(
+    <ShotStudio
+      {...ids}
+      document={document}
+      revision="s1"
+      onChange={vi.fn()}
+      locked={false}
+      unsaved={false}
+      sceneId="scene"
+    />,
+  );
+  expect(screen.getByRole("region", { name: "Selected scene context" })).toHaveTextContent("Scene");
+  expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Scene")).not.toBeInTheDocument();
 });

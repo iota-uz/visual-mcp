@@ -1,5 +1,5 @@
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { Clapperboard, Film, Layers, ListVideo, PlaySquare } from "lucide-react";
+import { CheckCircle2, Clapperboard, Film, Layers, ListVideo, PlaySquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
@@ -18,7 +18,7 @@ import { HumanLoopPanel } from "../components/video/HumanLoopPanel";
 import { ReelsArchive } from "../components/video/ReelsArchive";
 import { RenderRequest } from "../components/video/RenderRequest";
 import { ShotStudio } from "../components/video/ShotStudio";
-import { StoryboardEditor } from "../components/video/StoryboardEditor";
+import { SceneNavigator, StoryboardEditor } from "../components/video/StoryboardEditor";
 import { TimelineEditor } from "../components/video/TimelineEditor";
 import { useRevisionEditor } from "../components/video/useRevisionEditor";
 import { useUnsavedNavigation } from "../components/video/useUnsavedNavigation";
@@ -54,6 +54,7 @@ export function VideoStudioPage() {
   );
   const [blocked, setBlocked] = useState(false);
   const [reviewBlocked, setReviewBlocked] = useState(false);
+  const retainedDraft = useRef<Draft | null>(null);
   const [productionOpen, setProductionOpen] = useState(params.get("production") === "1");
   const renderId = params.get("render");
   const language = version?.version.language ?? (params.get("language") === "uz" ? "uz" : "ru");
@@ -64,6 +65,12 @@ export function VideoStudioPage() {
     api.video.latestRender,
     project ? { projectId: project.projectId, language } : "skip",
   );
+  const currentDraft = draft && draft.draftId === lane?.draftId ? draft : null;
+  if (currentDraft) retainedDraft.current = currentDraft;
+  const visibleDraft =
+    currentDraft ??
+    (retainedDraft.current?.projectId === project?.projectId ? retainedDraft.current : null);
+  const draftTransitioning = Boolean(!currentDraft && visibleDraft && lane);
   function setParam(updates: Record<string, string | null>) {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(updates)) {
@@ -93,20 +100,20 @@ export function VideoStudioPage() {
           <h1 className="canvas-command-name">{project.title}</h1>
         </div>
         {!versionId && (
-          <fieldset className="canvas-mode-switch" aria-label="Studio mode">
+          <nav className="canvas-mode-switch video-workflow-switch" aria-label="Studio workflow">
             {MODES.map((item) => (
               <Button
                 key={item.id}
                 size="sm"
                 variant={mode === item.id ? "secondary" : "ghost"}
                 icon={item.icon}
-                aria-pressed={mode === item.id}
+                aria-current={mode === item.id ? "step" : undefined}
                 onClick={() => setParam({ mode: item.id })}
               >
                 {item.label}
               </Button>
             ))}
-          </fieldset>
+          </nav>
         )}
         <div className="canvas-command-actions">
           <nav className="canvas-mode-switch" aria-label="Draft language">
@@ -177,18 +184,27 @@ export function VideoStudioPage() {
             </div>
           </div>
         )
-      ) : !draft || draft.draftId !== lane?.draftId ? (
+      ) : !visibleDraft ? (
         <LoadingState />
       ) : (
-        <DraftStudio
-          project={project}
-          draft={draft}
-          mode={mode}
-          onBlocked={setBlocked}
-          onMode={(next) => setParam({ mode: next })}
-          latestRenderId={activeRender as Id<"videoJobs"> | null}
-          onOpenRender={(jobId) => setParam({ render: jobId, mode: "review", production: null })}
-        />
+        <div className="video-draft-continuity">
+          {draftTransitioning && (
+            <div className="video-draft-transition" role="status">
+              <span aria-hidden="true" />
+              Loading the {language === "ru" ? "Russian" : "Uzbek"} draft…
+            </div>
+          )}
+          <DraftStudio
+            project={project}
+            draft={visibleDraft}
+            mode={mode}
+            transitioning={draftTransitioning}
+            onBlocked={setBlocked}
+            onMode={(next) => setParam({ mode: next })}
+            latestRenderId={activeRender as Id<"videoJobs"> | null}
+            onOpenRender={(jobId) => setParam({ render: jobId, mode: "review", production: null })}
+          />
+        </div>
       )}
 
       {mode === "review" && activeRender && (
@@ -197,6 +213,8 @@ export function VideoStudioPage() {
             key={activeRender}
             jobId={activeRender as Id<"videoJobs">}
             projectId={project.projectId}
+            workspaceId={project.workspaceId}
+            onOpenRender={(jobId) => setParam({ render: jobId, mode: "review" })}
             onBlocked={setReviewBlocked}
           />
         </div>
@@ -249,6 +267,7 @@ function DraftStudio({
   project,
   draft,
   mode,
+  transitioning,
   onBlocked,
   onMode,
   latestRenderId,
@@ -257,6 +276,7 @@ function DraftStudio({
   project: Project;
   draft: Draft;
   mode: StudioMode;
+  transitioning: boolean;
   onBlocked: (value: boolean) => void;
   onMode: (mode: StudioMode) => void;
   latestRenderId: Id<"videoJobs"> | null;
@@ -271,6 +291,7 @@ function DraftStudio({
   const [checkpointMessage, setCheckpointMessage] = useState("");
   const [checkpointError, setCheckpointError] = useState(false);
   const [sceneId, setSceneId] = useState(draft.script.sceneOrder[0] ?? "");
+  const [shotId, setShotId] = useState("");
   const pendingCheckpoint = useRef<Parameters<typeof checkpoint>[0] | null>(null);
   const script = useRevisionEditor(
     { revision: draft.scriptRevision, document: draft.script },
@@ -314,12 +335,31 @@ function DraftStudio({
     script.awaitingSubscription ||
     timeline.awaitingSubscription;
   useUnsavedNavigation(unsaved || checkpointBusy || checkpointError);
-  useReportBlocked(unsaved || checkpointBusy || checkpointError, onBlocked);
+  useReportBlocked(unsaved || checkpointBusy || checkpointError || transitioning, onBlocked);
   const versions = usePaginatedQuery(
     api.video.listVersions,
     { projectId: project.projectId, language: draft.language },
     { initialNumItems: 10 },
   );
+  const activeSceneId = script.document.scenesById[sceneId]
+    ? sceneId
+    : (script.document.sceneOrder[0] ?? "");
+  const activeScene = activeSceneId ? script.document.scenesById[activeSceneId] : undefined;
+  useEffect(() => {
+    if (activeSceneId !== sceneId) setSceneId(activeSceneId);
+    if (shotId && !activeScene?.shotsById[shotId]) setShotId("");
+  }, [activeScene, activeSceneId, sceneId, shotId]);
+  const sceneBriefsReady = script.document.sceneOrder.filter((id) => {
+    const scene = script.document.scenesById[id];
+    return Boolean(
+      scene?.purpose.trim() && scene.narration.trim() && scene.visual.description.trim(),
+    );
+  }).length;
+  const shotsPlanned = script.document.sceneOrder.reduce(
+    (total, id) => total + (script.document.scenesById[id]?.shotOrder.length ?? 0),
+    0,
+  );
+  const editorLocked = transitioning || checkpointError;
 
   async function saveCheckpoint() {
     pendingCheckpoint.current ??= {
@@ -357,155 +397,205 @@ function DraftStudio({
   }
 
   return (
-    <div className={`video-studio-body${mode === "review" ? " video-studio-body-review" : ""}`}>
-      <div className="video-editing-column">
-        <div className="video-save-summary" role="status">
+    <div
+      className={`video-studio-body video-studio-shell${mode === "review" ? " video-studio-body-review" : ""}`}
+      aria-busy={transitioning || undefined}
+    >
+      <div className="video-studio-statusbar" role="status">
+        <div>
           <Badge tone={unsaved ? "warning" : "success"}>
             {unsaved ? "Unsaved changes" : "Draft saved"}
           </Badge>
-          <span>
-            {draft.language === "ru" ? "Russian" : "Uzbek"} draft. Other languages are unchanged.
-          </span>
+          <span>{draft.language === "ru" ? "Russian" : "Uzbek"} draft</span>
         </div>
-        {mode === "story" && (
-          <>
-            <EditorNotice editor={script} name="script" />
-            <StoryboardEditor
-              document={script.document}
-              onChange={script.edit}
-              disabled={script.locked || checkpointError}
-              selectedId={sceneId}
-              onSelect={setSceneId}
-              onOpenShot={() => onMode("shots")}
-            />
-          </>
-        )}
-        {mode === "shots" && (
-          <>
-            <EditorNotice editor={script} name="script" />
-            <ShotStudio
-              workspaceId={project.workspaceId}
-              projectId={project.projectId}
-              draftId={draft.draftId}
-              revision={draft.scriptRevision}
-              document={script.document}
-              onChange={script.edit}
-              locked={script.locked || checkpointError}
-              unsaved={script.dirty || script.awaitingSubscription}
-              sceneId={sceneId}
-            />
-          </>
-        )}
-        {mode === "timeline" && (
-          <>
-            <EditorNotice editor={timeline} name="timeline" />
-            <TimelineEditor
-              document={timeline.document}
-              onChange={timeline.edit}
-              disabled={timeline.locked || checkpointError}
-            />
-          </>
-        )}
-        {mode === "review" && !latestRenderId && (
-          <div className="video-preview-empty">
+        <ol className="video-workflow-readiness" aria-label="Production readiness">
+          <li className={sceneBriefsReady > 0 ? "is-ready" : ""}>
+            <CheckCircle2 size={13} aria-hidden="true" />
+            {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
+          </li>
+          <li className={shotsPlanned > 0 ? "is-ready" : ""}>
+            <CheckCircle2 size={13} aria-hidden="true" />
+            {shotsPlanned} planned shots
+          </li>
+          <li className={latestRenderId ? "is-ready" : ""}>
+            <CheckCircle2 size={13} aria-hidden="true" />
+            {latestRenderId ? "Render ready" : "Render pending"}
+          </li>
+        </ol>
+      </div>
+
+      {mode === "review" ? (
+        !latestRenderId && (
+          <div className="video-preview-empty video-review-empty">
             <Film size={36} aria-hidden="true" />
             <h2>No rendered video yet</h2>
             <p>Save a version, then render it. Watching a draft does not approve it.</p>
           </div>
-        )}
-      </div>
-      {mode !== "review" && (
-        <aside className="video-review-column" aria-label="Preview and versions">
-          {latestRenderId ? (
-            <div className="video-preview-empty">
-              <Film size={36} aria-hidden="true" />
-              <h2>Latest render ready</h2>
-              <p>Open Review to watch this language’s latest MP4 and leave notes.</p>
-              <Button variant="primary" onClick={() => onOpenRender(latestRenderId)}>
-                Watch latest render
-              </Button>
-            </div>
-          ) : (
-            <div className="video-preview-empty">
-              <Film size={36} aria-hidden="true" />
-              <h2>No rendered video yet</h2>
-              <p>
-                The storyboard is available now. A completed render will appear here; saving a draft
-                does not create an MP4.
-              </p>
-            </div>
-          )}
-          <Panel as="section">
-            <h2>Save a version</h2>
-            <p className="video-hint">
-              Immutable snapshot of this language’s script and timeline. Not an approval.
-            </p>
-            <form
-              className="video-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveCheckpoint();
+        )
+      ) : (
+        <div className="video-studio-workspace">
+          <aside className="video-studio-navigator" aria-label="Project scenes">
+            <SceneNavigator
+              document={script.document}
+              selectedId={activeSceneId}
+              onSelect={(next) => {
+                setSceneId(next);
+                setShotId("");
               }}
-            >
-              <TextInput
-                id="checkpoint-label"
-                label="Version label"
-                labelVisible
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                required
-                maxLength={500}
-                disabled={checkpointBusy || checkpointError}
-                placeholder="Opening revised"
-              />
-              <Button
-                variant="primary"
-                type="submit"
-                busy={checkpointBusy}
-                disabled={unsaved || !label.trim()}
-              >
-                {checkpointBusy
-                  ? "Saving version…"
-                  : checkpointError
-                    ? "Retry same version"
-                    : "Save version"}
-              </Button>
-              {unsaved && <p className="video-hint">Save or resolve draft changes first.</p>}
-              {checkpointMessage && (
-                <p role={checkpointError ? "alert" : "status"}>{checkpointMessage}</p>
-              )}
-            </form>
-          </Panel>
-          <section className="video-version-list">
-            <h2>Saved versions</h2>
-            {versions.results.length === 0 && (
-              <p className="video-hint">No versions saved for this language.</p>
+            />
+          </aside>
+
+          <main className="video-editing-column">
+            {mode === "story" && (
+              <>
+                <EditorNotice editor={script} name="script" />
+                <StoryboardEditor
+                  document={script.document}
+                  onChange={script.edit}
+                  disabled={script.locked || editorLocked}
+                  selectedId={activeSceneId}
+                  onSelect={setSceneId}
+                  showSceneNavigator={false}
+                  onOpenShot={(nextShotId) => {
+                    setShotId(nextShotId);
+                    onMode("shots");
+                  }}
+                />
+              </>
             )}
-            {versions.results.map((version) => (
-              <Disclosure key={version.version.versionId} summary={version.label}>
-                <p className="video-hint">Saved {new Date(version.createdAt).toLocaleString()}</p>
-                <p>Snapshot only. No rendered artifact or approval.</p>
-                <Button
-                  size="sm"
-                  disabled={unsaved || checkpointBusy || checkpointError}
-                  onClick={() => {
-                    const next = new URLSearchParams(params);
-                    next.set("version", version.version.versionId);
-                    next.set("language", version.version.language);
-                    setParams(next);
+            {mode === "shots" && (
+              <>
+                <EditorNotice editor={script} name="script" />
+                <ShotStudio
+                  workspaceId={project.workspaceId}
+                  projectId={project.projectId}
+                  draftId={draft.draftId}
+                  revision={draft.scriptRevision}
+                  document={script.document}
+                  onChange={script.edit}
+                  locked={script.locked || editorLocked}
+                  unsaved={script.dirty || script.awaitingSubscription}
+                  sceneId={activeSceneId}
+                  selectedShotId={shotId}
+                  onSelectShot={setShotId}
+                />
+              </>
+            )}
+            {mode === "timeline" && (
+              <>
+                <EditorNotice editor={timeline} name="timeline" />
+                <TimelineEditor
+                  document={timeline.document}
+                  onChange={timeline.edit}
+                  disabled={timeline.locked || editorLocked}
+                />
+              </>
+            )}
+          </main>
+
+          <details key={mode} className="video-studio-inspector" open={mode !== "timeline"}>
+            <summary>
+              <span>Version and render</span>
+              <span aria-hidden="true">›</span>
+            </summary>
+            <div className="video-studio-inspector-content">
+              {latestRenderId ? (
+                <section className="video-render-callout">
+                  <Film size={22} aria-hidden="true" />
+                  <div>
+                    <h2>Latest render ready</h2>
+                    <p>Watch this language’s exact MP4 and leave timecoded notes.</p>
+                  </div>
+                  <Button variant="primary" onClick={() => onOpenRender(latestRenderId)}>
+                    Review render
+                  </Button>
+                </section>
+              ) : (
+                <section className="video-render-callout is-empty">
+                  <Film size={22} aria-hidden="true" />
+                  <div>
+                    <h2>No rendered video yet</h2>
+                    <p>Create an immutable version first. Saving the draft does not render it.</p>
+                  </div>
+                </section>
+              )}
+              <Panel as="section" className="video-checkpoint-panel">
+                <h2>Save a version</h2>
+                <p className="video-hint">
+                  Freeze this language’s script and timeline without approving it.
+                </p>
+                <form
+                  className="video-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveCheckpoint();
                   }}
                 >
-                  View saved storyboard
-                </Button>
+                  <TextInput
+                    id="checkpoint-label"
+                    label="Version label"
+                    labelVisible
+                    value={label}
+                    onChange={(event) => setLabel(event.target.value)}
+                    required
+                    maxLength={500}
+                    disabled={checkpointBusy || checkpointError || transitioning}
+                    placeholder="Opening revised"
+                  />
+                  <Button
+                    variant="primary"
+                    type="submit"
+                    busy={checkpointBusy}
+                    disabled={unsaved || transitioning || !label.trim()}
+                  >
+                    {checkpointBusy
+                      ? "Saving version…"
+                      : checkpointError
+                        ? "Retry same version"
+                        : "Save version"}
+                  </Button>
+                  {unsaved && <p className="video-hint">Save or resolve draft changes first.</p>}
+                  {checkpointMessage && (
+                    <p role={checkpointError ? "alert" : "status"}>{checkpointMessage}</p>
+                  )}
+                </form>
+              </Panel>
+              <Disclosure
+                summary={`Saved versions (${versions.results.length})`}
+                className="video-version-list"
+              >
+                {versions.results.length === 0 && (
+                  <p className="video-hint">No versions saved for this language.</p>
+                )}
+                {versions.results.map((version) => (
+                  <Disclosure key={version.version.versionId} summary={version.label}>
+                    <p className="video-hint">
+                      Saved {new Date(version.createdAt).toLocaleString()}
+                    </p>
+                    <p>Snapshot only. No rendered artifact or approval.</p>
+                    <Button
+                      size="sm"
+                      disabled={unsaved || checkpointBusy || checkpointError || transitioning}
+                      onClick={() => {
+                        const next = new URLSearchParams(params);
+                        next.set("version", version.version.versionId);
+                        next.set("language", version.version.language);
+                        setParams(next);
+                      }}
+                    >
+                      View storyboard
+                    </Button>
+                  </Disclosure>
+                ))}
+                {versions.status === "CanLoadMore" && (
+                  <Button size="sm" onClick={() => versions.loadMore(10)}>
+                    More versions
+                  </Button>
+                )}
               </Disclosure>
-            ))}
-            {versions.status === "CanLoadMore" && (
-              <Button size="sm" onClick={() => versions.loadMore(10)}>
-                More versions
-              </Button>
-            )}
-          </section>
-        </aside>
+            </div>
+          </details>
+        </div>
       )}
     </div>
   );

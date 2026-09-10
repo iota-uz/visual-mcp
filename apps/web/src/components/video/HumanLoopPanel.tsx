@@ -4,6 +4,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { Badge } from "../Badge";
 import { Button } from "../ui/Button";
+import { Disclosure } from "../ui/Disclosure";
 import { Checkbox } from "../ui/TextInput";
 
 export function HumanLoopPanel({
@@ -21,6 +22,7 @@ export function HumanLoopPanel({
   const [cancelRunning, setCancelRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [intent, setIntent] = useState<"pause" | "abandon" | null>(null);
   const pending = useRef<{
     action: "pause" | "resume" | "abandon";
     args: { loopId: Id<"videoLoops">; expectedLoopRevision: string; idempotencyKey: string };
@@ -88,16 +90,37 @@ export function HumanLoopPanel({
     }
   }
   const locked = busy || Boolean(pending.current);
+  const stateLabel =
+    loop.state === "paused"
+      ? "Paused"
+      : loop.state === "active"
+        ? "Improving"
+        : loop.state === "finished"
+          ? "Complete"
+          : loop.state === "awaiting_human"
+            ? "Needs review"
+            : "Ready";
   return (
     <section className="video-human-loop" aria-label="Human improvement loop controls">
       <div className="video-section-heading">
-        <h2>Improvement loop · {language.toUpperCase()}</h2>
-        <Badge>{loop.state}</Badge>
+        <div>
+          <h2>Agent improvement · {language.toUpperCase()}</h2>
+          <p className="video-hint">
+            The agent can iterate on candidates, but only you can approve an exact export.
+          </p>
+        </div>
+        <Badge
+          tone={
+            loop.state === "active"
+              ? "info"
+              : loop.state === "paused" || loop.state === "awaiting_human"
+                ? "warning"
+                : "neutral"
+          }
+        >
+          {stateLabel}
+        </Badge>
       </div>
-      <p className="video-hint">
-        Rounds {loop.iteration} / {loop.iterationLimit} · no-progress rounds {loop.noProgress} /{" "}
-        {loop.noProgressLimit}. These are experiment limits, not spending budgets.
-      </p>
       {loop.stopReason && <p className="video-warning">{loop.stopReason}</p>}
       {loop.pausedByHuman && (
         <p className="video-hint">Paused by a human. An agent cannot resume this pause for you.</p>
@@ -113,65 +136,138 @@ export function HumanLoopPanel({
           . Archive it explicitly, then replan from current context.
         </p>
       )}
-      <p className="video-hint">
-        Baseline: {loop.baseline ?? "not set"} · selected candidate:{" "}
-        {loop.selectedCandidate ?? "none"}. Agent selection is not your approval.
-      </p>
-      {loop.pendingProposalIds.length > 0 && (
-        <p className="video-hint">
-          Pending proposal: {loop.pendingProposalIds.join(", ")}. If human feedback invalidated its
-          context, archive it explicitly before a fresh proposal.
-        </p>
-      )}
       {exhausted && (
         <p className="video-warning">
           Experiment limits are exhausted. Resume cannot reset them; a separately defined experiment
           is required.
         </p>
       )}
-      <label className="video-field">
-        Reason for human pause or replanning
-        <textarea
-          maxLength={2000}
-          value={reason}
-          disabled={locked}
-          onChange={(event) => setReason(event.target.value)}
-        />
-      </label>
-      <Checkbox
-        label="Also request cancellation of active project jobs in scope"
-        checked={cancelRunning}
-        disabled={locked}
-        onChange={(event) => setCancelRunning(event.target.checked)}
-      />
+      {!loop.baseline && loop.state === "idle" && (
+        <p className="video-loop-guidance">
+          No improvement run has started. An agent must establish a baseline before iteration can
+          begin.
+        </p>
+      )}
       <div className="video-actions">
         {pending.current ? (
-          <Button disabled={busy} onClick={() => void change(pending.current!.action)}>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              const action = pending.current?.action;
+              if (action) void change(action);
+            }}
+          >
             Retry same {pending.current.action}
           </Button>
         ) : (
           <>
-            <Button disabled={busy || !reason.trim()} onClick={() => void change("pause")}>
-              Pause as human
-            </Button>
-            <Button
-              disabled={busy || !reason.trim() || loop.pendingProposalIds.length === 0}
-              onClick={() => void change("abandon")}
-            >
-              Archive pending proposal
-            </Button>
-            <Button
-              disabled={
-                busy || exhausted || loop.state !== "paused" || loop.pendingProposalIds.length > 0
-              }
-              onClick={() => void change("resume")}
-            >
-              Resume existing experiment
-            </Button>
+            {loop.state === "active" && (
+              <Button disabled={busy} onClick={() => setIntent("pause")}>
+                Pause agent
+              </Button>
+            )}
+            {loop.pendingProposalIds.length > 0 && (
+              <Button disabled={busy} onClick={() => setIntent("abandon")}>
+                Archive pending proposal
+              </Button>
+            )}
+            {loop.state === "paused" && (
+              <Button
+                variant="primary"
+                disabled={busy || exhausted || loop.pendingProposalIds.length > 0}
+                onClick={() => void change("resume")}
+              >
+                Resume improvement
+              </Button>
+            )}
           </>
         )}
       </div>
+      {intent && !pending.current && (
+        <fieldset className="video-loop-intent">
+          <legend className="visually-hidden">
+            {intent === "pause" ? "Pause agent" : "Archive pending proposal"}
+          </legend>
+          <div>
+            <strong>
+              {intent === "pause"
+                ? "Why are you pausing?"
+                : "Why should this proposal be archived?"}
+            </strong>
+            <p className="video-hint video-loop-intent-copy">
+              This context helps the next agent continue without repeating rejected work.
+            </p>
+          </div>
+          <label className="video-field">
+            Reason for human pause or replanning
+            <textarea
+              maxLength={2000}
+              value={reason}
+              disabled={locked}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </label>
+          {intent === "pause" && (
+            <Checkbox
+              label="Also request cancellation of active project jobs"
+              checked={cancelRunning}
+              disabled={locked}
+              onChange={(event) => setCancelRunning(event.target.checked)}
+            />
+          )}
+          <div className="video-actions">
+            <Button
+              variant={intent === "pause" ? "primary" : "warning"}
+              disabled={busy || !reason.trim()}
+              onClick={() => void change(intent)}
+            >
+              {intent === "pause" ? "Confirm pause" : "Archive proposal"}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setIntent(null);
+                setReason("");
+                setCancelRunning(false);
+              }}
+            >
+              Keep current state
+            </Button>
+          </div>
+        </fieldset>
+      )}
       {message && <p role="status">{message}</p>}
+      <Disclosure summary="Experiment details" className="video-loop-advanced">
+        <dl className="video-loop-facts">
+          <div>
+            <dt>Rounds</dt>
+            <dd>
+              {loop.iteration} / {loop.iterationLimit}
+            </dd>
+          </div>
+          <div>
+            <dt>Rounds without progress</dt>
+            <dd>
+              {loop.noProgress} / {loop.noProgressLimit}
+            </dd>
+          </div>
+          <div>
+            <dt>Baseline</dt>
+            <dd>{loop.baseline ?? "Not set"}</dd>
+          </div>
+          <div>
+            <dt>Selected candidate</dt>
+            <dd>{loop.selectedCandidate ?? "None"}</dd>
+          </div>
+        </dl>
+        <p className="video-hint">
+          These are experiment limits, not spending budgets. Agent selection is not human approval.
+        </p>
+        {loop.pendingProposalIds.length > 0 && (
+          <p className="video-hint">Pending proposal IDs: {loop.pendingProposalIds.join(", ")}.</p>
+        )}
+      </Disclosure>
     </section>
   );
 }

@@ -15,6 +15,18 @@ const labels: Record<string, string> = {
   cancel_requested: "Cancellation requested",
   cancelled: "Cancelled",
 };
+const kindLabels: Record<string, string> = {
+  render: "Video export",
+  image: "Keyframe image",
+  shot: "Generated shot",
+  voice: "Voice-over",
+  critique: "Quality review",
+  video: "Generated video",
+  music: "Music",
+  sfx: "Sound effect",
+  upload: "Media upload",
+};
+const activeStates = new Set(["queued", "running", "cancel_requested"]);
 export function VideoJobs({
   workspaceId,
   projectId,
@@ -45,41 +57,58 @@ export function VideoJobs({
       setPending(null);
     }
   }
-  return (
-    <section className="video-jobs" aria-label="Production jobs">
-      <h2>Production</h2>
-      {jobs.status === "LoadingFirstPage" && <p role="status">Loading jobs…</p>}
-      {jobs.status !== "LoadingFirstPage" && jobs.results.length === 0 && (
-        <p className="video-hint">
-          No jobs yet. Saving a script does not automatically start generation.
-        </p>
-      )}
-      {error && <p role="alert">{error}</p>}
-      {jobs.results.map((job) => (
-        <Disclosure
-          key={job.jobId}
-          summary={
-            <>
-              {job.kind} — {labels[job.state] ?? job.state}{" "}
+  const active = jobs.results.filter((job) => activeStates.has(job.state));
+  const history = jobs.results.filter((job) => !activeStates.has(job.state));
+  const renderJobs = (items: typeof jobs.results) =>
+    items.map((job) => (
+      <Disclosure
+        key={job.jobId}
+        className="video-job"
+        summary={
+          <div className="video-job-summary">
+            <span className="video-job-summary-main">
+              <strong>{kindLabels[job.kind] ?? job.kind}</strong>
               <JobVersion versionId={job.versionId} kind={job.kind} />
-            </>
-          }
-        >
-          <Badge
-            tone={
-              job.state === "succeeded"
-                ? "success"
-                : job.state === "outcome_unknown" || job.state === "failed"
-                  ? "warning"
-                  : "neutral"
-            }
-          >
-            {labels[job.state] ?? job.state}
-          </Badge>
-          <p className="video-hint">Stage: {job.stage}</p>
-          {job.stale && (
+            </span>
+            <span className="video-job-summary-meta">
+              <time dateTime={new Date(job.createdAt).toISOString()}>
+                {new Intl.DateTimeFormat(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(job.createdAt)}
+              </time>
+              <Badge
+                tone={
+                  job.state === "succeeded"
+                    ? "success"
+                    : job.state === "outcome_unknown" || job.state === "failed"
+                      ? "warning"
+                      : job.state === "running"
+                        ? "info"
+                        : "neutral"
+                }
+              >
+                {labels[job.state] ?? job.state}
+              </Badge>
+            </span>
+          </div>
+        }
+      >
+        <div className="video-job-body">
+          <div className="video-job-stage">
+            <span>Current step</span>
+            <strong>{job.stage.replaceAll("_", " ")}</strong>
+          </div>
+          {job.context && (
             <p className="video-hint">
-              Created from an older draft. This result has not replaced your current edits.
+              Scene {job.context.sceneId} · shot {job.context.shotId}
+            </p>
+          )}
+          {job.stale && (
+            <p className="video-warning">
+              This job used an older draft. Its result did not replace your current edits.
             </p>
           )}
           {job.error && (
@@ -94,29 +123,80 @@ export function VideoJobs({
             </p>
           )}
           {job.state === "outcome_unknown" && (
-            <p className="video-hint">
-              The provider may have processed this request. Do not submit another generation to
-              recover it.
+            <p className="video-warning">
+              The provider may have processed this request. Inspect this job instead of submitting
+              the same generation again.
             </p>
           )}
-          {(job.state === "queued" || job.state === "running") && (
-            <>
+          <div className="video-actions">
+            {(job.state === "queued" || job.state === "running") && (
               <Button size="sm" disabled={pending !== null} onClick={() => void stop(job.jobId)}>
                 {pending === job.jobId ? "Requesting cancellation…" : "Request cancellation"}
               </Button>
-              <p className="video-hint">
-                Processing may finish after cancellation is requested. Provider charges may still
-                apply.
-              </p>
-            </>
+            )}
+            {job.kind === "render" && job.state === "succeeded" && onOpenRender && (
+              <Button size="sm" variant="primary" onClick={() => onOpenRender(job.jobId)}>
+                Review export
+              </Button>
+            )}
+          </div>
+          {(job.state === "queued" || job.state === "running") && (
+            <p className="video-hint">
+              Processing may finish after cancellation is requested. Provider charges may still
+              apply.
+            </p>
           )}
-          {job.kind === "render" && job.state === "succeeded" && onOpenRender && (
-            <Button size="sm" onClick={() => onOpenRender(job.jobId)}>
-              Open this render
-            </Button>
-          )}
-        </Disclosure>
-      ))}
+          <Disclosure summary="Technical details" className="video-job-technical">
+            <dl className="video-job-facts">
+              <div>
+                <dt>Job ID</dt>
+                <dd>
+                  <code>{job.jobId}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Last update</dt>
+                <dd>
+                  <time dateTime={new Date(job.updatedAt).toISOString()}>
+                    {new Date(job.updatedAt).toLocaleString()}
+                  </time>
+                </dd>
+              </div>
+            </dl>
+          </Disclosure>
+        </div>
+      </Disclosure>
+    ));
+  return (
+    <section className="video-jobs" aria-label="Production jobs">
+      <div className="video-section-heading">
+        <div>
+          <h2>Production jobs</h2>
+          <p className="video-hint">
+            Generation, voice, review and export activity for this project.
+          </p>
+        </div>
+        {active.length > 0 && <Badge tone="info">{active.length} active</Badge>}
+      </div>
+      {jobs.status === "LoadingFirstPage" && <p role="status">Loading jobs…</p>}
+      {jobs.status !== "LoadingFirstPage" && jobs.results.length === 0 && (
+        <p className="video-hint">
+          No jobs yet. Saving a script does not automatically start generation.
+        </p>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {active.length > 0 && (
+        <div className="video-job-group">
+          <h3>In progress</h3>
+          {renderJobs(active)}
+        </div>
+      )}
+      {history.length > 0 && (
+        <div className="video-job-group">
+          <h3>Recent history</h3>
+          {renderJobs(history)}
+        </div>
+      )}
       {jobs.status === "CanLoadMore" && (
         <Button size="sm" onClick={() => jobs.loadMore(10)}>
           More jobs
@@ -130,12 +210,12 @@ function JobVersion({ versionId, kind }: { versionId: Id<"videoVersions"> | null
   return (
     <span>
       {version
-        ? `· ${version.version.language.toUpperCase()} · ${version.label} (${version.version.versionId})`
+        ? `${version.version.language.toUpperCase()} · ${version.label}`
         : versionId
-          ? `· version ${versionId}`
+          ? "Saved version"
           : kind === "image"
-            ? "· shared image (no language)"
-            : "· project-level job"}
+            ? "Shared image"
+            : "Project-level"}
     </span>
   );
 }
