@@ -492,6 +492,8 @@ function DraftStudio({
                   document={timeline.document}
                   onChange={timeline.edit}
                   disabled={timeline.locked || editorLocked}
+                  workspaceId={project.workspaceId}
+                  format={project.format}
                 />
               </>
             )}

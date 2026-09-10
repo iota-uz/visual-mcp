@@ -26,9 +26,11 @@ import {
 } from "lucide-react";
 import type { Dispatch, PointerEvent as ReactPointerEvent, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
 import { Button } from "../ui/Button";
 import { TextInput } from "../ui/TextInput";
+import { TimelinePreview } from "./TimelinePreview";
 
 const TRACK_META = {
   visual: { label: "Video", icon: Eye },
@@ -159,10 +161,14 @@ export function TimelineEditor({
   document,
   onChange,
   disabled,
+  workspaceId,
+  format = { width: 360, height: 640 },
 }: {
   document: TimelineDocument;
   onChange: (next: TimelineDocument) => void;
   disabled: boolean;
+  workspaceId?: Id<"workspaces">;
+  format?: { width: number; height: number };
 }) {
   const numerator = document.fps.numerator;
   const denominator = document.fps.denominator;
@@ -235,19 +241,6 @@ export function TimelineEditor({
     playhead >= document.durationFrames ||
     (captionTrack ? captionTrack.clipOrder.length >= 500 : document.trackOrder.length >= 32);
   const ticks = Array.from({ length: 9 }, (_, index) => index / 8);
-  const maxClipEnd = Math.max(
-    1,
-    ...document.trackOrder.flatMap((trackId) => {
-      const track = document.tracksById[trackId];
-      return track
-        ? track.clipOrder.flatMap((clipId) => {
-            const clip = track.clipsById[clipId];
-            return clip ? [clip.startFrame + clip.durationFrames] : [];
-          })
-        : [];
-    }),
-  );
-
   function emit(next: TimelineDocument) {
     latestDocument.current = next;
     lastEmittedSignature.current = JSON.stringify(next);
@@ -638,6 +631,18 @@ export function TimelineEditor({
         </div>
       </div>
 
+      {workspaceId && (
+        <TimelinePreview
+          workspaceId={workspaceId}
+          document={document}
+          frame={playhead}
+          playing={playing}
+          format={format}
+          hiddenTracks={hiddenTracks}
+          mutedTracks={mutedTracks}
+        />
+      )}
+
       <fieldset className="video-transport">
         <legend className="visually-hidden">Timeline transport</legend>
         <div className="video-transport-buttons">
@@ -895,26 +900,13 @@ export function TimelineEditor({
       </div>
 
       <div className="video-timeline-settings">
-        <TextInput
-          id="timeline-duration"
-          type="number"
-          label="Sequence duration"
-          labelVisible
-          min={Number(((maxClipEnd * denominator) / numerator).toFixed(3))}
-          max={Math.min(2400, (72000 * denominator) / numerator)}
-          step={0.1}
-          value={Number(durationSeconds.toFixed(2))}
-          readOnly={disabled}
-          trailingSlot={<span className="field-unit">sec</span>}
-          onChange={(event) => {
-            const value = Number(event.target.value),
-              frames = toFrames(value);
-            if (Number.isFinite(value) && value > 0 && frames >= maxClipEnd)
-              commit({ ...latestDocument.current, durationFrames: frames });
-          }}
-        />
+        <output className="video-sequence-length" aria-labelledby="sequence-length-label">
+          <span id="sequence-length-label">Sequence length</span>
+          <strong>{formatTimelineTimecode(document.durationFrames, numerator, denominator)}</strong>
+          <small>{durationSeconds.toFixed(2)} sec</small>
+        </output>
         <span className="video-hint">
-          Timeline edits update the draft only. Track monitor controls do not change the render.
+          Draft timing follows the arranged clips. Monitor controls do not change the final render.
         </span>
       </div>
 

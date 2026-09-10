@@ -145,7 +145,10 @@ test("timeline exposes a temporal workspace and focused caption controls", async
   mount();
   await user.click(screen.getByRole("button", { name: "Timeline" }));
   expect(screen.queryByRole("complementary", { name: "Project scenes" })).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Draft monitor" })).toBeInTheDocument();
   expect(screen.getByRole("slider", { name: "Playhead" })).toHaveValue("0");
+  expect(screen.queryByRole("spinbutton", { name: "Sequence duration" })).not.toBeInTheDocument();
+  expect(screen.getByText("Sequence length")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await user.click(screen.getByRole("button", { name: "Add caption" }));
   expect(screen.getByRole("region", { name: "Selected clip settings" })).toBeInTheDocument();
