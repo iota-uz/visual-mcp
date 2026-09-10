@@ -132,15 +132,24 @@ export function StoryboardEditor({
           )}
         </div>
       </div>
-      <TextInput
-        id="script-premise"
-        label="Main idea"
-        labelVisible
-        value={document.premise}
-        onChange={(event) => onChange({ ...document, premise: event.target.value })}
-        readOnly={disabled}
-        maxLength={16000}
-      />
+      <div className="video-field video-premise-field">
+        <span className="video-field-heading">
+          <label htmlFor="script-premise">Main idea</label>
+          <span className="video-hint" id="script-premise-hint">
+            The creative brief that keeps every scene aligned
+          </span>
+        </span>
+        <textarea
+          id="script-premise"
+          aria-describedby="script-premise-hint"
+          rows={4}
+          value={document.premise}
+          onChange={(event) => onChange({ ...document, premise: event.target.value })}
+          readOnly={disabled}
+          maxLength={16000}
+          placeholder="Describe the premise, audience, hook, and intended outcome…"
+        />
+      </div>
       <nav className="video-scene-strip" aria-label="Scenes">
         {document.sceneOrder.map((sceneId, index) => (
           <button

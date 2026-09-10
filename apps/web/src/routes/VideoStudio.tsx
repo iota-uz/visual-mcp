@@ -357,7 +357,7 @@ function DraftStudio({
   }
 
   return (
-    <div className="video-studio-body">
+    <div className={`video-studio-body${mode === "review" ? " video-studio-body-review" : ""}`}>
       <div className="video-editing-column">
         <div className="video-save-summary" role="status">
           <Badge tone={unsaved ? "warning" : "success"}>

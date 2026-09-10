@@ -40,7 +40,6 @@ export function VideoReview({
   useEffect(() => {
     if (focusTarget && heading.current) {
       heading.current.focus({ preventScroll: true });
-      heading.current.scrollIntoView?.({ block: "start", behavior: "smooth" });
     }
   }, [focusTarget]);
   async function refresh() {
@@ -71,12 +70,21 @@ export function VideoReview({
     return <p role="alert">This render belongs to another project.</p>;
   return (
     <section className="video-review" aria-label="Review exact render">
-      <h2 ref={heading} tabIndex={-1}>
-        Review · {metadata.language.toUpperCase()}
-      </h2>
-      <p className="video-hint">
-        Version {metadata.versionId} · MP4 SHA-256 <code>{metadata.sha256}</code>
-      </p>
+      <header className="video-review-heading">
+        <div>
+          <span className="video-review-kicker">Final check</span>
+          <h2 ref={heading} tabIndex={-1}>
+            Review · {metadata.language.toUpperCase()}
+          </h2>
+          <p>
+            Watch the exact export, check sound and captions, then approve or leave a timecoded
+            note.
+          </p>
+        </div>
+        <Badge tone={metadata.stale ? "warning" : "success"}>
+          {metadata.stale ? "Older candidate" : "Current candidate"}
+        </Badge>
+      </header>
       {metadata.stale && (
         <p className="video-warning">
           The editable draft is newer. Any approval here applies only to this saved candidate, never
@@ -104,74 +112,87 @@ export function VideoReview({
         )}
       </Disclosure>
       {error && <p role="alert">{error}</p>}
-      {preview ? (
-        <VideoPlayer
-          key={`${jobId}-${metadata.sha256}`}
-          asset={{ ...metadata, ...preview }}
-          onLoaded={(ready) => {
-            setLoaded(ready);
-            if (!ready) setConfirmed(false);
-          }}
-          onTime={setTime}
-          seekMs={anchor?.startMs}
-          region={anchor?.region}
-          onRefresh={() => void refresh()}
-          onRegion={(next) => setAnchor({ text: "", startMs: time, region: next })}
-        />
-      ) : (
-        <Button onClick={() => void refresh()}>Load preview</Button>
-      )}
-      <div className="video-approval">
-        {metadata.approval ? (
-          <Badge tone="success">You approved this exact MP4</Badge>
-        ) : (
-          <>
-            <Checkbox
-              checked={confirmed}
-              disabled={!loaded || !metadata.approvable || busy}
-              onChange={(event) => setConfirmed(event.target.checked)}
-              label={`I reviewed this ${metadata.stale ? "older " : ""}${metadata.language.toUpperCase()} candidate and its exact MP4, including sound and captions.`}
-            />
-            <Button
-              disabled={!loaded || !confirmed || !metadata.approvable || busy}
-              onClick={() => {
-                setBusy(true);
-                setError("");
-                void approve({
-                  jobId,
-                  versionId: metadata.versionId,
-                  language: metadata.language,
-                  sha256: metadata.sha256,
-                  confirmedViewed: true,
-                  idempotencyKey: approvalKey.current,
-                })
-                  .catch(() =>
-                    setError(
-                      "Approval was not confirmed. Retry this exact candidate; do not assume it was accepted.",
-                    ),
-                  )
-                  .finally(() => setBusy(false));
+      <div className="video-review-workspace">
+        <div className="video-review-screen">
+          {preview ? (
+            <VideoPlayer
+              key={`${jobId}-${metadata.sha256}`}
+              asset={{ ...metadata, ...preview }}
+              onLoaded={(ready) => {
+                setLoaded(ready);
+                if (!ready) setConfirmed(false);
               }}
-            >
-              {busy ? "Confirming…" : "Approve this exact MP4"}
-            </Button>
-            {!metadata.approvable && (
-              <p className="video-hint">
-                Partial previews and analysis proxies cannot be approved.
-              </p>
+              onTime={setTime}
+              seekMs={anchor?.startMs}
+              region={anchor?.region}
+              onRefresh={() => void refresh()}
+              onRegion={(next) => setAnchor({ text: "", startMs: time, region: next })}
+            />
+          ) : (
+            <div className="video-review-loading">
+              <Button onClick={() => void refresh()}>Load preview</Button>
+            </div>
+          )}
+        </div>
+        <aside className="video-review-notes" aria-label="Approval and feedback">
+          <div className="video-approval">
+            <h3>Approval</h3>
+            {metadata.approval ? (
+              <Badge tone="success">You approved this exact MP4</Badge>
+            ) : (
+              <>
+                <Checkbox
+                  checked={confirmed}
+                  disabled={!loaded || !metadata.approvable || busy}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                  label={`I reviewed this ${metadata.stale ? "older " : ""}${metadata.language.toUpperCase()} candidate and its exact MP4, including sound and captions.`}
+                />
+                <Button
+                  variant="primary"
+                  disabled={!loaded || !confirmed || !metadata.approvable || busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setError("");
+                    void approve({
+                      jobId,
+                      versionId: metadata.versionId,
+                      language: metadata.language,
+                      sha256: metadata.sha256,
+                      confirmedViewed: true,
+                      idempotencyKey: approvalKey.current,
+                    })
+                      .catch(() =>
+                        setError(
+                          "Approval was not confirmed. Retry this exact candidate; do not assume it was accepted.",
+                        ),
+                      )
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  {busy ? "Confirming…" : "Approve this exact MP4"}
+                </Button>
+                {!metadata.approvable && (
+                  <p className="video-hint">
+                    Partial previews and analysis proxies cannot be approved.
+                  </p>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+          <VideoFeedback
+            key={jobId}
+            projectId={projectId}
+            target={{ kind: "render", jobId }}
+            time={time}
+            durationMs={metadata.videoDurationMs}
+            onAnchor={setAnchor}
+            onBlocked={onBlocked}
+          />
+        </aside>
       </div>
-      <VideoFeedback
-        key={jobId}
-        projectId={projectId}
-        target={{ kind: "render", jobId }}
-        time={time}
-        durationMs={metadata.videoDurationMs}
-        onAnchor={setAnchor}
-        onBlocked={onBlocked}
-      />
+      <p className="video-review-integrity">
+        Version {metadata.versionId} · MP4 SHA-256 <code>{metadata.sha256}</code>
+      </p>
     </section>
   );
 }
@@ -363,11 +384,14 @@ function FeedbackEditor({
                   max={1}
                   step={0.01}
                   disabled={disabled}
-                  value={editor.document.region![field]}
+                  value={editor.document.region?.[field] ?? 0}
                   onChange={(event) =>
                     editor.edit({
                       ...editor.document,
-                      region: { ...editor.document.region!, [field]: Number(event.target.value) },
+                      region: {
+                        ...(editor.document.region ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }),
+                        [field]: Number(event.target.value),
+                      },
                     })
                   }
                 />

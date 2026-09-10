@@ -100,7 +100,8 @@ function mount(path = "/v/project") {
 }
 
 test("UZ version deep link without language keeps the header and return lane Uzbek", async () => {
-  const original = query.getMockImplementation()!;
+  const original = query.getMockImplementation();
+  if (!original) throw new Error("Expected the query test double to be configured");
   query.mockImplementation((ref, args) =>
     getFunctionName(ref) === "video:getVersion" && args !== "skip"
       ? {
@@ -123,7 +124,19 @@ test("renders honest empty media state and no human approval shortcut", () => {
   expect(
     screen.queryByRole("button", { name: /approve|generate|render/i }),
   ).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Main idea").tagName).toBe("TEXTAREA");
   expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
+});
+
+test("timeline exposes a temporal workspace and focused caption controls", async () => {
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Timeline" }));
+  expect(screen.getByRole("slider", { name: "Playhead" })).toHaveValue("0");
+  expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Add captions" }));
+  expect(screen.getByRole("region", { name: "Selected clip settings" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Caption text")).toBeInTheDocument();
 });
 
 test("language switch reads independent draft and blocks while edits are unsaved", async () => {
