@@ -32,6 +32,7 @@ function fixture() {
   const jobs = new Map<string, Job>();
   const keys = new Map<unknown, string>();
   const effects = new Map<string, Record<string, unknown>[]>();
+  const workerUrls: string[] = [];
   let workerCalls = 0,
     writes = 0;
   const gateway = {
@@ -181,6 +182,7 @@ function fixture() {
   vi.stubGlobal("fetch", async (url: URL, init: RequestInit) => {
     if (url.hostname === "worker.local") {
       workerCalls++;
+      workerUrls.push(url.toString());
       const input = ExecuteRequest.parse(JSON.parse(String(init.body)));
       return Response.json(await handleExecute(input, init.signal ?? undefined));
     }
@@ -219,8 +221,28 @@ function fixture() {
     }
     throw new Error("Execution did not settle");
   }
-  return { tool, wait, jobs, effects, counts: () => ({ workerCalls, writes }) };
+  return { tool, wait, jobs, effects, workerUrls, counts: () => ({ workerCalls, writes }) };
 }
+test.each([
+  ["worker.local", "http://worker.local:8080/execute"],
+  ["http://worker.local:8090/", "http://worker.local:8090/execute"],
+])(
+  "execute normalizes worker address %s through shared configuration",
+  async (configured, expected) => {
+    vi.stubEnv("WORKER_URL", configured);
+    const f = fixture();
+    const accepted = await f.tool("execute", {
+      workspace_id: "w1",
+      idempotency_key: "worker-address-probe",
+      code: "emit({ok:true});",
+    });
+    const jobId = accepted.structuredContent.data.job_id;
+    await f.wait(jobId);
+    expect(f.workerUrls).toEqual([expected]);
+    expect(f.jobs.get(jobId)?.state).toBe("succeeded");
+    expect(f.jobs.get(jobId)?.result).toMatchObject({ success: true, emitted: [{ ok: true }] });
+  },
+);
 test("Canvas endpoint execute calls captured real asset handler, preserves catalog isolation and workspace fence", async () => {
   const f = fixture();
   const direct = await f.tool("asset_list", { scope: "workspace", workspace: "farq" }, "/mcp");

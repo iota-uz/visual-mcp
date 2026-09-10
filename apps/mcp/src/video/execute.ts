@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { ExecutionResult as executionResult, JobResult } from "@visual-canvas/video/results";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { getWorkerConfig } from "../lib/worker.js";
 import { openCursor, sealCursor } from "./cursor.js";
 import {
   callVideoTool,
@@ -438,12 +439,13 @@ async function coordinate(
       jobId,
       seen: new Set(),
     });
-    const response = await fetch(new URL("/execute", process.env.WORKER_URL), {
+    const worker = getWorkerConfig();
+    const response = await fetch(new URL("/execute", worker.url), {
       method: "POST",
       redirect: "error",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${process.env.WORKER_TOKEN}`,
+        authorization: `Bearer ${worker.token}`,
       },
       signal: AbortSignal.timeout(input.timeout_ms + 10000),
       body: JSON.stringify({
