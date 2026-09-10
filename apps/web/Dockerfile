@@ -12,6 +12,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
 COPY packages/runtime/package.json packages/runtime/package.json
+COPY packages/video/package.json packages/video/package.json
 COPY convex/package.json convex/package.json
 # apps/web's tsconfig pulls in convex/_generated/*.d.ts, whose API types reach
 # the real Convex modules and their workspace dependencies.
@@ -22,7 +23,7 @@ COPY convex/package.json convex/package.json
 # entirely (verified by hand: a `--workspace`-scoped install, with or
 # without an explicit `--include-workspace-root=false`, left
 # node_modules/zod and node_modules/@modelcontextprotocol/server missing
-# outright — not hoisted elsewhere, just never installed. All six workspace
+# outright — not hoisted elsewhere, just never installed. All workspace
 # package.json files must be present for the install to match
 # package-lock.json's full topology.
 #
@@ -36,14 +37,16 @@ RUN npm ci
 FROM deps AS build
 COPY packages/canvas packages/canvas
 COPY packages/runtime packages/runtime
+COPY packages/video packages/video
 COPY convex convex
 COPY apps/web apps/web
-# packages/canvas and packages/runtime must build first: apps/web's
+# packages/canvas, packages/runtime and packages/video must build first: apps/web's
 # typecheck reaches both via the chain above, and apps/web imports
 # packages/canvas's dist/* subpaths directly at runtime too
 # ("exports": { ".": "./dist/index.js", "./*": "./dist/*" }).
 RUN npm run build --workspace=@visual-canvas/canvas
 RUN npm run build --workspace=@visual-canvas/runtime
+RUN npm run build --workspace=@visual-canvas/video
 # Vite bakes VITE_* vars into the built JS at build time, not runtime — the
 # Railway service must supply these as build-time variables (Railway
 # auto-injects service variables as matching ARGs for Dockerfile builds).
