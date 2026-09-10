@@ -26,6 +26,7 @@ async function fixtureServer(metadataBySlug) {
     const parsed = new URL(url);
     if (parsed.hostname === "mcp.example") {
       return Response.json({
+        pathname: parsed.pathname,
         authorization: init.headers.get("authorization"),
         body: JSON.parse(await new Response(init.body).text()),
       });
@@ -84,19 +85,36 @@ async function fixtureServer(metadataBySlug) {
 }
 
 describe("MCP reverse proxy", () => {
-  it("keeps the public /mcp URL while forwarding auth and JSON to the MCP service", async () => {
+  it.each(["/mcp", "/mcp/video"])("preserves exact %s routing, auth and JSON", async (endpoint) => {
     const origin = await fixtureServer({});
-    const response = await fetch(`${origin}/mcp`, {
+    const response = await fetch(`${origin}${endpoint}`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer token" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      pathname: endpoint,
       authorization: "Bearer token",
       body: { method: "tools/list" },
     });
   });
+
+  it.each(["/mcp", "/mcp/video"])("keeps %s POST-only", async (endpoint) => {
+    const origin = await fixtureServer({});
+    const response = await fetch(`${origin}${endpoint}`);
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST");
+  });
+
+  it.each(["/mcp/video/", "/mcp/video/other", "/mcp/other"])(
+    "does not proxy the unsupported path %s",
+    async (endpoint) => {
+      const origin = await fixtureServer({});
+      const response = await fetch(`${origin}${endpoint}`, { method: "POST", body: "{}" });
+      expect(response.status).toBe(405);
+    },
+  );
 });
 
 describe("crawler-facing public share HTML", () => {

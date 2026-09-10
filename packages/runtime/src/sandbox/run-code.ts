@@ -31,9 +31,11 @@
  * - `node:vm` is explicitly documented by Node as **not a security
  *   boundary** on its own (known sandbox-escape techniques exist via
  *   constructor-chain / prototype tricks reaching back to the host
- *   realm). We rely on the worker_threads isolate as the real boundary;
- *   `vm` here is an API-surface allowlist layer on top, not the sole
- *   defense. For untrusted-multi-tenant-at-scale use, `isolated-vm` or an
+ *   realm). worker_threads provides a separate V8 heap, not a proven
+ *   hostile-code or OS security boundary; `vm` is an API-surface allowlist.
+ *   This limitation is explicitly accepted for internal IOTA authoring.
+ *   Provider secrets must live in a separate process from this worker.
+ *   For untrusted-multi-tenant-at-scale use, `isolated-vm` or an
  *   OS-level sandbox (gVisor/Firecracker) would be the stronger choice —
  *   left as a future upgrade if v0.1's trust model changes.
  * - CPU-time limiting is approximated with a **wall-clock** timeout
@@ -76,6 +78,18 @@ export interface RunCodeOptions {
   timeoutMs?: number;
   /** V8 old-generation heap ceiling in MB for the worker isolate. Default 128. */
   memoryLimitMb?: number;
+  /** Optional typed-tool bridge. Credentials remain in this parent callback. */
+  broker?: {
+    toolNames: string[];
+    inputs?: Record<string, unknown>;
+    context: { workspace_id: string; run_id: string };
+    maxToolCalls?: number;
+    maxConcurrency?: number;
+    maxOutputBytes?: number;
+    maxCallBytes?: number;
+    call: (name: string, args: unknown, callId: string) => Promise<unknown>;
+  };
+  signal?: AbortSignal;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -104,6 +118,8 @@ interface WorkerResultMessage {
   stderr: string;
   error?: string;
   canvas?: RunCodeOutput["canvas"];
+  emitted?: unknown[];
+  outputTruncated?: boolean;
 }
 
 /**
@@ -172,6 +188,16 @@ export function runCode(
         workspaceRoot: session.workspace,
         allowlistPaths: ALLOWLIST_PATHS,
         timeoutMs,
+        ...(options.broker
+          ? {
+              broker: {
+                toolNames: options.broker.toolNames,
+                inputs: options.broker.inputs ?? {},
+                context: options.broker.context,
+                maxOutputBytes: options.broker.maxOutputBytes ?? 32768,
+              },
+            }
+          : {}),
       },
       resourceLimits: {
         maxOldGenerationSizeMb: memoryLimitMb,
@@ -180,6 +206,8 @@ export function runCode(
       },
       // Sandbox worker must not itself gain a wider execArgv surface; use none.
       execArgv: [],
+      // No inherited infrastructure/provider environment in composition code.
+      ...(options.broker ? { env: {} } : {}),
     });
 
     let settled = false;
@@ -187,6 +215,7 @@ export function runCode(
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
+      options.signal?.removeEventListener("abort", abort);
       worker.removeAllListeners();
       worker.terminate().catch(() => {
         /* already exiting / exited — nothing to do */
@@ -203,15 +232,105 @@ export function runCode(
       });
     }, timeoutMs + TIMEOUT_KILL_GRACE_MS);
 
-    worker.once("message", (msg: WorkerResultMessage) => {
-      finish({
-        success: msg.success,
-        stdout: msg.stdout ?? "",
-        stderr: msg.stderr ?? "",
-        ...(msg.error !== undefined ? { error: msg.error } : {}),
-        ...(msg.canvas !== undefined ? { canvas: msg.canvas } : {}),
-      });
-    });
+    const abort = () =>
+      finish({ success: false, stdout: "", stderr: "", error: "Execution cancelled" });
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
+    let calls = 0;
+    let active = 0;
+    const pendingIds = new Set<string>();
+    const sendBrokerError = (callId: string, message: string) => {
+      if (!settled)
+        worker.postMessage({
+          type: "broker_result",
+          callId,
+          error: { code: "BROKER_REJECTED", message },
+        });
+    };
+
+    worker.on(
+      "message",
+      (
+        msg: WorkerResultMessage & {
+          type?: string;
+          callId?: string;
+          name?: string;
+          args?: unknown;
+        },
+      ) => {
+        if (msg.type === "broker_call") {
+          const broker = options.broker;
+          if (settled || !broker) return;
+          const callId = msg.callId;
+          if (typeof callId !== "string" || callId.length > 100 || pendingIds.has(callId)) return;
+          pendingIds.add(callId);
+          if (
+            typeof msg.name !== "string" ||
+            !broker.toolNames.includes(msg.name) ||
+            msg.name === "execute" ||
+            msg.name === "canvas_run"
+          ) {
+            sendBrokerError(callId, "Tool is not available to this run");
+            return;
+          }
+          if (++calls > (broker.maxToolCalls ?? 30) || active >= (broker.maxConcurrency ?? 1)) {
+            sendBrokerError(callId, "Broker call or concurrency limit exceeded");
+            return;
+          }
+          const maxCallBytes = broker.maxCallBytes ?? 1048576;
+          let inputSize: number;
+          try {
+            inputSize = Buffer.byteLength(JSON.stringify(msg.args));
+          } catch {
+            sendBrokerError(callId, "Tool arguments must be JSON");
+            return;
+          }
+          if (inputSize > maxCallBytes) {
+            sendBrokerError(callId, "Tool arguments exceed byte limit");
+            return;
+          }
+          active += 1;
+          const name = msg.name;
+          Promise.resolve()
+            .then(() => broker.call(name, msg.args, callId))
+            .then((result) => {
+              // Callback persists completed effects before returning. A killed worker
+              // does not cancel or roll back an already dispatched external write.
+              if (settled) return;
+              if (Buffer.byteLength(JSON.stringify(result)) > maxCallBytes) {
+                sendBrokerError(
+                  callId,
+                  "Tool result exceeds runtime byte limit; operation may have completed",
+                );
+                return;
+              }
+              worker.postMessage({ type: "broker_result", callId, result });
+            })
+            .catch(() =>
+              sendBrokerError(
+                callId,
+                "Broker call could not be confirmed; inspect the durable run journal",
+              ),
+            )
+            .finally(() => {
+              active -= 1;
+            });
+          return;
+        }
+        finish({
+          success: msg.success,
+          stdout: msg.stdout ?? "",
+          stderr: msg.stderr ?? "",
+          ...(msg.error !== undefined ? { error: msg.error } : {}),
+          ...(msg.canvas !== undefined ? { canvas: msg.canvas } : {}),
+          ...(msg.emitted !== undefined ? { emitted: msg.emitted } : {}),
+          ...(msg.outputTruncated !== undefined ? { outputTruncated: msg.outputTruncated } : {}),
+        });
+      },
+    );
 
     worker.once("error", (err: Error) => {
       finish({

@@ -1,7 +1,7 @@
 ---
 id: unified-assets-and-media-boundaries
 title: Медиа из /assets становится переиспользуемым, SVG доверяется, audio не поддерживается
-status: accepted
+status: superseded
 date: 2026-08-29
 deciders: [diyorkhaydarov]
 area: assets
@@ -16,7 +16,7 @@ refs:
   - https://github.com/iota-uz/visual-mcp/commit/4b2b09ab0d5d84df84941f1da88e65d4a4502b1f
   - https://github.com/iota-uz/visual-mcp/commit/bbf7703c1eed6f3f1f2cdf526bde9d4ac74477f0
 supersedes: []
-superseded_by: []
+superseded_by: [video-audio-and-shared-storage]
 ---
 
 ## Контекст

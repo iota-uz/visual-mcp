@@ -69,6 +69,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ExportMenu } from "../components/ExportMenu";
 import { LoadingState } from "../components/LoadingState";
 import { RenameForm } from "../components/RenameForm";
+import { SharedImageStudio } from "../components/SharedImageStudio";
 import { CanvasSkeleton } from "../components/Skeleton";
 import { toastError, useToast } from "../components/Toast";
 import { Button, ButtonLink } from "../components/ui/Button";
@@ -1829,6 +1830,8 @@ export function CanvasPage() {
   );
   const patchManualEdit = useAction(api.canvases.patchManualEditMine);
   const saveCanvasFile = useAction(api.canvases.saveCanvasFileMine);
+  const attachImageAsset = useAction(api.assets.attachMine);
+  const describeImageAsset = useAction(api.videoMedia.previewAsset);
   const checkpoint = useMutation(api.canvases.checkpointMine);
   const canvasVersion = canvas?.version;
   const iframeRevisions = canvas?.iframe_revisions ?? null;
@@ -2577,6 +2580,26 @@ export function CanvasPage() {
           label="Assets"
           aside={workspace ? <Link to={`/w/${workspace.slug}`}>Open library</Link> : undefined}
         >
+          <SharedImageStudio
+            workspaceId={canvas.workspace_id}
+            onUse={async (asset) => {
+              if (persistedVersionRef.current === undefined)
+                throw new Error("Canvas revision not loaded");
+              const details = await describeImageAsset({ workspaceId: canvas.workspace_id, asset });
+              const extension =
+                details.mimeType === "image/jpeg"
+                  ? "jpg"
+                  : (details.mimeType.split("/")[1] ?? "png");
+              const attached = await attachImageAsset({
+                canvasId: canvas.canvas_id,
+                assetRef: details.ref,
+                path: `assets/generated-${asset.revisionId}.${extension}`,
+                expectedVersion: persistedVersionRef.current,
+                expectedDraftRevision: persistedDraftRevisionRef.current,
+              });
+              persistedDraftRevisionRef.current = attached.draftRevision;
+            }}
+          />
           {canvasAssets === undefined ? (
             <p className="muted">Loading assets…</p>
           ) : canvasAssets.length === 0 ? (

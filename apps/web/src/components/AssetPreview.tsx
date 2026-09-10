@@ -1,7 +1,7 @@
 import { FileJson, FileType2, Image as ImageIcon, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-export type PreviewableAssetKind = "image" | "svg" | "font" | "video" | "data";
+export type PreviewableAssetKind = "image" | "svg" | "font" | "video" | "audio" | "data";
 
 export interface AssetPreviewProps {
   assetId: string;
@@ -191,6 +191,18 @@ export function AssetPreview(props: AssetPreviewProps) {
         <FontPreview assetId={assetId} name={name} previewUrl={previewUrl} mode={mode} />
       ) : kind === "video" ? (
         <VideoPreview name={name} previewUrl={previewUrl} mode={mode} />
+      ) : kind === "audio" ? (
+        mode === "full" ? (
+          // biome-ignore lint/a11y/useMediaCaption: Raw library audio may be music/SFX; transcripts belong to authored video captions, not fabricated source metadata.
+          <audio
+            controls
+            preload="metadata"
+            aria-label={`Audio preview of ${name}`}
+            src={previewUrl}
+          />
+        ) : (
+          <span className="asset-preview-message">Audio · open to listen</span>
+        )
       ) : (
         <DataPreview name={name} previewUrl={previewUrl} mode={mode} />
       )}

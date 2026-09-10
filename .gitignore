@@ -8,8 +8,13 @@ dist/
 # Convex agent-skill bundles installed locally by `npx convex ai-files install`
 # — duplicates of skills already available globally via the Claude Code
 # Convex plugin; skills-lock.json (the real config) stays tracked.
-.claude/skills/
-.agents/skills/
+.claude/skills/*
+!.claude/skills/video-production/
+!.claude/skills/video-review/
+!.claude/skills/video-image/
+.agents/skills/*
+!.agents/skills/video-production/
+!.agents/skills/video-review/
 
 # session workspaces created at runtime (see PLAN.md section 7 / src/types.ts SESSIONS_ROOT)
 sessions/
@@ -43,3 +48,5 @@ npm-debug.log*
 
 # isolated local stack for headless agents (npm run dev:agent) — see AGENTS.md
 .env.agent
+.env.agent-video
+apps/web/.env.agent-video

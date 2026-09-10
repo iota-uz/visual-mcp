@@ -18,7 +18,7 @@
  *
  * Both forms keep running until you stop them: a local Convex deployment is
  * a child process of `convex dev`, not a service, so the stack is only up
- * while this is. It re-seeds on every start.
+ * while this is. Only a newly created isolated deployment is seeded.
  *
  * What it does NOT do: touch the live deployment, or read its credentials.
  * Nothing here runs `convex env set` without `--env-file .env.agent`.
@@ -27,26 +27,46 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
+  createReadStream,
+  createWriteStream,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const AGENT_ENV = join(ROOT, ".env.agent");
+const AGENT_ENV = resolve(process.env.VIDEO_AGENT_ENV_FILE ?? join(ROOT, ".env.agent"));
 const LIVE_ENV = join(ROOT, ".env.local");
-const WEB_ENV = join(ROOT, "apps/web/.env.local");
+const WEB_ENV = resolve(process.env.VIDEO_AGENT_WEB_ENV_FILE ?? join(ROOT, "apps/web/.env.local"));
+const CLOUD_PORT = Number(process.env.VIDEO_AGENT_CLOUD_PORT ?? 3210);
+const SITE_PORT = Number(process.env.VIDEO_AGENT_SITE_PORT ?? 3211);
+const WEB_PORT = Number(process.env.VIDEO_AGENT_WEB_PORT ?? 5173);
+const MCP_PORT = Number(process.env.VIDEO_AGENT_MCP_PORT ?? 3212);
+const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
+const PORT_ARGS = [
+  "--local-cloud-port",
+  String(CLOUD_PORT),
+  "--local-site-port",
+  String(SITE_PORT),
+];
+const TEMP_ROOT = process.env.VIDEO_AGENT_TMP_ROOT;
+if (!TEMP_ROOT || !TEMP_ROOT.startsWith("/"))
+  throw new Error("Set VIDEO_AGENT_TMP_ROOT to an explicit temporary output directory.");
+mkdirSync(TEMP_ROOT, { recursive: true });
+// Current Convex stores one local deployment per checkout. An alternate env
+// selects that existing local database; it must never imply a fresh database.
+const freshDeployment = false;
 const SEED_EMAIL = "agent@iota.uz";
-const SEED_MCP_TOKEN = "vct_localdevagenttoken0000000000000000";
-const LOCAL_ASSET_PORT = 3213;
+const LOCAL_ASSET_PORT = Number(process.env.VIDEO_AGENT_ASSET_PORT ?? 3213);
 const LOCAL_ASSET_BUCKET = "visual-canvas-agent";
 const LOCAL_ASSET_ENDPOINT = `http://127.0.0.1:${LOCAL_ASSET_PORT}`;
 const LOCAL_ASSET_ACCESS_KEY = "visual-canvas-local";
@@ -54,6 +74,11 @@ const LOCAL_ASSET_SECRET_KEY = "visual-canvas-local-secret";
 
 const argv = process.argv.slice(2);
 const serve = !argv.includes("--no-serve");
+for (const port of [CLOUD_PORT, SITE_PORT, WEB_PORT, MCP_PORT, LOCAL_ASSET_PORT])
+  if (!Number.isInteger(port) || port < 1024 || port > 65535)
+    throw new Error("Local stack ports must be integers 1024–65535.");
+if (new Set([CLOUD_PORT, SITE_PORT, WEB_PORT, MCP_PORT, LOCAL_ASSET_PORT]).size !== 5)
+  throw new Error("Each local service needs its own port.");
 
 function step(message) {
   console.log(`\n\x1b[1m▸ ${message}\x1b[0m`);
@@ -78,13 +103,23 @@ function withLiveEnvPreserved(fn) {
 }
 
 function convex(args, opts = {}) {
-  return withLiveEnvPreserved(() =>
-    execFileSync("npx", ["convex", ...args], {
-      cwd: ROOT,
-      stdio: opts.capture ? ["ignore", "pipe", "inherit"] : "inherit",
-      encoding: "utf8",
-    }),
-  );
+  return withLiveEnvPreserved(() => {
+    try {
+      const output = execFileSync("npx", ["convex", ...args], {
+        cwd: ROOT,
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
+      });
+      if (!opts.capture && !(args[0] === "env" && args.includes("set")))
+        process.stdout.write(output);
+      return output;
+    } catch {
+      // Never expose execFileSync's error: it embeds argv, including env secrets.
+      throw new Error(
+        `Local Convex ${args[0] ?? "operation"} failed. Arguments and output were withheld to protect credentials.`,
+      );
+    }
+  });
 }
 
 function readEnvFile(path) {
@@ -101,39 +136,19 @@ function readEnvFile(path) {
 // ---------------------------------------------------------------- deployment
 
 if (!existsSync(AGENT_ENV)) {
-  step("Creating a local Convex backend (first run — this downloads a binary)");
-  withLiveEnvPreserved(() => {
-    execFileSync(
-      "npx",
-      [
-        "convex",
-        "dev",
-        "--once",
-        "--configure",
-        "new",
-        "--project",
-        "visual-mcp-agent",
-        "--dev-deployment",
-        "local",
-        "--env-file",
-        AGENT_ENV,
-        // The push will fail on the first pass — no env vars are set yet —
-        // and that is fine: all we want from this call is the deployment.
-        "--typecheck",
-        "disable",
-      ],
-      { cwd: ROOT, stdio: "inherit" },
-    );
-  });
-  // The deployment landed in .env.local (see withLiveEnvPreserved); the
-  // restore already undid that, so take the values from the file the CLI
-  // was asked to use, falling back to reading what it wrote.
-  if (!existsSync(AGENT_ENV)) {
+  const configPath = join(ROOT, ".convex/local/default/config.json");
+  if (!existsSync(configPath))
     throw new Error(
-      `Convex did not write ${AGENT_ENV}. Run it once by hand to see what it is asking for:\n` +
-        "  npx convex dev --once --configure new --dev-deployment local --env-file .env.agent",
+      "No project-local Convex deployment exists. Configure one explicitly first; this script never creates a cloud project.",
     );
-  }
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  if (typeof config.deploymentName !== "string" || !config.deploymentName.startsWith("local-"))
+    throw new Error("Expected an existing linked local deployment; no deployment was changed.");
+  writeFileSync(
+    AGENT_ENV,
+    `CONVEX_DEPLOYMENT=local:${config.deploymentName}\nCONVEX_URL=http://127.0.0.1:${CLOUD_PORT}\nCONVEX_SITE_URL=http://127.0.0.1:${SITE_PORT}\n`,
+    { mode: 0o600, flag: "wx" },
+  );
 }
 
 const agentEnv = readEnvFile(AGENT_ENV);
@@ -151,8 +166,21 @@ if (!deployment.startsWith("local:")) {
       "Delete the file and re-run to create one.",
   );
 }
+if (
+  !["127.0.0.1", "localhost"].includes(new URL(convexUrl).hostname) ||
+  Number(new URL(convexUrl).port) !== CLOUD_PORT ||
+  !["127.0.0.1", "localhost"].includes(new URL(convexSiteUrl).hostname) ||
+  Number(new URL(convexSiteUrl).port) !== SITE_PORT
+)
+  throw new Error(
+    "Selected agent env does not match the explicit local ports. Use a separate env file for a separate stack.",
+  );
 
 const ENV = ["--env-file", AGENT_ENV];
+// Apply explicit port selection before env subcommands (which otherwise use
+// the stored default ports). No --configure: it conflicts with --env-file.
+step("Starting existing local deployment on the requested ports (without seeding)");
+convex(["dev", "--once", ...ENV, ...PORT_ARGS, "--typecheck", "disable"]);
 
 // ------------------------------------------------------------------ env vars
 
@@ -178,8 +206,8 @@ const wanted = {
   // Both are localhost here, and that is the point: SITE_URL is what Convex
   // Auth validates redirects against, and SPA_ORIGIN is what widens the
   // public canvas CSP's frame-ancestors so the viewer's iframe renders.
-  SITE_URL: "http://localhost:5173",
-  SPA_ORIGIN: "http://localhost:5173",
+  SITE_URL: WEB_ORIGIN,
+  SPA_ORIGIN: WEB_ORIGIN,
   // Not a real client id. auth.config.ts reads this variable unconditionally
   // and Convex refuses to push while it is unset; there is no Google sign-in
   // on this backend for it to be the audience of.
@@ -214,6 +242,7 @@ if (!existing.JWT_PRIVATE_KEY || !existing.JWKS) {
 
 // .env.local wins over .env in Vite, so this overrides the checked-in
 // pointer at the live deployment without editing it.
+const webSnapshot = existsSync(WEB_ENV) ? readFileSync(WEB_ENV, "utf8") : null;
 writeFileSync(
   WEB_ENV,
   [
@@ -221,9 +250,10 @@ writeFileSync(
     "# Delete this file to go back to the deployment in .env.",
     `VITE_CONVEX_URL=${convexUrl}`,
     `VITE_DEV_AUTH_SECRET=${devSecret}`,
-    "VITE_MCP_URL=http://localhost:3212",
+    `VITE_MCP_URL=http://localhost:${MCP_PORT}`,
     "",
   ].join("\n"),
+  { mode: 0o600 },
 );
 
 // ------------------------------------------------------------------- serving
@@ -255,7 +285,12 @@ function stopStrayBackend(url) {
   for (const pid of pids.filter(Boolean)) {
     try {
       const command = execFileSync("ps", ["-p", pid, "-o", "command="], { encoding: "utf8" });
-      if (command.includes("convex-local-backend")) process.kill(Number(pid), "SIGTERM");
+      if (
+        command.includes("convex-local-backend") &&
+        command.includes(deployment.slice("local:".length))
+      )
+        process.kill(Number(pid), "SIGTERM");
+      // Never stop a different deployment or another kind of listener.
     } catch {
       /* gone already, or not ours to read */
     }
@@ -265,7 +300,8 @@ stopStrayBackend(convexUrl);
 
 // ---------------------------------------------------------- local asset S3
 
-const assetRoot = mkdtempSync(join(tmpdir(), "visual-canvas-agent-assets-"));
+const assetRoot = join(TEMP_ROOT, "local-assets");
+mkdirSync(assetRoot, { recursive: true });
 const assetServer = createServer((request, response) => {
   try {
     const url = new URL(request.url || "/", LOCAL_ASSET_ENDPOINT);
@@ -280,22 +316,46 @@ const assetServer = createServer((request, response) => {
       return;
     }
     const metadataPath = `${filePath}.meta.json`;
-    response.setHeader("access-control-allow-origin", "*");
+    response.setHeader("access-control-allow-origin", WEB_ORIGIN);
+    response.setHeader("vary", "Origin");
+    response.setHeader("access-control-allow-methods", "GET, HEAD, PUT, OPTIONS");
+    response.setHeader("access-control-allow-headers", "content-type");
+    response.setHeader("access-control-expose-headers", "etag, content-length");
+    if (request.method === "OPTIONS") {
+      response.writeHead(204).end();
+      return;
+    }
     if (request.method === "PUT") {
-      const chunks = [];
-      request.on("data", (chunk) => chunks.push(chunk));
-      request.on("end", () => {
-        const body = Buffer.concat(chunks);
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, body);
-        writeFileSync(
-          metadataPath,
-          JSON.stringify({
-            contentType: request.headers["content-type"] || "application/octet-stream",
-          }),
-        );
-        response.writeHead(200, { etag: `"local-${body.byteLength}"` }).end();
+      const expected = Number(request.headers["content-length"]);
+      if (!Number.isSafeInteger(expected) || expected < 1 || expected > 2_000_000_000) {
+        response.writeHead(413).end();
+        return;
+      }
+      mkdirSync(dirname(filePath), { recursive: true });
+      const partialPath = `${filePath}.partial-${randomBytes(8).toString("hex")}`;
+      let received = 0;
+      const bound = new Transform({
+        transform(chunk, _encoding, done) {
+          received += chunk.length;
+          done(received > expected ? new Error("Upload size exceeded") : null, chunk);
+        },
       });
+      void pipeline(request, bound, createWriteStream(partialPath, { flags: "wx" }))
+        .then(() => {
+          if (received !== expected) throw new Error("Incomplete bytes");
+          renameSync(partialPath, filePath);
+          writeFileSync(
+            metadataPath,
+            JSON.stringify({
+              contentType: request.headers["content-type"] || "application/octet-stream",
+            }),
+          );
+          response.writeHead(200, { etag: `"local-${received}"` }).end();
+        })
+        .catch(() => {
+          rmSync(partialPath, { force: true });
+          if (!response.headersSent) response.writeHead(400).end("Incomplete upload");
+        });
       return;
     }
     if (request.method === "DELETE") {
@@ -317,7 +377,8 @@ const assetServer = createServer((request, response) => {
         "content-length": statSync(filePath).size,
         "cache-control": "public, max-age=31536000, immutable",
       });
-      response.end(request.method === "HEAD" ? undefined : readFileSync(filePath));
+      if (request.method === "HEAD") response.end();
+      else void pipeline(createReadStream(filePath), response).catch(() => response.destroy());
       return;
     }
     response.writeHead(405).end();
@@ -333,22 +394,25 @@ await new Promise((resolveListening, reject) => {
 // `--run` seeds once the push lands. Vite is spawned separately rather than
 // through `--start`: the two flags share one slot in `convex dev`'s step 3,
 // and seeding is the one that has to happen before the browser arrives.
-const devArgs = ["convex", "dev", ...ENV, "--run", "seed:reset"];
+const devArgs = [
+  "convex",
+  "dev",
+  ...ENV,
+  ...PORT_ARGS,
+  ...(freshDeployment ? ["--run", "seed:reset"] : []),
+];
 
 const banner = `
   Stack is up.
 
-  Sign in     http://localhost:5173/dev/sign-in?auto=1     (one navigation, no clicks)
-  Primitives  http://localhost:5173/dev/kitchen-sink
-  Fixtures    http://localhost:5173/?fixture=empty|loading|error   (needs VITE_FIXTURES=1)
+  Sign in     ${WEB_ORIGIN}/dev/sign-in?auto=1     (one navigation, no clicks)
+  Primitives  ${WEB_ORIGIN}/dev/kitchen-sink
+  Fixtures    ${WEB_ORIGIN}/?fixture=empty|loading|error   (needs VITE_FIXTURES=1)
 
   Signed in as   ${SEED_EMAIL}
   Backend        ${convexUrl}
-  MCP endpoint   http://localhost:3212/mcp
-  MCP token      ${SEED_MCP_TOKEN}
-
-    claude mcp add --transport http visual-canvas-local http://localhost:3212/mcp \\
-      --header "Authorization: Bearer ${SEED_MCP_TOKEN}"
+  MCP endpoint   http://localhost:${MCP_PORT}/mcp
+  Existing local data is preserved; only a fresh deployment is seeded.
 
   canvas_save writes and shows up in the UI. Renders do not run here (no
   apps/worker, so WORKER_URL is unset) — asking for one returns
@@ -394,9 +458,9 @@ children.push(
     stdio: "inherit",
     env: {
       ...process.env,
-      PORT: "3212",
+      PORT: String(MCP_PORT),
       CONVEX_SITE_URL: convexSiteUrl,
-      SPA_ORIGIN: "http://localhost:5173",
+      SPA_ORIGIN: WEB_ORIGIN,
       AGENT_GATEWAY_SECRET: gatewaySecret,
       ...localAssetEnv,
     },
@@ -404,17 +468,29 @@ children.push(
 );
 if (serve)
   children.push(
-    spawn("npm", ["run", "dev", "-w", "apps/web", "--", "--port", "5173", "--strictPort"], {
-      cwd: ROOT,
-      stdio: "inherit",
-    }),
+    spawn(
+      "npm",
+      ["run", "dev", "-w", "apps/web", "--", "--port", String(WEB_PORT), "--strictPort"],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          VITE_CONVEX_URL: convexUrl,
+          VITE_DEV_AUTH_SECRET: devSecret,
+          VITE_MCP_URL: `http://localhost:${MCP_PORT}`,
+        },
+      },
+    ),
   );
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     for (const child of children) child.kill(signal);
     assetServer.close();
-    rmSync(assetRoot, { recursive: true, force: true });
+    if (webSnapshot === null) {
+      if (existsSync(WEB_ENV)) rmSync(WEB_ENV);
+    } else writeFileSync(WEB_ENV, webSnapshot, { mode: 0o600 });
   });
 }
 for (const child of children) {
@@ -422,7 +498,9 @@ for (const child of children) {
     clearInterval(guard);
     restoreLiveEnv();
     assetServer.close();
-    rmSync(assetRoot, { recursive: true, force: true });
+    if (webSnapshot === null) {
+      if (existsSync(WEB_ENV)) rmSync(WEB_ENV);
+    } else writeFileSync(WEB_ENV, webSnapshot, { mode: 0o600 });
     for (const other of children) {
       if (other !== child) other.kill("SIGTERM");
     }

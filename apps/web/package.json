@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.95",
+    "@noble/hashes": "^2.4.0",
     "@visual-canvas/canvas": "*",
     "convex": "1.45.0",
     "lucide-react": "^1.31.0",

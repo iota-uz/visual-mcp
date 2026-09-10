@@ -2172,12 +2172,49 @@ function productionToolDescription(
   ].join(" ");
 }
 
-export function registerTools(server: McpServer, ctx: AgentContext, principal: McpPrincipal): void {
+export type CapturedCanvasTool = {
+  name: string;
+  input: z.ZodType;
+  output: z.ZodType;
+  readOnly: boolean;
+  invoke: (input: Record<string, unknown>) => Promise<CallToolResult>;
+};
+export function registerTools(
+  server: McpServer,
+  ctx: AgentContext,
+  principal: McpPrincipal,
+  options?: { names?: ReadonlySet<string>; capture?: (tool: CapturedCanvasTool) => void },
+): void {
   const rawRegisterTool = server.registerTool.bind(server) as (
     ...args: Parameters<McpServer["registerTool"]>
   ) => ReturnType<McpServer["registerTool"]>;
   server.registerTool = ((...args: Parameters<McpServer["registerTool"]>) => {
     const [name, config, callback] = args;
+    if (options?.names && !options.names.has(name))
+      return {} as ReturnType<McpServer["registerTool"]>;
+    if (options?.capture) {
+      // Current Canvas registrations all use local Zod 4 schemas and callbacks
+      // closed over the authenticated request context. No second business handler.
+      const input = config.inputSchema as unknown as z.ZodType;
+      const output = config.outputSchema as unknown as z.ZodType;
+      if (
+        !input ||
+        typeof input.safeParse !== "function" ||
+        !output ||
+        typeof output.safeParse !== "function"
+      )
+        throw new Error(`Canvas schema is not capturable: ${name}`);
+      const invoke = callback as unknown as (
+        input: Record<string, unknown>,
+      ) => Promise<CallToolResult>;
+      options.capture({
+        name,
+        input,
+        output,
+        readOnly: config.annotations?.readOnlyHint === true,
+        invoke,
+      });
+    }
     return rawRegisterTool(
       name,
       {
@@ -6596,6 +6633,7 @@ export function registerTools(server: McpServer, ctx: AgentContext, principal: M
         });
       }),
   );
+  server.registerTool = rawRegisterTool;
 }
 
 /**
@@ -6625,7 +6663,34 @@ function randomShareSlug(): string {
  * data, which is exactly what MCP resources are for: the listing is titles
  * and descriptions, and a caller reads the one it actually wants.
  * ---------------------------------------------------------------------- */
-export function registerResources(server: McpServer, ctx: AgentContext): void {
+export type CapturedResource = {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+  read: () => Promise<{ contents: unknown[] }>;
+};
+export function registerResources(
+  server: McpServer,
+  ctx: AgentContext,
+  capture?: (resource: CapturedResource) => void,
+): void {
+  const rawRegisterResource = server.registerResource.bind(server);
+  server.registerResource = ((...args: unknown[]) => {
+    const [name, uri, metadata, callback] = args;
+    if (capture && typeof uri === "string") {
+      const meta = metadata as { title?: string; description?: string; mimeType?: string };
+      const read = callback as (uri: URL) => Promise<{ contents: unknown[] }>;
+      capture({
+        uri,
+        name: meta.title ?? String(name),
+        description: meta.description ?? "",
+        mimeType: meta.mimeType ?? "text/plain",
+        read: () => read(new URL(uri)),
+      });
+    }
+    return (rawRegisterResource as (...args: unknown[]) => unknown)(...args);
+  }) as McpServer["registerResource"];
   for (const guide of MCP_GUIDES) {
     server.registerResource(
       `guide-${guide.id}`,
@@ -6815,4 +6880,5 @@ export function registerResources(server: McpServer, ctx: AgentContext): void {
       }),
     );
   }
+  server.registerResource = rawRegisterResource;
 }

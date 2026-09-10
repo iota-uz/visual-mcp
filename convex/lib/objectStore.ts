@@ -85,6 +85,25 @@ export async function presignObject(
   return request.url;
 }
 
+/** Exact-length PUT: signed content-length prevents accepting a larger object. */
+export async function presignSizedUpload(
+  key: string,
+  sizeBytes: number,
+  expiresSeconds = 900,
+): Promise<string> {
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 2000000000)
+    throw new Error("Upload size outside allowed range");
+  const config = getObjectStoreConfig();
+  const url = new URL(objectUrl(config, key));
+  url.searchParams.set("X-Amz-Expires", String(Math.min(900, Math.max(1, expiresSeconds))));
+  const signed = await client(config).sign(url.toString(), {
+    method: "PUT",
+    headers: { "content-length": String(sizeBytes) },
+    aws: { signQuery: true, service: "s3", region: config.region, allHeaders: true },
+  });
+  return signed.url;
+}
+
 export async function getObject(key: string): Promise<Response> {
   const config = getObjectStoreConfig();
   return client(config).fetch(objectUrl(config, key), { method: "GET" });

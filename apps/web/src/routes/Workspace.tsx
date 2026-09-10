@@ -112,9 +112,14 @@ export function WorkspacePage() {
         }
         actions={
           wsSlug ? (
-            <ButtonLink to={`/w/${wsSlug}/assets`} variant="secondary" icon={Images}>
-              Assets
-            </ButtonLink>
+            <>
+              <ButtonLink to={`/w/${wsSlug}/videos`} variant="secondary">
+                Video Studio
+              </ButtonLink>
+              <ButtonLink to={`/w/${wsSlug}/assets`} variant="secondary" icon={Images}>
+                Assets
+              </ButtonLink>
+            </>
           ) : undefined
         }
       />

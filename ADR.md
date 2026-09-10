@@ -11,6 +11,12 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## mcp
 
+- **Learning отделяет evidence от agent performance; wrappers учитывают реальные harness форматы** — [запись](adr/mcp/learning-evidence-and-harness-wrappers.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
+
+- **Видео-контекст и bounded loop хранят состояние, а не reasoning** — [запись](adr/mcp/context-and-bounded-video-loops.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
+
+- **Canvas и Video Studio имеют отдельные MCP endpoints и общий service layer** — [запись](adr/mcp/canvas-and-video-endpoints.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
+
 - **Структурные правки используют атомарный batch, компактное чтение и единый state token** — [запись](adr/mcp/token-efficient-structural-patches.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **HTML авторится напрямую через MCP, краткая форма разворачивается в canvas на сервере** — [запись](adr/mcp/direct-html-authoring.md) · accepted · 2026-09-06 (запрос сопровождающего)
 - **Файловые MCP-операции пакетируются внутри одной задачи, а поиск остаётся отдельным инструментом** — [запись](adr/mcp/bounded-batch-file-operations.md) · accepted · 2026-09-01 (агентский аудит и запрос сопровождающего)
@@ -27,7 +33,11 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## assets
 
-- **Медиа из `/assets` становится переиспользуемым, SVG доверяется, audio не поддерживается** — [запись](adr/assets/unified-assets-and-media-boundaries.md) · accepted · 2026-08-29 (`4b2b09a`, `bbf7703`)
+- **Буферизуемые ответы генерации обрабатываются в доверенном Node action** — [запись](adr/assets/trusted-provider-node-runtime.md) · accepted · 2026-09-10 (Convex limits, video delivery review)
+
+- **Видео и аудио используют общую приватную библиотеку assets** — [запись](adr/assets/video-audio-and-shared-storage.md) · accepted · 2026-09-10 (заменяет unified-assets-and-media-boundaries; история ниже сохранена)
+
+- **Медиа из `/assets` становится переиспользуемым, SVG доверяется, audio не поддерживается** — [запись](adr/assets/unified-assets-and-media-boundaries.md) · superseded · 2026-08-29 (`4b2b09a`, `bbf7703`)
 
 ## sharing
 
@@ -38,6 +48,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Доступ ограничен организацией, права общие внутри неё, MCP tokens живут 90 дней** — [запись](adr/auth/org-wide-access-and-expiring-mcp-tokens.md) · accepted · 2026-08-14 (`55dd64a`, `9a73635`)
 
 ## platform
+
+- **Video Studio переносится в Visual Canvas с долговечным облачным состоянием** — [запись](adr/platform/video-studio-integration.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
 
 - **Экспорт из браузера рендерит snapshot worker через Convex action, кэш по draft revision** — [запись](adr/platform/browser-export-via-snapshot-worker.md) · accepted · 2026-09-07 (план, утверждённый пользователем)
 - **Convex хранит данные и обслуживает BFF, а stateless MCP работает в Railway** — [запись](adr/platform/convex-bff-railway-mcp-boundary.md) · accepted · 2026-08-23 (`688d884`)

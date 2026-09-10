@@ -19,10 +19,13 @@
  * open render/exec oracle.
  */
 
+import { VideoRenderRequest } from "@visual-canvas/video/media";
 import { Hono, type MiddlewareHandler } from "hono";
 import { handleAssetImport } from "./asset-import.js";
 import { handleCompileCss } from "./compile-css.js";
 import { handleExec } from "./exec.js";
+import { registerExecuteRoute } from "./execute.js";
+import { handleMediaTransfer, MediaTransferError, MediaTransferRequest } from "./media-transfer.js";
 import { handleRender } from "./render.js";
 import {
   AssetImportRequestSchema,
@@ -32,6 +35,8 @@ import {
   SnapshotRequestSchema,
 } from "./schemas.js";
 import { handleSnapshot } from "./snapshot.js";
+import { registerMediaProcessRoute } from "./video/process-route.js";
+import { handleVideoRender, VideoWorkerError } from "./video/render.js";
 
 export const app = new Hono();
 
@@ -55,6 +60,122 @@ app.use("/exec", requireWorkerToken);
 app.use("/compile-css", requireWorkerToken);
 app.use("/asset-import", requireWorkerToken);
 app.use("/snapshot", requireWorkerToken);
+app.use("/video/render", requireWorkerToken);
+registerExecuteRoute(app, requireWorkerToken);
+registerMediaProcessRoute(app, requireWorkerToken);
+app.use("/media/verify", requireWorkerToken);
+app.use("/media/ingest", requireWorkerToken);
+for (const route of ["/media/verify", "/media/ingest"] as const)
+  app.post(route, async (c) => {
+    const parsed = MediaTransferRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid media verification request",
+            effect: "not_applied",
+          },
+        },
+        400,
+      );
+    if (
+      (route === "/media/verify" && parsed.data.destinationUrl) ||
+      (route === "/media/ingest" && !parsed.data.destinationUrl)
+    )
+      return c.json(
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Ingest requires destination; verify must not write",
+            effect: "not_applied",
+          },
+        },
+        400,
+      );
+    try {
+      return c.json(await handleMediaTransfer(parsed.data, c.req.raw.signal));
+    } catch (error) {
+      if (error instanceof MediaTransferError && error.code === "WORKER_BUSY")
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              message: "Media worker busy; retry existing operation later",
+              effect: error.effect,
+            },
+          },
+          429,
+        );
+      return c.json(
+        {
+          error: {
+            code: "MEDIA_VERIFICATION_FAILED",
+            message: "Media transfer or inspection failed; inspect reserved object before retry",
+            effect: route === "/media/ingest" ? "unknown" : "none",
+          },
+        },
+        422,
+      );
+    }
+  });
+
+app.post("/video/render", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Expected JSON request",
+          effect: "not_applied",
+        },
+      },
+      400,
+    );
+  }
+  const parsed = VideoRenderRequest.safeParse(body);
+  if (!parsed.success)
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid video render request",
+          effect: "not_applied",
+        },
+      },
+      400,
+    );
+  try {
+    return c.json(await handleVideoRender(parsed.data, c.req.raw.signal));
+  } catch (error) {
+    if (error instanceof VideoWorkerError)
+      return c.json(
+        {
+          error: {
+            code: error.code,
+            message: error.message,
+            effect: error.effect,
+          },
+          result: error.result,
+          persisted: error.persisted,
+        },
+        error.code === "WORKER_BUSY" ? 429 : 500,
+      );
+    return c.json(
+      {
+        error: {
+          code: "RENDER_FAILED",
+          message: "Video render failed",
+          effect: "unknown",
+        },
+      },
+      500,
+    );
+  }
+});
 
 app.post("/render", async (c) => {
   const parsed = RenderRequestSchema.safeParse(await c.req.json());

@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "./components/ui/Button";
 import { Panel } from "./components/ui/Panel";
+import { clearJobIntents } from "./components/video/useDurableJobIntent";
 
 /*
  * A rejected sign-in is silent on the wire, so we have to remember that one
@@ -64,7 +65,14 @@ export function useSessionUser() {
 
 export function useSignOut() {
   const { signOut } = useAuthActions();
-  return signOut;
+  return async () => {
+    try {
+      clearJobIntents();
+    } catch {
+      /* Storage restrictions must not prevent sign-out. */
+    }
+    await signOut();
+  };
 }
 
 /*

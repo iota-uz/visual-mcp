@@ -1,6 +1,6 @@
 import { useConvexAuth, useQuery } from "convex/react";
 import { Blocks, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
 import { clearSignInAttempt, SignInButton, useSessionUser, useSignOut } from "./auth";
@@ -20,6 +20,16 @@ import { PresentPage } from "./routes/Present";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
 import { TokensPage } from "./routes/Tokens";
 import { WorkspacePage } from "./routes/Workspace";
+
+const VideoProjectsPage = lazy(() =>
+  import("./routes/VideoProjects").then((module) => ({ default: module.VideoProjectsPage })),
+);
+const VideoStudioPage = lazy(() =>
+  import("./routes/VideoStudio").then((module) => ({ default: module.VideoStudioPage })),
+);
+const VideoJobPage = lazy(() =>
+  import("./routes/VideoJob").then((module) => ({ default: module.VideoJobPage })),
+);
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
@@ -321,6 +331,36 @@ function AuthenticatedApp() {
           navigation the link just skipped. */}
       <div className="app-content" id="main" tabIndex={-1}>
         <Routes>
+          <Route
+            path="/jobs/:jobId"
+            element={
+              <Page label="This job is unavailable or you do not have access.">
+                <Suspense fallback={<p role="status">Loading job…</p>}>
+                  <VideoJobPage />
+                </Suspense>
+              </Page>
+            }
+          />
+          <Route
+            path="/w/:wsSlug/videos"
+            element={
+              <Page label="Video projects failed to load.">
+                <Suspense fallback={<p role="status">Loading Video Studio…</p>}>
+                  <VideoProjectsPage />
+                </Suspense>
+              </Page>
+            }
+          />
+          <Route
+            path="/v/:projectId"
+            element={
+              <ErrorBoundary label="Video Studio failed to load.">
+                <Suspense fallback={<p role="status">Loading Video Studio…</p>}>
+                  <VideoStudioPage />
+                </Suspense>
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/"
             element={

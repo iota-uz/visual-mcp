@@ -135,7 +135,7 @@ function contentType(path) {
   );
 }
 
-async function proxyMcp(request, response, mcpOrigin, fetchImpl) {
+async function proxyMcp(request, response, mcpOrigin, fetchImpl, endpoint) {
   if (!mcpOrigin) throw new Error("MCP_UPSTREAM_URL is required");
   const upstreamOrigin = mcpOrigin.includes("://") ? mcpOrigin : `http://${mcpOrigin}:8080`;
   const headers = new Headers();
@@ -155,7 +155,7 @@ async function proxyMcp(request, response, mcpOrigin, fetchImpl) {
   response.once("close", abortUpstream);
 
   try {
-    const upstream = await fetchImpl(new URL("/mcp", upstreamOrigin), {
+    const upstream = await fetchImpl(new URL(endpoint, upstreamOrigin), {
       method: "POST",
       headers,
       body: request,
@@ -216,12 +216,12 @@ export function createAppServer({
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", requestOrigin(request));
-      if (url.pathname === "/mcp") {
+      if (url.pathname === "/mcp" || url.pathname === "/mcp/video") {
         if (request.method !== "POST") {
           response.writeHead(405, { allow: "POST" }).end();
           return;
         }
-        await proxyMcp(request, response, mcpOrigin, fetchImpl);
+        await proxyMcp(request, response, mcpOrigin, fetchImpl, url.pathname);
         return;
       }
       if (request.method !== "GET" && request.method !== "HEAD") {

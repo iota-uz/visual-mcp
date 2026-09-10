@@ -1,4 +1,4 @@
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { Archive, Image as ImageIcon, Link2, Search, Upload } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -7,7 +7,9 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { AssetPreviewDialog } from "../components/AssetPreviewDialog";
 import { EmptyState } from "../components/EmptyState";
+import { MediaUpload } from "../components/MediaUpload";
 import { PageHeader } from "../components/PageHeader";
+import { type PinnedImage, SharedImageStudio } from "../components/SharedImageStudio";
 import { useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
 import { CopyableValue } from "../components/ui/CopyableValue";
@@ -28,6 +30,7 @@ interface AssetItem {
   tags: string[];
   kind: AssetKind;
   revision: number;
+  revision_id?: Id<"assetVersions">;
   mime_type: string;
   size_bytes: number;
   content_hash: string;
@@ -56,10 +59,12 @@ function AssetCard({
   asset,
   onArchive,
   onPreview,
+  onEdit,
 }: {
   asset: AssetItem;
   onArchive: () => void;
   onPreview: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <li className="asset-card">
@@ -99,6 +104,11 @@ function AssetCard({
           </div>
         )}
         <CopyableValue value={asset.asset_ref} label="Asset ref" copyLabel="Copy asset ref" />
+        {onEdit && (
+          <Button size="sm" onClick={onEdit}>
+            Edit pinned image
+          </Button>
+        )}
       </div>
     </li>
   );
@@ -106,6 +116,9 @@ function AssetCard({
 
 export function AssetsPage() {
   const { wsSlug } = useParams<{ wsSlug?: string }>();
+  const workspace = useQuery(api.workspaces.getBySlug, wsSlug ? { slug: wsSlug } : "skip");
+  const [editSource, setEditSource] = useState<PinnedImage | undefined>();
+  const [mediaPane, setMediaPane] = useState<"image" | "upload" | null>(null);
   const scope = wsSlug ? ("workspace" as const) : ("personal" as const);
   const [assets, setAssets] = useState<AssetItem[] | null>(null);
   const [query, setQuery] = useState("");
@@ -150,7 +163,10 @@ export function AssetsPage() {
     };
   }, [reload, notify]);
 
-  const tabs = useMemo(() => ["all", "image", "svg", "font", "video", "data"] as const, []);
+  const tabs = useMemo(
+    () => ["all", "image", "svg", "font", "video", "audio", "data"] as const,
+    [],
+  );
 
   async function uploadFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = [...(event.target.files ?? [])];
@@ -236,18 +252,65 @@ export function AssetsPage() {
         }
         actions={
           <div className="asset-header-actions">
+            {workspace && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => setMediaPane(mediaPane === "image" ? null : "image")}
+                >
+                  Generate image
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => setMediaPane(mediaPane === "upload" ? null : "upload")}
+                >
+                  Upload media
+                </Button>
+              </>
+            )}
             <Button variant="secondary" icon={Link2} onClick={() => setImportOpen((open) => !open)}>
               Import URL
             </Button>
-            <label className={`btn btn-primary${uploading ? " disabled" : ""}`}>
-              <Upload size={15} aria-hidden="true" />
-              {uploading ? "Uploading…" : "Upload"}
-              <input type="file" multiple hidden disabled={uploading} onChange={uploadFiles} />
-            </label>
+            {!workspace && (
+              <label className={`btn btn-primary${uploading ? " disabled" : ""}`}>
+                <Upload size={15} aria-hidden="true" />
+                {uploading ? "Uploading…" : "Upload"}
+                <input type="file" multiple hidden disabled={uploading} onChange={uploadFiles} />
+              </label>
+            )}
           </div>
         }
       />
 
+      {workspace && mediaPane && (
+        <section aria-label="Media action">
+          <Button
+            size="sm"
+            onClick={() => {
+              setMediaPane(null);
+              setEditSource(undefined);
+            }}
+          >
+            Close media action
+          </Button>
+          {mediaPane === "image" ? (
+            <>
+              <SharedImageStudio
+                key={editSource?.revisionId ?? "generate"}
+                workspaceId={workspace.workspace_id}
+                source={editSource}
+              />
+              {editSource && (
+                <Button size="sm" onClick={() => setEditSource(undefined)}>
+                  Back to new image
+                </Button>
+              )}
+            </>
+          ) : (
+            <MediaUpload workspaceId={workspace.workspace_id} onReady={() => void reload()} />
+          )}
+        </section>
+      )}
       {importOpen && (
         <section className="asset-import-panel">
           <div>
@@ -321,6 +384,14 @@ export function AssetsPage() {
               key={asset.asset_id}
               asset={asset}
               onPreview={() => setPreviewAsset(asset)}
+              onEdit={
+                workspace && asset.kind === "image" && asset.revision_id
+                  ? () => {
+                      setEditSource({ assetId: asset.asset_id, revisionId: asset.revision_id! });
+                      setMediaPane("image");
+                    }
+                  : undefined
+              }
               onArchive={async () => {
                 await archiveAsset({ assetRef: asset.asset_ref });
                 setAssets(

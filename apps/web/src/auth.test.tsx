@@ -1,17 +1,27 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { clearSignInAttempt, SignInButton } from "./auth";
+import { clearSignInAttempt, SignInButton, useSignOut } from "./auth";
 
-const { signInMock, useQueryMock } = vi.hoisted(() => ({
+const { signInMock, signOutMock, useQueryMock } = vi.hoisted(() => ({
+  signOutMock: vi.fn(),
   signInMock: vi.fn(),
   useQueryMock: vi.fn(),
 }));
 
 vi.mock("@convex-dev/auth/react", () => ({
-  useAuthActions: () => ({ signIn: signInMock, signOut: vi.fn() }),
+  useAuthActions: () => ({ signIn: signInMock, signOut: signOutMock }),
 }));
 vi.mock("convex/react", () => ({ useQuery: useQueryMock }));
+test("explicit logout removes only operation recovery records and preserves drafts", async () => {
+  localStorage.setItem("visual-canvas:job-intent:user:image", "record");
+  localStorage.setItem("unrelated-draft", "retained");
+  const { result } = renderHook(() => useSignOut());
+  await act(async () => result.current());
+  expect(signOutMock).toHaveBeenCalledOnce();
+  expect(localStorage.getItem("visual-canvas:job-intent:user:image")).toBeNull();
+  expect(localStorage.getItem("unrelated-draft")).toBe("retained");
+});
 
 /*
  * The org rejection never comes back as an error the client can catch: the

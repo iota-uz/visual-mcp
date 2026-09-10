@@ -51,8 +51,12 @@ requires compatibility for a specific change.
 
 - SVG assets are trusted internal `@iota.uz` workspace content. Preserve SVG
   bytes as authored; do not sanitize or rewrite their markup on ingestion.
-- Audio is not a supported asset kind. Do not add audio upload, import,
-  storage, filtering, preview, MCP, fixture, or documentation support.
+- Audio is an accepted asset kind for the integrated Video Studio: implement
+  upload, import, storage, filtering, preview and MCP together with explicit
+  MIME/size/metadata checks. Reuse the existing private asset bucket. This
+  supersedes the earlier no-audio rule; see
+  `adr/assets/video-audio-and-shared-storage.md`. Accepted scope is not evidence
+  that all audio paths are implemented; validate the actual shipped surface.
 
 ## Local stack
 

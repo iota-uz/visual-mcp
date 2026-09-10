@@ -13,7 +13,18 @@ import type { Id } from "../../../convex/_generated/dataModel.js";
 import { AgentGateway } from "./gateway.js";
 import { buildInstructions } from "./instructions.js";
 import { sha256Hex } from "./lib/hash.js";
-import { type McpPrincipal, registerResources, registerTools } from "./tools.js";
+import {
+  type CapturedCanvasTool,
+  type McpPrincipal,
+  registerResources,
+  registerTools,
+} from "./tools.js";
+import { attachCanvasCatalog, sharedCanvasTools } from "./video/canvas-catalog.js";
+import { enableExecuteTools, registerExecuteCallback } from "./video/execute.js";
+import { videoBackend } from "./video/gateway.js";
+import type { DomainResource } from "./video/registry.js";
+import { registerVideoTools, sharedMediaTools } from "./video/registry.js";
+import { registerDomainResources } from "./video/resources.js";
 
 function principal(auth: AuthInfo | undefined): McpPrincipal {
   const extra = auth?.extra;
@@ -26,7 +37,9 @@ function principal(auth: AuthInfo | undefined): McpPrincipal {
 }
 
 export function createApp(gateway = new AgentGateway()) {
+  enableExecuteTools();
   const app = new Hono();
+  registerExecuteCallback(app);
   const verifier: OAuthTokenVerifier = {
     async verifyAccessToken(token) {
       const verified = await gateway.authenticate(await sha256Hex(token));
@@ -43,7 +56,8 @@ export function createApp(gateway = new AgentGateway()) {
   };
 
   app.get("/healthz", (c) => c.json({ status: "ok" }));
-  app.post("/mcp", async (c) => {
+  app.on("POST", ["/mcp", "/mcp/video"], async (c) => {
+    const video = c.req.path === "/mcp/video";
     const request = c.req.raw;
     const gate = requireBearerAuth({ verifier });
     const auth = await gate(request);
@@ -63,11 +77,28 @@ export function createApp(gateway = new AgentGateway()) {
     const handler = createMcpHandler(
       (requestContext) => {
         const server = new McpServer(
-          { name: "visual-canvas", version: "2.0.0" },
-          { instructions: buildInstructions() },
+          { name: video ? "visual-canvas-video" : "visual-canvas", version: "2.0.0" },
+          {
+            instructions: video
+              ? "Video Studio: durable project and language-scoped documents, server media generation, pinned previews and bounded evaluation loops. Read IDs/revisions before patching. Checkpoints and critic passes are not human approval. Paid producers require explicit allowPaid; poll job_get and reconcile known receipts rather than resubmit unknown outcomes. Nested documents use the shared camelCase domain schema; top-level transport references use snake_case."
+              : buildInstructions(),
+          },
         );
-        registerTools(server, actionCtx, principal(requestContext.authInfo));
-        registerResources(server, actionCtx);
+        const actor = principal(requestContext.authInfo);
+        const backend = videoBackend(gateway, actor);
+        const resources: DomainResource[] = [];
+        registerResources(server, actionCtx, (resource) => resources.push(resource));
+        registerDomainResources(server, backend, resources);
+        const captured: CapturedCanvasTool[] = [];
+        registerTools(server, actionCtx, actor, {
+          ...(video ? { names: sharedCanvasTools } : {}),
+          capture: (tool) => captured.push(tool),
+        });
+        attachCanvasCatalog(backend, actionCtx, actor, captured, video ? "video" : "canvas");
+        if (video) registerVideoTools(server, backend);
+        else {
+          registerVideoTools(server, backend, new Set([...sharedMediaTools, "execute"]));
+        }
         return server;
       },
       { maxSubscriptions: 0 },

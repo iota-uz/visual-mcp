@@ -145,7 +145,11 @@ describe("HTML authoring over the actual gateway adapter", () => {
         (change: { path: string }) => change.path === node.source.entrypoint,
       );
       expect(source).toBeDefined();
-      expect(await blobs.get(source.storageId)!.text()).toContain("<h1>");
+      // Canonical source annotates headings with stable comment-target IDs.
+      // Assert the preserved heading and its identity, not an unannotated tag.
+      expect(await blobs.get(source.storageId)!.text()).toMatch(
+        /<h1\b[^>]*\bdata-vc-id="[^"]+"[^>]*>(?:Hello|App|Home|Settings)<\/h1>/,
+      );
     }
     expect(JSON.stringify(result)).not.toContain("<h1>");
     expect(result.structuredContent.recommendations).toEqual(

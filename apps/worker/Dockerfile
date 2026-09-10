@@ -17,12 +17,14 @@ COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
 COPY packages/runtime/package.json packages/runtime/package.json
+COPY packages/video/package.json packages/video/package.json
 # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: @visual-canvas/runtime's own
 # `postinstall: playwright install chromium` would otherwise re-download a
 # browser this base image already bundles — redundant at best, a version
 # mismatch at worst.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm ci --workspace=@visual-canvas/worker --workspace=@visual-canvas/canvas --workspace=@visual-canvas/runtime --include-workspace-root=false
+RUN npm ci --workspace=@visual-canvas/worker --workspace=@visual-canvas/canvas --workspace=@visual-canvas/runtime --workspace=@visual-canvas/video --include-workspace-root=false
+RUN mkdir -p packages/video/node_modules
 
 FROM deps AS build
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.json
@@ -32,13 +34,17 @@ COPY packages/canvas/scripts packages/canvas/scripts
 COPY packages/canvas/src packages/canvas/src
 COPY packages/runtime/tsconfig.json packages/runtime/tsconfig.json
 COPY packages/runtime/src packages/runtime/src
+COPY packages/video/tsconfig.json packages/video/tsconfig.json
+COPY packages/video/src packages/video/src
 # Canvas must build before runtime, and runtime before the worker: both import
 # workspace dist/* subpaths through their package.json exports maps.
 RUN npm run build --workspace=@visual-canvas/canvas
 RUN npm run build --workspace=@visual-canvas/runtime
+RUN npm run build --workspace=@visual-canvas/video
 RUN npm run build --workspace=@visual-canvas/worker
 
 FROM base AS run
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /repo
 COPY --from=deps /repo/node_modules node_modules
@@ -53,12 +59,15 @@ COPY --from=deps /repo/node_modules node_modules
 COPY --from=deps /repo/apps/worker/node_modules apps/worker/node_modules
 COPY --from=deps /repo/packages/canvas/node_modules packages/canvas/node_modules
 COPY --from=deps /repo/packages/runtime/node_modules packages/runtime/node_modules
+COPY --from=deps /repo/packages/video/node_modules packages/video/node_modules
 COPY --from=build /repo/apps/worker/dist apps/worker/dist
 COPY apps/worker/package.json apps/worker/package.json
 COPY --from=build /repo/packages/canvas/dist packages/canvas/dist
 COPY packages/canvas/package.json packages/canvas/package.json
 COPY --from=build /repo/packages/runtime/dist packages/runtime/dist
 COPY packages/runtime/package.json packages/runtime/package.json
+COPY --from=build /repo/packages/video/dist packages/video/dist
+COPY packages/video/package.json packages/video/package.json
 
 EXPOSE 8080
 CMD ["node", "apps/worker/dist/index.js"]

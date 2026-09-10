@@ -12,18 +12,26 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "NODE_ENV=test node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.0",
+    "@remotion/bundler": "4.0.523",
+    "@remotion/renderer": "4.0.523",
     "@visual-canvas/runtime": "*",
-    "hono": "4.13.1",
+    "@visual-canvas/video": "*",
+    "hono": "4.13.7",
     "pdf-lib": "^1.17.1",
+    "playwright": "1.62.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.523",
     "sharp": "^0.35.3",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "@types/react": "19.2.18",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }

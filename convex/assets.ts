@@ -16,6 +16,7 @@ import { requireIotaIdentity, resolveUserId } from "./lib/auth";
 import { sha256HexBytes } from "./lib/hash";
 import { deleteObject, getObject, headObject, presignObject, putObject } from "./lib/objectStore";
 import { slugify } from "./lib/slug";
+import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
 import { callWorker, getWorkerConfig } from "./lib/worker";
 
 const scopeValidator = v.union(v.literal("personal"), v.literal("workspace"));
@@ -24,10 +25,12 @@ const kindValidator = v.union(
   v.literal("svg"),
   v.literal("font"),
   v.literal("video"),
+  v.literal("audio"),
   v.literal("data"),
 );
 
 const assetListItemValidator = v.object({
+  revision_id: v.id("assetVersions"),
   asset_id: v.id("assets"),
   asset_ref: v.string(),
   scope: scopeValidator,
@@ -60,6 +63,7 @@ type PersistedAsset = {
   contentHash: string;
 };
 type AssetListRow = {
+  revision_id: Id<"assetVersions">;
   asset_id: Id<"assets">;
   asset_ref: string;
   scope: "personal" | "workspace";
@@ -68,7 +72,7 @@ type AssetListRow = {
   name: string;
   description: string | null;
   tags: string[];
-  kind: "image" | "svg" | "font" | "video" | "data";
+  kind: "image" | "svg" | "font" | "video" | "audio" | "data";
   revision: number;
   mime_type: string;
   size_bytes: number;
@@ -77,7 +81,9 @@ type AssetListRow = {
   updated_at: number;
   object_key: string;
 };
-type PublicAssetListRow = Omit<AssetListRow, "object_key"> & { preview_url: string };
+type PublicAssetListRow = Omit<AssetListRow, "object_key"> & {
+  preview_url: string;
+};
 
 type AssetLookupCtx = QueryCtx | MutationCtx;
 
@@ -142,7 +148,11 @@ export const resolvePrincipal = internalQuery({
       .withIndex("by_slug", (q) => q.eq("slug", args.workspaceSlug as string))
       .unique();
     if (!workspace || workspace.archivedAt !== undefined) throw new Error("Workspace not found");
-    return { userId, workspaceId: workspace._id, workspaceSlug: workspace.slug };
+    return {
+      userId,
+      workspaceId: workspace._id,
+      workspaceSlug: workspace.slug,
+    };
   },
 });
 
@@ -211,7 +221,11 @@ export const createUploads = internalMutation({
 });
 
 export const getUpload = internalQuery({
-  args: { uploadId: v.id("assetUploads"), userId: v.id("users"), now: v.number() },
+  args: {
+    uploadId: v.id("assetUploads"),
+    userId: v.id("users"),
+    now: v.number(),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -243,6 +257,20 @@ export const getUpload = internalQuery({
 
 export const commitAssetVersion = internalMutation({
   args: {
+    mediaMetadata: v.optional(MediaMetadataValidator),
+    deduplicateObject: v.optional(v.boolean()),
+    expectedHeadVersionId: v.optional(v.id("assetVersions")),
+    candidateSlug: v.optional(v.string()),
+    provenance: v.optional(
+      v.object({
+        kind: v.union(v.literal("provider"), v.literal("render"), v.literal("codex-imagegen")),
+        jobId: v.optional(v.id("videoJobs")),
+        provider: v.optional(v.string()),
+        requestedModel: v.optional(v.string()),
+        actualModel: v.optional(v.union(v.string(), v.null())),
+        metadata: v.optional(v.string()),
+      }),
+    ),
     uploadId: v.optional(v.id("assetUploads")),
     scope: scopeValidator,
     ownerUserId: v.id("users"),
@@ -266,10 +294,11 @@ export const commitAssetVersion = internalMutation({
     assetId: v.id("assets"),
     versionId: v.id("assetVersions"),
     revision: v.number(),
+    headAdvanced: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
     const objectLease = await requireAssetObjectLease(ctx, args.objectKey, args.objectLeaseId);
-    const existing =
+    let existing =
       args.scope === "personal"
         ? await ctx.db
             .query("assets")
@@ -283,8 +312,53 @@ export const commitAssetVersion = internalMutation({
               q.eq("workspaceId", args.workspaceId).eq("slug", args.slug),
             )
             .unique();
+    let slug = args.slug;
+    let headAdvanced: boolean | undefined;
+    if (args.expectedHeadVersionId) {
+      if (!args.candidateSlug || !args.provenance?.jobId)
+        throw new Error("Revision CAS requires candidate lineage");
+      const expected = await ctx.db.get(args.expectedHeadVersionId);
+      if (!existing || !expected || expected.assetId !== existing._id)
+        throw new Error("Revision CAS target mismatch");
+      const head = await ctx.db
+        .query("assetVersions")
+        .withIndex("by_asset_revision", (q) => q.eq("assetId", existing!._id))
+        .order("desc")
+        .first();
+      if (
+        head?.provenance?.jobId === args.provenance.jobId &&
+        head.objectKey === args.objectKey &&
+        head.contentHash === args.contentHash
+      ) {
+        if (objectLease) await ctx.db.delete(objectLease._id);
+        return {
+          assetId: existing._id,
+          versionId: head._id,
+          revision: head.revision,
+          headAdvanced: true,
+        };
+      }
+      headAdvanced = head?._id === args.expectedHeadVersionId && existing.archivedAt === undefined;
+      if (!headAdvanced) {
+        slug = args.candidateSlug;
+        existing =
+          args.scope === "personal"
+            ? await ctx.db
+                .query("assets")
+                .withIndex("by_owner_slug", (q) =>
+                  q.eq("ownerUserId", args.ownerUserId).eq("slug", slug),
+                )
+                .unique()
+            : await ctx.db
+                .query("assets")
+                .withIndex("by_workspace_slug", (q) =>
+                  q.eq("workspaceId", args.workspaceId).eq("slug", slug),
+                )
+                .unique();
+      }
+    }
     const now = Date.now();
-    const searchText = [args.name, args.slug, args.description, args.originalFilename, ...args.tags]
+    const searchText = [args.name, slug, args.description, args.originalFilename, ...args.tags]
       .filter(Boolean)
       .join(" ");
     const assetId =
@@ -293,7 +367,7 @@ export const commitAssetVersion = internalMutation({
         scope: args.scope,
         ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
         workspaceId: args.scope === "workspace" ? args.workspaceId : undefined,
-        slug: args.slug,
+        slug,
         name: args.name,
         description: args.description,
         tags: args.tags,
@@ -319,7 +393,32 @@ export const commitAssetVersion = internalMutation({
       .order("desc")
       .first();
     const revision = (last?.revision ?? 0) + 1;
+    if (
+      args.deduplicateObject &&
+      last?.objectKey === args.objectKey &&
+      last.contentHash === args.contentHash
+    ) {
+      if (objectLease) await ctx.db.delete(objectLease._id);
+      return { assetId, versionId: last._id, revision: last.revision };
+    }
+    if (
+      args.provenance?.jobId &&
+      last?.provenance?.jobId === args.provenance.jobId &&
+      last.objectKey === args.objectKey &&
+      last.contentHash === args.contentHash
+    ) {
+      if (objectLease) await ctx.db.delete(objectLease._id);
+      return { assetId, versionId: last._id, revision: last.revision };
+    }
     const versionId = await ctx.db.insert("assetVersions", {
+      ...(args.mediaMetadata
+        ? {
+            mediaMetadata: args.mediaMetadata,
+            width: args.mediaMetadata.width,
+            height: args.mediaMetadata.height,
+          }
+        : {}),
+      ...(args.provenance ? { provenance: args.provenance } : {}),
       assetId,
       revision,
       objectKey: args.objectKey,
@@ -334,7 +433,12 @@ export const commitAssetVersion = internalMutation({
     if (objectLease) await ctx.db.delete(objectLease._id);
     await ctx.db.patch(assetId, { updatedAt: now });
     if (args.uploadId) await ctx.db.delete(args.uploadId);
-    return { assetId, versionId, revision };
+    return {
+      assetId,
+      versionId,
+      revision,
+      ...(headAdvanced === undefined ? {} : { headAdvanced }),
+    };
   },
 });
 
@@ -437,15 +541,15 @@ export async function fetchAssetImport(
   const url = assertSafeImportUrl(raw).toString();
   const stagingKey = `staging/import/${crypto.randomUUID()}`;
   try {
-    const imported = await callWorker<{ finalUrl: string; mimeType: string; size: number }>(
-      getWorkerConfig(),
-      "/asset-import",
-      {
-        url,
-        maxBytes: ASSET_MAX_BYTES,
-        upload: { putUrl: await presignObject(stagingKey, "PUT", 900) },
-      },
-    );
+    const imported = await callWorker<{
+      finalUrl: string;
+      mimeType: string;
+      size: number;
+    }>(getWorkerConfig(), "/asset-import", {
+      url,
+      maxBytes: ASSET_MAX_BYTES,
+      upload: { putUrl: await presignObject(stagingKey, "PUT", 900) },
+    });
     if (imported.size > ASSET_MAX_BYTES) throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
     const response = await getObject(stagingKey);
     if (!response.ok) throw new Error(`Imported object is unavailable: HTTP ${response.status}`);
@@ -527,7 +631,11 @@ export async function persistAsset(
     void released;
     throw error;
   }
-  let committed: { assetId: Id<"assets">; versionId: Id<"assetVersions">; revision: number };
+  let committed: {
+    assetId: Id<"assets">;
+    versionId: Id<"assetVersions">;
+    revision: number;
+  };
   try {
     committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
       uploadId: input.uploadId,
@@ -672,7 +780,9 @@ export const finalizeUploadMine = action({
     if (upload.expectedHash && rawHash !== upload.expectedHash.replace(/^sha256:/, ""))
       throw new Error("Uploaded asset SHA-256 does not match");
     const workspace = upload.workspaceId
-      ? await ctx.runQuery(internal.assets.getWorkspace, { workspaceId: upload.workspaceId })
+      ? await ctx.runQuery(internal.assets.getWorkspace, {
+          workspaceId: upload.workspaceId,
+        })
       : null;
     const saved = await persistAsset(ctx, {
       uploadId: args.uploadId,
@@ -714,7 +824,11 @@ export const getWorkspaceBySlug = internalQuery({
   args: { slug: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ workspaceId: v.id("workspaces"), slug: v.string(), name: v.string() }),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      slug: v.string(),
+      name: v.string(),
+    }),
   ),
   handler: async (ctx, args) => {
     const workspace = await ctx.db
@@ -722,7 +836,11 @@ export const getWorkspaceBySlug = internalQuery({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique();
     return workspace && workspace.archivedAt === undefined
-      ? { workspaceId: workspace._id, slug: workspace.slug, name: workspace.name }
+      ? {
+          workspaceId: workspace._id,
+          slug: workspace.slug,
+          name: workspace.name,
+        }
       : null;
   },
 });
@@ -833,6 +951,7 @@ export const listInternal = internalQuery({
       if (!version) continue;
       result.push({
         asset_id: asset._id,
+        revision_id: version._id,
         asset_ref: formatAssetRef({
           scope: asset.scope,
           workspaceSlug: workspace?.slug,
@@ -884,7 +1003,10 @@ export const listMine = action({
       workspaceSlug: args.workspaceSlug,
       query: args.query,
       kind: args.kind,
-      paginationOpts: { numItems: Math.min(args.limit ?? 100, 100), cursor: null },
+      paginationOpts: {
+        numItems: Math.min(args.limit ?? 100, 100),
+        cursor: null,
+      },
     });
     return Promise.all(
       page.page.map(async ({ object_key, ...row }) => ({
@@ -949,7 +1071,10 @@ async function archiveAssetByRef(
   const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
   const version = await latestAssetRevision(ctx, asset._id);
   if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
-  await ctx.db.patch(asset._id, { archivedAt: Date.now(), updatedAt: Date.now() });
+  await ctx.db.patch(asset._id, {
+    archivedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
   return {
     assetRef: formatAssetRef({
       scope: asset.scope,
@@ -964,7 +1089,11 @@ async function archiveAssetByRef(
 
 export const archiveByRef = internalMutation({
   args: { assetRef: v.string(), userId: v.id("users") },
-  returns: v.object({ assetRef: v.string(), mode: v.literal("archived"), reversible: v.boolean() }),
+  returns: v.object({
+    assetRef: v.string(),
+    mode: v.literal("archived"),
+    reversible: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     return archiveAssetByRef(ctx, args);
   },
@@ -978,7 +1107,10 @@ export const restoreByRef = internalMutation({
     const version = await latestAssetRevision(ctx, asset._id);
     if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
     if (asset.archivedAt !== undefined) {
-      await ctx.db.patch(asset._id, { archivedAt: undefined, updatedAt: Date.now() });
+      await ctx.db.patch(asset._id, {
+        archivedAt: undefined,
+        updatedAt: Date.now(),
+      });
     }
     return {
       assetRef: formatAssetRef({
@@ -1108,16 +1240,20 @@ export const attachMine = action({
       ref: args.assetRef,
       userId: principal.userId,
     });
-    const result: { version: number; draftRevision: number; dirty: boolean; path: string } =
-      await ctx.runMutation(internal.canvases.bindAssetAndVersion, {
-        canvasId: args.canvasId,
-        logicalPath: args.path,
-        assetId: resolved.assetId,
-        assetVersionId: resolved.assetVersionId,
-        expectedVersion: args.expectedVersion,
-        expectedDraftRevision: args.expectedDraftRevision,
-        createdBy: principal.userId,
-      });
+    const result: {
+      version: number;
+      draftRevision: number;
+      dirty: boolean;
+      path: string;
+    } = await ctx.runMutation(internal.canvases.bindAssetAndVersion, {
+      canvasId: args.canvasId,
+      logicalPath: args.path,
+      assetId: resolved.assetId,
+      assetVersionId: resolved.assetVersionId,
+      expectedVersion: args.expectedVersion,
+      expectedDraftRevision: args.expectedDraftRevision,
+      createdBy: principal.userId,
+    });
     return {
       version: result.version,
       draftRevision: result.draftRevision,
@@ -1168,7 +1304,11 @@ export const listForCanvasMine = query({
 
 export const archiveMine = mutation({
   args: { assetRef: v.string() },
-  returns: v.object({ assetRef: v.string(), mode: v.literal("archived"), reversible: v.boolean() }),
+  returns: v.object({
+    assetRef: v.string(),
+    mode: v.literal("archived"),
+    reversible: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     const identity = await requireIotaIdentity(ctx);
     const userId = await resolveUserId(ctx, identity);

@@ -1,0 +1,25 @@
+{
+  "name": "@visual-canvas/video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/contracts.js",
+  "types": "./dist/contracts.d.ts",
+  "exports": {
+    ".": "./dist/contracts.js",
+    "./media": "./dist/media.js",
+    "./jobs": "./dist/jobs.js",
+    "./workflow": "./dist/workflow.js",
+    "./learning": "./dist/learning.js",
+    "./results": "./dist/results.js",
+    "./operations": "./dist/operations.js",
+    "./registry": "./dist/registry.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

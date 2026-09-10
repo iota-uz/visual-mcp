@@ -96,6 +96,75 @@ const timeoutMs = workerData.timeoutMs;
 let stdout = "";
 let stderr = "";
 let resultSent = false;
+const broker = workerData.broker;
+const emitted = [];
+let outputBytes = 0;
+let outputTruncated = false;
+const pendingBroker = new Map();
+const allBrokerPromises = [];
+let brokerSequence = 0;
+function reserveOutput(text) {
+  if (!broker) return true;
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (outputBytes + bytes > broker.maxOutputBytes) { outputTruncated = true; return false; }
+  outputBytes += bytes;
+  return true;
+}
+function appendLog(target, args) {
+  const text = formatArgs(args) + "\\n";
+  if (!reserveOutput(text)) return;
+  if (target === "stdout") stdout += text;
+  else stderr += text;
+}
+function emit(value) {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new TypeError("emit requires JSON data");
+  if (!reserveOutput(encoded)) throw new Error("Execute output byte limit exceeded");
+  emitted.push(JSON.parse(encoded));
+}
+parentPort.on("message", function (message) {
+  if (!broker || message.type !== "broker_result") return;
+  const pending = pendingBroker.get(message.callId);
+  if (!pending) return;
+  pendingBroker.delete(message.callId);
+  if (message.error) {
+    const error = new Error(message.error.message);
+    error.name = "ToolCallError";
+    error.code = message.error.code;
+    pending.reject(error);
+    return;
+  }
+  const result = message.result;
+  const payload = result && result.structuredContent;
+  if (result && result.isError) {
+    const detail = payload && payload.error;
+    const error = new Error(detail ? detail.message : "Tool call failed");
+    error.name = "ToolCallError";
+    error.code = detail && detail.code;
+    error.effect = detail && detail.effect;
+    error.recovery = detail && detail.recovery;
+    error.content = result.content;
+    pending.reject(error);
+  } else {
+    const data = payload && payload.ok === true ? payload.data : payload !== undefined ? payload : result;
+    if (data && typeof data === "object") Object.defineProperty(data, "__mcpContent", { value: result.content, enumerable: false });
+    pending.resolve(data);
+  }
+});
+const tools = Object.create(null);
+if (broker) for (const name of broker.toolNames) {
+  tools[name] = function (args) {
+    if (resultSent) return Promise.reject(new Error("Run has finished"));
+    const callId = String(++brokerSequence);
+    const promise = new Promise(function (resolve, reject) {
+      pendingBroker.set(callId, { resolve: resolve, reject: reject });
+      parentPort.postMessage({ type: "broker_call", callId: callId, name: name, args: args });
+    });
+    allBrokerPromises.push(promise);
+    return promise;
+  };
+}
+Object.freeze(tools);
 let canvasCommitRequested = false;
 const canvasOperations = [];
 const createdNodeIds = [];
@@ -112,6 +181,7 @@ function sendResult(result) {
   if (resultSent) return;
   resultSent = true;
   parentPort.postMessage(Object.assign({}, result, {
+    ...(broker ? { emitted: emitted, outputTruncated: outputTruncated } : {}),
     canvas: {
       commitRequested: canvasCommitRequested,
       operations: canvasOperations,
@@ -616,15 +686,16 @@ function sandboxedRequire(name) {
 }
 
 const sandboxConsole = {
-  log: function () { stdout += formatArgs(Array.prototype.slice.call(arguments)) + "\\n"; },
-  info: function () { stdout += formatArgs(Array.prototype.slice.call(arguments)) + "\\n"; },
-  debug: function () { stdout += formatArgs(Array.prototype.slice.call(arguments)) + "\\n"; },
-  warn: function () { stderr += formatArgs(Array.prototype.slice.call(arguments)) + "\\n"; },
-  error: function () { stderr += formatArgs(Array.prototype.slice.call(arguments)) + "\\n"; },
+  log: function () { appendLog("stdout", Array.prototype.slice.call(arguments)); },
+  info: function () { appendLog("stdout", Array.prototype.slice.call(arguments)); },
+  debug: function () { appendLog("stdout", Array.prototype.slice.call(arguments)); },
+  warn: function () { appendLog("stderr", Array.prototype.slice.call(arguments)); },
+  error: function () { appendLog("stderr", Array.prototype.slice.call(arguments)); },
 };
 
 const sandboxModule = { exports: {} };
 const sandboxGlobal = {
+  ...(broker ? { tools: tools, inputs: broker.inputs, context: Object.freeze(broker.context), emit: emit } : {}),
   console: sandboxConsole,
   require: sandboxedRequire,
   fs: scopedFs,
@@ -678,7 +749,9 @@ try {
     breakOnSigint: false,
   });
   Promise.resolve(completionValue)
-    .then(function () {
+    .then(async function () {
+      // A fire-and-forget call may already have written: drain it before success.
+      await Promise.allSettled(allBrokerPromises);
       sendResult({ success: true, stdout: stdout, stderr: stderr });
     })
     .catch(function (err) {

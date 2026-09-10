@@ -149,6 +149,9 @@ export interface RunCodeOutput {
   stderr: string;
   /** Present when `success` is false. */
   error?: string;
+  /** Explicit execute output only; never a dump of broker input/results. */
+  emitted?: unknown[];
+  outputTruncated?: boolean;
   canvas?: {
     commitRequested: boolean;
     operations: unknown[];

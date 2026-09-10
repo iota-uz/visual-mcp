@@ -13,6 +13,7 @@ const { useActionMock, useMutationMock, listAssetsMock } = vi.hoisted(() => ({
 vi.mock("convex/react", () => ({
   useAction: useActionMock,
   useMutation: useMutationMock,
+  useQuery: () => undefined,
 }));
 
 function renderAssets() {
@@ -34,13 +35,13 @@ describe("AssetsPage", () => {
     useMutationMock.mockReturnValue(vi.fn());
   });
 
-  test("is an asset-only surface with no canvas tab or audio filter", async () => {
+  test("is an asset-only surface with shared video-pipeline audio assets", async () => {
     listAssetsMock.mockResolvedValue([]);
     renderAssets();
 
     expect(await screen.findByText("No assets here yet.")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Canvases" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "audio" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "audio" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "all" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/Reusable media for/)).toHaveTextContent("Reusable media for osago.");
     expect(screen.getByRole("link", { name: "Workspaces" })).toHaveAttribute("href", "/");

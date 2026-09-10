@@ -15,6 +15,10 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
+import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
+import { learningTables } from "./lib/videoLearningSchema";
+import { videoReviewTables } from "./lib/videoReviewSchema";
+import { workflowTables } from "./lib/videoWorkflowSchema";
 
 /** Mirror of `CanvasSearchRow` in @visual-canvas/canvas/search-rows. */
 export const CanvasSearchRowValidator = v.object({
@@ -97,7 +101,169 @@ const StaticRenderStatusValidator = v.union(
 );
 
 export default defineSchema({
+  videoMediaUploads: defineTable({
+    verificationStartedAt: v.optional(v.number()),
+    workspaceId: v.id("workspaces"),
+    principalId: v.id("users"),
+    idempotencyKey: v.string(),
+    inputHash: v.string(),
+    objectKey: v.string(),
+    sizeBytes: v.number(),
+    sha256: v.string(),
+    mimeType: v.string(),
+    filename: v.string(),
+    source: v.union(v.literal("upload"), v.literal("codex-imagegen")),
+    state: v.union(
+      v.literal("reserved"),
+      v.literal("verifying"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    expiresAt: v.number(),
+    result: v.optional(v.string()),
+  }).index("by_principal_workspace_key", ["principalId", "workspaceId", "idempotencyKey"]),
+  ...videoReviewTables,
+  ...workflowTables,
+  ...learningTables,
+  videoMigrations: defineTable({
+    workspaceId: v.id("workspaces"),
+    principalId: v.id("users"),
+    sourceBackupSha256: v.string(),
+    sourceRunId: v.string(),
+    archiveAsset: v.object({ assetId: v.id("assets"), revisionId: v.id("assetVersions") }),
+    archiveSha256: v.string(),
+    assetMap: v.string(),
+    state: v.union(v.literal("importing"), v.literal("complete")),
+    projectId: v.optional(v.id("videoProjects")),
+    nativeVersions: v.optional(v.string()),
+    createdAt: v.number(),
+    warning: v.string(),
+  })
+    .index("by_workspaceId_and_sourceBackupSha256", ["workspaceId", "sourceBackupSha256"])
+    .index("by_projectId", ["projectId"]),
+  videoLegacyRecords: defineTable({
+    migrationId: v.id("videoMigrations"),
+    kind: v.string(),
+    sourceId: v.string(),
+    data: v.string(),
+  })
+    .index("by_migrationId_and_kind", ["migrationId", "kind"])
+    .index("by_migrationId_and_sourceId", ["migrationId", "sourceId"]),
   ...authSupportTables,
+  videoJobs: defineTable({
+    cancelRequestedAt: v.optional(v.number()),
+    persistenceReceipt: v.optional(v.string()),
+    workspaceId: v.id("workspaces"),
+    principalId: v.id("users"),
+    projectId: v.optional(v.id("videoProjects")),
+    versionId: v.optional(v.id("videoVersions")),
+    idempotencyKey: v.string(),
+    inputHash: v.string(),
+    request: v.string(),
+    kind: v.string(),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("cancel_requested"),
+      v.literal("cancelled"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("outcome_unknown"),
+    ),
+    fence: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    stage: v.string(),
+    result: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    errorEffect: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("not_applied"),
+        v.literal("applied"),
+        v.literal("partial"),
+        v.literal("unknown"),
+      ),
+    ),
+    providerRequestId: v.optional(v.string()),
+    stale: v.optional(v.boolean()),
+  })
+    .index("by_principalId_and_workspaceId_and_kind_and_idempotencyKey", [
+      "principalId",
+      "workspaceId",
+      "kind",
+      "idempotencyKey",
+    ])
+    .index("by_workspaceId_and_createdAt", ["workspaceId", "createdAt"])
+    .index("by_state_and_createdAt", ["state", "createdAt"])
+    .index("by_projectId_and_state", ["projectId", "state"])
+    .index("by_versionId_and_kind", ["versionId", "kind"]),
+  videoJobEffects: defineTable({
+    jobId: v.id("videoJobs"),
+    callId: v.string(),
+    tool: v.string(),
+    inputHash: v.string(),
+    state: v.union(
+      v.literal("dispatching"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("unknown"),
+    ),
+    result: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_jobId_and_callId", ["jobId", "callId"]),
+
+  videoProjects: defineTable({
+    workspaceId: v.id("workspaces"),
+    title: v.string(),
+    brief: v.string(),
+    format: v.string(),
+    revisionId: v.string(),
+    createdBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_workspaceId_and_updatedAt", ["workspaceId", "updatedAt"]),
+  videoDrafts: defineTable({
+    projectId: v.id("videoProjects"),
+    language: v.union(v.literal("ru"), v.literal("uz")),
+    scriptRevision: v.string(),
+    timelineRevision: v.string(),
+    script: v.string(),
+    timeline: v.string(),
+    currentVersionId: v.union(v.id("videoVersions"), v.null()),
+  }).index("by_projectId_and_language", ["projectId", "language"]),
+  videoDocumentRevisions: defineTable({
+    draftId: v.id("videoDrafts"),
+    kind: v.union(v.literal("script"), v.literal("timeline")),
+    revisionId: v.string(),
+    content: v.string(),
+  }).index("by_draftId_and_revisionId", ["draftId", "revisionId"]),
+  videoVersions: defineTable({
+    parentVersionId: v.optional(v.id("videoVersions")),
+    projectId: v.id("videoProjects"),
+    draftId: v.id("videoDrafts"),
+    language: v.union(v.literal("ru"), v.literal("uz")),
+    label: v.string(),
+    note: v.optional(v.string()),
+    projectRevision: v.string(),
+    scriptRevision: v.string(),
+    timelineRevision: v.string(),
+    manifest: v.string(),
+    manifestSha256: v.string(),
+    createdAt: v.number(),
+  }).index("by_projectId_and_createdAt", ["projectId", "createdAt"]),
+  videoOperations: defineTable({
+    principalId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    tool: v.string(),
+    key: v.string(),
+    inputHash: v.string(),
+    result: v.string(),
+  }).index("by_principalId_and_workspaceId_and_tool_and_key", [
+    "principalId",
+    "workspaceId",
+    "tool",
+    "key",
+  ]),
 
   users: defineTable({
     email: v.string(),
@@ -152,6 +318,7 @@ export default defineSchema({
       v.literal("svg"),
       v.literal("font"),
       v.literal("video"),
+      v.literal("audio"),
       v.literal("data"),
     ),
     searchText: v.string(),
@@ -175,6 +342,17 @@ export default defineSchema({
     }),
 
   assetVersions: defineTable({
+    mediaMetadata: v.optional(MediaMetadataValidator),
+    provenance: v.optional(
+      v.object({
+        kind: v.union(v.literal("provider"), v.literal("render"), v.literal("codex-imagegen")),
+        jobId: v.optional(v.id("videoJobs")),
+        provider: v.optional(v.string()),
+        requestedModel: v.optional(v.string()),
+        actualModel: v.optional(v.union(v.string(), v.null())),
+        metadata: v.optional(v.string()),
+      }),
+    ),
     assetId: v.id("assets"),
     revision: v.number(),
     objectKey: v.string(),
@@ -553,7 +731,10 @@ export default defineSchema({
     // deleting a canvas has to remove them, and the search index can filter
     // by canvasId but cannot enumerate by it.
     .index("by_canvas", ["canvasId"])
-    .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["canvasId"],
+    }),
 
   canvasDraftNodes: defineTable({
     canvasId: v.id("canvases"),
@@ -561,7 +742,10 @@ export default defineSchema({
   })
     .index("by_canvas", ["canvasId"])
     .index("by_canvas_page_entity", ["canvasId", "pageId", "entityId"])
-    .searchIndex("search_text", { searchField: "searchText", filterFields: ["canvasId"] }),
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["canvasId"],
+    }),
 
   /**
    * Human feedback pinned to a canvas, one of its Pages, or a spot inside
