@@ -28,7 +28,7 @@ type Job = {
   error: unknown;
   fence: number;
 };
-function fixture() {
+function fixture(mixedAssets = false) {
   const jobs = new Map<string, Job>();
   const keys = new Map<unknown, string>();
   const effects = new Map<string, Record<string, unknown>[]>();
@@ -51,7 +51,33 @@ function fixture() {
               slug: input.slug,
               name: "Farq",
             }
-          : { page: [], isDone: true, continueCursor: "" },
+          : {
+              page: mixedAssets
+                ? ["image", "audio"]
+                    .filter((kind) => !input.kind || input.kind === kind)
+                    .map((kind) => ({
+                      asset_id: `asset-${kind}`,
+                      asset_ref: `asset://workspace/farq/${kind}@1`,
+                      scope: "workspace",
+                      workspace_slug: "farq",
+                      slug: kind,
+                      name: kind,
+                      description: null,
+                      tags: [],
+                      kind,
+                      revision: 1,
+                      revision_id: `revision-${kind}`,
+                      mime_type: kind === "audio" ? "audio/mpeg" : "image/png",
+                      size_bytes: 10,
+                      content_hash: "a".repeat(64),
+                      original_filename: kind,
+                      updated_at: 1,
+                      object_key: `fixtures/${kind}`,
+                    }))
+                : [],
+              isDone: true,
+              continueCursor: "",
+            },
     }),
     call: async (_op: string, req: { name: string; input: Record<string, unknown> }) => {
       const { name, input } = req;
@@ -243,6 +269,43 @@ test.each([
     expect(f.jobs.get(jobId)?.result).toMatchObject({ success: true, emitted: [{ ok: true }] });
   },
 );
+test("populated mixed audio library works directly and through execute, including audio filter", async () => {
+  vi.stubEnv("S3_ASSET_ENDPOINT", "https://storage.example.test");
+  vi.stubEnv("S3_ASSET_BUCKET", "fixture");
+  vi.stubEnv("S3_ASSET_ACCESS_KEY_ID", "fixture-access");
+  vi.stubEnv("S3_ASSET_SECRET_ACCESS_KEY", "fixture-secret");
+  const f = fixture(true);
+  const direct = await f.tool("asset_list", { scope: "workspace", workspace: "farq" }, "/mcp");
+  expect(direct.isError).not.toBe(true);
+  expect(direct.structuredContent.assets.map((asset: { kind: string }) => asset.kind)).toEqual([
+    "image",
+    "audio",
+  ]);
+  const audio = await f.tool(
+    "asset_list",
+    { scope: "workspace", workspace: "farq", kind: "audio" },
+    "/mcp",
+  );
+  expect(audio.isError).not.toBe(true);
+  expect(audio.structuredContent.assets).toHaveLength(1);
+  const accepted = await f.tool(
+    "execute",
+    {
+      workspace_id: "w1",
+      idempotency_key: "mixed-audio-library",
+      code: "emit(await tools.asset_list({scope:'workspace',workspace:'farq'})); emit(await tools.asset_list({scope:'workspace',workspace:'farq',kind:'audio'}));",
+    },
+    "/mcp",
+  );
+  const jobId = accepted.structuredContent.data.job_id;
+  await f.wait(jobId);
+  expect(f.jobs.get(jobId)?.state).toBe("succeeded");
+  expect(f.jobs.get(jobId)?.result).toMatchObject({
+    success: true,
+    emitted: [{ assets: [{ kind: "image" }, { kind: "audio" }] }, { assets: [{ kind: "audio" }] }],
+  });
+  expect(f.effects.get(jobId)).toMatchObject([{ state: "succeeded" }, { state: "succeeded" }]);
+});
 test("Canvas endpoint execute calls captured real asset handler, preserves catalog isolation and workspace fence", async () => {
   const f = fixture();
   const direct = await f.tool("asset_list", { scope: "workspace", workspace: "farq" }, "/mcp");

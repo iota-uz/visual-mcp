@@ -74,6 +74,7 @@ export const stageLegacyPreparation = internalMutation({
       v.literal("svg"),
       v.literal("font"),
       v.literal("video"),
+      v.literal("audio"),
       v.literal("data"),
     ),
     originalFilename: v.string(),

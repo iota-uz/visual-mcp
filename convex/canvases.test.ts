@@ -123,6 +123,62 @@ describe("canvas asset promotion", () => {
     ).rejects.toThrow(/Canvas-local \/assets files are unsupported/);
   });
 
+  test("promotes verified audio alongside images and lists both with round-trippable refs", async () => {
+    const t = convexTest(schema, modules);
+    const createdBy = await seedUser(t);
+    const workspaceId = await seedWorkspace(t, createdBy, "Farq");
+    const { canvasId } = await t.mutation(internal.canvases.create, {
+      workspaceId,
+      title: "Mixed media",
+      kind: "canvas",
+      createdBy,
+    });
+    const result = await t.mutation(internal.canvases.commitSaveContent, {
+      canvasId,
+      expectedVersion: 0,
+      createdBy,
+      changes: (["audio", "image"] as const).map((kind) => ({
+        type: "promote" as const,
+        path: `/assets/${kind}.${kind === "audio" ? "wav" : "png"}`,
+        objectKey: `verified/${kind}`,
+        contentHash: kind.repeat(8),
+        mimeType: kind === "audio" ? "audio/wav" : "image/png",
+        size: 44,
+        kind,
+        originalFilename: `${kind}.fixture`,
+        slug: `media-${kind}`,
+        name: kind,
+      })),
+    });
+    expect(result.promotedAssets).toHaveLength(2);
+    const workspace = await t.run((ctx) => ctx.db.get(workspaceId));
+    if (!workspace) throw new Error("Missing test workspace");
+    const listed = await t.query(internal.assets.listInternal, {
+      userId: createdBy,
+      scope: "workspace",
+      workspaceSlug: workspace.slug,
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(listed.isDone).toBe(true);
+    expect(listed.page.map((row) => row.kind).sort()).toEqual(["audio", "image"]);
+    const { parseAssetRef } = await import("./lib/assetRef");
+    for (const row of listed.page)
+      expect(parseAssetRef(row.asset_ref)).toMatchObject({
+        scope: "workspace",
+        slug: row.slug,
+        revision: 1,
+      });
+    const audio = await t.query(internal.assets.listInternal, {
+      userId: createdBy,
+      scope: "workspace",
+      workspaceSlug: workspace.slug,
+      kind: "audio",
+      paginationOpts: { numItems: 100, cursor: null },
+    });
+    expect(audio.page).toHaveLength(1);
+    expect(audio.page[0]?.mime_type).toBe("audio/wav");
+  });
+
   test("turns /assets uploads into pinned workspace assets and appends revisions", async () => {
     const t = convexTest(schema, modules);
     const createdBy = await seedUser(t);

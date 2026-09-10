@@ -72,6 +72,7 @@ const AssetKindValidator = v.union(
   v.literal("svg"),
   v.literal("font"),
   v.literal("video"),
+  v.literal("audio"),
   v.literal("data"),
 );
 

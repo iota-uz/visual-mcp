@@ -846,7 +846,7 @@ type PreparedSaveChange =
       contentHash: string;
       mimeType: string;
       size: number;
-      kind: "image" | "svg" | "font" | "video" | "data";
+      kind: "image" | "svg" | "font" | "video" | "audio" | "data";
       originalFilename: string;
       slug: string;
       name: string;
@@ -2052,7 +2052,7 @@ const AssetRecordOutputSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   tags: z.array(z.string()),
-  kind: z.enum(["image", "svg", "font", "video", "data"]),
+  kind: z.enum(["image", "svg", "font", "video", "audio", "data"]),
   revision: z.number().int().positive(),
   mime_type: z.string(),
   size_bytes: z.number().int().nonnegative(),
@@ -4252,7 +4252,7 @@ export function registerTools(
   );
 
   const assetScopeSchema = z.enum(["personal", "workspace"]);
-  const assetKindSchema = z.enum(["image", "svg", "font", "video", "data"]);
+  const assetKindSchema = z.enum(["image", "svg", "font", "video", "audio", "data"]);
 
   server.registerTool(
     "asset_list",

@@ -15,9 +15,18 @@ export const ASSET_MIME_TYPES = {
   "font/otf": "font",
   "video/mp4": "video",
   "video/webm": "video",
+  "audio/wav": "audio",
+  "audio/x-wav": "audio",
+  "audio/mpeg": "audio",
+  "audio/mp4": "audio",
+  "audio/ogg": "audio",
+  "audio/flac": "audio",
+  "audio/webm": "audio",
   "application/json": "data",
 } as const;
 
+// Metadata can reference worker-verified audio. This legacy 25MiB byte validator
+// intentionally does not ingest audio; use videoMedia's streamed verification.
 export type AssetKind = (typeof ASSET_MIME_TYPES)[keyof typeof ASSET_MIME_TYPES];
 
 function sniffMime(bytes: Uint8Array, declared: string): string {
@@ -49,6 +58,10 @@ export async function validateAssetBytes(
   const mimeType = sniffMime(bytes, declaredMime);
   const kind = ASSET_MIME_TYPES[mimeType as keyof typeof ASSET_MIME_TYPES];
   if (!kind) throw new Error(`Unsupported asset MIME type: ${mimeType}`);
+  if (kind === "audio")
+    throw new Error(
+      "Audio requires videoMedia upload and worker verification; attach its asset ref",
+    );
   return {
     bytes,
     mimeType,

@@ -28,10 +28,10 @@ describe("asset security", () => {
     expect(result.kind).toBe("image");
   });
 
-  it("rejects audio now that it is outside the asset product", async () => {
+  it("requires worker-verified audio ingestion instead of the legacy shallow byte path", async () => {
     const bytes = new TextEncoder().encode("ID3 fixture");
     await expect(validateAssetBytes(bytes, "audio/mpeg")).rejects.toThrow(
-      "Unsupported asset MIME type: audio/mpeg",
+      "Audio requires videoMedia upload and worker verification",
     );
   });
 });
