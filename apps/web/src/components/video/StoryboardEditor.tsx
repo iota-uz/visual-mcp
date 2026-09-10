@@ -1,10 +1,36 @@
-import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Plus, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Minus,
+  Plus,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { useState } from "react";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
 import { Menu } from "../ui/Menu";
-import { TextInput } from "../ui/TextInput";
+import { RadioCards } from "../ui/RadioCards";
+import { Select, TextInput } from "../ui/TextInput";
+
+const framingOptions = [
+  { value: "", label: "Not set" },
+  { value: "Extreme wide", label: "Extreme wide" },
+  { value: "Wide", label: "Wide" },
+  { value: "Medium", label: "Medium" },
+  { value: "Close-up", label: "Close-up" },
+  { value: "Extreme close-up", label: "Extreme close-up" },
+];
+
+const movementOptions = [
+  { value: "static", label: "Static", description: "Locked frame", icon: Minus },
+  { value: "push-in", label: "Push in", description: "Move closer", icon: ZoomIn },
+  { value: "pull-out", label: "Pull out", description: "Reveal context", icon: ZoomOut },
+] as const;
 
 export function StoryboardEditor({
   document,
@@ -234,26 +260,30 @@ export function StoryboardEditor({
               maxLength={16000}
             />
           </label>
-          <div className="video-field-pair">
-            <TextInput
+          <section className="video-camera-direction" aria-label="Camera direction">
+            <div className="video-camera-direction-heading">
+              <strong>Camera direction</strong>
+              <span>Controls how the scene is composed and moves</span>
+            </div>
+            <Select
               id="scene-shot"
               label="Framing"
               labelVisible
-              value={scene.visual.shot}
+              value={framingValue(scene.visual.shot)}
               onChange={(event) => patch({ visual: { ...scene.visual, shot: event.target.value } })}
-              readOnly={disabled}
+              disabled={disabled}
+              options={framingOptionsWithLegacy(scene.visual.shot)}
             />
-            <TextInput
-              id="scene-motion"
+            <RadioCards
               label="Movement"
-              labelVisible
-              value={scene.visual.motion}
-              onChange={(event) =>
-                patch({ visual: { ...scene.visual, motion: event.target.value } })
-              }
-              readOnly={disabled}
+              hint="Choose the motion applied to this scene."
+              name={`scene-motion-${id}`}
+              value={movementValue(scene.visual.motion)}
+              options={[...movementOptions]}
+              disabled={disabled}
+              onChange={(motion) => patch({ visual: { ...scene.visual, motion } })}
             />
-          </div>
+          </section>
           {scene.shotOrder.length > 0 && (
             <div className="video-shot-list">
               <h3>Planned shots</h3>
@@ -288,6 +318,32 @@ export function StoryboardEditor({
       )}
     </section>
   );
+}
+
+function framingValue(value: string) {
+  const normalized = value.trim().toLowerCase().replaceAll("_", "-");
+  if (!normalized || normalized === "imported" || normalized === "unspecified") return "";
+  if (normalized === "extreme wide" || normalized === "extreme-wide") return "Extreme wide";
+  if (normalized === "wide") return "Wide";
+  if (normalized === "medium") return "Medium";
+  if (normalized === "closeup" || normalized === "close-up") return "Close-up";
+  if (normalized === "extreme closeup" || normalized === "extreme close-up")
+    return "Extreme close-up";
+  return value;
+}
+
+function framingOptionsWithLegacy(value: string) {
+  const current = framingValue(value);
+  if (!current || framingOptions.some((option) => option.value === current)) return framingOptions;
+  return [{ value: current, label: `Current: ${current}` }, ...framingOptions];
+}
+
+function movementValue(value: string): "static" | "push-in" | "pull-out" | "" {
+  const normalized = value.trim().toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
+  if (normalized === "static" || normalized === "locked" || normalized === "none") return "static";
+  if (normalized === "push-in" || normalized === "pushin") return "push-in";
+  if (normalized === "pull-out" || normalized === "pullout") return "pull-out";
+  return "";
 }
 
 export function SceneNavigator({

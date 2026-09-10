@@ -72,3 +72,50 @@ test("keeps the selected scene brief visible while planning its first shot", () 
   expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
   expect(screen.queryByLabelText("Scene")).not.toBeInTheDocument();
 });
+
+test("offers production methods as a keyboard-accessible radio group", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  const planned = Script.parse({
+    ...document,
+    scenesById: {
+      scene: {
+        ...document.scenesById.scene,
+        shotOrder: ["shot"],
+        shotsById: {
+          shot: {
+            purpose: "Show the product",
+            method: "remotion",
+            subjectAction: "Product rotates",
+            cameraMotion: "static",
+            constraints: [],
+          },
+        },
+      },
+    },
+  });
+  render(
+    <ShotStudio
+      {...ids}
+      document={planned}
+      revision="s1"
+      onChange={onChange}
+      locked={false}
+      unsaved={false}
+    />,
+  );
+
+  expect(screen.getByRole("radio", { name: /Remotion/ })).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: /AI motion/ }));
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({
+      scenesById: expect.objectContaining({
+        scene: expect.objectContaining({
+          shotsById: expect.objectContaining({
+            shot: expect.objectContaining({ method: "higgsfield" }),
+          }),
+        }),
+      }),
+    }),
+  );
+});

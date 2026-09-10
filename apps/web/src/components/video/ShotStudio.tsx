@@ -1,11 +1,12 @@
 import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { CheckCircle2, Circle, Film, Plus } from "lucide-react";
+import { CheckCircle2, Circle, Clapperboard, Film, Plus, Sparkles, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import type { PinnedImage } from "../SharedImageStudio";
 import { Button } from "../ui/Button";
+import { RadioCards } from "../ui/RadioCards";
 import { Checkbox, Select, TextInput } from "../ui/TextInput";
 import { useDurableJobIntent } from "./useDurableJobIntent";
 
@@ -208,17 +209,32 @@ export function ShotStudio({
                   value={shot.purpose}
                   onChange={(event) => patch({ purpose: event.target.value })}
                 />
-                <Select
-                  id="shot-method"
+                <RadioCards
                   label="Production method"
-                  labelVisible
+                  hint="Choose where this shot will come from."
+                  name={`shot-method-${shotId}`}
                   disabled={locked}
                   value={shot.method}
-                  onChange={(event) => patch({ method: event.target.value as Shot["method"] })}
+                  onChange={(method) => patch({ method })}
                   options={[
-                    { value: "remotion", label: "Deterministic Remotion" },
-                    { value: "higgsfield", label: "Higgsfield image-to-video" },
-                    { value: "recording", label: "Real recording" },
+                    {
+                      value: "remotion",
+                      label: "Remotion",
+                      description: "Designed motion",
+                      icon: Clapperboard,
+                    },
+                    {
+                      value: "higgsfield",
+                      label: "AI motion",
+                      description: "Animate an image",
+                      icon: Sparkles,
+                    },
+                    {
+                      value: "recording",
+                      label: "Recording",
+                      description: "Use real footage",
+                      icon: Video,
+                    },
                   ]}
                 />
                 <TextInput

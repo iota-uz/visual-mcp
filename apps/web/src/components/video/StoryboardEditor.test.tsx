@@ -56,3 +56,57 @@ test("shell can own navigation without duplicating it in the editor", () => {
   expect(screen.getByDisplayValue("Proof")).toBeInTheDocument();
   expect(screen.getByText(/1\/3 brief fields/)).toBeInTheDocument();
 });
+
+test("uses constrained camera controls and normalizes legacy labels", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <StoryboardEditor
+      document={document}
+      onChange={onChange}
+      disabled={false}
+      selectedId="opening"
+      showSceneNavigator={false}
+    />,
+  );
+
+  expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("Close-up");
+  expect(screen.getByRole("radio", { name: /Push in/ })).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: /Pull out/ }));
+
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({
+      scenesById: expect.objectContaining({
+        opening: expect.objectContaining({
+          visual: expect.objectContaining({ motion: "pull-out" }),
+        }),
+      }),
+    }),
+  );
+});
+
+test("presents imported framing as not set instead of editable provenance", () => {
+  const opening = document.scenesById.opening;
+  if (!opening) throw new Error("Expected opening scene fixture");
+  const imported = Script.parse({
+    ...document,
+    scenesById: {
+      ...document.scenesById,
+      opening: {
+        ...opening,
+        visual: { ...opening.visual, shot: "Imported" },
+      },
+    },
+  });
+  render(
+    <StoryboardEditor
+      document={imported}
+      onChange={vi.fn()}
+      disabled={false}
+      selectedId="opening"
+      showSceneNavigator={false}
+    />,
+  );
+  expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("");
+  expect(screen.queryByDisplayValue("Imported")).not.toBeInTheDocument();
+});
