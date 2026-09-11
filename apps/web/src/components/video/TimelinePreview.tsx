@@ -1,9 +1,11 @@
 import { useAction } from "convex/react";
-import type { CSSProperties } from "react";
+import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
+import type { SceneNode } from "../../../../../packages/video/src/registry";
 
 type AssetRef = { assetId: string; revisionId: string };
 type ResolvedAsset = { url: string; mimeType: string; name: string };
@@ -11,6 +13,48 @@ type Clip = TimelineDocument["tracksById"][string]["clipsById"][string];
 
 const assetKey = (asset: AssetRef) => `${asset.assetId}:${asset.revisionId}`;
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
+const previewHeightStorageKey = "visual-canvas:video-preview-height";
+
+function previewHeightLimits() {
+  const viewportHeight = typeof window === "undefined" ? 900 : window.innerHeight;
+  return {
+    min: 280,
+    defaultValue: Math.round(Math.max(380, Math.min(720, viewportHeight * 0.58))),
+    max: Math.round(Math.max(520, Math.min(900, viewportHeight * 0.82))),
+  };
+}
+
+function initialPreviewHeight() {
+  const limits = previewHeightLimits();
+  if (typeof window === "undefined") return limits.defaultValue;
+  const stored = Number(window.localStorage.getItem(previewHeightStorageKey));
+  return Number.isFinite(stored) && stored >= limits.min && stored <= limits.max
+    ? stored
+    : limits.defaultValue;
+}
+
+function animatedValue(animation: SceneNode["animations"][number], frame: number) {
+  const [first, ...rest] = animation.keyframes;
+  if (!first) return 0;
+  if (frame <= first.frame) return first.value;
+  let previous = first;
+  for (const next of rest) {
+    if (frame <= next.frame) {
+      const progress = clamp((frame - previous.frame) / (next.frame - previous.frame));
+      const eased =
+        next.easing === "ease_in"
+          ? progress * progress
+          : next.easing === "ease_out"
+            ? 1 - (1 - progress) ** 2
+            : next.easing === "ease_in_out"
+              ? progress * progress * (3 - 2 * progress)
+              : progress;
+      return previous.value + (next.value - previous.value) * eased;
+    }
+    previous = next;
+  }
+  return previous.value;
+}
 
 function collectAssetRefs(document: TimelineDocument) {
   const refs = new Map<string, AssetRef>();
@@ -163,11 +207,129 @@ function TextLayer({ clip, frame }: { clip: Clip; frame: number }) {
   );
 }
 
-function ComponentLayer({ clip, frame }: { clip: Clip; frame: number }) {
+function SceneGraphNode({
+  node,
+  frame,
+  media,
+  formatWidth,
+}: {
+  node: SceneNode;
+  frame: number;
+  media: Record<string, ResolvedAsset>;
+  formatWidth: number;
+}) {
+  const geometry = {
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+    opacity: node.opacity,
+    scale: node.scale,
+    rotation: node.rotation,
+    blur: 0,
+  };
+  for (const animation of node.animations)
+    geometry[animation.property] = animatedValue(animation, frame);
+  const style: CSSProperties = {
+    position: "absolute",
+    left: `${geometry.x * 100}%`,
+    top: `${geometry.y * 100}%`,
+    width: `${geometry.width * 100}%`,
+    height: `${geometry.height * 100}%`,
+    opacity: geometry.opacity,
+    transform: `rotate(${geometry.rotation}deg) scale(${geometry.scale})`,
+    filter: `blur(${geometry.blur}px)`,
+    boxSizing: "border-box",
+    overflow: "hidden",
+  };
+  if (node.kind === "text")
+    return (
+      <div
+        style={{
+          ...style,
+          fontSize: `${(node.fontSize / formatWidth) * 100}cqw`,
+          fontFamily:
+            node.fontFamily === "serif"
+              ? "serif"
+              : node.fontFamily === "monospace"
+                ? "monospace"
+                : "sans-serif",
+          color: node.color,
+          textAlign: node.textAlign,
+          fontWeight: node.fontWeight,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          lineHeight: 1.18,
+        }}
+      >
+        {node.text}
+      </div>
+    );
+  if (node.kind === "shape")
+    return (
+      <div
+        style={{
+          ...style,
+          backgroundColor: node.fill,
+          border: `${(node.borderWidth / formatWidth) * 100}cqw solid ${node.borderColor ?? node.fill}`,
+          borderRadius: node.shape === "ellipse" ? "50%" : `${node.radius * 100}%`,
+        }}
+      />
+    );
+  const resolved = media[assetKey(node.asset)];
+  if (!resolved)
+    return (
+      <div className="video-program-missing" style={style}>
+        Loading pinned media…
+      </div>
+    );
+  if (!resolved.mimeType.startsWith("image/"))
+    return (
+      <div className="video-program-missing" style={style}>
+        This asset is not an image.
+      </div>
+    );
+  return (
+    <img
+      src={resolved.url}
+      alt={`Draft frame: ${resolved.name}`}
+      style={{ ...style, objectFit: node.fit }}
+    />
+  );
+}
+
+function ComponentLayer({
+  clip,
+  frame,
+  media,
+  formatWidth,
+}: {
+  clip: Clip;
+  frame: number;
+  media: Record<string, ResolvedAsset>;
+  formatWidth: number;
+}) {
   if (clip.source.kind !== "component") return null;
   const props = clip.source.props;
   const localFrame = frame - clip.startFrame;
   const shellStyle = clipStyle(clip, localFrame);
+  if (clip.source.component.resourceId === "video/component/scene-graph" && "nodesById" in props)
+    return (
+      <div style={{ ...shellStyle, background: props.background, containerType: "inline-size" }}>
+        {props.nodeOrder.map((id) => {
+          const node = props.nodesById[id];
+          return node ? (
+            <SceneGraphNode
+              key={id}
+              node={node}
+              frame={localFrame}
+              media={media}
+              formatWidth={formatWidth}
+            />
+          ) : null;
+        })}
+      </div>
+    );
   if (clip.source.component.resourceId === "video/component/big-stat" && "value" in props)
     return (
       <div
@@ -278,6 +440,29 @@ export function TimelinePreview({
   const refs = useMemo(() => collectAssetRefs(document), [document]);
   const [media, setMedia] = useState<Record<string, ResolvedAsset>>({});
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
+  const [previewHeight, setPreviewHeight] = useState(initialPreviewHeight);
+  const resize = useRef<{ startY: number; startHeight: number } | undefined>(undefined);
+  const limits = previewHeightLimits();
+  const setClampedPreviewHeight = (height: number) =>
+    setPreviewHeight(Math.round(Math.max(limits.min, Math.min(limits.max, height))));
+  function startResize(event: ReactPointerEvent<HTMLHRElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    resize.current = { startY: event.clientY, startHeight: previewHeight };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+  function updateResize(event: ReactPointerEvent<HTMLHRElement>) {
+    if (!resize.current) return;
+    setClampedPreviewHeight(resize.current.startHeight + event.clientY - resize.current.startY);
+  }
+  function finishResize(event: ReactPointerEvent<HTMLHRElement>) {
+    if (!resize.current) return;
+    updateResize(event);
+    resize.current = undefined;
+  }
+  useEffect(() => {
+    window.localStorage.setItem(previewHeightStorageKey, String(previewHeight));
+  }, [previewHeight]);
   useEffect(() => {
     let active = true;
     for (const asset of refs) {
@@ -341,13 +526,47 @@ export function TimelinePreview({
   return (
     <section className="video-program-monitor" aria-label="Draft monitor">
       <div className="video-program-heading">
-        <strong>Draft monitor</strong>
-        <span>Live approximation · final MP4 is reviewed separately</span>
+        <div>
+          <strong>Draft monitor</strong>
+          <span>Live approximation · final MP4 is reviewed separately</span>
+        </div>
+        <fieldset className="video-icon-controls video-program-size-controls">
+          <legend className="visually-hidden">Preview size</legend>
+          <button
+            type="button"
+            aria-label="Shrink preview"
+            title="Shrink preview"
+            disabled={previewHeight <= limits.min}
+            onClick={() => setClampedPreviewHeight(previewHeight - 80)}
+          >
+            <Minimize2 size={15} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Reset preview size"
+            title="Reset preview size"
+            onClick={() => setPreviewHeight(limits.defaultValue)}
+          >
+            <RotateCcw size={14} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Enlarge preview"
+            title="Enlarge preview"
+            disabled={previewHeight >= limits.max}
+            onClick={() => setClampedPreviewHeight(previewHeight + 80)}
+          >
+            <Maximize2 size={15} aria-hidden="true" />
+          </button>
+        </fieldset>
       </div>
       <div className="video-program-stage-wrap">
         <div
           className="video-program-stage"
-          style={{ aspectRatio: `${format.width} / ${format.height}` }}
+          style={{
+            aspectRatio: `${format.width} / ${format.height}`,
+            width: `min(100%, ${previewHeight * (format.width / format.height)}px)`,
+          }}
           role="img"
           aria-label="Timeline draft preview"
         >
@@ -371,7 +590,15 @@ export function TimelinePreview({
               );
             if (clip.source.kind === "text")
               return <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />;
-            return <ComponentLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />;
+            return (
+              <ComponentLayer
+                key={`${trackId}:${clipId}`}
+                clip={clip}
+                frame={displayFrame}
+                media={media}
+                formatWidth={format.width}
+              />
+            );
           })}
           {captions.map(({ trackId, clipId, clip }) => (
             <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />
@@ -392,6 +619,34 @@ export function TimelinePreview({
           })}
         </div>
       </div>
+      <hr
+        className="video-program-resize-handle"
+        tabIndex={0}
+        aria-label="Resize draft monitor"
+        aria-orientation="horizontal"
+        aria-valuemin={limits.min}
+        aria-valuemax={limits.max}
+        aria-valuenow={previewHeight}
+        title="Drag to resize preview"
+        onPointerDown={startResize}
+        onPointerMove={updateResize}
+        onPointerUp={finishResize}
+        onPointerCancel={() => {
+          resize.current = undefined;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            setClampedPreviewHeight(previewHeight + (event.key === "ArrowUp" ? 40 : -40));
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setPreviewHeight(limits.min);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setPreviewHeight(limits.max);
+          }
+        }}
+      />
       {failed.size > 0 && (
         <button
           type="button"

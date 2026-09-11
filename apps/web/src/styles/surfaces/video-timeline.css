@@ -181,7 +181,7 @@
 .video-program-monitor {
   position: relative;
   display: grid;
-  min-height: 354px;
+  min-height: 0;
   overflow: hidden;
   border-bottom: 1px solid var(--app-line);
   background:
@@ -193,11 +193,16 @@
     var(--app-paper);
 }
 .video-program-heading {
-  position: absolute;
-  z-index: 2;
-  top: var(--app-space-4);
-  left: var(--app-space-4);
   display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  padding: var(--app-space-3) var(--app-space-4) 0;
+}
+.video-program-heading > div {
+  display: flex;
+  min-width: 0;
   align-items: baseline;
   gap: var(--app-space-3);
 }
@@ -212,17 +217,48 @@
 .video-program-stage-wrap {
   display: grid;
   place-items: center;
-  padding: 42px var(--app-space-6) var(--app-space-4);
+  padding: var(--app-space-3) var(--app-space-6) var(--app-space-4);
 }
 .video-program-stage {
   position: relative;
-  height: min(36vh, 300px);
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: 3px;
   background: var(--app-white);
   box-shadow: var(--app-shadow-md);
   isolation: isolate;
+}
+.video-program-size-controls {
+  flex: none;
+}
+.video-program-resize-handle {
+  display: grid;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--app-line);
+  background: var(--app-paper);
+  cursor: ns-resize;
+  touch-action: none;
+}
+.video-program-resize-handle::after {
+  content: "";
+  width: 42px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--app-muted);
+}
+.video-program-resize-handle:hover::after,
+.video-program-resize-handle:focus-visible::after {
+  background: var(--app-accent);
+}
+.video-program-resize-handle:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
 }
 .video-program-stage img,
 .video-program-stage video {
@@ -344,19 +380,16 @@
   margin-left: auto;
 }
 @media (max-width: 720px) {
-  .video-program-monitor {
-    min-height: 348px;
-  }
   .video-program-heading {
+    align-items: flex-start;
+  }
+  .video-program-heading > div {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
   }
   .video-program-stage-wrap {
-    padding-top: 64px;
-  }
-  .video-program-stage {
-    height: 268px;
+    padding-inline: var(--app-space-3);
   }
   .video-timeline-toolbar-actions {
     flex-wrap: wrap;
