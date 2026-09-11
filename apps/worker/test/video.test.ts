@@ -11,6 +11,7 @@ import {
   handleVideoRender,
   renderSourceExtension,
   renderSourceNeedsProbe,
+  sourceTrimFits,
   VideoWorkerError,
 } from "../src/video/render.js";
 import { captionsVtt, frameAligned, renderRange } from "../src/video/timing.js";
@@ -89,6 +90,11 @@ test("trusted SVG image inputs are preserved for the browser without ffprobe", (
   assert.equal(renderSourceNeedsProbe("image/svg+xml"), false);
   assert.equal(renderSourceNeedsProbe("image/png"), true);
   assert.throws(() => renderSourceExtension("text/html"), /Unsupported source MIME/);
+});
+test("container duration may differ from a clip by at most one frame", () => {
+  assert.equal(sourceTrimFits(0, 21968.98, 21968.98, 660, 30), true);
+  assert.equal(sourceTrimFits(0, 21900, 21900, 660, 30), false);
+  assert.equal(sourceTrimFits(0, 22034, 22000, 660, 30), false);
 });
 test("streaming ingestion validates actual bytes and checksum", async () => {
   const root = process.env.VIDEO_RENDER_TMP_ROOT ?? tmpdir();

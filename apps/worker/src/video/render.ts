@@ -298,14 +298,10 @@ async function renderInDirectory(
       if (isAudio || isVideo) {
         const startMs = clip.source.sourceStartMs ?? 0;
         frameAligned(startMs, fps);
-        const endMs = clip.source.sourceEndMs ?? (sourceDurations.get(key) ?? 0) * 1000;
+        const sourceDurationMs = (sourceDurations.get(key) ?? 0) * 1000;
+        const endMs = clip.source.sourceEndMs ?? sourceDurationMs;
         if (clip.source.sourceEndMs !== undefined) frameAligned(clip.source.sourceEndMs, fps);
-        if (
-          !Number.isFinite(endMs) ||
-          endMs <= startMs ||
-          endMs > (sourceDurations.get(key) ?? 0) * 1000 + 0.01 ||
-          startMs + (clip.durationFrames / fps) * 1000 > endMs + 0.01
-        )
+        if (!sourceTrimFits(startMs, endMs, sourceDurationMs, clip.durationFrames, fps))
           throw new Error("Clip exceeds source trim range");
         expectedAudio ||= isAudio || (isVideo && Boolean(clip.audio) && kinds.includes("audio"));
       }
@@ -462,4 +458,20 @@ export function renderSourceExtension(mimeType: string) {
 
 export function renderSourceNeedsProbe(mimeType: string) {
   return mimeType !== "image/svg+xml";
+}
+
+export function sourceTrimFits(
+  startMs: number,
+  endMs: number,
+  sourceDurationMs: number,
+  clipDurationFrames: number,
+  fps: number,
+) {
+  const frameToleranceMs = 1000 / fps + 0.01;
+  return (
+    Number.isFinite(endMs) &&
+    endMs > startMs &&
+    endMs <= sourceDurationMs + frameToleranceMs &&
+    startMs + (clipDurationFrames / fps) * 1000 <= endMs + frameToleranceMs
+  );
 }
