@@ -49,6 +49,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **MCP становится healthy только с совместимым Convex Video backend** — [запись](adr/platform/video-backend-contract-health-gate.md) · accepted · 2026-09-11 (production incident)
+
 - **Video Studio переносится в Visual Canvas с долговечным облачным состоянием** — [запись](adr/platform/video-studio-integration.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
 
 - **Экспорт из браузера рендерит snapshot worker через Convex action, кэш по draft revision** — [запись](adr/platform/browser-export-via-snapshot-worker.md) · accepted · 2026-09-07 (план, утверждённый пользователем)

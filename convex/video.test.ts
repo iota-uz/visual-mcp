@@ -235,8 +235,37 @@ test("gateway authenticates token again and shares browser dedup domain", async 
   };
   try {
     const args = { ...input, workspaceId, idempotencyKey: "shared" };
+    expect(
+      await call("getOperation", {
+        workspaceId: "video",
+        tool: "createProject",
+        idempotencyKey: "shared",
+      }),
+    ).toEqual({ result: { ok: true, data: { state: "unknown" } } });
     const created = await as.mutation(ref("createProject"), args);
     expect(await call("createProject", args)).toEqual({ result: { ok: true, data: created } });
+    expect(
+      await call("getOperation", {
+        workspaceId: "video",
+        tool: "createProject",
+        idempotencyKey: "shared",
+      }),
+    ).toEqual({ result: { ok: true, data: { state: "applied", result: created } } });
+    expect(await call("createProject", args)).toEqual({ result: { ok: true, data: created } });
+    expect(await t.run((ctx) => ctx.db.query("videoProjects").collect())).toHaveLength(1);
+    expect(
+      await call("listProjects", {
+        workspaceId: "video",
+        paginationOpts: { numItems: 20, cursor: null },
+      }),
+    ).toMatchObject({
+      result: { ok: true, data: { page: [{ projectId: created.projectId }], isDone: true } },
+    });
+    const slugArgs = { ...input, workspaceId: "video", idempotencyKey: "slug-create" };
+    const slugCreated = await call("createProject", slugArgs);
+    expect(slugCreated.result.ok).toBe(true);
+    expect(await call("createProject", slugArgs)).toEqual(slugCreated);
+    expect(await t.run((ctx) => ctx.db.query("videoProjects").collect())).toHaveLength(2);
     const conflict = await call("createProject", { ...args, title: "Changed" });
     expect(conflict.result.error.code).toBe("IDEMPOTENCY_CONFLICT");
     await t.run((ctx) => ctx.db.patch(tokenId, { revokedAt: Date.now() }));

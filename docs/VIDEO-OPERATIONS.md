@@ -34,9 +34,18 @@ an invalidated proposal and resume within the original limits. Agents cannot
 approve on the human's behalf.
 
 Reuse an operation's original idempotency key after an uncertain response.
-Inspect its job/effect receipt before doing anything else. Reconcile known
-stored bytes instead of starting generation again. Cancellation is a request,
-not evidence that an upstream charge or provider operation was cancelled.
+For project creation, retain the returned deterministic operation receipt and call
+`video_operation_get` with its exact fields, or query with the original workspace,
+tool and idempotency key. `applied` returns the original project; `unknown` means
+the durable result is not visible yet and permits only an unchanged same-key,
+same-input replay. Inspect other job/effect receipts before doing anything else.
+Reconcile known stored bytes instead of starting generation again. Cancellation
+is a request, not evidence that an upstream charge or provider operation was
+cancelled.
+
+Project create, list and operation reconciliation accept the exact workspace ID or
+slug. Do not reinterpret a known slug as evidence of backend availability; the
+gateway resolves it before invoking the ID-validated storage operation.
 
 Critique summaries are bounded; the immutable full report is available through
 its pinned resource. Model uncertainty, technical measurements and human approval
@@ -75,8 +84,11 @@ Deploy the compatible Convex functions before exposing new web/MCP consumers.
 
 Verify the deployed revision, authenticated tool calls, internal execute callback,
 ready asset bytes, rendered output and user-facing deep links. Health checks alone
-do not establish pipeline correctness. Paid provider pilots are separate from
-offline fixtures and require the operator's agreed scope.
+do not establish pipeline correctness. MCP `/healthz` does verify the private
+Convex Video contract and must stay unhealthy until the compatible Convex functions
+are present; this prevents Railway from promoting a backend-skewed MCP revision.
+Paid provider pilots are separate from offline fixtures and require the operator's
+agreed scope.
 
 Railway applications can be rolled back to their recorded prior deployments.
 Do not blindly roll back the Convex schema after new audio assets/video records

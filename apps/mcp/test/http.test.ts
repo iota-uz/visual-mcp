@@ -12,6 +12,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 function gateway(authenticated = true) {
   return {
+    assertVideoContract: async () => undefined,
     authenticate: async () =>
       authenticated
         ? {
@@ -41,10 +42,24 @@ function parseMcpResponse(text: string): unknown {
 }
 
 describe("Railway MCP service", () => {
-  test("reports health without contacting Convex", async () => {
+  test("reports health only when the compatible Convex video contract is reachable", async () => {
     const response = await createApp(gateway()).request("/healthz");
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: "ok" });
+    await expect(response.json()).resolves.toEqual({ status: "ok", video_backend_contract: 1 });
+  });
+
+  test("keeps an incompatible MCP deployment out of service", async () => {
+    const response = await createApp({
+      ...gateway(),
+      assertVideoContract: async () => {
+        throw new Error("missing video backend");
+      },
+    } as never).request("/healthz");
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      status: "backend_unavailable",
+      video_backend_contract: 1,
+    });
   });
 
   test("rejects invalid bearer tokens before parsing MCP", async () => {

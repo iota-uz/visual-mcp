@@ -31,6 +31,18 @@ are serialized from one payload, with external isError for failures. Unknown
 tools still produce protocol errors. Unexpected write failures retain unknown
 effect and do not automatically repeat a write.
 
+`video_project_create` derives a stable operation receipt from the workspace and
+original idempotency key before dispatch. Success and unknown-outcome errors both
+return that identity. `video_operation_get` performs an exact authenticated lookup
+with the receipt fields (or the unchanged original key): an applied operation
+returns the original project, while an absent record remains truthfully `unknown`
+because a concurrent request may still commit. Only an exact same-input, same-key
+create replay is safe; a new key can duplicate the project.
+
+Project create/list/reconciliation accept either the canonical workspace document
+ID or its exact slug. Convex resolves the reference before its validated operation;
+an unknown workspace is a domain error rather than a transport availability error.
+
 New Video domain lists capture one atomic Convex query capped at 100 records and 4 MiB,
 then page immutable server-side rows. Oversized collections fail explicitly and
 require narrower filters; no live partial fallback. Provider voice lists similarly
@@ -57,6 +69,11 @@ design wording is preserved separately in `docs/VIDEO-PLAN.md`.
 
 Acceptance here is deterministic schema/transport/gateway testing, not a claim
 of improved agent behavior, production deployment or successful media generation.
+
+Railway `/healthz` verifies Video backend contract version 1 through the private
+Convex gateway. This deliberately keeps an MCP revision unhealthy when its
+allowlisted Convex functions have not been deployed yet; publish Convex first,
+then let Railway promote the matching MCP revision.
 
 ## Execute transport and recovery
 

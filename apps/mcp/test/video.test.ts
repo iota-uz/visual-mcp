@@ -40,7 +40,9 @@ const draft = {
   },
   timeline: { fps: project.format.fps, durationFrames: 900, trackOrder: [], tracksById: {} },
 };
-function fixture() {
+function fixture(
+  callOverride?: (operation: string, args: Record<string, unknown>) => Promise<unknown> | unknown,
+) {
   const calls: Array<{ operation: string; args: Record<string, unknown> }> = [];
   const gateway = {
     authenticate: async () => ({
@@ -56,6 +58,7 @@ function fixture() {
     }),
     call: async (operation: string, args: Record<string, unknown>) => {
       calls.push({ operation, args });
+      if (callOverride) return callOverride(operation, args);
       if (args.name === "getProject" || args.name === "createProject")
         return { ok: true, data: project };
       if (args.name === "listProjects")
@@ -68,6 +71,8 @@ function fixture() {
           },
         };
       if (args.name === "getDraft") return { ok: true, data: draft };
+      if (args.name === "getOperation")
+        return { ok: true, data: { state: "applied", result: project } };
       if (args.name === "checkpoint")
         return {
           ok: true,
@@ -203,6 +208,12 @@ describe("Video Studio actual SDK transport", () => {
     });
     expect(created.result.isError).toBe(false);
     const p = created.result.structuredContent.data;
+    expect(p.operation_receipt).toMatchObject({
+      receipt_id: expect.stringMatching(/^[a-f0-9]{64}$/),
+      tool: "video_project_create",
+      workspace_id: "workspace1",
+      idempotency_key: "create1",
+    });
     const d = p.drafts[0];
     const checkpoint = await request("tools/call", {
       name: "video_checkpoint",
@@ -229,6 +240,79 @@ describe("Video Studio actual SDK transport", () => {
       expectedScriptRevision: "scriptrev",
       expectedTimelineRevision: "timelinerev",
     });
+  });
+  test("lost create response, exact lookup and same-key replay resolve one original project", async () => {
+    let writes = 0;
+    let saved: typeof project | undefined;
+    let loseFirstResponse = true;
+    const { request } = fixture((_operation, args) => {
+      if (args.name === "createProject") {
+        if (!saved) {
+          writes += 1;
+          saved = project;
+        }
+        if (loseFirstResponse) {
+          loseFirstResponse = false;
+          throw new Error("response lost after commit");
+        }
+        return { ok: true, data: saved };
+      }
+      if (args.name === "getOperation")
+        return { ok: true, data: { state: "applied", result: saved } };
+      throw new Error("unexpected gateway operation");
+    });
+    const arguments_ = {
+      workspace_id: "workspace1",
+      idempotency_key: "lost-create",
+      title: "Farq",
+      brief: project.brief,
+      format: project.format,
+      languages: ["ru"],
+    };
+    const lost = await request("tools/call", {
+      name: "video_project_create",
+      arguments: arguments_,
+    });
+    expect(lost.result.structuredContent).toMatchObject({
+      ok: false,
+      error: {
+        code: "BACKEND_UNAVAILABLE",
+        effect: "unknown",
+        receipt: {
+          receipt_id: expect.stringMatching(/^[a-f0-9]{64}$/),
+          idempotency_key: "lost-create",
+        },
+        recovery: {
+          kind: "inspect_operation",
+          read: { tool: "video_operation_get" },
+        },
+      },
+    });
+    expect(lost.result.isError).toBe(true);
+    expect(JSON.parse(lost.result.content[0].text)).toEqual(lost.result.structuredContent);
+    const receipt = lost.result.structuredContent.error.receipt;
+    const lookup = await request("tools/call", {
+      name: "video_operation_get",
+      arguments: {
+        workspace_id: "workspace1",
+        tool: "video_project_create",
+        idempotency_key: "lost-create",
+        receipt_id: receipt.receipt_id,
+      },
+    });
+    expect(lookup.result.structuredContent).toMatchObject({
+      ok: true,
+      data: { state: "applied", effect: "applied", receipt, result: { project_id: "project1" } },
+    });
+    const replay = await request("tools/call", {
+      name: "video_project_create",
+      arguments: arguments_,
+    });
+    expect(replay.result.structuredContent).toMatchObject({
+      ok: true,
+      data: { project_id: "project1", operation_receipt: receipt },
+    });
+    expect(writes).toBe(1);
   });
   test("direct composition and SDK calls share the same validated result", async () => {
     const { request } = fixture();
@@ -356,6 +440,20 @@ describe("Video Studio actual SDK transport", () => {
       error: { effect: "unknown", recovery: { kind: "request_human" } },
     });
     expect(call).toHaveBeenCalledTimes(1);
+    const read = await callVideoTool(
+      "video_project_list",
+      { workspace_id: "workspace1" },
+      Object.assign(
+        async () => {
+          throw new Error("backend offline");
+        },
+        { snapshotPrincipal: "user1:token1" },
+      ),
+    );
+    expect(read.structuredContent).toMatchObject({
+      ok: false,
+      error: { code: "BACKEND_UNAVAILABLE", effect: "none" },
+    });
     const error = await callVideoTool("video_project_get", { project_id: "project1" }, async () => {
       throw new VideoDomainError("NOT_FOUND_OR_FORBIDDEN", "Unavailable");
     });

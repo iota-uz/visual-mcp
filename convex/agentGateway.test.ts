@@ -25,6 +25,12 @@ function request(body: unknown, authorization = `Bearer ${secret}`) {
 }
 
 describe("private agent gateway", () => {
+  test("advertises the compatible Video backend contract", async () => {
+    const t = convexTest(schema, modules);
+    const response = await t.fetch("/agent-gateway", request({ operation: "video.contract" }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ result: { version: 1 } });
+  });
   test("rejects callers without the service secret", async () => {
     const t = convexTest(schema, modules);
     const response = await t.fetch(

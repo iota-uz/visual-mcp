@@ -71,6 +71,20 @@ const patchResult = z
   })
   .strict();
 const checkpoint = z.object({ version, manifest_sha256: id, review_url: z.string() }).strict();
+const operationReceipt = z
+  .object({
+    receipt_id: id,
+    tool: z.literal("video_project_create"),
+    workspace_id: id,
+    idempotency_key: id,
+  })
+  .strict();
+const operationLookupInput = {
+  workspace_id: id,
+  tool: z.literal("video_project_create"),
+  idempotency_key: id,
+  receipt_id: id.optional(),
+};
 const readAdvice = z.discriminatedUnion("tool", [
   z
     .object({
@@ -97,6 +111,12 @@ const readAdvice = z.discriminatedUnion("tool", [
     .object({ tool: z.literal("video_project_get"), arguments: z.object(projectInput).strict() })
     .strict(),
   z
+    .object({
+      tool: z.literal("video_operation_get"),
+      arguments: z.object(operationLookupInput).strict(),
+    })
+    .strict(),
+  z
     .object({ tool: z.literal("video_script_get"), arguments: z.object(draftInput).strict() })
     .strict(),
   z
@@ -108,6 +128,7 @@ const errorSchema = z
     code: z.string(),
     message: z.string(),
     effect: z.enum(["none", "not_applied", "applied", "partial", "unknown"]),
+    receipt: operationReceipt.optional(),
     recovery: z.discriminatedUnion("kind", [
       z
         .object({
@@ -118,6 +139,15 @@ const errorSchema = z
       z.object({ kind: z.literal("refresh_then_recompute"), read: readAdvice }).strict(),
       z.object({ kind: z.literal("request_human"), reason: z.string() }).strict(),
       z.object({ kind: z.literal("repeat_same_operation") }).strict(),
+      z
+        .object({
+          kind: z.literal("inspect_operation"),
+          read: z.object({
+            tool: z.literal("video_operation_get"),
+            arguments: z.object(operationLookupInput).strict(),
+          }),
+        })
+        .strict(),
     ]),
   })
   .strict();
@@ -187,6 +217,20 @@ function projectDetail(raw: unknown) {
         timeline_revision: d.timelineRevision,
         current_version_id: d.currentVersionId,
       })),
+  };
+}
+function receiptForProjectCreate(input: Record<string, unknown>) {
+  const workspaceId = id.parse(input.workspace_id);
+  const idempotencyKey = id.parse(input.idempotency_key);
+  return {
+    receipt_id: createHash("sha256")
+      .update(
+        JSON.stringify(["video-operation-v1", "video_project_create", workspaceId, idempotencyKey]),
+      )
+      .digest("hex"),
+    tool: "video_project_create" as const,
+    workspace_id: workspaceId,
+    idempotency_key: idempotencyKey,
   };
 }
 function versionDetail(raw: unknown) {
@@ -395,7 +439,9 @@ export const videoRegistry: Definition[] = [
       "Create a durable video project and independent RU/UZ drafts. Returns IDs and review URL. Does not generate media, render or approve anything.",
     input: z
       .object({
-        workspace_id: id.describe("Existing workspace ID from Canvas workspace lookup."),
+        workspace_id: id.describe(
+          "Existing workspace ID or exact slug from Canvas workspace lookup.",
+        ),
         ...write,
         title: z.string().trim().min(1).max(500),
         brief: Brief,
@@ -407,18 +453,86 @@ export const videoRegistry: Definition[] = [
           .refine((v) => new Set(v).size === v.length, "Languages must be unique"),
       })
       .strict(),
-    output: project,
-    run: async (i, call) =>
-      projectDetail(
-        await call("createProject", {
+    output: project.extend({ operation_receipt: operationReceipt }),
+    run: async (i, call) => {
+      const operation_receipt = receiptForProjectCreate(i);
+      return {
+        ...projectDetail(
+          await call("createProject", {
+            workspaceId: i.workspace_id,
+            idempotencyKey: i.idempotency_key,
+            title: i.title,
+            brief: i.brief,
+            format: i.format,
+            languages: i.languages,
+          }),
+        ),
+        operation_receipt,
+      };
+    },
+  },
+  {
+    name: "video_operation_get",
+    readOnly: true,
+    description:
+      "Reconcile one project-create attempt by its original workspace/idempotency key or returned receipt. Applied returns the original project without repeating it; unknown means no durable result was visible at lookup time and only the exact original same-key create may be replayed.",
+    input: z.object(operationLookupInput).strict(),
+    output: z.discriminatedUnion("state", [
+      z
+        .object({
+          state: z.literal("applied"),
+          effect: z.literal("applied"),
+          receipt: operationReceipt,
+          result: project,
+        })
+        .strict(),
+      z
+        .object({
+          state: z.literal("unknown"),
+          effect: z.literal("unknown"),
+          receipt: operationReceipt,
+          recovery: z.object({ kind: z.literal("repeat_same_operation") }).strict(),
+        })
+        .strict(),
+    ]),
+    run: async (i, call) => {
+      const receipt = receiptForProjectCreate(i);
+      if (i.receipt_id !== undefined && i.receipt_id !== receipt.receipt_id)
+        throw new VideoDomainError(
+          "RECEIPT_MISMATCH",
+          "Receipt does not match the original workspace, tool and idempotency key.",
+          "none",
+          {
+            kind: "fix_input",
+            fields: [
+              {
+                path: "/receipt_id",
+                reason: "Use the unchanged receipt or omit it and query by the original key.",
+              },
+            ],
+          },
+        );
+      const raw = obj(
+        await call("getOperation", {
           workspaceId: i.workspace_id,
+          tool: "createProject",
           idempotencyKey: i.idempotency_key,
-          title: i.title,
-          brief: i.brief,
-          format: i.format,
-          languages: i.languages,
         }),
-      ),
+      );
+      if (raw.state !== "applied")
+        return {
+          state: "unknown",
+          effect: "unknown",
+          receipt,
+          recovery: { kind: "repeat_same_operation" },
+        };
+      return {
+        state: "applied",
+        effect: "applied",
+        receipt,
+        result: projectDetail(raw.result),
+      };
+    },
   },
   {
     name: "video_project_get",
@@ -433,7 +547,7 @@ export const videoRegistry: Definition[] = [
     name: "video_project_list",
     readOnly: true,
     description:
-      "List a frozen project snapshot in one workspace, maximum 100 records/4 MiB before title filtering. Oversized workspaces require direct known-ID reads; no partial live fallback. Cursor expires after one hour or restart/eviction. Names discover; IDs write.",
+      "List a frozen project snapshot by exact workspace ID or slug, maximum 100 records/4 MiB before title filtering. Oversized workspaces require direct known-ID reads; no partial live fallback. Cursor expires after one hour or restart/eviction. Names discover; IDs write.",
     input: z
       .object({ workspace_id: id, query: z.string().max(500).optional(), ...pageInput })
       .strict(),
@@ -658,13 +772,28 @@ export async function callVideoTool(name: string, input: unknown, call: VideoBac
     const known = error instanceof VideoDomainError;
     const code = known ? error.code : "BACKEND_UNAVAILABLE";
     const effect = known ? error.effect : definition.readOnly ? "none" : "unknown";
-    let recovery: z.infer<typeof errorSchema>["recovery"] = {
-      kind: "request_human",
-      reason:
-        effect === "unknown"
-          ? "The write outcome is unknown. Do not submit a new key; reconcile the existing operation."
-          : "Check the selected object and server availability; no alternative workspace was selected.",
-    };
+    const receipt =
+      name === "video_project_create" ? receiptForProjectCreate(inputData) : undefined;
+    let recovery: z.infer<typeof errorSchema>["recovery"] = receipt
+      ? {
+          kind: "inspect_operation",
+          read: {
+            tool: "video_operation_get",
+            arguments: {
+              workspace_id: receipt.workspace_id,
+              tool: receipt.tool,
+              idempotency_key: receipt.idempotency_key,
+              receipt_id: receipt.receipt_id,
+            },
+          },
+        }
+      : {
+          kind: "request_human",
+          reason:
+            effect === "unknown"
+              ? "The write outcome is unknown. Do not submit a new key; reconcile the existing operation."
+              : "Check the selected object and server availability; no alternative workspace was selected.",
+        };
     if (code === "REVISION_CONFLICT" && name.startsWith("video_comment_"))
       recovery = {
         kind: "refresh_then_recompute",
@@ -719,6 +848,7 @@ export async function callVideoTool(name: string, input: unknown, call: VideoBac
           ? error.message
           : "Video operation could not be confirmed. No automatic retry was performed.",
         effect,
+        ...(receipt ? { receipt } : {}),
         recovery: known && error.recovery ? error.recovery : recovery,
       }),
     );

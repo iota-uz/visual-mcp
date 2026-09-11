@@ -115,6 +115,9 @@ export async function handleAgentGateway(ctx: ActionCtx, request: Request): Prom
   if (!body || typeof body.operation !== "string") return jsonError(400, "Invalid request");
 
   try {
+    if (body.operation === "video.contract") {
+      return Response.json({ result: { version: 1 } });
+    }
     if (body.operation === "video") {
       const value = body.args as {
         tokenId?: unknown;
@@ -178,6 +181,7 @@ export async function handleAgentGateway(ctx: ActionCtx, request: Request): Prom
         addReply: { method: "videoReview:agentAddReply", kind: "mutation" },
         createProject: { method: "agentCreateProject", kind: "mutation" },
         getProject: { method: "agentGetProject", kind: "query" },
+        getOperation: { method: "agentGetOperation", kind: "query" },
         listProjects: { method: "agentListProjects", kind: "query" },
         getDraft: { method: "agentGetDraft", kind: "query" },
         patchScript: { method: "agentPatchScript", kind: "mutation" },
@@ -279,11 +283,6 @@ export async function handleAgentGateway(ctx: ActionCtx, request: Request): Prom
                   methods[value.name]?.kind === "query" || methods[value.name]?.readOnly
                     ? "none"
                     : "unknown",
-                recovery: {
-                  kind: "inspect_operation",
-                  message:
-                    "Reuse the original idempotency key to look up the durable operation; do not assume it was not applied",
-                },
               };
         return Response.json({ result: { ok: false, error: safe } });
       }

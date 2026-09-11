@@ -44,6 +44,11 @@ export class AgentGateway {
     }>("authenticate", { tokenHash });
   }
 
+  async assertVideoContract(): Promise<void> {
+    const contract = await this.call<{ version?: unknown }>("video.contract");
+    if (contract.version !== 1) throw new Error("Convex Video backend contract is incompatible");
+  }
+
   actionContext(): AgentContext {
     const run = <T>(
       operation: "query" | "mutation",

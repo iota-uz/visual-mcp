@@ -55,7 +55,14 @@ export function createApp(gateway = new AgentGateway()) {
     },
   };
 
-  app.get("/healthz", (c) => c.json({ status: "ok" }));
+  app.get("/healthz", async (c) => {
+    try {
+      await gateway.assertVideoContract();
+      return c.json({ status: "ok", video_backend_contract: 1 });
+    } catch {
+      return c.json({ status: "backend_unavailable", video_backend_contract: 1 }, 503);
+    }
+  });
   app.on("POST", ["/mcp", "/mcp/video"], async (c) => {
     const video = c.req.path === "/mcp/video";
     const request = c.req.raw;

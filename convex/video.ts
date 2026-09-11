@@ -44,7 +44,7 @@ import {
   Script,
   Timeline,
 } from "../packages/video/src/contracts";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -67,6 +67,18 @@ async function user(ctx: QueryCtx | MutationCtx) {
     return id;
   }
   return requireUserId(ctx, await requireIotaIdentity(ctx));
+}
+async function workspace(ctx: QueryCtx | MutationCtx, ref: string): Promise<Doc<"workspaces">> {
+  const workspaceId = ctx.db.normalizeId("workspaces", ref);
+  const value = workspaceId
+    ? await ctx.db.get(workspaceId)
+    : await ctx.db
+        .query("workspaces")
+        .withIndex("by_slug", (q) => q.eq("slug", ref))
+        .unique();
+  if (!value || value.archivedAt !== undefined)
+    fail("NOT_FOUND_OR_FORBIDDEN", "Workspace unavailable");
+  return value as Doc<"workspaces">;
 }
 function mutationDefinition<A extends PropertyValidators, R>(d: {
   args: A;
@@ -185,6 +197,32 @@ async function remember(
     result: canonical(result),
   });
 }
+const getOperationDefinition = queryDefinition({
+  args: {
+    workspaceId: v.string(),
+    tool: v.string(),
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const principalId = await user(ctx);
+    const selectedWorkspace = await workspace(ctx, args.workspaceId);
+    if (!args.idempotencyKey || args.idempotencyKey.length > 200)
+      fail("VALIDATION_ERROR", "idempotencyKey must contain 1–200 characters");
+    const operation = await ctx.db
+      .query("videoOperations")
+      .withIndex("by_principalId_and_workspaceId_and_tool_and_key", (q) =>
+        q
+          .eq("principalId", principalId)
+          .eq("workspaceId", selectedWorkspace._id)
+          .eq("tool", args.tool)
+          .eq("key", args.idempotencyKey),
+      )
+      .unique();
+    return operation
+      ? { state: "applied" as const, result: JSON.parse(operation.result) as unknown }
+      : { state: "unknown" as const };
+  },
+});
 async function references(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
@@ -214,7 +252,7 @@ async function references(
 
 const createProjectDefinition = mutationDefinition({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: v.string(),
     idempotencyKey: v.string(),
     title: v.string(),
     brief: v.object({
@@ -236,8 +274,7 @@ const createProjectDefinition = mutationDefinition({
   },
   handler: async (ctx, args) => {
     const principal = await user(ctx);
-    if (!(await ctx.db.get(args.workspaceId)))
-      fail("NOT_FOUND_OR_FORBIDDEN", "Workspace unavailable");
+    const selectedWorkspace = await workspace(ctx, args.workspaceId);
     const validatedBrief = Brief.safeParse(args.brief),
       validatedFormat = Format.safeParse(args.format);
     if (!validatedBrief.success) validation(validatedBrief.error, "/brief");
@@ -247,7 +284,7 @@ const createProjectDefinition = mutationDefinition({
     const receipt = await replay(
       ctx,
       principal,
-      args.workspaceId,
+      selectedWorkspace._id,
       "createProject",
       args.idempotencyKey,
       { ...args, brief, format },
@@ -273,7 +310,7 @@ const createProjectDefinition = mutationDefinition({
       fail("VALIDATION_ERROR", "A title and unique nonempty languages are required");
     const revisionId = await digest({ title: args.title, brief, format });
     const projectId = await ctx.db.insert("videoProjects", {
-      workspaceId: args.workspaceId,
+      workspaceId: selectedWorkspace._id,
       title: args.title,
       brief: canonical(brief),
       format: canonical(format),
@@ -327,7 +364,7 @@ const createProjectDefinition = mutationDefinition({
     }
     await initializeVideoWorkflow(ctx, {
       projectId,
-      workspaceId: args.workspaceId,
+      workspaceId: selectedWorkspace._id,
       languages: args.languages,
     });
     const result = await detail(ctx, projectId);
@@ -344,23 +381,22 @@ const getProjectDefinition = queryDefinition({
 });
 const listProjectsDefinition = queryDefinition({
   args: {
-    workspaceId: v.id("workspaces"),
+    workspaceId: v.string(),
     paginationOpts: paginationOptsValidator,
     query: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await user(ctx);
+    const selectedWorkspace = await workspace(ctx, args.workspaceId);
     if (
       !Number.isInteger(args.paginationOpts.numItems) ||
       args.paginationOpts.numItems < 1 ||
       args.paginationOpts.numItems > 100
     )
       fail("VALIDATION_ERROR", "Page size must be 1–100");
-    if (!(await ctx.db.get(args.workspaceId)))
-      fail("NOT_FOUND_OR_FORBIDDEN", "Workspace unavailable");
     const rows = await ctx.db
       .query("videoProjects")
-      .withIndex("by_workspaceId_and_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspaceId_and_updatedAt", (q) => q.eq("workspaceId", selectedWorkspace._id))
       .order("desc")
       .paginate(args.paginationOpts);
     return {
@@ -842,6 +878,7 @@ export const listVersions = query(listVersionsDefinition);
 export const getVersion = query(getVersionDefinition);
 export const agentCreateProject = agentMutation(createProjectDefinition);
 export const agentGetProject = agentQuery(getProjectDefinition);
+export const agentGetOperation = agentQuery(getOperationDefinition);
 export const agentListProjects = agentQuery(listProjectsDefinition);
 export const agentGetDraft = agentQuery(getDraftDefinition);
 export const agentPatchScript = agentMutation(patchScriptDefinition);
