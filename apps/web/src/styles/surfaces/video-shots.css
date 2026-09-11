@@ -31,8 +31,8 @@
   min-width: 0;
   padding: var(--app-space-3);
   border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  background: var(--app-white);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
   transition:
     box-shadow var(--app-duration-fast) var(--app-ease-out),
@@ -51,15 +51,13 @@
 
 .video-shot-compare > article:hover {
   transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
-  box-shadow: var(--app-shadow-md);
+  border-color: var(--app-ink);
+  box-shadow: var(--app-shadow-hard);
 }
 
 .video-shot-compare > article[data-selected="true"] {
-  border-color: var(--app-accent);
-  box-shadow:
-    inset 3px 0 0 var(--app-accent),
-    var(--app-shadow-sm);
+  border-color: var(--app-ink);
+  box-shadow: var(--app-shadow-hard);
 }
 
 .video-shot-compare video {
@@ -72,8 +70,11 @@
 .video-shot-compare > article > p:first-child {
   margin: 0;
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
-  font-weight: 600;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .video-keyframe-library {
@@ -159,28 +160,27 @@
   gap: var(--app-space-6);
   overflow: hidden;
   padding: var(--app-space-4);
+  padding-top: calc(var(--app-space-4) + 8px);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   background:
     linear-gradient(
       180deg,
-      var(--app-accent-soft) 0%,
-      color-mix(in srgb, var(--app-accent-soft) 0%, transparent) 130px
+      color-mix(in srgb, var(--app-cut-paper) 70%, transparent) 0,
+      transparent 130px
     ),
-    var(--app-white);
+    var(--app-cut-card);
   color: var(--app-ink);
   box-shadow: var(--app-shadow-sm);
 }
 
 .video-shot-scene-context::before {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: linear-gradient(
-    180deg,
-    var(--app-accent),
-    color-mix(in srgb, var(--app-accent) 55%, var(--app-white))
-  );
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 8px;
+  background: var(--app-cut-clapper);
   content: "";
 }
 
@@ -192,7 +192,8 @@
 
 .video-shot-scene-context > div > span,
 .video-shot-scene-context dt {
-  color: var(--app-accent-text);
+  color: var(--app-muted);
+  font-family: var(--app-font-mono);
   font-size: var(--app-eyebrow-size);
   font-weight: var(--app-eyebrow-weight);
   letter-spacing: var(--app-eyebrow-tracking);
@@ -203,8 +204,9 @@
   margin-top: var(--app-space-1);
   color: inherit;
   font-family: var(--app-font-display);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .video-shot-scene-context dl {
@@ -236,15 +238,11 @@
   gap: var(--app-space-4);
   min-height: 180px;
   padding: var(--app-space-6);
-  border: 1.5px dashed color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  border: 1.5px dashed var(--app-cut-line);
   border-radius: var(--app-radius-md);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--app-accent) 6%, transparent),
-      color-mix(in srgb, var(--app-accent) 0%, transparent) 70%
-    ),
-    var(--app-white);
+  outline: 1px solid var(--app-line);
+  outline-offset: 5px;
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
 }
 
@@ -263,7 +261,13 @@
 
 .video-shot-empty > svg,
 .video-shot-empty-number {
-  color: var(--app-accent-text);
+  color: var(--app-danger);
+}
+
+.video-shot-empty h3 {
+  font-family: var(--app-font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .video-shot-empty-number {
@@ -271,12 +275,12 @@
   place-items: center;
   width: 52px;
   height: 52px;
-  border-radius: 14px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-ink);
+  color: var(--app-white);
   font-family: var(--app-font-display);
   font-size: 20px;
-  font-weight: 750;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -286,7 +290,7 @@
   overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
   transition: box-shadow var(--app-duration-base) var(--app-ease-out);
 }
@@ -301,7 +305,7 @@
   gap: 2px;
   padding: var(--app-space-3) var(--app-space-2);
   border-right: 1px solid var(--app-line);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 60%, var(--app-white));
 }
 
 .video-shot-navigator-heading {
@@ -309,17 +313,21 @@
   justify-content: space-between;
   padding: var(--app-space-2);
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .video-shot-navigator > button {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   gap: var(--app-space-2);
   width: 100%;
   padding: var(--app-space-3) var(--app-space-2);
   border: 1px solid transparent;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--app-ink);
   cursor: pointer;
@@ -333,8 +341,8 @@
 
 .video-shot-navigator > button:hover {
   transform: translateX(2px);
-  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
-  background: var(--app-white);
+  border-color: var(--app-cut-line);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
 }
 
@@ -342,10 +350,11 @@
   transform: translateX(1px) scale(0.995);
 }
 
+/* The loaded shot slate matches the scene rail: ink frame, hard shadow. */
 .video-shot-navigator > button[aria-current="true"] {
-  border-color: var(--app-line);
-  background: var(--app-white);
-  box-shadow: inset 3px 0 0 var(--app-accent);
+  border-color: var(--app-ink);
+  background: var(--app-cut-card);
+  box-shadow: var(--app-shadow-hard);
 }
 
 .video-shot-navigator > button:focus-visible {
@@ -362,7 +371,10 @@
 .video-shot-navigator small,
 .video-shot-navigator > button > span:first-child {
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .video-shot-navigator strong,
@@ -395,17 +407,18 @@
 
 .video-shot-workspace .video-shot-editor-heading span {
   color: var(--app-muted);
+  font-family: var(--app-font-mono);
   font-size: var(--app-eyebrow-size);
   font-weight: var(--app-eyebrow-weight);
   letter-spacing: var(--app-eyebrow-tracking);
   text-transform: uppercase;
 }
 
-/* Shot position within the scene. */
+/* Shot position within the scene: a red leader running across. */
 .vs-shot-progress {
-  height: 3px;
+  height: 4px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--app-line);
 }
 
@@ -415,8 +428,8 @@
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    var(--app-accent),
-    color-mix(in srgb, var(--app-accent) 65%, var(--app-white))
+    var(--app-danger),
+    color-mix(in srgb, var(--app-danger) 55%, white)
   );
   transition: width 0.35s var(--app-ease-out);
 }

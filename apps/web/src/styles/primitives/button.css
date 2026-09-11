@@ -1,4 +1,5 @@
-/* The one button. See components/ui/Button.tsx. */
+/* The one button. See components/ui/Button.tsx. Cut square, filled with
+   ink: the primary action is a slate stamp, not a blue pill. */
 
 /* --- buttons --- */
 .btn {
@@ -11,10 +12,11 @@
   white-space: nowrap;
   font-family: var(--app-font-body);
   font-size: var(--app-text-sm);
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   min-height: var(--app-hit-min);
   padding: var(--app-space-2) var(--app-space-4);
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-xs);
   border: 1px solid transparent;
   cursor: pointer;
   /* `color` was missing, and four of the six variants change it on hover —
@@ -24,7 +26,8 @@
     border-color var(--app-transition),
     box-shadow var(--app-transition),
     color var(--app-transition),
-    opacity var(--app-transition);
+    opacity var(--app-transition),
+    transform var(--app-transition);
   line-height: 1.2;
 }
 
@@ -40,13 +43,19 @@
 }
 
 .btn-primary {
-  background: var(--app-accent);
-  border-color: var(--app-accent);
+  background: var(--app-ink);
+  border-color: var(--app-ink);
   color: var(--app-white);
 }
 
 .btn-primary:not(:disabled):hover {
-  box-shadow: var(--app-shadow-md);
+  transform: translateY(-1px);
+  box-shadow: var(--app-shadow-hard);
+}
+
+.btn-primary:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 /* Google's branding guidelines, light theme: white fill, #747775 stroke,
@@ -79,10 +88,10 @@
 }
 
 .btn-secondary:not(:disabled):hover {
-  border-color: var(--app-accent);
-  /* The border may be the fill blue; the label may not — --app-accent is
-     4.53:1 on white, a rounding error away from failing. */
-  color: var(--app-accent-text);
+  border-color: var(--app-ink);
+  /* The label stays ink: secondary hovers are a frame change, not a
+     colour change, so the hierarchy never inverts on hover. */
+  color: var(--app-ink);
 }
 
 .btn-danger {

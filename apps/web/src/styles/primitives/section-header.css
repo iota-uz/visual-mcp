@@ -7,8 +7,11 @@
 
 .section-header-crumbs {
   margin-bottom: var(--app-space-2);
-  font-size: var(--app-text-sm);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .section-header-crumbs ol {
@@ -48,7 +51,11 @@
 }
 
 .section-header-title {
+  font-family: var(--app-font-display);
   font-size: var(--app-text-2xl);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
 }
 
 .section-header-title.is-editing {

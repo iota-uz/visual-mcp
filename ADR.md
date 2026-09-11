@@ -60,6 +60,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы** — [запись](adr/product/cutting-room-design-language.md) · accepted · 2026-09-11 (запрос пользователя)
 - **Video Studio — коллекция воркспейса и иммерсивный редактор** — [запись](adr/product/video-studio-surfaces.md) · accepted · 2026-09-10 (запрос пользователя)
 - **Video Studio использует единый производственный workbench** — [запись](adr/product/video-studio-workbench.md) · accepted · 2026-09-10 (запрос пользователя, production UI audit)
 

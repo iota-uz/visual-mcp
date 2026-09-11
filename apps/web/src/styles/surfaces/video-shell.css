@@ -59,7 +59,7 @@
   min-height: 48px;
   padding: var(--app-space-2) var(--app-space-6);
   border-bottom: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-white) 82%, var(--app-paper));
+  background: color-mix(in srgb, var(--app-cut-paper) 78%, var(--app-white));
   font-size: var(--app-text-sm);
 }
 
@@ -149,7 +149,11 @@
   min-width: 0;
   overflow-y: auto;
   border-right: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-paper) 88%, var(--app-white));
+  /* Sprocket holes running down the binding edge of the slate rail. */
+  background:
+    radial-gradient(circle, var(--app-cut-sprocket-dot) 1.7px, transparent 2.1px) right 4px top 8px
+    / 10px 13px repeat-y,
+    color-mix(in srgb, var(--app-cut-paper) 72%, var(--app-white));
   /* No entrance transform here: a transform (even an animation's) on this
      scroll container would become the containing block for positioned
      descendants, and persistent chrome should not animate per mode. */
@@ -169,7 +173,7 @@
   min-width: 0;
   overflow-y: auto;
   border-left: 1px solid var(--app-line);
-  background: var(--app-white);
+  background: var(--app-cut-card);
 }
 
 .video-studio-inspector > summary {
@@ -308,15 +312,15 @@
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--app-line);
-  border-radius: 999px;
-  background: var(--app-paper);
+  border-radius: var(--app-radius-sm);
+  background: color-mix(in srgb, var(--app-cut-paper) 70%, var(--app-white));
   box-shadow: 0 1px 2px rgba(20, 44, 72, 0.06) inset;
 }
 
 .video-studio-page .video-workflow-switch .btn {
   position: relative;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--app-muted);
   font-weight: 650;
@@ -372,12 +376,10 @@
 
 .video-studio-page .video-workflow-switch .btn-secondary,
 .video-studio-page .video-workflow-switch [aria-current="step"] {
-  border-color: var(--app-line);
-  background: var(--app-white);
-  color: var(--app-accent-text);
-  box-shadow:
-    var(--app-shadow-sm),
-    inset 0 -2px 0 var(--app-accent);
+  border-color: var(--app-ink);
+  background: var(--app-ink);
+  color: var(--app-white);
+  box-shadow: var(--app-shadow-hard);
 }
 
 .video-studio-page .canvas-command-actions nav.canvas-mode-switch {
@@ -385,13 +387,13 @@
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--app-line);
-  border-radius: 999px;
+  border-radius: var(--app-radius-sm);
   background: var(--app-white);
 }
 
 .video-studio-page .canvas-command-actions nav.canvas-mode-switch .btn {
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--app-muted);
   transition:
@@ -425,7 +427,7 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  background: color-mix(in srgb, var(--app-white) 90%, transparent);
+  background: color-mix(in srgb, var(--app-cut-paper) 88%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -459,9 +461,10 @@
 
 .video-workflow-readiness li {
   padding: 3px var(--app-space-2);
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 1.5px solid transparent;
+  border-radius: var(--app-radius-xs);
   background: transparent;
+  font-family: var(--app-font-mono);
   font-size: var(--app-text-xs);
   font-weight: 600;
   transition:
@@ -470,9 +473,10 @@
 }
 
 .video-workflow-readiness li.is-ready {
-  border-color: color-mix(in srgb, var(--app-success) 30%, var(--app-white));
-  background: var(--app-success-soft);
+  border-color: var(--app-success);
+  background: transparent;
   color: var(--app-success);
+  transform: rotate(-1.2deg);
 }
 
 .vs-kbd-hint {
@@ -537,16 +541,12 @@
   background-clip: content-box;
 }
 
-/* Inspector: light callout, carded checkpoint, panel summary. */
+/* Inspector: light callout, carded checkpoint, panel summary. The render
+   callout is a work-order slip: warm stock, an ink rule down the side. */
 .video-render-callout {
-  border: 1px solid color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--app-accent) 12%, transparent),
-      color-mix(in srgb, var(--app-accent) 4%, transparent)
-    ),
-    var(--app-white);
+  border: 1px solid var(--app-cut-line);
+  border-left: 4px solid var(--app-ink);
+  background: var(--app-cut-card);
   color: var(--app-ink);
   box-shadow: var(--app-shadow-sm);
 }

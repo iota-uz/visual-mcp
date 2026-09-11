@@ -1,4 +1,5 @@
-/* Nothing here yet, and what to do about it. */
+/* Nothing here yet, and what to do about it. Framed like an empty reel
+   can: a dashed warm frame with a registration outline offset outside it. */
 
 /* --- empty / loading states --- */
 .empty-state {
@@ -8,6 +9,11 @@
   text-align: center;
   gap: var(--app-space-2);
   padding: var(--app-space-8) var(--app-space-4);
+  border: 1.5px dashed var(--app-cut-line, var(--app-line));
+  border-radius: var(--app-radius-md);
+  outline: 1px solid var(--app-line);
+  outline-offset: 5px;
+  background: var(--app-cut-card, var(--app-white));
   color: var(--app-muted);
 }
 
@@ -18,8 +24,11 @@
 
 .empty-state-title {
   margin: 0;
-  color: var(--app-ink-soft);
+  color: var(--app-ink);
+  font-family: var(--app-font-display);
+  font-size: var(--app-text-lg);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .empty-state-hint {

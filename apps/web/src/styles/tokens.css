@@ -24,7 +24,9 @@
      both below WCAG AA. Fills, borders and focus rings keep --app-accent;
      anything that has to be read switches to this. */
   --app-accent-text: #1d4fd7;
-  --app-danger: #c0392b;
+  /* Warmed toward the cutting-room signal red: the playhead, the record
+     dot and every stamp read it. Not sync-bound, unlike success/warning. */
+  --app-danger: #bf2a1c;
   --app-danger-soft: #fdecea;
   --app-success: #186b4a;
   --app-success-soft: #e8f6ef;
@@ -33,8 +35,9 @@
 
   /* The chrome paints the viewer's own dot grid (packages/canvas
      .vc-viewport::before). Quieter than the canvas's 48% dots, because here
-     it sits under text rather than behind nodes. */
-  --app-grid-dot: rgba(6, 27, 54, 0.06);
+     it sits under text rather than behind nodes. Warmed so the grid reads
+     as bench grain, not graph paper. */
+  --app-grid-dot: rgba(74, 54, 24, 0.09);
   --app-grid-size: 24px;
 
   /* Canvas kind, borrowed from the viewer's --vc-role-* lane colours, so a
@@ -60,7 +63,9 @@
 
   --app-font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --app-font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --app-font-display: "Unbounded", var(--app-font-body);
+  /* The cutting-room voice: an editorial serif with optical sizing for
+     mastheads and slate titles. */
+  --app-font-display: "Fraunces", Georgia, "Times New Roman", serif;
 
   --app-text-xs: 11px;
   --app-text-sm: 13px;
@@ -89,10 +94,11 @@
   --app-space-6: 24px;
   --app-space-8: 32px;
 
-  --app-radius-xs: 4px;
-  --app-radius-sm: 7px;
-  --app-radius-md: 8px;
-  --app-radius-lg: 13px;
+  /* Cut square, not soft: the bench is card stock and tape, not glass. */
+  --app-radius-xs: 3px;
+  --app-radius-sm: 5px;
+  --app-radius-md: 6px;
+  --app-radius-lg: 10px;
 
   /* The canvas chrome floats over the viewport: command bar, Pages rail,
      Prototype panel, artifact trigger. Each used to pick its own white
@@ -111,6 +117,27 @@
   --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
   --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
   --app-shadow-lg: 0 18px 50px rgba(18, 42, 70, 0.14);
+  /* The bench shadow: a hard offset in ink for slates, stamps and the
+     active workflow tab. Used sparingly — three or four surfaces own it. */
+  --app-shadow-hard: 3px 3px 0 var(--app-ink);
+
+  /*
+   * The cutting room. The synced ink/paper/line above belong to the canvas
+   * viewer contract and stay cool; the studio is a room you step into, so
+   * it brings its own warm stock: bench wash, slate cards, tape, clapper
+   * stripes and sprocket dots. Nothing here is sync-bound — the undeclared-
+   * variable test only needs every one of these declared, which they are.
+   */
+  --app-cut-paper: #f7f1e3;
+  --app-cut-card: #fffdf6;
+  --app-cut-line: #e3d7bd;
+  --app-cut-tape: rgba(211, 143, 33, 0.3);
+  --app-cut-sprocket-dot: #cdc0a1;
+  --app-cut-clapper: repeating-linear-gradient(
+    -48deg,
+    var(--app-ink) 0 9px,
+    var(--app-cut-card) 9px 18px
+  );
 
   /* Was the same duration literal repeated at five call sites. */
   --app-transition: 0.15s;

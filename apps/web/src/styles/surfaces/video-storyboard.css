@@ -28,7 +28,11 @@
 
 .video-scene-navigator-heading strong {
   color: var(--app-ink);
-  font-size: var(--app-text-sm);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .video-scene-navigator-heading > span {
@@ -55,19 +59,21 @@
 .video-scene-drag-hint {
   padding: 0 var(--app-space-3) var(--app-space-1);
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 .video-scene-card {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: start;
   gap: var(--app-space-2);
   width: 100%;
   min-height: 0;
   padding: var(--app-space-3) var(--app-space-2);
   border: 1px solid transparent;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--app-ink);
   cursor: pointer;
@@ -81,8 +87,8 @@
 
 .video-scene-card:hover {
   transform: translateX(2px);
-  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
-  background: var(--app-white);
+  border-color: var(--app-cut-line);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
 }
 
@@ -95,11 +101,37 @@
   outline-offset: 2px;
 }
 
+/* The slate number plate: a bordered mono tag, not loose grey text. */
+.video-scene-index {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 2px;
+  border: 1px solid var(--app-line);
+  border-radius: 2px;
+  background: var(--app-cut-card);
+  color: var(--app-muted);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The loaded slate: warm stock, an ink frame, a hard offset shadow, and a
+   red scene number — the one card that is on the bench right now. */
 .video-scene-card[aria-current="true"],
 .video-scene-card[aria-pressed="true"] {
-  border-color: var(--app-line);
-  background: var(--app-white);
-  box-shadow: inset 3px 0 0 var(--app-accent);
+  border-color: var(--app-ink);
+  background: var(--app-cut-card);
+  box-shadow: var(--app-shadow-hard);
+}
+
+.video-scene-card[aria-current="true"] .video-scene-index,
+.video-scene-card[aria-pressed="true"] .video-scene-index {
+  border-color: var(--app-danger);
+  background: var(--app-danger);
+  color: var(--app-white);
 }
 
 /* The navigator is a drag-and-drop sortable list; the grab cursor marks
@@ -114,16 +146,10 @@
 }
 
 .video-scene-item.is-drop-target > .video-scene-card {
-  border-color: var(--app-accent);
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.video-scene-index {
-  padding-top: 1px;
-  color: var(--app-muted);
-  font-size: var(--app-text-xs);
-  font-variant-numeric: tabular-nums;
+  border-color: var(--app-danger);
+  border-style: dashed;
+  background: var(--app-cut-card);
+  box-shadow: none;
 }
 
 .video-scene-copy {
@@ -154,13 +180,27 @@
 }
 
 .video-scene-editor {
+  position: relative;
   gap: var(--app-space-6);
   padding: var(--app-space-6);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
   transition: box-shadow var(--app-duration-base) var(--app-ease-out);
+}
+
+/* The slate the editor is holding carries a clapper across its top edge. */
+.video-scene-editor::before {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  left: -1px;
+  height: 7px;
+  border-radius: var(--app-radius-md) var(--app-radius-md) 0 0;
+  background: var(--app-cut-clapper);
+  content: "";
+  pointer-events: none;
 }
 
 .video-scene-editor:hover {
@@ -183,6 +223,7 @@
 
 .video-scene-editor-heading > div > span {
   color: var(--app-muted);
+  font-family: var(--app-font-mono);
   font-size: var(--app-eyebrow-size);
   font-weight: var(--app-eyebrow-weight);
   letter-spacing: var(--app-eyebrow-tracking);
@@ -207,9 +248,9 @@
   grid-template-columns: minmax(0, 1fr);
   gap: var(--app-space-4);
   padding: var(--app-space-4);
-  border: 1px solid var(--app-line);
+  border: 1px solid var(--app-cut-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 55%, var(--app-white));
 }
 
 .video-camera-direction-heading {
@@ -246,21 +287,23 @@
   gap: var(--app-space-4);
   min-height: 180px;
   padding: var(--app-space-6);
-  border: 1.5px dashed color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  border: 1.5px dashed var(--app-cut-line);
   border-radius: var(--app-radius-md);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--app-accent) 6%, transparent),
-      color-mix(in srgb, var(--app-accent) 0%, transparent) 70%
-    ),
-    var(--app-white);
+  outline: 1px solid var(--app-line);
+  outline-offset: 5px;
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-sm);
 }
 
 .video-story-empty h3,
 .video-story-empty p {
   margin: 0;
+}
+
+.video-story-empty h3 {
+  font-family: var(--app-font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .video-story-empty p {
@@ -274,12 +317,12 @@
   place-items: center;
   width: 52px;
   height: 52px;
-  border-radius: 14px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
+  border-radius: var(--app-radius-xs);
+  background: var(--app-ink);
+  color: var(--app-white);
   font-family: var(--app-font-display);
   font-size: 20px;
-  font-weight: 750;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 

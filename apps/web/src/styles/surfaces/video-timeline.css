@@ -17,8 +17,8 @@
   margin: 0;
   padding: 0;
   border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-xs);
-  background: var(--app-paper);
+  border-radius: 2px;
+  background: var(--app-cut-card);
 }
 .video-icon-controls button,
 .video-track-controls button {
@@ -34,10 +34,15 @@
   height: 28px;
 }
 .video-icon-controls button:hover:not(:disabled),
-.video-track-controls button:hover,
+.video-track-controls button:hover:not([aria-pressed="true"]) {
+  background: color-mix(in srgb, var(--app-cut-paper) 70%, var(--app-white));
+  color: var(--app-ink);
+}
+
+/* An engaged toggle is a punched key: ink fill, paper glyph. */
 .video-track-controls button[aria-pressed="true"] {
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
+  background: var(--app-ink);
+  color: var(--app-white);
 }
 .video-icon-controls button:disabled {
   cursor: default;
@@ -77,9 +82,9 @@
 }
 .video-timeline-empty button {
   padding: var(--app-space-1) var(--app-space-3);
-  border: 1px solid var(--app-line);
+  border: 1.5px solid var(--app-line);
   border-radius: var(--app-radius-xs);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   color: var(--app-ink);
   cursor: pointer;
   font-size: var(--app-text-xs);
@@ -89,8 +94,8 @@
     border-color var(--app-duration-fast) var(--app-ease-out);
 }
 .video-timeline-empty button:hover {
-  background: var(--app-accent-soft);
-  border-color: var(--app-accent);
+  background: var(--app-cut-card);
+  border-color: var(--app-ink);
 }
 .video-timeline-empty button:focus-visible {
   outline: 2px solid var(--app-accent);
@@ -174,8 +179,8 @@
   opacity: 0;
 }
 .video-timeline-toolbar-actions .btn[aria-pressed="true"] {
-  border-color: var(--app-accent);
-  background: var(--app-accent);
+  border-color: var(--app-ink);
+  background: var(--app-ink);
   color: #fff;
 }
 .video-program-monitor {
@@ -187,10 +192,10 @@
   background:
     radial-gradient(
       circle at 50% 42%,
-      color-mix(in srgb, var(--app-accent) 7%, transparent),
-      transparent 35%
+      color-mix(in srgb, var(--app-cut-paper) 80%, transparent),
+      transparent 38%
     ),
-    var(--app-paper);
+    color-mix(in srgb, var(--app-cut-paper) 40%, var(--app-white));
 }
 .video-program-heading {
   display: flex;
@@ -208,7 +213,11 @@
 }
 .video-program-heading strong {
   color: var(--app-ink);
-  font-size: var(--app-text-sm);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-program-heading span {
   color: var(--app-muted);
@@ -218,6 +227,18 @@
   display: grid;
   place-items: center;
   padding: var(--app-space-3) var(--app-space-6) var(--app-space-4);
+}
+
+/* The monitor sits in a film strip: sprocket holes above and below the
+   stage. The pseudos are grid items, so they frame the stage for free. */
+.video-program-stage-wrap::before,
+.video-program-stage-wrap::after {
+  height: 13px;
+  justify-self: stretch;
+  background:
+    radial-gradient(circle, var(--app-cut-sprocket-dot) 2.4px, transparent 2.8px) 0 0 / 17px 13px
+    repeat-x;
+  content: "";
 }
 .video-program-stage {
   position: relative;
@@ -348,12 +369,16 @@
 .video-sequence-length span {
   grid-column: 1 / -1;
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
-  font-weight: 650;
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-sequence-length strong {
   color: var(--app-ink);
   font: 600 var(--app-text-sm) var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .video-sequence-length small {
   color: var(--app-muted);
@@ -368,7 +393,7 @@
   padding: var(--app-space-2);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-xs);
-  background: var(--app-white);
+  background: var(--app-cut-card);
 }
 .video-trim-controls > span {
   margin-right: var(--app-space-1);

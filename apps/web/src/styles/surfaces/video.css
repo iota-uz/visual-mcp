@@ -6,7 +6,16 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* The bench: a warm wash laid over the shared paper, so the studio reads
+     as a room you step into while the canvas viewer contract underneath
+     stays untouched. */
   background:
+    linear-gradient(
+      180deg,
+      var(--app-cut-paper) 0,
+      color-mix(in srgb, var(--app-cut-paper) 55%, transparent) 340px,
+      transparent 640px
+    ),
     radial-gradient(circle at 1px 1px, var(--app-grid-dot) 1px, transparent 1.4px) 0 0 /
     var(--app-grid-size) var(--app-grid-size),
     var(--app-paper);
@@ -68,7 +77,10 @@
 }
 .video-section-heading h2,
 .video-review-column h2 {
+  font-family: var(--app-font-display);
   font-size: var(--app-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 .video-save-summary {
@@ -131,7 +143,10 @@
 .video-premise-field textarea {
   min-height: 112px;
   max-height: 320px;
-  font-size: var(--app-text-base);
+  /* The logline is set like a title page: editorial serif, generous. */
+  font-family: var(--app-font-display);
+  font-size: 19px;
+  line-height: 1.5;
 }
 .video-field-pair {
   display: grid;
@@ -188,9 +203,11 @@
 }
 .video-preview-empty {
   min-height: 300px;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-white));
+  border: 1.5px dashed var(--app-cut-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-accent-soft);
+  outline: 1px solid var(--app-line);
+  outline-offset: 5px;
+  background: var(--app-cut-card);
   color: var(--app-ink);
   display: flex;
   flex-direction: column;
@@ -201,7 +218,7 @@
   gap: var(--app-space-4);
 }
 .video-preview-empty > svg {
-  color: var(--app-accent-text);
+  color: var(--app-danger);
 }
 .video-preview-empty p {
   max-width: 28ch;
@@ -213,6 +230,9 @@
 .video-preview-empty h2,
 .video-preview-empty h3 {
   color: var(--app-ink);
+  font-family: var(--app-font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .video-track,
 .video-clip,
@@ -224,14 +244,18 @@
 }
 .video-track {
   padding: var(--app-space-4);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-sm);
 }
 .video-track h3 {
   margin: 0;
-  font-size: var(--app-text-sm);
-  text-transform: capitalize;
+  color: var(--app-ink);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-clip {
   border-top: 1px solid var(--app-line);
@@ -239,14 +263,14 @@
 }
 .video-clip-bar {
   height: 22px;
-  border-radius: var(--app-radius-xs);
+  border-radius: 2px;
   background: var(--app-paper);
   overflow: hidden;
 }
 .video-shot {
   padding: var(--app-space-3);
-  border-left: 3px solid var(--app-accent);
-  background: var(--app-paper);
+  border-left: 3px solid var(--app-ink);
+  background: color-mix(in srgb, var(--app-cut-tape) 45%, var(--app-white));
   overflow-wrap: anywhere;
 }
 .video-shot > span {
@@ -262,7 +286,7 @@
   min-height: 30px;
   padding: 6px var(--app-space-3);
   border: 1px solid var(--app-line);
-  border-radius: 999px;
+  border-radius: var(--app-radius-xs);
   background: color-mix(in srgb, var(--app-white) 75%, transparent);
   font-size: var(--app-text-sm);
 }
@@ -446,7 +470,7 @@
   padding: 0;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   color: var(--app-ink);
   box-shadow: var(--app-shadow-md);
 }
@@ -467,11 +491,15 @@
 .video-timeline-toolbar h2 {
   margin: 0;
   color: var(--app-ink);
+  font-family: var(--app-font-display);
   font-size: var(--app-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .video-timeline-toolbar > div:first-child > span {
   color: var(--app-muted);
   font: 500 var(--app-text-xs) var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .video-zoom-controls,
 .video-transport-buttons {
@@ -519,7 +547,7 @@
   justify-content: flex-start;
   min-width: 0;
   padding-block: var(--app-space-2);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
 }
 .video-transport-buttons {
   flex: none;
@@ -528,6 +556,7 @@
   min-width: 76px;
   color: var(--app-ink);
   font: 600 var(--app-text-xs) var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .video-transport input[type="range"] {
   flex: 1;
@@ -536,7 +565,7 @@
 }
 .video-timeline-viewport {
   overflow-x: auto;
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 45%, var(--app-white));
 }
 .video-timeline-canvas {
   position: relative;
@@ -558,13 +587,18 @@
   left: 0;
   z-index: 3;
   border-right: 1px solid var(--app-line);
-  background: var(--app-white);
+  background: var(--app-cut-card);
 }
 .video-track-corner {
   display: flex;
   align-items: center;
   padding-left: var(--app-space-3);
   color: var(--app-muted);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-ruler-scale {
   position: relative;
@@ -572,8 +606,8 @@
     90deg,
     transparent 0,
     transparent calc(12.5% - 1px),
-    var(--app-line) calc(12.5% - 1px),
-    var(--app-line) 12.5%
+    color-mix(in srgb, var(--app-ink) 22%, transparent) calc(12.5% - 1px),
+    color-mix(in srgb, var(--app-ink) 22%, transparent) 12.5%
   );
 }
 .video-ruler-scale span {
@@ -603,7 +637,11 @@
   min-width: 0;
 }
 .video-track-label strong {
-  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-track-label small {
   color: var(--app-muted);
@@ -612,7 +650,7 @@
 .video-track-lane {
   position: relative;
   min-width: 0;
-  background-color: var(--app-paper);
+  background-color: color-mix(in srgb, var(--app-cut-paper) 55%, var(--app-white));
   background-image: repeating-linear-gradient(
     90deg,
     transparent 0,
@@ -632,7 +670,7 @@
   overflow: hidden;
   padding: 0 var(--app-space-2);
   border: 1px solid color-mix(in srgb, var(--app-accent) 42%, var(--app-white));
-  border-radius: var(--app-radius-xs);
+  border-radius: 2px;
   background: var(--app-accent-soft);
   color: var(--app-ink);
   cursor: pointer;
@@ -652,8 +690,8 @@
   background: color-mix(in srgb, var(--app-role-exception) 8%, var(--app-white));
 }
 .video-timeline-clip[aria-pressed="true"] {
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 2px var(--app-accent);
+  border-color: var(--app-ink);
+  box-shadow: var(--app-shadow-hard);
 }
 .video-timeline-clip span {
   min-width: 0;
@@ -684,16 +722,16 @@
   z-index: 2;
   top: 25px;
   bottom: 0;
-  width: 1px;
+  width: 2px;
   background: var(--app-danger);
   pointer-events: none;
 }
 .video-playhead::before {
   position: absolute;
   top: 0;
-  left: -5px;
-  width: 11px;
-  height: 8px;
+  left: -6px;
+  width: 14px;
+  height: 9px;
   border-radius: 2px 2px 6px 6px;
   background: var(--app-danger);
   content: "";
@@ -714,7 +752,7 @@
   gap: var(--app-space-4);
   padding: var(--app-space-4);
   border-top: 1px solid var(--app-line);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
 }
 .video-timeline-settings .field-group {
   width: 180px;
@@ -742,7 +780,7 @@
   min-width: 0;
   padding: var(--app-space-4);
   border-top: 1px solid var(--app-line);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
 }
 .video-clip-inspector-heading {
   display: flex;
@@ -778,7 +816,10 @@
 }
 .video-review-heading h2 {
   margin: 2px 0 var(--app-space-1);
+  font-family: var(--app-font-display);
   font-size: var(--app-text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .video-review-heading h2:focus {
   outline: none;
@@ -790,19 +831,36 @@
   font-size: var(--app-text-sm);
 }
 .video-review-kicker {
-  color: var(--app-accent-text);
+  color: var(--app-danger);
+  font-family: var(--app-font-mono);
   font-size: var(--app-text-xs);
   font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .video-review-workspace {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(300px, 380px);
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-white);
+  background: var(--app-cut-card);
   box-shadow: var(--app-shadow-md);
+}
+
+/* The clapper: a striped slate header running across the screening room. */
+.video-review-workspace::before {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 8px;
+  background: var(--app-cut-clapper);
+  content: "";
+  pointer-events: none;
 }
 .video-review-screen {
   display: grid;
@@ -970,8 +1028,8 @@
 .video-section-title h2 {
   font-family: var(--app-font-display);
   font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.005em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 /* Studio fields: hover tint before the primitive focus ring takes over. */

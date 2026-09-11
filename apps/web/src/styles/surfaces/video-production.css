@@ -22,9 +22,9 @@
 .video-loop-guidance {
   margin: 0;
   padding: var(--app-space-3);
-  border: 1px solid var(--app-line);
+  border: 1px solid var(--app-cut-line);
   border-radius: var(--app-radius-sm);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 55%, var(--app-white));
   font-size: var(--app-text-sm);
 }
 
@@ -36,7 +36,7 @@
   padding: var(--app-space-4);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-paper);
+  background: var(--app-cut-card);
 }
 
 .video-archive,
@@ -78,7 +78,11 @@
 .video-job-facts dt,
 .video-archive-hashes dt {
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .video-loop-facts dd,
@@ -140,7 +144,7 @@
   gap: var(--app-space-3);
   padding: var(--app-space-2) var(--app-space-3);
   border-radius: var(--app-radius-xs);
-  background: var(--app-paper);
+  background: color-mix(in srgb, var(--app-cut-paper) 60%, var(--app-white));
 }
 
 .video-job-stage span {
@@ -177,7 +181,7 @@
 }
 
 .video-archive-record {
-  background: var(--app-paper);
+  background: var(--app-cut-card);
 }
 
 /* Render request: stable status line so submit feedback never shifts layout. */
