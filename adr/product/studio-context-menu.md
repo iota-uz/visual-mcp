@@ -1,7 +1,7 @@
 ---
 id: studio-context-menu
 title: Контекстные действия студии через общее меню существующих операций
-status: accepted
+status: superseded
 date: 2026-09-11
 deciders: [unknown]
 area: product
@@ -15,7 +15,7 @@ applies_to:
 tags: [product, video-studio, context-menu, editor-ux]
 refs: []
 supersedes: []
-superseded_by: []
+superseded_by: [scene-reorder-drag-sort]
 ---
 
 ## Контекст

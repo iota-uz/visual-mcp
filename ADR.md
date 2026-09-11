@@ -72,7 +72,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Inspector и Exit якорятся к выбранной ноде в screen space** — [запись](adr/product/canvas-node-anchored-inspector.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Правый клик открывает короткое меню существующих операций focused-editor** — [запись](adr/product/canvas-context-menu.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Агент авторит CanvasDoc и артефакты двух форматов, человек получает сфокусированный редактор** — [запись](adr/product/agent-authored-dual-format-canvas.md) · accepted · 2026-08-09 (`9a73635`)
-- **Контекстные действия студии через общее меню существующих операций** — [запись](adr/product/studio-context-menu.md) · accepted · 2026-09-11 (запрос сопровождающего)
+- **Контекстные действия студии через общее меню существующих операций** — [запись](adr/product/studio-context-menu.md) · superseded · 2026-09-11 (запрос сопровождающего)
+- **Порядок сцен — drag-and-drop, контекстное меню сцен только для удаления** — [запись](adr/product/scene-reorder-drag-sort.md) · accepted · 2026-09-11 (запрос сопровождающего)
 
 ## process
 

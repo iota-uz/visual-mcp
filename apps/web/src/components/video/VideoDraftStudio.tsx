@@ -145,16 +145,8 @@ export function DraftStudio({
   );
   const editorLocked = transitioning || checkpointError;
 
-  function moveScene(id: string, delta: -1 | 1) {
-    const document = script.document;
-    const index = document.sceneOrder.indexOf(id);
-    const next = index + delta;
-    if (index < 0 || next < 0 || next >= document.sceneOrder.length) return;
-    const sceneOrder = [...document.sceneOrder];
-    const [moved] = sceneOrder.splice(index, 1);
-    if (!moved) return;
-    sceneOrder.splice(next, 0, moved);
-    script.edit({ ...document, sceneOrder });
+  function reorderScenes(sceneOrder: string[]) {
+    script.edit({ ...script.document, sceneOrder });
   }
 
   function deleteScene(id: string) {
@@ -299,7 +291,7 @@ export function DraftStudio({
                   setSceneId(next);
                   setShotId("");
                 }}
-                onMoveScene={moveScene}
+                onReorderScenes={reorderScenes}
                 onDeleteScene={setPendingSceneDelete}
                 scenesLocked={script.locked || editorLocked}
               />

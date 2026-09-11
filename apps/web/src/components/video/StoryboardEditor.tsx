@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import { ConfirmButton } from "../ConfirmButton";
@@ -54,18 +54,6 @@ export function StoryboardEditor({
     });
     select(newId);
   }
-  function move(delta: number) {
-    if (!id) return;
-    const index = document.sceneOrder.indexOf(id);
-    const next = index + delta;
-    if (index < 0 || next < 0 || next >= document.sceneOrder.length) return;
-    const order = [...document.sceneOrder];
-    const scene = order[index];
-    if (!scene) return;
-    order.splice(index, 1);
-    order.splice(next, 0, scene);
-    onChange({ ...document, sceneOrder: order });
-  }
   function removeScene() {
     if (!id) return;
     const { [id]: _removed, ...scenesById } = document.scenesById;
@@ -101,51 +89,30 @@ export function StoryboardEditor({
           >
             Add scene
           </Button>
-          {id && (
-            <>
-              <Button
-                size="sm"
-                icon={ChevronLeft}
-                disabled={disabled || document.sceneOrder.indexOf(id) <= 0}
-                onClick={() => move(-1)}
-              >
-                Earlier
-              </Button>
-              <Button
-                size="sm"
-                iconEnd={ChevronRight}
-                disabled={
-                  disabled || document.sceneOrder.indexOf(id) >= document.sceneOrder.length - 1
-                }
-                onClick={() => move(1)}
-              >
-                Later
-              </Button>
-              {confirmDelete ? (
-                <ConfirmButton
-                  defaultArmed
-                  confirmLabel="Delete scene"
-                  description="Removes this scene from the draft. Shots planned on it are lost."
-                  onDisarm={() => setConfirmDelete(false)}
-                  onConfirm={async () => removeScene()}
-                />
-              ) : (
-                <Menu
-                  label={`Actions for scene ${document.sceneOrder.indexOf(id) + 1}`}
-                  items={[
-                    {
-                      id: "delete-scene",
-                      label: "Delete scene…",
-                      icon: Trash2,
-                      danger: true,
-                      disabled,
-                      onSelect: () => setConfirmDelete(true),
-                    },
-                  ]}
-                />
-              )}
-            </>
-          )}
+          {id &&
+            (confirmDelete ? (
+              <ConfirmButton
+                defaultArmed
+                confirmLabel="Delete scene"
+                description="Removes this scene from the draft. Shots planned on it are lost."
+                onDisarm={() => setConfirmDelete(false)}
+                onConfirm={async () => removeScene()}
+              />
+            ) : (
+              <Menu
+                label={`Actions for scene ${document.sceneOrder.indexOf(id) + 1}`}
+                items={[
+                  {
+                    id: "delete-scene",
+                    label: "Delete scene…",
+                    icon: Trash2,
+                    danger: true,
+                    disabled,
+                    onSelect: () => setConfirmDelete(true),
+                  },
+                ]}
+              />
+            ))}
         </div>
       </div>
       <div className="video-field video-premise-field">
@@ -167,7 +134,13 @@ export function StoryboardEditor({
         />
       </div>
       {showSceneNavigator && (
-        <SceneNavigator document={document} selectedId={id} onSelect={select} />
+        <SceneNavigator
+          document={document}
+          selectedId={id}
+          onSelect={select}
+          onReorderScenes={(sceneOrder) => onChange({ ...document, sceneOrder })}
+          scenesLocked={disabled}
+        />
       )}
       {!scene ? (
         <div className="video-story-empty">
@@ -287,17 +260,48 @@ export function SceneNavigator({
   document,
   selectedId,
   onSelect,
-  onMoveScene,
+  onReorderScenes,
   onDeleteScene,
   scenesLocked,
 }: {
   document: ScriptDocument;
   selectedId?: string;
   onSelect: (id: string) => void;
-  onMoveScene?: (id: string, delta: -1 | 1) => void;
+  onReorderScenes?: (order: string[]) => void;
   onDeleteScene?: (id: string) => void;
   scenesLocked?: boolean;
 }) {
+  const [dragId, setDragId] = useState<string>();
+  const [overId, setOverId] = useState<string>();
+  const sortable = Boolean(onReorderScenes) && !scenesLocked && document.sceneOrder.length > 1;
+  // Dropping a card onto another takes that card's place: the dragged scene
+  // is inserted at the target's index in the original order.
+  function reorder(targetId: string) {
+    if (!onReorderScenes || !dragId || dragId === targetId) return;
+    const order = [...document.sceneOrder];
+    const from = order.indexOf(dragId);
+    const to = order.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = order.splice(from, 1);
+    if (!moved) return;
+    order.splice(to, 0, moved);
+    onReorderScenes(order);
+  }
+  function nudge(sceneId: string, delta: -1 | 1) {
+    if (!onReorderScenes) return;
+    const order = [...document.sceneOrder];
+    const from = order.indexOf(sceneId);
+    const next = from + delta;
+    if (from < 0 || next < 0 || next >= order.length) return;
+    const [moved] = order.splice(from, 1);
+    if (!moved) return;
+    order.splice(next, 0, moved);
+    onReorderScenes(order);
+  }
+  function clearDrag() {
+    setDragId(undefined);
+    setOverId(undefined);
+  }
   const { triggerProps, menu } = useContextMenuTrigger({
     resolveAnchor: (target) => {
       const element = target instanceof HTMLElement ? target : null;
@@ -307,43 +311,20 @@ export function SceneNavigator({
     getMenu: (anchor) => {
       const sceneId = anchor.dataset.sceneId;
       const scene = sceneId ? document.scenesById[sceneId] : undefined;
-      if (!sceneId || !scene || (!onMoveScene && !onDeleteScene)) return null;
+      if (!sceneId || !scene || !onDeleteScene) return null;
       onSelect(sceneId);
       const index = document.sceneOrder.indexOf(sceneId);
       return {
         label: `Scene ${index + 1} actions`,
         items: [
-          ...(onMoveScene
-            ? [
-                {
-                  id: "earlier",
-                  label: "Move earlier",
-                  icon: ChevronLeft,
-                  disabled: scenesLocked || index <= 0,
-                  onSelect: () => onMoveScene(sceneId, -1),
-                },
-                {
-                  id: "later",
-                  label: "Move later",
-                  icon: ChevronRight,
-                  disabled: scenesLocked || index >= document.sceneOrder.length - 1,
-                  onSelect: () => onMoveScene(sceneId, 1),
-                },
-                { id: "sep", separator: true as const },
-              ]
-            : []),
-          ...(onDeleteScene
-            ? [
-                {
-                  id: "delete",
-                  label: "Delete scene…",
-                  icon: Trash2,
-                  danger: true,
-                  disabled: scenesLocked,
-                  onSelect: () => onDeleteScene(sceneId),
-                },
-              ]
-            : []),
+          {
+            id: "delete",
+            label: "Delete scene…",
+            icon: Trash2,
+            danger: true,
+            disabled: scenesLocked,
+            onSelect: () => onDeleteScene(sceneId),
+          },
         ],
       };
     },
@@ -354,38 +335,76 @@ export function SceneNavigator({
         <strong>Scenes</strong>
         <span>{document.sceneOrder.length}</span>
       </div>
-      <div className="video-scene-list">
+      {sortable && (
+        <p className="video-scene-drag-hint">Drag to reorder · Alt + arrow keys move a scene</p>
+      )}
+      <ul className="video-scene-list">
         {document.sceneOrder.map((sceneId, index) => {
           const scene = document.scenesById[sceneId];
           const ready = scene ? sceneReadiness(scene).ready : false;
+          const dropTarget = Boolean(dragId && dragId !== sceneId && overId === sceneId);
           return (
-            <button
-              type="button"
-              className="video-scene-card"
+            <li
               key={sceneId}
               data-scene-id={sceneId}
-              aria-current={selectedId === sceneId ? "true" : undefined}
-              title={scene?.purpose || "Untitled scene"}
-              onClick={() => onSelect(sceneId)}
+              className={`video-scene-item${dragId === sceneId ? " is-dragging" : ""}${dropTarget ? " is-drop-target" : ""}`}
+              draggable={sortable ? true : undefined}
+              onDragStart={(event) => {
+                setDragId(sceneId);
+                // Firefox only starts a drag when the payload is set.
+                event.dataTransfer?.setData("text/plain", sceneId);
+                if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(event) => {
+                if (!dragId || dragId === sceneId) return;
+                event.preventDefault();
+                setOverId(sceneId);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                reorder(sceneId);
+                clearDrag();
+              }}
+              onDragEnd={clearDrag}
             >
-              <span className="video-scene-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className="video-scene-copy">
-                <strong>{scene?.purpose || "Untitled scene"}</strong>
-                <small>
-                  {scene?.shotOrder.length
-                    ? `${scene.shotOrder.length} shot${scene.shotOrder.length === 1 ? "" : "s"}`
-                    : scene?.narration || "Narration and shots needed"}
-                </small>
-              </span>
-              {ready ? (
-                <CheckCircle2 size={15} aria-label="Scene brief ready" />
-              ) : (
-                <Circle size={15} aria-label="Scene brief incomplete" />
-              )}
-            </button>
+              <button
+                type="button"
+                className="video-scene-card"
+                aria-current={selectedId === sceneId ? "true" : undefined}
+                aria-keyshortcuts={sortable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+                title={scene?.purpose || "Untitled scene"}
+                onClick={() => onSelect(sceneId)}
+                onKeyDown={(event) => {
+                  if (!sortable || !event.altKey) return;
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    nudge(sceneId, -1);
+                  }
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    nudge(sceneId, 1);
+                  }
+                }}
+              >
+                <span className="video-scene-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className="video-scene-copy">
+                  <strong>{scene?.purpose || "Untitled scene"}</strong>
+                  <small>
+                    {scene?.shotOrder.length
+                      ? `${scene.shotOrder.length} shot${scene.shotOrder.length === 1 ? "" : "s"}`
+                      : scene?.narration || "Narration and shots needed"}
+                  </small>
+                </span>
+                {ready ? (
+                  <CheckCircle2 size={15} aria-label="Scene brief ready" />
+                ) : (
+                  <Circle size={15} aria-label="Scene brief incomplete" />
+                )}
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
       {menu}
     </nav>
   );

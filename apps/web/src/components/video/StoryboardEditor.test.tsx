@@ -42,17 +42,22 @@ test("scene navigator communicates selection and brief readiness", async () => {
   expect(onSelect).toHaveBeenCalledWith("proof");
 });
 
-test("scene context menu moves and stages deletion", async () => {
+function sceneItem(name: RegExp): HTMLElement {
+  const card = screen.getByRole("button", { name });
+  const item = card.closest(".video-scene-item");
+  if (!(item instanceof HTMLElement)) throw new Error("Expected a scene item wrapper");
+  return item;
+}
+
+test("scene context menu stages deletion only", async () => {
   const user = userEvent.setup();
   const onSelect = vi.fn();
-  const onMoveScene = vi.fn();
   const onDeleteScene = vi.fn();
   render(
     <SceneNavigator
       document={document}
       selectedId="opening"
       onSelect={onSelect}
-      onMoveScene={onMoveScene}
       onDeleteScene={onDeleteScene}
     />,
   );
@@ -61,14 +66,107 @@ test("scene context menu moves and stages deletion", async () => {
   expect(screen.getByRole("menu")).toHaveAccessibleName("Scene 2 actions");
   // Opening the menu selects its target, like the canvas does.
   expect(onSelect).toHaveBeenCalledWith("proof");
-  expect(screen.getByRole("menuitem", { name: "Move earlier" })).toBeEnabled();
-  expect(screen.getByRole("menuitem", { name: "Move later" })).toBeDisabled();
+  // Reordering moved to drag-and-drop; the menu only stages deletion.
+  expect(screen.queryByRole("menuitem", { name: "Move earlier" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Move later" })).not.toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: "Delete scene…" })).toHaveClass("is-danger");
-  await user.click(screen.getByRole("menuitem", { name: "Move earlier" }));
-  expect(onMoveScene).toHaveBeenCalledWith("proof", -1);
-  fireEvent.contextMenu(proof, { clientX: 60, clientY: 120 });
   await user.click(screen.getByRole("menuitem", { name: "Delete scene…" }));
   expect(onDeleteScene).toHaveBeenCalledWith("proof");
+});
+
+test("scene list reorders by drag and drop", () => {
+  const onReorderScenes = vi.fn();
+  render(
+    <SceneNavigator
+      document={document}
+      selectedId="opening"
+      onSelect={vi.fn()}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const proof = sceneItem(/Proof/);
+  const opening = sceneItem(/Hook/);
+  fireEvent.dragStart(proof);
+  expect(proof).toHaveClass("is-dragging");
+  fireEvent.dragOver(opening);
+  expect(opening).toHaveClass("is-drop-target");
+  fireEvent.drop(opening);
+  // The dragged scene takes the target's place.
+  expect(onReorderScenes).toHaveBeenCalledWith(["proof", "opening"]);
+  fireEvent.dragEnd(proof);
+  expect(proof).not.toHaveClass("is-dragging");
+  expect(opening).not.toHaveClass("is-drop-target");
+});
+
+test("dropping a scene onto itself keeps the order", () => {
+  const onReorderScenes = vi.fn();
+  render(
+    <SceneNavigator
+      document={document}
+      selectedId="opening"
+      onSelect={vi.fn()}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const proof = sceneItem(/Proof/);
+  fireEvent.dragStart(proof);
+  fireEvent.dragOver(proof);
+  fireEvent.drop(proof);
+  expect(onReorderScenes).not.toHaveBeenCalled();
+});
+
+test("keyboard reorder nudges the focused scene with Alt plus arrows", () => {
+  const onReorderScenes = vi.fn();
+  render(
+    <SceneNavigator
+      document={document}
+      selectedId="opening"
+      onSelect={vi.fn()}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const proof = screen.getByRole("button", { name: /Proof/ });
+  expect(proof).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+  expect(screen.getByText(/Drag to reorder/)).toBeInTheDocument();
+  fireEvent.keyDown(proof, { key: "ArrowUp", altKey: true });
+  expect(onReorderScenes).toHaveBeenCalledWith(["proof", "opening"]);
+  // The last scene cannot move later.
+  fireEvent.keyDown(proof, { key: "ArrowDown", altKey: true });
+  expect(onReorderScenes).toHaveBeenCalledTimes(1);
+});
+
+test("sorting is unavailable while scenes are locked or single", () => {
+  const onReorderScenes = vi.fn();
+  const view = render(
+    <SceneNavigator
+      document={document}
+      selectedId="opening"
+      onSelect={vi.fn()}
+      onReorderScenes={onReorderScenes}
+      scenesLocked
+    />,
+  );
+  const proofCard = screen.getByRole("button", { name: /Proof/ });
+  expect(proofCard.closest(".video-scene-item")).not.toHaveAttribute("draggable");
+  expect(proofCard).not.toHaveAttribute("aria-keyshortcuts");
+  expect(screen.queryByText(/Drag to reorder/)).not.toBeInTheDocument();
+  fireEvent.keyDown(proofCard, { key: "ArrowUp", altKey: true });
+  expect(onReorderScenes).not.toHaveBeenCalled();
+  const single = Script.parse({
+    ...document,
+    sceneOrder: ["opening"],
+    scenesById: { opening: document.scenesById.opening },
+  });
+  view.rerender(
+    <SceneNavigator
+      document={single}
+      selectedId="opening"
+      onSelect={vi.fn()}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const hook = screen.getByRole("button", { name: /Hook/ });
+  expect(hook.closest(".video-scene-item")).not.toHaveAttribute("draggable");
 });
 
 test("scene cards keep the browser menu without handlers", () => {
