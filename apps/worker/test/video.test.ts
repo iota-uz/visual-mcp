@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { VideoRenderRequest } from "@visual-canvas/video/media";
 import { downloadSource, fileIdentity, validateTransferUrl } from "../src/video/media.js";
-import { handleVideoRender, VideoWorkerError } from "../src/video/render.js";
+import {
+  handleVideoRender,
+  renderSourceExtension,
+  renderSourceNeedsProbe,
+  VideoWorkerError,
+} from "../src/video/render.js";
 import { captionsVtt, frameAligned, renderRange } from "../src/video/timing.js";
 
 const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -78,6 +83,12 @@ test("already cancelled render never starts a compiler or browser", async () => 
 test("transfer URLs reject credentials and unsafe protocols", () => {
   assert.throws(() => validateTransferUrl("file:///etc/passwd"));
   assert.throws(() => validateTransferUrl("https://secret:secret@storage.example/a"));
+});
+test("trusted SVG image inputs are preserved for the browser without ffprobe", () => {
+  assert.equal(renderSourceExtension("image/svg+xml"), "svg");
+  assert.equal(renderSourceNeedsProbe("image/svg+xml"), false);
+  assert.equal(renderSourceNeedsProbe("image/png"), true);
+  assert.throws(() => renderSourceExtension("text/html"), /Unsupported source MIME/);
 });
 test("streaming ingestion validates actual bytes and checksum", async () => {
   const root = process.env.VIDEO_RENDER_TMP_ROOT ?? tmpdir();

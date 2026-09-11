@@ -245,28 +245,20 @@ async function renderInDirectory(
   for (const [index, input] of request.inputs.entries()) {
     const key = `${input.asset.assetId}:${input.asset.revisionId}`;
     if (files[key]) throw new Error("Duplicate input asset");
-    const extension: Record<string, string> = {
-      "image/png": "png",
-      "image/jpeg": "jpg",
-      "image/webp": "webp",
-      "video/mp4": "mp4",
-      "video/webm": "webm",
-      "audio/mpeg": "mp3",
-      "audio/wav": "wav",
-      "audio/mp4": "m4a",
-      "audio/ogg": "ogg",
-    };
-    const ext = extension[input.mimeType];
-    if (!ext) throw new Error("Unsupported source MIME");
+    const ext = renderSourceExtension(input.mimeType);
     const path = `${index}.${ext}`;
     await downloadSource(input, join(publicDir, path), signal);
+    files[key] = { path, mimeType: input.mimeType };
+    if (!renderSourceNeedsProbe(input.mimeType)) {
+      sourceKinds.set(key, []);
+      continue;
+    }
     const metadata = await probeMedia(join(publicDir, path), signal);
     sourceDurations.set(key, Number(metadata.format.duration));
     sourceKinds.set(
       key,
       metadata.streams.map((stream) => stream.codec_type),
     );
-    files[key] = { path, mimeType: input.mimeType };
   }
   const fps = request.format.fps.numerator / request.format.fps.denominator;
   let expectedAudio = false;
@@ -447,4 +439,27 @@ async function renderInDirectory(
     );
   }
   return result;
+}
+
+const renderSourceExtensions: Record<string, string> = {
+  "image/svg+xml": "svg",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/ogg": "ogg",
+};
+
+export function renderSourceExtension(mimeType: string) {
+  const extension = renderSourceExtensions[mimeType];
+  if (!extension) throw new Error("Unsupported source MIME");
+  return extension;
+}
+
+export function renderSourceNeedsProbe(mimeType: string) {
+  return mimeType !== "image/svg+xml";
 }
