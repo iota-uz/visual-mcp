@@ -4,31 +4,8 @@ import { parseRef } from "../../../../convex/lib/ref.js";
 import type { AgentContext } from "../gateway.js";
 import { internal } from "../refs.js";
 import type { CapturedCanvasTool, McpPrincipal } from "../tools.js";
-import {
-  sharedMediaTools,
-  type VideoBackend,
-  VideoDomainError,
-  videoRegistry,
-} from "./registry.js";
+import { type VideoBackend, VideoDomainError, videoRegistry } from "./registry.js";
 
-export const sharedCanvasTools = new Set([
-  "asset_list",
-  "asset_get",
-  "asset_delete",
-  "asset_restore",
-  "asset_move",
-  "asset_upload_url",
-  "asset_finalize",
-  "asset_import",
-  "asset_attach",
-  "comment_create",
-  "comment_reanchor",
-  "comment_list",
-  "comment_reply",
-  "comment_complete",
-  "comment_status",
-  "screen_tree",
-]);
 const obj = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
 /** Per-request authenticated handler closures, never a global principal cache. */
 export function attachCanvasCatalog(
@@ -36,13 +13,9 @@ export function attachCanvasCatalog(
   ctx: AgentContext,
   principal: McpPrincipal,
   canvas: CapturedCanvasTool[],
-  endpoint: "canvas" | "video",
 ) {
-  const intrinsic = videoRegistry.filter(
-    (tool) => endpoint === "video" || sharedMediaTools.has(tool.name) || tool.name === "execute",
-  );
   call.catalog = {
-    tools: [...canvas, ...intrinsic],
+    tools: [...canvas, ...videoRegistry],
     checkScope: async (name, input, workspaceId) => {
       let checked = false;
       const verify = (actual: unknown) => {

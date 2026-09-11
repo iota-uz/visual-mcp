@@ -8,8 +8,9 @@ Unknown facts remain unknown. Sourced means attributed, not independently verifi
 
 ## Choose the next action from current state
 
-Read the connected tool catalog once. The server has separate Canvas and Video
-endpoints; tool prefixes depend on the host's connection name. Use existing
+Read the connected tool catalog once. Canvas and Video Studio share `/mcp` and
+one tool catalog; tool prefixes depend on the host's connection name. Do not
+request a second Video connection. Use existing
 harness search for research, not a new MCP tool-discovery workflow. Do not invent
 missing producer capabilities, models, file paths or fake successful results.
 

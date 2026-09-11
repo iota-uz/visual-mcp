@@ -85,7 +85,7 @@ async function fixtureServer(metadataBySlug) {
 }
 
 describe("MCP reverse proxy", () => {
-  it.each(["/mcp", "/mcp/video"])("preserves exact %s routing, auth and JSON", async (endpoint) => {
+  it.each(["/mcp"])("preserves exact %s routing, auth and JSON", async (endpoint) => {
     const origin = await fixtureServer({});
     const response = await fetch(`${origin}${endpoint}`, {
       method: "POST",
@@ -100,14 +100,14 @@ describe("MCP reverse proxy", () => {
     });
   });
 
-  it.each(["/mcp", "/mcp/video"])("keeps %s POST-only", async (endpoint) => {
+  it.each(["/mcp"])("keeps %s POST-only", async (endpoint) => {
     const origin = await fixtureServer({});
     const response = await fetch(`${origin}${endpoint}`);
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("POST");
   });
 
-  it.each(["/mcp/video/", "/mcp/video/other", "/mcp/other"])(
+  it.each(["/mcp/video", "/mcp/video/", "/mcp/video/other", "/mcp/other"])(
     "does not proxy the unsupported path %s",
     async (endpoint) => {
       const origin = await fixtureServer({});

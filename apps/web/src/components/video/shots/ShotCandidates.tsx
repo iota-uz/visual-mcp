@@ -163,6 +163,7 @@ export function ShotCandidates({
           </p>
           <Select
             id="shot-duration"
+            data-native-history
             label="Requested duration"
             labelVisible
             disabled={disabled || busy || !!pending.current}
@@ -223,6 +224,7 @@ export function ShotCandidates({
         <>
           <TextInput
             id="compare-shot-time"
+            data-native-history
             label="Compare candidates at time (seconds)"
             labelVisible
             type="number"
@@ -353,6 +355,7 @@ function CandidatePlayer({
         <div className="video-form">
           <TextInput
             id={`shot-reason-${asset.revisionId}`}
+            data-native-history
             label="Why this candidate?"
             labelVisible
             value={reason}

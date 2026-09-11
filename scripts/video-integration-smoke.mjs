@@ -43,7 +43,7 @@ export async function runLocalMcpSmoke({
     convex.setAuth(auth.tokens.token);
     const minted = await convex.mutation(makeFunctionReference("tokens:mintMine"), { name: tag });
     tokenId = minted.tokenId;
-    for (const endpoint of ["/mcp", "/mcp/video"]) {
+    for (const endpoint of ["/mcp"]) {
       const client = new Client({ name: "visual-video-local-acceptance", version: "1" });
       await client.connect(
         new StreamableHTTPClientTransport(new URL(endpoint, base), {
@@ -52,7 +52,7 @@ export async function runLocalMcpSmoke({
       );
       clients.push(client);
     }
-    const [canvas, video] = clients;
+    const [mcp] = clients;
     const call = async (client, name, args) => {
       const response = await client.callTool({ name, arguments: args });
       if (response.isError)
@@ -65,25 +65,30 @@ export async function runLocalMcpSmoke({
     const poll = async (jobId) => {
       const until = Date.now() + 90000;
       while (Date.now() < until) {
-        const job = await call(video, "job_get", { job_id: jobId });
+        const job = await call(mcp, "job_get", { job_id: jobId });
         if (["succeeded", "failed", "cancelled", "outcome_unknown"].includes(job.state)) return job;
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
       throw new Error("LOCAL_JOB_DID_NOT_SETTLE");
     };
-    stage = "catalogs";
-    const canvasNames = (await canvas.listTools()).tools.map((tool) => tool.name);
-    const videoNames = (await video.listTools()).tools.map((tool) => tool.name);
-    assert(canvasNames.includes("execute") && canvasNames.includes("image_generate"));
-    assert(!canvasNames.includes("video_project_create"));
-    assert(videoNames.includes("video_project_create") && videoNames.includes("asset_get"));
+    stage = "unified-catalog";
+    const names = (await mcp.listTools()).tools.map((tool) => tool.name);
+    assert.equal(new Set(names).size, names.length, "DUPLICATE_TOOL_NAME");
+    for (const name of [
+      "execute",
+      "canvas_find",
+      "image_generate",
+      "video_project_create",
+      "asset_get",
+    ])
+      assert(names.includes(name), `MISSING_TOOL:${name}`);
     stage = "workspace-project";
     const workspace = await convex.mutation(makeFunctionReference("workspaces:createMine"), {
       name: tag,
       slug: tag,
       description: "Local acceptance fixture; no paid provider calls.",
     });
-    const project = await call(video, "video_project_create", {
+    const project = await call(mcp, "video_project_create", {
       workspace_id: workspace.workspaceId,
       idempotency_key: `${tag}:project`,
       title: tag,
@@ -96,7 +101,7 @@ export async function runLocalMcpSmoke({
     });
     assert.equal(project.drafts.length, 2);
     stage = "canvas-execute";
-    const canvasRun = await call(canvas, "execute", {
+    const canvasRun = await call(mcp, "execute", {
       workspace_id: workspace.workspaceId,
       idempotency_key: `${tag}:canvas-execute`,
       inputs: { workspace: workspace.slug },
@@ -105,7 +110,7 @@ export async function runLocalMcpSmoke({
     const canvasJob = await poll(canvasRun.job_id);
     assert.equal(canvasJob.state, "succeeded");
     assert.deepEqual(canvasJob.result.emitted, [
-      { count: 0, videoTool: "undefined", recursive: "undefined" },
+      { count: 0, videoTool: "function", recursive: "undefined" },
     ]);
     stage = "video-execute-offline-fixtures";
     const runInput = {
@@ -115,7 +120,7 @@ export async function runLocalMcpSmoke({
       inputs: { project: project.project_id, key: `${tag}:eval` },
       code: "const p = await tools.video_project_get({project_id:inputs.project}); const receipt=await tools.video_eval_run({workspace_id:context.workspace_id,idempotency_key:inputs.key,evaluation:{runner:'workflow-contract-v1',dataset:'workflow-contract-v1',execution:{mode:'offline'}}}); emit({project:p.project_id,evalJob:receipt.job_id});",
     };
-    const run = await call(video, "execute", runInput);
+    const run = await call(mcp, "execute", runInput);
     const executed = await poll(run.job_id);
     assert.equal(executed.state, "succeeded");
     const evaluation = await poll(executed.result.emitted[0].evalJob);
@@ -131,12 +136,12 @@ export async function runLocalMcpSmoke({
       evaluation.result.report.provenance,
       "actual-convex-handler-execution-rolled-back",
     );
-    const replay = await call(video, "execute", runInput);
+    const replay = await call(mcp, "execute", runInput);
     assert.equal(replay.job_id, run.job_id);
     assert.equal(replay.replayed, true);
     stage = "resources";
-    const models = await call(video, "resource_find", { kind: "model", query: "image" });
-    const model = await call(video, "resource_get", { uri: models.items[0].uri });
+    const models = await call(mcp, "resource_find", { kind: "model", query: "image" });
+    const model = await call(mcp, "resource_get", { uri: models.items[0].uri });
     assert.equal(JSON.parse(model.content).availability, "account_not_verified");
     return {
       status: "passed",
@@ -152,7 +157,7 @@ export async function runLocalMcpSmoke({
         "actual-installed-SDK-client-to-MCP-server",
         "actual-local-Convex-auth-and-token",
         "shared-Canvas-handler-broker",
-        "separate-endpoint-catalogs",
+        "one-connection-Canvas-and-Video-catalog-without-duplicates",
         "worker-runtime-and-durable-effect-journal",
         "five-real-Convex-contract-fixtures-with-rollback",
         "same-key-execute-no-replay",

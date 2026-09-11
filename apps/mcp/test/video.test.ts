@@ -109,7 +109,7 @@ function fixture(
     },
   };
   const app = createApp(gateway as unknown as AgentGateway);
-  async function request(method: string, params: Record<string, unknown>, path = "/mcp/video") {
+  async function request(method: string, params: Record<string, unknown>, path = "/mcp") {
     const response = await app.request(path, {
       method: "POST",
       headers: {
@@ -132,14 +132,14 @@ function fixture(
   return { request, calls, app };
 }
 describe("Video Studio actual SDK transport", () => {
-  test("separates catalogs and advertises only implemented foundation tools", async () => {
+  test("unifies catalogs without duplicate or unimplemented tools", async () => {
     const { request } = fixture();
     const video = await request("tools/list", {});
     const names = video.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(expect.arrayContaining(videoRegistry.map((t) => t.name)));
     expect(new Set(names).size).toBe(names.length);
     expect(names).toContain("asset_get");
-    expect(names).not.toContain("canvas_save");
+    expect(names).toContain("canvas_save");
     expect(names).not.toContain("execute");
     expect(names.join(" ")).not.toMatch(/search_tools|describe_tools|approve/);
     for (const t of video.result.tools) {
@@ -147,10 +147,6 @@ describe("Video Studio actual SDK transport", () => {
       expect(t.inputSchema.type).toBe("object");
       expect(t.outputSchema.anyOf).toHaveLength(2);
     }
-    const canvas = await request("tools/list", {}, "/mcp");
-    expect(canvas.result.tools.map((t: { name: string }) => t.name)).not.toContain(
-      "video_project_create",
-    );
   });
   test("project result IDs feed document read without argument reconstruction", async () => {
     const { request, calls } = fixture();
@@ -415,7 +411,7 @@ describe("Video Studio actual SDK transport", () => {
   });
   test("a missing bearer is rejected before gateway work", async () => {
     const { app, calls } = fixture();
-    const result = await app.request("/mcp/video", { method: "POST", body: "{}" });
+    const result = await app.request("/mcp", { method: "POST", body: "{}" });
     expect(result.status).toBe(401);
     expect(calls).toHaveLength(0);
   });

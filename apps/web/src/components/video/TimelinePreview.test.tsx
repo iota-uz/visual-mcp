@@ -41,6 +41,8 @@ const timeline: TimelineDocument = {
 };
 
 beforeEach(() => {
+  window.localStorage.clear();
+  vi.stubGlobal("PointerEvent", MouseEvent);
   resolve.mockReset();
   resolve.mockResolvedValue({ url: "/frame.png", mimeType: "image/png", name: "Keyframe" });
 });
@@ -220,7 +222,12 @@ test("renders pinned images and authored layers inside a scene graph component",
   expect(resolve).toHaveBeenCalledTimes(1);
 });
 
-test("lets editors resize the draft monitor with controls and the keyboard", () => {
+test.each([
+  ["bottom right", 150, 180],
+  ["bottom left", 50, 180],
+  ["top right", 150, 20],
+  ["top left", 50, 20],
+] as const)("resizes from the %s corner with bounds and keyboard support", (name, x, y) => {
   render(
     <TimelinePreview
       workspaceId={"workspace" as Id<"workspaces">}
@@ -233,12 +240,29 @@ test("lets editors resize the draft monitor with controls and the keyboard", () 
     />,
   );
 
-  const separator = screen.getByRole("separator", { name: "Resize draft monitor" });
-  const initialHeight = Number(separator.getAttribute("aria-valuenow"));
-  fireEvent.click(screen.getByRole("button", { name: "Enlarge preview" }));
-  expect(Number(separator.getAttribute("aria-valuenow"))).toBeGreaterThan(initialHeight);
-  fireEvent.keyDown(separator, { key: "ArrowDown" });
-  expect(Number(separator.getAttribute("aria-valuenow"))).toBe(initialHeight + 40);
-  fireEvent.keyDown(separator, { key: "Home" });
-  expect(separator).toHaveAttribute("aria-valuenow", "280");
+  const stage = screen.getByRole("img", { name: "Timeline draft preview" });
+  const shell = stage.parentElement;
+  if (!shell) throw new Error("Expected a preview stage shell");
+  const initialWidth = shell.style.width;
+  const corner = screen.getByRole("button", { name: `Resize preview from ${name}` });
+  fireEvent.pointerDown(corner, { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+  expect(shell).toHaveAttribute("data-resizing", "true");
+  fireEvent.pointerMove(corner, { pointerId: 1, clientX: x, clientY: y });
+  fireEvent.pointerUp(corner, { pointerId: 1, clientX: x, clientY: y });
+  expect(shell).toHaveAttribute("data-resizing", "false");
+  expect(shell.style.width).not.toBe(initialWidth);
+  fireEvent.keyDown(corner, { key: "Home" });
+  expect(shell.style.width).toContain("157.5px");
+  expect(localStorage.getItem("visual-canvas:video-preview-height")).toBe("280");
+  fireEvent.keyDown(corner, { key: "ArrowDown" });
+  expect(shell.style.width).toContain("157.5px");
+  fireEvent.keyDown(corner, { key: "End" });
+  const maxWidth = shell.style.width;
+  fireEvent.keyDown(corner, { key: "ArrowUp" });
+  expect(shell.style.width).toBe(maxWidth);
+  fireEvent.pointerDown(corner, { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+  fireEvent.pointerCancel(corner);
+  fireEvent.pointerMove(corner, { pointerId: 1, clientX: 0, clientY: 0 });
+  expect(shell.style.width).toBe(maxWidth);
+  expect(shell).toHaveAttribute("data-resizing", "false");
 });

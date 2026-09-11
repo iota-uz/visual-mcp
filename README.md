@@ -5,6 +5,10 @@ diagrams, dashboards, reports, mobile/browser mockups, multipage PDFs — over
 a **remote MCP endpoint**, using HTML+Tailwind v4, [D2](https://d2lang.com)
 diagrams, and ApexCharts. Humans browse, view, and share the results by URL.
 
+The same MCP connection also serves Video Studio: scripts, timelines, media
+production, rendering and review. Canvas and video share one asset library,
+job service and tool catalog; no second MCP connection is needed.
+
 ## Connect Claude to it
 
 ```

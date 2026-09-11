@@ -1,5 +1,5 @@
 import { useMutation, usePaginatedQuery, type useQuery } from "convex/react";
-import { CheckCircle2, Film } from "lucide-react";
+import { CheckCircle2, Film, Redo2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../../convex/_generated/api";
@@ -14,6 +14,7 @@ import { TextInput } from "../ui/TextInput";
 import { ShotStudio } from "./ShotStudio";
 import { SceneNavigator, StoryboardEditor } from "./StoryboardEditor";
 import { TimelineEditor } from "./TimelineEditor";
+import { useDocumentHistory } from "./useDocumentHistory";
 import { useRevisionEditor } from "./useRevisionEditor";
 import { useStudioShortcuts } from "./useStudioShortcuts";
 import { useUnsavedNavigation } from "./useUnsavedNavigation";
@@ -96,6 +97,9 @@ export function DraftStudio({
     timeline.state === "saving" ||
     script.awaitingSubscription ||
     timeline.awaitingSubscription;
+  const history = useDocumentHistory({ script, timeline }, transitioning || checkpointError);
+  const editScript = (next: typeof script.document) => history.edit("script", next);
+  const editTimeline = (next: typeof timeline.document) => history.edit("timeline", next);
   useUnsavedNavigation(unsaved || checkpointBusy || checkpointError);
   useReportBlocked(unsaved || checkpointBusy || checkpointError || transitioning, onBlocked);
   const versions = usePaginatedQuery(
@@ -120,6 +124,7 @@ export function DraftStudio({
     onMode,
     saveScript: () => void scriptSaveRef.current(),
     saveTimeline: () => void timelineSaveRef.current(),
+    history,
   });
   const saveState =
     script.state === "saving" || timeline.state === "saving"
@@ -146,14 +151,14 @@ export function DraftStudio({
   const editorLocked = transitioning || checkpointError;
 
   function reorderScenes(sceneOrder: string[]) {
-    script.edit({ ...script.document, sceneOrder });
+    editScript({ ...script.document, sceneOrder });
   }
 
   function deleteScene(id: string) {
     const document = script.document;
     const { [id]: _removed, ...scenesById } = document.scenesById;
     const sceneOrder = document.sceneOrder.filter((sceneId) => sceneId !== id);
-    script.edit({ ...document, sceneOrder, scenesById });
+    editScript({ ...document, sceneOrder, scenesById });
     if (sceneId === id) {
       setSceneId(sceneOrder[0] ?? "");
       setShotId("");
@@ -262,8 +267,30 @@ export function DraftStudio({
           )}
         </ol>
         <span className="vs-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save
+          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save · <kbd>{modKey}Z</kbd> undo
         </span>
+        {mode !== "review" && (
+          <fieldset className="video-icon-controls" aria-label="Draft edit history">
+            <Button
+              size="sm"
+              icon={Undo2}
+              disabled={!history.canUndo}
+              onClick={history.undo}
+              title="Undo draft edit (⌘Z / Ctrl+Z)"
+            >
+              Undo
+            </Button>
+            <Button
+              size="sm"
+              icon={Redo2}
+              disabled={!history.canRedo}
+              onClick={history.redo}
+              title="Redo draft edit (⌘⇧Z / Ctrl+Shift+Z)"
+            >
+              Redo
+            </Button>
+          </fieldset>
+        )}
       </div>
 
       {mode === "review" ? (
@@ -308,13 +335,13 @@ export function DraftStudio({
             </aside>
           )}
 
-          <main className="video-editing-column">
+          <main className="video-editing-column" data-document-history>
             {mode === "story" && (
               <>
                 <EditorNotice editor={script} name="script" />
                 <StoryboardEditor
                   document={script.document}
-                  onChange={script.edit}
+                  onChange={editScript}
                   disabled={script.locked || editorLocked}
                   selectedId={activeSceneId}
                   onSelect={setSceneId}
@@ -335,7 +362,7 @@ export function DraftStudio({
                   draftId={draft.draftId}
                   revision={draft.scriptRevision}
                   document={script.document}
-                  onChange={script.edit}
+                  onChange={editScript}
                   locked={script.locked || editorLocked}
                   unsaved={script.dirty || script.awaitingSubscription}
                   sceneId={activeSceneId}
@@ -349,7 +376,8 @@ export function DraftStudio({
                 <EditorNotice editor={timeline} name="timeline" />
                 <TimelineEditor
                   document={timeline.document}
-                  onChange={timeline.edit}
+                  onChange={editTimeline}
+                  history={history}
                   disabled={timeline.locked || editorLocked}
                   workspaceId={project.workspaceId}
                   format={project.format}

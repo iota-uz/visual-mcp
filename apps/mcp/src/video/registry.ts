@@ -854,28 +854,8 @@ export async function callVideoTool(name: string, input: unknown, call: VideoBac
     );
   }
 }
-// Legacy Canvas asset_upload_url remains compatible; verified uploads use reserve.
-export const sharedMediaTools = new Set([
-  "resource_get",
-  "resource_find",
-  "image_generate",
-  "image_edit",
-  "voice_list",
-  "asset_upload_reserve",
-  "asset_upload_status",
-  "asset_upload_finalize",
-  "job_get",
-  "job_list",
-  "job_effect_get",
-  "job_cancel",
-  "job_reconcile",
-]);
-export function registerVideoTools(
-  server: McpServer,
-  call: VideoBackend,
-  names?: ReadonlySet<string>,
-) {
-  for (const d of videoRegistry.filter((definition) => !names || names.has(definition.name))) {
+export function registerVideoTools(server: McpServer, call: VideoBackend) {
+  for (const d of videoRegistry) {
     // Keep the exact public schema but defer validation into the common handler.
     // SDK 2.0 otherwise turns validation failures into text-only errors before
     // our handler; this preserves error/outputSchema parity at the real boundary.

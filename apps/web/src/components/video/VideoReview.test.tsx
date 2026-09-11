@@ -161,3 +161,17 @@ test("running exports are announced while no finished export exists", async () =
     screen.queryByRole("navigation", { name: "Saved render candidates" }),
   ).not.toBeInTheDocument();
 });
+
+test("feedback text and frame anchors undo independently without reversing approval or posting", async () => {
+  mount();
+  const feedback = await screen.findByLabelText("Your feedback");
+  fireEvent.change(feedback, { target: { value: "Revised note" } });
+  fireEvent.click(screen.getByRole("button", { name: /Use current frame/ }));
+  fireEvent.keyDown(feedback, { key: "z", metaKey: true });
+  expect(feedback).toHaveValue("Revised note");
+  fireEvent.keyDown(feedback, { key: "z", metaKey: true });
+  expect(feedback).toHaveValue("Persisted feedback");
+  fireEvent.keyDown(feedback, { key: "Z", metaKey: true, shiftKey: true });
+  expect(feedback).toHaveValue("Revised note");
+  expect(state.approve).not.toHaveBeenCalled();
+});

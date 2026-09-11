@@ -1,5 +1,4 @@
 import { useAction } from "convex/react";
-import { Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
@@ -14,6 +13,8 @@ type Clip = TimelineDocument["tracksById"][string]["clipsById"][string];
 const assetKey = (asset: AssetRef) => `${asset.assetId}:${asset.revisionId}`;
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const previewHeightStorageKey = "visual-canvas:video-preview-height";
+const resizeCorners = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+type ResizeCorner = (typeof resizeCorners)[number];
 
 function previewHeightLimits() {
   const viewportHeight = typeof window === "undefined" ? 900 : window.innerHeight;
@@ -27,7 +28,12 @@ function previewHeightLimits() {
 function initialPreviewHeight() {
   const limits = previewHeightLimits();
   if (typeof window === "undefined") return limits.defaultValue;
-  const stored = Number(window.localStorage.getItem(previewHeightStorageKey));
+  let stored = Number.NaN;
+  try {
+    stored = Number(window.localStorage.getItem(previewHeightStorageKey));
+  } catch {
+    // Preview sizing remains usable when browser storage is unavailable.
+  }
   return Number.isFinite(stored) && stored >= limits.min && stored <= limits.max
     ? stored
     : limits.defaultValue;
@@ -441,27 +447,59 @@ export function TimelinePreview({
   const [media, setMedia] = useState<Record<string, ResolvedAsset>>({});
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const [previewHeight, setPreviewHeight] = useState(initialPreviewHeight);
-  const resize = useRef<{ startY: number; startHeight: number } | undefined>(undefined);
+  const [resizing, setResizing] = useState(false);
+  const resize = useRef<
+    | {
+        startX: number;
+        startY: number;
+        startHeight: number;
+        pointerId: number;
+        xDirection: -1 | 1;
+        yDirection: -1 | 1;
+      }
+    | undefined
+  >(undefined);
   const limits = previewHeightLimits();
   const setClampedPreviewHeight = (height: number) =>
     setPreviewHeight(Math.round(Math.max(limits.min, Math.min(limits.max, height))));
-  function startResize(event: ReactPointerEvent<HTMLHRElement>) {
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>, corner: ResizeCorner) {
     if (event.button !== 0) return;
     event.preventDefault();
-    resize.current = { startY: event.clientY, startHeight: previewHeight };
+    resize.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startHeight:
+        event.currentTarget.parentElement?.getBoundingClientRect().height || previewHeight,
+      pointerId: event.pointerId,
+      xDirection: corner.endsWith("right") ? 1 : -1,
+      yDirection: corner.startsWith("bottom") ? 1 : -1,
+    };
+    setResizing(true);
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
-  function updateResize(event: ReactPointerEvent<HTMLHRElement>) {
-    if (!resize.current) return;
-    setClampedPreviewHeight(resize.current.startHeight + event.clientY - resize.current.startY);
+  function updateResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!resize.current || resize.current.pointerId !== event.pointerId) return;
+    const aspectRatio = format.width / format.height;
+    const deltaX = (event.clientX - resize.current.startX) * resize.current.xDirection;
+    const deltaY = (event.clientY - resize.current.startY) * resize.current.yDirection;
+    // The preview stays horizontally centered: each side moves half its width change.
+    const horizontalRate = aspectRatio / 2;
+    const projectedDelta =
+      (deltaX * horizontalRate + deltaY) / (horizontalRate * horizontalRate + 1);
+    setClampedPreviewHeight(resize.current.startHeight + projectedDelta);
   }
-  function finishResize(event: ReactPointerEvent<HTMLHRElement>) {
+  function finishResize(event: ReactPointerEvent<HTMLButtonElement>) {
     if (!resize.current) return;
     updateResize(event);
     resize.current = undefined;
+    setResizing(false);
   }
   useEffect(() => {
-    window.localStorage.setItem(previewHeightStorageKey, String(previewHeight));
+    try {
+      window.localStorage.setItem(previewHeightStorageKey, String(previewHeight));
+    } catch {
+      // Storage is an optional preference, never a prerequisite for editing.
+    }
   }, [previewHeight]);
   useEffect(() => {
     let active = true;
@@ -526,127 +564,103 @@ export function TimelinePreview({
   return (
     <section className="video-program-monitor" aria-label="Draft monitor">
       <div className="video-program-heading">
-        <div>
-          <strong>Draft monitor</strong>
-          <span>Live approximation · final MP4 is reviewed separately</span>
-        </div>
-        <fieldset className="video-icon-controls video-program-size-controls">
-          <legend className="visually-hidden">Preview size</legend>
-          <button
-            type="button"
-            aria-label="Shrink preview"
-            title="Shrink preview"
-            disabled={previewHeight <= limits.min}
-            onClick={() => setClampedPreviewHeight(previewHeight - 80)}
-          >
-            <Minimize2 size={15} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Reset preview size"
-            title="Reset preview size"
-            onClick={() => setPreviewHeight(limits.defaultValue)}
-          >
-            <RotateCcw size={14} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Enlarge preview"
-            title="Enlarge preview"
-            disabled={previewHeight >= limits.max}
-            onClick={() => setClampedPreviewHeight(previewHeight + 80)}
-          >
-            <Maximize2 size={15} aria-hidden="true" />
-          </button>
-        </fieldset>
+        <strong>Draft monitor</strong>
+        <span>Live approximation · drag a preview corner to resize</span>
       </div>
       <div className="video-program-stage-wrap">
         <div
-          className="video-program-stage"
+          className="video-program-stage-shell"
+          data-resizing={resizing}
           style={{
             aspectRatio: `${format.width} / ${format.height}`,
             width: `min(100%, ${previewHeight * (format.width / format.height)}px)`,
           }}
-          role="img"
-          aria-label="Timeline draft preview"
         >
-          {visuals.length === 0 && (
-            <span className="video-program-empty" role="status">
-              {emptyVisualNote}
-            </span>
-          )}
-          {visuals.map(({ trackId, clipId, clip }) => {
-            const key = clip.source.kind === "asset" ? assetKey(clip.source.asset) : "";
-            if (clip.source.kind === "asset")
+          <div className="video-program-stage" role="img" aria-label="Timeline draft preview">
+            {visuals.length === 0 && (
+              <span className="video-program-empty" role="status">
+                {emptyVisualNote}
+              </span>
+            )}
+            {visuals.map(({ trackId, clipId, clip }) => {
+              const key = clip.source.kind === "asset" ? assetKey(clip.source.asset) : "";
+              if (clip.source.kind === "asset")
+                return (
+                  <AssetLayer
+                    key={`${trackId}:${clipId}:${media[key]?.url ?? "pending"}`}
+                    clip={clip}
+                    frame={displayFrame}
+                    fps={fps}
+                    playing={playing}
+                    media={media[key]}
+                  />
+                );
+              if (clip.source.kind === "text")
+                return <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />;
               return (
-                <AssetLayer
-                  key={`${trackId}:${clipId}:${media[key]?.url ?? "pending"}`}
+                <ComponentLayer
+                  key={`${trackId}:${clipId}`}
+                  clip={clip}
+                  frame={displayFrame}
+                  media={media}
+                  formatWidth={format.width}
+                />
+              );
+            })}
+            {captions.map(({ trackId, clipId, clip }) => (
+              <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />
+            ))}
+            {audio.map(({ trackId, clipId, clip }) => {
+              if (clip.source.kind !== "asset") return null;
+              return (
+                <AudioLayer
+                  key={`${trackId}:${clipId}`}
                   clip={clip}
                   frame={displayFrame}
                   fps={fps}
                   playing={playing}
-                  media={media[key]}
+                  media={media[assetKey(clip.source.asset)]}
+                  muted={mutedTracks.has(trackId)}
                 />
               );
-            if (clip.source.kind === "text")
-              return <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />;
-            return (
-              <ComponentLayer
-                key={`${trackId}:${clipId}`}
-                clip={clip}
-                frame={displayFrame}
-                media={media}
-                formatWidth={format.width}
-              />
-            );
-          })}
-          {captions.map(({ trackId, clipId, clip }) => (
-            <TextLayer key={`${trackId}:${clipId}`} clip={clip} frame={displayFrame} />
+            })}
+          </div>
+          {resizeCorners.map((corner) => (
+            <button
+              key={corner}
+              type="button"
+              className={`video-program-resize-corner video-program-resize-corner-${corner}`}
+              aria-label={`Resize preview from ${corner.replace("-", " ")}`}
+              title="Drag to resize preview"
+              onPointerDown={(event) => startResize(event, corner)}
+              onPointerMove={updateResize}
+              onPointerUp={finishResize}
+              onPointerCancel={() => {
+                resize.current = undefined;
+                setResizing(false);
+              }}
+              onLostPointerCapture={() => {
+                resize.current = undefined;
+                setResizing(false);
+              }}
+              onKeyDown={(event) => {
+                if (["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(event.key)) {
+                  event.preventDefault();
+                  setClampedPreviewHeight(
+                    previewHeight + (["ArrowUp", "ArrowRight"].includes(event.key) ? 40 : -40),
+                  );
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  setPreviewHeight(limits.min);
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  setPreviewHeight(limits.max);
+                }
+              }}
+            />
           ))}
-          {audio.map(({ trackId, clipId, clip }) => {
-            if (clip.source.kind !== "asset") return null;
-            return (
-              <AudioLayer
-                key={`${trackId}:${clipId}`}
-                clip={clip}
-                frame={displayFrame}
-                fps={fps}
-                playing={playing}
-                media={media[assetKey(clip.source.asset)]}
-                muted={mutedTracks.has(trackId)}
-              />
-            );
-          })}
         </div>
       </div>
-      <hr
-        className="video-program-resize-handle"
-        tabIndex={0}
-        aria-label="Resize draft monitor"
-        aria-orientation="horizontal"
-        aria-valuemin={limits.min}
-        aria-valuemax={limits.max}
-        aria-valuenow={previewHeight}
-        title="Drag to resize preview"
-        onPointerDown={startResize}
-        onPointerMove={updateResize}
-        onPointerUp={finishResize}
-        onPointerCancel={() => {
-          resize.current = undefined;
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-            event.preventDefault();
-            setClampedPreviewHeight(previewHeight + (event.key === "ArrowUp" ? 40 : -40));
-          } else if (event.key === "Home") {
-            event.preventDefault();
-            setPreviewHeight(limits.min);
-          } else if (event.key === "End") {
-            event.preventDefault();
-            setPreviewHeight(limits.max);
-          }
-        }}
-      />
       {failed.size > 0 && (
         <button
           type="button"

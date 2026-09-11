@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { type HistoryControls, handleHistoryKey } from "./useDocumentHistory";
 import type { StudioMode } from "./VideoDraftStudio";
 
 const MODE_ORDER: StudioMode[] = ["story", "shots", "timeline", "review"];
@@ -50,11 +51,13 @@ export function useStudioShortcuts({
   onMode,
   saveScript,
   saveTimeline,
+  history,
 }: {
   mode: StudioMode;
   onMode: (mode: StudioMode) => void;
   saveScript: () => void;
   saveTimeline: () => void;
+  history?: HistoryControls;
 }) {
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -64,8 +67,23 @@ export function useStudioShortcuts({
   saveScriptRef.current = saveScript;
   const saveTimelineRef = useRef(saveTimeline);
   saveTimelineRef.current = saveTimeline;
+  const historyRef = useRef(history);
+  historyRef.current = history;
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const nativeField = target?.closest(
+        'input,textarea,select,[contenteditable=""],[contenteditable="true"]',
+      );
+      if (
+        modeRef.current !== "review" &&
+        historyRef.current &&
+        (!nativeField || target?.closest("[data-document-history]")) &&
+        !target?.closest('[role="dialog"],dialog,[data-native-history]') &&
+        handleHistoryKey(event, historyRef.current)
+      )
+        return;
       // Save works from anywhere, including inside a field: it only ever
       // flushes pending edits, and useRevisionEditor.save() no-ops when
       // clean, already saving, or conflicted — so key repeat and double

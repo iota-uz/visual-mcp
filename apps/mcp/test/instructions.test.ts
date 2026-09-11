@@ -25,4 +25,13 @@ describe("lean MCP server instructions", () => {
     expect(instructions).toMatch(/\/src source and \/output artifacts remain canvas-local/i);
     expect(instructions).not.toMatch(/PLAN\.md/i);
   });
+  it("routes both domains through shared resources and preserves video safeguards", () => {
+    const instructions = buildInstructions();
+    expect(instructions).toContain("video_project_get");
+    expect(instructions).toContain("resource_find/resource_get");
+    expect(instructions).toContain("explicit allowPaid");
+    expect(instructions).toContain("never grant human approval");
+    expect(instructions).toContain("never a new idempotency key");
+    expect(instructions).not.toContain("Audio is unsupported");
+  });
 });

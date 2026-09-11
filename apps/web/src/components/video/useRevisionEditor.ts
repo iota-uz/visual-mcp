@@ -12,6 +12,7 @@ export function useRevisionEditor<T>(
   const [base, setBase] = useState(snapshot);
   const [state, setState] = useState<EditorState>("saved");
   const [error, setError] = useState("");
+  const [historyEpoch, setHistoryEpoch] = useState(0);
   const pending = useRef<{ document: T; revision: string; key: string } | null>(null);
   // State alone cannot serialize rapid saves: two presses in the same tick
   // share one render's closure and both read "editing". The ref closes the
@@ -35,6 +36,7 @@ export function useRevisionEditor<T>(
     if (!dirty && state === "saved" && snapshot.revision !== base.revision) {
       setDocument(snapshot.document);
       setBase(snapshot);
+      setHistoryEpoch((epoch) => epoch + 1);
     }
   }, [snapshot, base.revision, dirty, state]);
 
@@ -93,14 +95,16 @@ export function useRevisionEditor<T>(
   }, [dirty, state]);
 
   function edit(next: T) {
-    if (state === "saving" || state === "error" || state === "conflict") return;
+    if (inflight.current || state === "saving" || state === "error" || state === "conflict") return;
     setDocument(next);
-    setState("editing");
+    setState(JSON.stringify(next) === JSON.stringify(base.document) ? "saved" : "editing");
+    setError("");
   }
 
   function useSaved() {
     if (state === "saving" || state === "error") return;
     setDocument(snapshot.document);
+    setHistoryEpoch((epoch) => epoch + 1);
     setBase(snapshot);
     pending.current = null;
     setError("");
@@ -109,6 +113,7 @@ export function useRevisionEditor<T>(
 
   return {
     document,
+    historyEpoch,
     savedDocument: snapshot.document,
     awaitingSubscription: Boolean(
       awaitingAcknowledgement.current &&
@@ -123,5 +128,7 @@ export function useRevisionEditor<T>(
     save,
     useSaved,
     locked: state === "saving" || state === "error" || state === "conflict",
+    canEdit: () =>
+      !inflight.current && state !== "saving" && state !== "error" && state !== "conflict",
   };
 }

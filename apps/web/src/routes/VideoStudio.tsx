@@ -190,6 +190,7 @@ export function VideoStudioPage() {
             </div>
           )}
           <DraftStudio
+            key={visibleDraft.draftId}
             project={project}
             draft={visibleDraft}
             mode={mode}

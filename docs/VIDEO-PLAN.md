@@ -1,5 +1,16 @@
 # Implementation authorization and preserved design
 
+2026-09-11 — **Current MCP connection contract:** Canvas and Video Studio now
+share the single `https://canvas.iota.uz/mcp` endpoint and one catalog, including
+shared assets, comments, jobs, resources and `execute`. This replaces every
+two-endpoint proposal in the preserved planning history below, including sections
+13–14. The former `/mcp/video` route is removed, not aliased. Native harness
+discovery and the existing typed domain tools remain; no duplicate shared tools
+or generic discovery dispatcher is introduced. Local client configurations switch
+to the single connection only after deployment verification. See
+[the governing ADR](../adr/mcp/unified-canvas-and-video-mcp.md) and
+[current operations](VIDEO-OPERATIONS.md).
+
 2026-09-10: The user explicitly requested full implementation and production rollout using a Codex-only agent swarm. The historical planning-only statements below describe earlier turns; they do not revoke that implementation authorization. Production verification, real provider availability, human creative approval and physical deletion of the source repository remain distinct gates. No paid fallback or automatic social publishing is authorized.
 
 Canonical implementation target: visual-mcp, main. Preserve source data and transfer remaining issues; archive the old repository only after verified migration. Physical deletion requires separate confirmation. Accepted upload limit: **2,000,000,000 bytes (decimal 2 GB)**. No budget subsystem. Current contracts: sections 13 and 14 override conflicting historical proposals. Accepted ADRs record governing decisions; implementation/test/release evidence must be tracked separately. The complete original plan follows unchanged, including its historical signature archive.

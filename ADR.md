@@ -11,6 +11,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## mcp
 
+- **Canvas и Video Studio используют один MCP endpoint и единый каталог** — [запись](adr/mcp/unified-canvas-and-video-mcp.md) · accepted · 2026-09-11 (запрос пользователя; supersedes canvas-and-video-endpoints)
+
 - **Learning отделяет evidence от agent performance; wrappers учитывают реальные harness форматы** — [запись](adr/mcp/learning-evidence-and-harness-wrappers.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
 
 - **Видео-контекст и bounded loop хранят состояние, а не reasoning** — [запись](adr/mcp/context-and-bounded-video-loops.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
@@ -59,6 +61,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Продукт использует hosted remote MCP; локальный stdio runtime удалён** — [запись](adr/platform/hosted-remote-mcp-only.md) · accepted · 2026-08-09 (`0bf0e03`, `9a73635`)
 
 ## product
+
+- **Preview меняет размер за углы, а режимы студии разделяют историю правок** — [запись](adr/product/video-preview-resize-and-draft-history.md) · accepted · 2026-09-11 (запрос пользователя)
 
 - **Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы** — [запись](adr/product/cutting-room-design-language.md) · accepted · 2026-09-11 (запрос пользователя)
 - **Video Studio — коллекция воркспейса и иммерсивный редактор** — [запись](adr/product/video-studio-surfaces.md) · accepted · 2026-09-10 (запрос пользователя)

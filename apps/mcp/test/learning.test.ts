@@ -56,7 +56,7 @@ function fixture() {
     actionContext: () => ({ storage: {} }),
   } as unknown as AgentGateway);
   async function request(name: string, args: Record<string, unknown>) {
-    const response = await app.request("/mcp/video", {
+    const response = await app.request("/mcp", {
       method: "POST",
       headers: {
         "content-type": "application/json",

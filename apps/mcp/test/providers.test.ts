@@ -65,17 +65,15 @@ const image = {
     quality: "high",
   },
 };
-test("real SDK catalogs expose common image generation but isolate video production", async () => {
+test("unified SDK catalog exposes image generation and video production once", async () => {
   const f = fixture();
-  const canvas = await f.rpc("/mcp", "tools/list", {}),
-    video = await f.rpc("/mcp/video", "tools/list", {});
+  const canvas = await f.rpc("/mcp", "tools/list", {});
   const names = (result: { result: { tools: { name: string }[] } }) =>
     result.result.tools.map((tool) => tool.name);
   expect(names(canvas)).toContain("image_generate");
-  expect(names(canvas)).not.toContain("video_render");
-  expect(names(video)).toContain("video_render");
+  expect(names(canvas)).toContain("video_render");
   expect(new Set(names(canvas)).size).toBe(names(canvas).length);
-  for (const endpoint of ["/mcp", "/mcp/video"]) {
+  for (const endpoint of ["/mcp"]) {
     const result = await f.rpc(endpoint, "tools/call", {
       name: "image_generate",
       arguments: image,
@@ -97,7 +95,7 @@ test("paid opt-in and generate/edit routing errors have structured steering and 
     { ...image, request: { ...image.request, allowPaid: false } },
     { ...image, request: { ...image.request, source: { assetId: "a", revisionId: "r" } } },
   ]) {
-    const result = await f.rpc("/mcp/video", "tools/call", {
+    const result = await f.rpc("/mcp", "tools/call", {
       name: "image_generate",
       arguments: args,
     });
@@ -160,7 +158,7 @@ test("upload maximum is decimal 2GB and larger bytes cannot reserve", async () =
 });
 test("media operations retain pinned additional inputs and actual measurement kind", async () => {
   const f = fixture();
-  const result = await f.rpc("/mcp/video", "tools/call", {
+  const result = await f.rpc("/mcp", "tools/call", {
     name: "video_frames",
     arguments: {
       workspace_id: "workspace",

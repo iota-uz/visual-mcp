@@ -119,4 +119,26 @@ describe("useStudioShortcuts", () => {
     fireEvent.keyDown(document.body, { key: "2" });
     expect(onMode).not.toHaveBeenCalled();
   });
+
+  test("undo works from buttons and managed document fields but preserves native draft forms and dialogs", () => {
+    const history = { undo: vi.fn(), redo: vi.fn(), canUndo: true, canRedo: true };
+    renderHook(() =>
+      useStudioShortcuts({
+        mode: "story",
+        onMode: vi.fn(),
+        saveScript: vi.fn(),
+        saveTimeline: vi.fn(),
+        history,
+      }),
+    );
+    expect(keyOn("action", "z", { metaKey: true })).toBe(false);
+    expect(keyOn("caption", "z", { metaKey: true })).toBe(true);
+    targetOf("caption").setAttribute("data-document-history", "");
+    expect(keyOn("caption", "z", { metaKey: true })).toBe(false);
+    targetOf("caption").setAttribute("data-native-history", "");
+    expect(keyOn("caption", "z", { metaKey: true })).toBe(true);
+    host.setAttribute("role", "dialog");
+    expect(keyOn("action", "z", { metaKey: true })).toBe(true);
+    expect(history.undo).toHaveBeenCalledTimes(2);
+  });
 });

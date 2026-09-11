@@ -7,7 +7,9 @@ not proof of live model quality or human approval.
 ## Service boundary
 
 - UI: `https://canvas.iota.uz`; existing authenticated IOTA workspace access.
-- Canvas tools: `/mcp`; video tools: `/mcp/video`. Native harness discovery is
+- One connection: `https://canvas.iota.uz/mcp` serves Canvas, Video Studio and
+  shared assets, comments, jobs and resources. Shared tools appear once, with
+  the same handlers in direct calls and `execute`. Native harness discovery is
   sufficient; domain resource lookup is not a duplicate tool-search service.
 - Existing Convex deployment: `giddy-retriever-468`. It serves the live app even
   though its deployment type is `dev`. Never select another deployment merely
@@ -75,6 +77,15 @@ evidence or human approvals. Private-to-public GitHub task copying requires an
 explicit disclosure decision; do not delete the private originals.
 
 ## Release and rollback
+
+The unified endpoint replaces the former Video-only connection. After the web
+and MCP release is verified with authenticated Canvas and Video calls through
+`/mcp`, update each local client to keep one connection to that URL. Preserve its
+existing token/environment reference and unrelated settings, remove the redundant
+Video entry, and reload the client's catalog. Do not print or duplicate tokens.
+Do not switch client configuration before the deployed unified catalog is ready.
+Existing project, asset, job and operation IDs remain valid; reconnecting does
+not recreate projects or replay work.
 
 Railway currently auto-deploys all three services from `main` without waiting for
 GitHub checks. **Pushing main is a release.** Freeze writers and run build,

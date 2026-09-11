@@ -1,7 +1,7 @@
 ---
 id: canvas-and-video-endpoints
 title: Canvas и Video Studio имеют отдельные MCP endpoints и общий service layer
-status: accepted
+status: superseded
 date: 2026-09-10
 deciders: [diyorkhaydarov]
 area: mcp
@@ -14,7 +14,7 @@ tags: [mcp, video, execute, discovery]
 refs:
   - ../../docs/VIDEO-PLAN.md
 supersedes: []
-superseded_by: []
+superseded_by: [unified-canvas-and-video-mcp]
 ---
 
 ## Контекст

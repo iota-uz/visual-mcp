@@ -106,6 +106,7 @@ export function ShotStartImage({
         <summary>Pin exact revision</summary>
         <TextInput
           id="shot-source-asset"
+          data-native-history
           label="Asset ID"
           labelVisible
           value={assetId}
@@ -114,6 +115,7 @@ export function ShotStartImage({
         />
         <TextInput
           id="shot-source-revision"
+          data-native-history
           label="Asset revision ID"
           labelVisible
           value={revisionId}

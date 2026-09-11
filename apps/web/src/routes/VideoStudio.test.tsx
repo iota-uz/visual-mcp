@@ -101,6 +101,50 @@ function mount(path = "/v/project") {
   );
 }
 
+test("document undo is shared across Story, Shots and Timeline and remains available after mode switches", () => {
+  mount();
+  const narration = screen.getByLabelText("Narration");
+  fireEvent.change(narration, { target: { value: "Revised narration" } });
+  fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
+  const addCaption = screen.getAllByRole("button", { name: "Add caption" })[0];
+  if (!addCaption) throw new Error("Expected caption action");
+  fireEvent.click(addCaption);
+  expect(screen.getByRole("button", { name: "Undo draft edit" })).toBeEnabled();
+  fireEvent.keyDown(document.body, { key: "z", metaKey: true });
+  expect(screen.queryByLabelText("Caption text")).not.toBeInTheDocument();
+  fireEvent.keyDown(document.body, { key: "z", metaKey: true });
+  fireEvent.click(screen.getByRole("button", { name: "Story" }));
+  expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
+  fireEvent.keyDown(screen.getByLabelText("Narration"), {
+    key: "Z",
+    metaKey: true,
+    shiftKey: true,
+  });
+  expect(screen.getByLabelText("Narration")).toHaveValue("Revised narration");
+});
+
+test("switching draft language resets documents and never carries history into the other language", () => {
+  mount();
+  fireEvent.change(screen.getByLabelText("Narration"), { target: { value: "A local edit" } });
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  fireEvent.click(screen.getByRole("button", { name: "O‘zbekcha" }));
+  expect(screen.getByLabelText("Narration")).toHaveValue("uz narration");
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true, shiftKey: true });
+  expect(screen.getByLabelText("Narration")).toHaveValue("uz narration");
+});
+
+test("Review hides draft history and its shortcut cannot silently undo a script edit", () => {
+  mount();
+  fireEvent.change(screen.getByLabelText("Narration"), {
+    target: { value: "Keep this draft edit" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Review" }));
+  expect(screen.queryByRole("group", { name: "Draft edit history" })).not.toBeInTheDocument();
+  fireEvent.keyDown(document.body, { key: "z", metaKey: true });
+  fireEvent.click(screen.getByRole("button", { name: "Story" }));
+  expect(screen.getByLabelText("Narration")).toHaveValue("Keep this draft edit");
+});
+
 test("UZ version deep link without language keeps the header and return lane Uzbek", async () => {
   const original = query.getMockImplementation();
   if (!original) throw new Error("Expected the query test double to be configured");

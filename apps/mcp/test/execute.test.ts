@@ -227,7 +227,7 @@ function fixture(mixedAssets = false) {
     if (url.hostname === "mcp.local") return app.request(url.toString(), init);
     throw new Error("Unexpected outbound request");
   });
-  async function tool(name: string, args: Record<string, unknown>, endpoint = "/mcp/video") {
+  async function tool(name: string, args: Record<string, unknown>, endpoint = "/mcp") {
     const response = await app.request(endpoint, {
       method: "POST",
       headers: {
@@ -360,7 +360,7 @@ test("populated mixed audio library works directly and through execute, includin
   });
   expect(f.effects.get(jobId)).toMatchObject([{ state: "succeeded" }, { state: "succeeded" }]);
 });
-test("Canvas endpoint execute calls captured real asset handler, preserves catalog isolation and workspace fence", async () => {
+test("unified execute shares real asset handlers and video tools with workspace and recursion fences", async () => {
   const f = fixture();
   const direct = await f.tool("asset_list", { scope: "workspace", workspace: "farq" }, "/mcp");
   const accepted = await f.tool(
@@ -368,7 +368,7 @@ test("Canvas endpoint execute calls captured real asset handler, preserves catal
     {
       workspace_id: "w1",
       idempotency_key: "canvas-catalog",
-      code: "emit(await tools.asset_list({scope:'workspace',workspace:'farq'})); emit({video:typeof tools.video_project_get,raw:typeof tools.canvas_run});",
+      code: "emit(await tools.asset_list({scope:'workspace',workspace:'farq'})); const project = await tools.video_project_get({project_id:'project1'}); emit({title:project.title,raw:typeof tools.canvas_run,nested:typeof tools.execute});",
     },
     "/mcp",
   );
@@ -376,9 +376,12 @@ test("Canvas endpoint execute calls captured real asset handler, preserves catal
   await f.wait(jobId);
   expect(f.jobs.get(jobId)?.result).toMatchObject({
     success: true,
-    emitted: [direct.structuredContent, { video: "undefined", raw: "undefined" }],
+    emitted: [direct.structuredContent, { title: "Farq", raw: "undefined", nested: "undefined" }],
   });
-  expect(f.effects.get(jobId)).toMatchObject([{ tool: "asset_list", state: "succeeded" }]);
+  expect(f.effects.get(jobId)).toMatchObject([
+    { tool: "asset_list", state: "succeeded" },
+    { tool: "video_project_get", state: "succeeded" },
+  ]);
   const rejected = await f.tool(
     "execute",
     {

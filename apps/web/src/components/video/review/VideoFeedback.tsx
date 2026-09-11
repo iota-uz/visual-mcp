@@ -6,6 +6,7 @@ import { Badge } from "../../Badge";
 import { Button } from "../../ui/Button";
 import { Disclosure } from "../../ui/Disclosure";
 import { TextInput } from "../../ui/TextInput";
+import { handleHistoryKey, useDocumentHistory } from "../useDocumentHistory";
 import { useRevisionEditor } from "../useRevisionEditor";
 import { useUnsavedNavigation } from "../useUnsavedNavigation";
 import type { VideoRegion } from "../VideoPlayer";
@@ -37,6 +38,7 @@ export function VideoFeedback({
   if (!draft) return <p role="status">Loading saved feedback…</p>;
   return (
     <FeedbackEditor
+      key={JSON.stringify(target)}
       projectId={projectId}
       target={target}
       snapshot={draft}
@@ -76,7 +78,7 @@ function FeedbackEditor({
     { projectId, target },
     { initialNumItems: 10 },
   );
-  const editor = useRevisionEditor<Feedback>(
+  const revisionEditor = useRevisionEditor<Feedback>(
     { revision: String(snapshot.revision), document: snapshot.body },
     async (body, revision, key) =>
       String(
@@ -84,21 +86,54 @@ function FeedbackEditor({
           .revision,
       ),
   );
+  const [busy, setBusy] = useState(false);
+  const pending = useRef<Parameters<typeof addComment>[0] | null>(null);
+  const history = useDocumentHistory(
+    { feedback: revisionEditor },
+    busy || pending.current !== null,
+  );
+  const editor = { ...revisionEditor, edit: (next: Feedback) => history.edit("feedback", next) };
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const element = event.target instanceof HTMLElement ? event.target : null;
+      if (element?.closest(".video-feedback-composer")) {
+        handleHistoryKey(event, historyRef.current);
+        return;
+      }
+      if (
+        element?.closest(
+          'input,textarea,select,[contenteditable="true"],[contenteditable=""],dialog,[role="dialog"]',
+        )
+      )
+        return;
+      if (element === document.body || element?.closest(".video-review"))
+        handleHistoryKey(event, historyRef.current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const editorRef = useRef(editor);
   editorRef.current = editor;
   const appliedCapture = useRef<string | null>(null);
   useEffect(() => {
-    if (!capturedRegion || appliedCapture.current === capturedRegion.id) return;
+    if (
+      !capturedRegion ||
+      editor.locked ||
+      busy ||
+      pending.current ||
+      appliedCapture.current === capturedRegion.id
+    )
+      return;
     appliedCapture.current = capturedRegion.id;
     editorRef.current.edit({
       ...editorRef.current.document,
       startMs: capturedRegion.startMs,
       region: capturedRegion.region,
     });
-  }, [capturedRegion]);
-  const [busy, setBusy] = useState(false);
+  }, [capturedRegion, editor.locked, busy]);
   const [message, setMessage] = useState("");
-  const pending = useRef<Parameters<typeof addComment>[0] | null>(null);
   const [postedRevision, setPostedRevision] = useState<number | null>(null);
   const alreadyPosted = !!snapshot.postedCommentId || postedRevision === snapshot.revision;
   const blocked = editor.dirty || editor.awaitingSubscription || busy;
@@ -107,7 +142,7 @@ function FeedbackEditor({
     onBlocked(blocked);
     return () => onBlocked(false);
   }, [blocked, onBlocked]);
-  const disabled = editor.state === "saving" || editor.state === "error" || busy;
+  const disabled = editor.locked || busy || pending.current !== null;
   async function post() {
     const request = pending.current ?? {
       target,
@@ -134,6 +169,22 @@ function FeedbackEditor({
       <div className="video-feedback-composer">
         <div className="video-feedback-heading">
           <h3>Leave a note</h3>
+          <Button
+            size="sm"
+            disabled={!history.canUndo}
+            onClick={history.undo}
+            title="Undo feedback edit (⌘Z / Ctrl+Z)"
+          >
+            Undo note edit
+          </Button>
+          <Button
+            size="sm"
+            disabled={!history.canRedo}
+            onClick={history.redo}
+            title="Redo feedback edit (⌘⇧Z / Ctrl+Shift+Z)"
+          >
+            Redo note edit
+          </Button>
           {editor.document.startMs !== undefined ? (
             <Badge tone="info">At {(editor.document.startMs / 1000).toFixed(2)} s</Badge>
           ) : (

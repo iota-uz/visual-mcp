@@ -1,9 +1,10 @@
 # Canvas and Video MCP
 
-The `/mcp/video` route advertises project/documents/checkpoints, media producers,
-registered inspection, context/profile/loops, feedback, learning and publication
-analytics. `/mcp` retains its existing Canvas handlers plus common server image,
-verified uploads, jobs and resources. Both routes expose execute when configured.
+The single `/mcp` route advertises Canvas authoring, video projects/documents/
+checkpoints, media producers, inspection, context/profile/loops, feedback,
+learning and publication analytics. Assets, comments, uploads, jobs and resources
+are registered once. The former `/mcp/video` route is removed. Execute is exposed
+when configured and uses the same complete published catalog.
 Paid calls require explicit allowPaid and available server configuration. No
 approval, automatic publication or redundant tool-search endpoint is exposed.
 
@@ -107,8 +108,8 @@ network effects. Cancel blocks new broker dispatch; it cannot roll back a write.
 
 `canvas-catalog.ts` captures actual per-request Canvas registration schemas and
 authenticated callbacks; direct and broker calls execute those same closures.
-The endpoint's captured catalog is hash-fenced and workspace-checked. Video gets
-only shared legacy assets/comments, not the full Canvas catalog. Personal-library
+The unified captured catalog is hash-fenced and workspace-checked. Both Canvas
+and Video domain operations can be composed in one execute run. Personal-library
 or global-discovery Canvas calls require a direct tool; a workspace-scoped run
 cannot silently switch libraries. Recursive execute/canvas_run is unavailable.
 Typed job readers cover every registered job kind, including actual render,

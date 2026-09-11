@@ -34,8 +34,8 @@ export function ConnectPanel({ token, showTokenLink = true }: ConnectPanelProps)
         <Plug size={16} aria-hidden="true" /> Connect your agent
       </h2>
       <p className="connect-panel-lead">
-        Canvases are authored over MCP — point Claude Code or Codex at this endpoint and ask it to
-        create one.
+        Connect Claude Code or Codex once to create canvases and videos. Canvas, Video Studio and
+        your asset library share this endpoint.
       </p>
 
       <CopyableValue

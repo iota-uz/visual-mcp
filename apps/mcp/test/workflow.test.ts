@@ -40,11 +40,7 @@ function fixture() {
     call,
     actionContext: () => ({ storage: {} }),
   } as unknown as AgentGateway);
-  async function request(
-    method: string,
-    params: Record<string, unknown> = {},
-    path = "/mcp/video",
-  ) {
+  async function request(method: string, params: Record<string, unknown> = {}, path = "/mcp") {
     const response = await app.request(path, {
       method: "POST",
       headers: {
@@ -66,7 +62,7 @@ function fixture() {
   }
   return { request, call };
 }
-test("actual SDK catalog exposes workflow only on video; no approval/evidence forging tools", async () => {
+test("unified SDK catalog exposes workflow without approval/evidence forging tools", async () => {
   const f = fixture(),
     list = await f.request("tools/list"),
     names = list.result.tools.map((t: { name: string }) => t.name);
@@ -84,10 +80,6 @@ test("actual SDK catalog exposes workflow only on video; no approval/evidence fo
   );
   expect(names).not.toContain("video_loop_accept");
   expect(names).not.toContain("recordEvidence");
-  const canvas = await f.request("tools/list", {}, "/mcp");
-  expect(canvas.result.tools.map((t: { name: string }) => t.name)).not.toContain(
-    "video_loop_select",
-  );
   for (const tool of list.result.tools.filter((t: { name: string }) =>
     t.name.startsWith("video_loop"),
   ))

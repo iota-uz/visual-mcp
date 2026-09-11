@@ -34,6 +34,7 @@ import { TimelineTransport } from "./timeline/TimelineTransport";
 import { TRACK_META } from "./timeline/trackMeta";
 import { useTimelineHistory } from "./timeline/useTimelineHistory";
 import { useTimelinePlayback } from "./timeline/useTimelinePlayback";
+import type { HistoryControls } from "./useDocumentHistory";
 
 export { calculatePointerEdit, formatTimelineTimecode } from "./timeline/model";
 
@@ -43,12 +44,14 @@ export function TimelineEditor({
   disabled,
   workspaceId,
   format = { width: 360, height: 640 },
+  history,
 }: {
   document: TimelineDocument;
   onChange: (next: TimelineDocument) => void;
   disabled: boolean;
   workspaceId?: Id<"workspaces">;
   format?: { width: number; height: number };
+  history?: HistoryControls;
 }) {
   const numerator = document.fps.numerator;
   const denominator = document.fps.denominator;
@@ -70,11 +73,16 @@ export function TimelineEditor({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerInteraction = useRef<PointerInteraction | undefined>(undefined);
   const suppressClipClick = useRef(false);
-  const { latestDocument, commit, undo, redo, canUndo, canRedo } = useTimelineHistory(
-    document,
-    onChange,
-    disabled,
-  );
+  const localHistory = useTimelineHistory(document, onChange, disabled);
+  const { latestDocument } = localHistory;
+  const { undo, redo, canUndo, canRedo } = history ?? localHistory;
+  const commit = history
+    ? (next: TimelineDocument) => {
+        if (disabled) return;
+        latestDocument.current = next;
+        onChange(next);
+      }
+    : localHistory.commit;
 
   const firstClip = useMemo(() => {
     for (const trackId of document.trackOrder) {
@@ -397,7 +405,7 @@ export function TimelineEditor({
             <legend className="visually-hidden">Edit history</legend>
             <button
               type="button"
-              aria-label="Undo timeline edit"
+              aria-label={history ? "Undo draft edit" : "Undo timeline edit"}
               title="Undo"
               disabled={disabled || !canUndo}
               onClick={undo}
@@ -406,7 +414,7 @@ export function TimelineEditor({
             </button>
             <button
               type="button"
-              aria-label="Redo timeline edit"
+              aria-label={history ? "Redo draft edit" : "Redo timeline edit"}
               title="Redo"
               disabled={disabled || !canRedo}
               onClick={redo}

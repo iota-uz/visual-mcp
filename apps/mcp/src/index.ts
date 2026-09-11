@@ -19,11 +19,11 @@ import {
   registerResources,
   registerTools,
 } from "./tools.js";
-import { attachCanvasCatalog, sharedCanvasTools } from "./video/canvas-catalog.js";
+import { attachCanvasCatalog } from "./video/canvas-catalog.js";
 import { enableExecuteTools, registerExecuteCallback } from "./video/execute.js";
 import { videoBackend } from "./video/gateway.js";
 import type { DomainResource } from "./video/registry.js";
-import { registerVideoTools, sharedMediaTools } from "./video/registry.js";
+import { registerVideoTools } from "./video/registry.js";
 import { registerDomainResources } from "./video/resources.js";
 
 function principal(auth: AuthInfo | undefined): McpPrincipal {
@@ -63,8 +63,7 @@ export function createApp(gateway = new AgentGateway()) {
       return c.json({ status: "backend_unavailable", video_backend_contract: 1 }, 503);
     }
   });
-  app.on("POST", ["/mcp", "/mcp/video"], async (c) => {
-    const video = c.req.path === "/mcp/video";
+  app.post("/mcp", async (c) => {
     const request = c.req.raw;
     const gate = requireBearerAuth({ verifier });
     const auth = await gate(request);
@@ -84,11 +83,9 @@ export function createApp(gateway = new AgentGateway()) {
     const handler = createMcpHandler(
       (requestContext) => {
         const server = new McpServer(
-          { name: video ? "visual-canvas-video" : "visual-canvas", version: "2.0.0" },
+          { name: "visual-canvas", version: "3.0.0" },
           {
-            instructions: video
-              ? "Video Studio: durable project and language-scoped documents, server media generation, pinned previews and bounded evaluation loops. Read IDs/revisions before patching. Checkpoints and critic passes are not human approval. Paid producers require explicit allowPaid; poll job_get and reconcile known receipts rather than resubmit unknown outcomes. Nested documents use the shared camelCase domain schema; top-level transport references use snake_case."
-              : buildInstructions(),
+            instructions: buildInstructions(),
           },
         );
         const actor = principal(requestContext.authInfo);
@@ -98,14 +95,10 @@ export function createApp(gateway = new AgentGateway()) {
         registerDomainResources(server, backend, resources);
         const captured: CapturedCanvasTool[] = [];
         registerTools(server, actionCtx, actor, {
-          ...(video ? { names: sharedCanvasTools } : {}),
           capture: (tool) => captured.push(tool),
         });
-        attachCanvasCatalog(backend, actionCtx, actor, captured, video ? "video" : "canvas");
-        if (video) registerVideoTools(server, backend);
-        else {
-          registerVideoTools(server, backend, new Set([...sharedMediaTools, "execute"]));
-        }
+        attachCanvasCatalog(backend, actionCtx, actor, captured);
+        registerVideoTools(server, backend);
         return server;
       },
       { maxSubscriptions: 0 },

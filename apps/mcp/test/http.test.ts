@@ -42,6 +42,16 @@ function parseMcpResponse(text: string): unknown {
 }
 
 describe("Railway MCP service", () => {
+  test("removes the former video endpoint instead of maintaining a second catalog", async () => {
+    for (const method of ["GET", "POST"]) {
+      const response = await createApp(gateway()).request("/mcp/video", {
+        method,
+        headers: { ...headers, authorization: "Bearer valid" },
+      });
+      expect(response.status).toBe(404);
+    }
+  });
+
   test("reports health only when the compatible Convex video contract is reachable", async () => {
     const response = await createApp(gateway()).request("/healthz");
     expect(response.status).toBe(200);

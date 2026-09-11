@@ -216,7 +216,7 @@ export function createAppServer({
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", requestOrigin(request));
-      if (url.pathname === "/mcp" || url.pathname === "/mcp/video") {
+      if (url.pathname === "/mcp") {
         if (request.method !== "POST") {
           response.writeHead(405, { allow: "POST" }).end();
           return;
