@@ -65,3 +65,56 @@ test("resolves pinned media and composes the active caption at the playhead", as
     asset: { assetId: "asset", revisionId: "revision" },
   });
 });
+
+test("hidden visual tracks are named as the cause of an empty stage", async () => {
+  render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={timeline}
+      frame={0}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set(["visual"])}
+      mutedTracks={new Set()}
+    />,
+  );
+  expect(await screen.findByText("Visual tracks are hidden in the editor")).toBeInTheDocument();
+  expect(screen.queryByText("No visual at this frame")).not.toBeInTheDocument();
+});
+
+test("a gap between visual clips keeps the per-frame message", () => {
+  render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={timeline}
+      frame={45}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set()}
+      mutedTracks={new Set()}
+    />,
+  );
+  expect(screen.getByText("No visual at this frame")).toBeInTheDocument();
+});
+
+test("a timeline without visual clips says so instead of blaming the frame", () => {
+  const captionsTrack = timeline.tracksById.captions;
+  if (!captionsTrack) throw new Error("Expected the captions fixture track");
+  const captionsOnly: TimelineDocument = {
+    ...timeline,
+    trackOrder: ["captions"],
+    tracksById: { captions: captionsTrack },
+  };
+  render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={captionsOnly}
+      frame={0}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set()}
+      mutedTracks={new Set()}
+    />,
+  );
+  expect(screen.getByText("No visual clips on the timeline yet")).toBeInTheDocument();
+});

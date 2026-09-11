@@ -150,7 +150,10 @@ test("timeline exposes a temporal workspace and focused caption controls", async
   expect(screen.queryByRole("spinbutton", { name: "Sequence duration" })).not.toBeInTheDocument();
   expect(screen.getByText("Sequence length")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Zoom in" })).toBeEnabled();
-  await user.click(screen.getByRole("button", { name: "Add caption" }));
+  // Toolbar and empty-state affordances share one action; either adds the clip.
+  const toolbarCaption = screen.getAllByRole("button", { name: "Add caption" }).at(0);
+  if (!toolbarCaption) throw new Error("Expected an Add caption button");
+  await user.click(toolbarCaption);
   expect(screen.getByRole("region", { name: "Selected clip settings" })).toBeInTheDocument();
   expect(screen.getByLabelText("Caption text")).toBeInTheDocument();
 });

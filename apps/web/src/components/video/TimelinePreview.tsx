@@ -315,6 +315,23 @@ export function TimelinePreview({
   const visuals = active.filter(
     ({ trackId, track }) => track.kind === "visual" && !hiddenTracks.has(trackId),
   );
+  // Why the stage is empty has three different causes, and each needs its
+  // own message: the user hid the tracks (a Show action undoes it), the
+  // playhead sits in a gap between visual clips, or the timeline has no
+  // visual clips at all.
+  const hiddenVisualsAtFrame = active.filter(
+    ({ trackId, track }) => track.kind === "visual" && hiddenTracks.has(trackId),
+  );
+  const hasVisualClips = document.trackOrder.some(
+    (trackId) =>
+      document.tracksById[trackId]?.kind === "visual" &&
+      (document.tracksById[trackId]?.clipOrder.length ?? 0) > 0,
+  );
+  const emptyVisualNote = hiddenVisualsAtFrame.length
+    ? "Visual tracks are hidden in the editor"
+    : hasVisualClips
+      ? "No visual at this frame"
+      : "No visual clips on the timeline yet";
   const captions = active.filter(
     ({ trackId, track }) => track.kind === "caption" && !hiddenTracks.has(trackId),
   );
@@ -335,7 +352,9 @@ export function TimelinePreview({
           aria-label="Timeline draft preview"
         >
           {visuals.length === 0 && (
-            <span className="video-program-empty">No visual at this frame</span>
+            <span className="video-program-empty" role="status">
+              {emptyVisualNote}
+            </span>
           )}
           {visuals.map(({ trackId, clipId, clip }) => {
             const key = clip.source.kind === "asset" ? assetKey(clip.source.asset) : "";

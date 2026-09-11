@@ -62,6 +62,7 @@ export function TimelineTrackArea({
   trimEnd,
   splitClip,
   duplicateClip,
+  onAddCaption,
 }: {
   document: TimelineDocument;
   durationSeconds: number;
@@ -96,6 +97,8 @@ export function TimelineTrackArea({
   trimEnd: (delta: number, target?: Selection) => void;
   splitClip: (target?: Selection) => void;
   duplicateClip: (target?: Selection) => void;
+  /** Present only when the editor can add a caption right now. */
+  onAddCaption?: () => void;
 }) {
   const ticks = Array.from({ length: 9 }, (_, index) => index / 8);
 
@@ -236,7 +239,12 @@ export function TimelineTrackArea({
         {document.trackOrder.length === 0 && (
           <div className="video-timeline-empty">
             <Captions size={22} aria-hidden="true" />
-            <span>No clips yet. Add a caption or ask an agent to arrange pinned media.</span>
+            <p>No clips yet. Arrange pinned media, or start with a caption.</p>
+            {onAddCaption && (
+              <button type="button" onClick={onAddCaption}>
+                Add caption
+              </button>
+            )}
           </div>
         )}
         {document.trackOrder.map((trackId) => {

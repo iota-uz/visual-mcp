@@ -513,6 +513,7 @@ export function TimelineEditor({
         trimEnd={trimEnd}
         splitClip={splitClip}
         duplicateClip={duplicateClip}
+        onAddCaption={disabled || cannotAddCaption ? undefined : () => addCaption()}
       />
 
       <div className="video-timeline-settings">

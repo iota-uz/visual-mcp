@@ -72,6 +72,30 @@
 .video-timeline-empty {
   margin-left: 176px;
 }
+.video-timeline-empty p {
+  margin: 0;
+}
+.video-timeline-empty button {
+  padding: var(--app-space-1) var(--app-space-3);
+  border: 1px solid #3b4b60;
+  border-radius: var(--app-radius-xs);
+  background: #1c2938;
+  color: #f2f5f9;
+  cursor: pointer;
+  font-size: var(--app-text-xs);
+  font-weight: 650;
+  transition:
+    background var(--app-duration-fast) var(--app-ease-out),
+    border-color var(--app-duration-fast) var(--app-ease-out);
+}
+.video-timeline-empty button:hover {
+  background: #2a3a4e;
+  border-color: #72a0ff;
+}
+.video-timeline-empty button:focus-visible {
+  outline: 2px solid #72a0ff;
+  outline-offset: -2px;
+}
 .video-track-label > span {
   flex: 1;
 }

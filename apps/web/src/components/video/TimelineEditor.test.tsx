@@ -20,8 +20,41 @@ const initial = Timeline.parse({
   },
 });
 
-function ControlledTimeline({ disabled = false }: { disabled?: boolean }) {
-  const [document, setDocument] = React.useState<TimelineDocument>(initial);
+const emptyTimeline = Timeline.parse({
+  fps: { numerator: 30, denominator: 1 },
+  durationFrames: 300,
+  trackOrder: [],
+  tracksById: {},
+});
+
+test("empty timeline offers a caption shortcut that populates the track area", async () => {
+  const user = userEvent.setup();
+  render(<ControlledTimeline empty />);
+  const emptyState = screen.getByText(/No clips yet/).closest(".video-timeline-empty");
+  if (!emptyState) throw new Error("Expected the empty state");
+  await user.click(within(emptyState as HTMLElement).getByRole("button", { name: "Add caption" }));
+  expect(screen.getAllByRole("button", { name: /Captions clip:/ })).toHaveLength(1);
+  expect(screen.queryByText(/No clips yet/)).not.toBeInTheDocument();
+});
+
+test("disabled timeline hides the empty-state caption shortcut", () => {
+  const onChange = vi.fn();
+  render(<TimelineEditor document={emptyTimeline} onChange={onChange} disabled />);
+  const emptyState = screen.getByText(/No clips yet/).closest(".video-timeline-empty");
+  expect(emptyState).not.toBeNull();
+  expect(
+    within(emptyState as HTMLElement).queryByRole("button", { name: "Add caption" }),
+  ).not.toBeInTheDocument();
+});
+
+function ControlledTimeline({
+  disabled = false,
+  empty = false,
+}: {
+  disabled?: boolean;
+  empty?: boolean;
+}) {
+  const [document, setDocument] = React.useState<TimelineDocument>(empty ? emptyTimeline : initial);
   return (
     <TimelineEditor
       document={document}
