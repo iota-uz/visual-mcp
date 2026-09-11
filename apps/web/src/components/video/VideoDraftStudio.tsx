@@ -133,6 +133,12 @@ export function DraftStudio({
       scene?.purpose.trim() && scene.narration.trim() && scene.visual.description.trim(),
     );
   }).length;
+  // The readiness pills are wayfinding: the briefs pill lands on the first
+  // scene whose brief is still incomplete, so the count reads as an action.
+  const firstIncompleteScene = script.document.sceneOrder.find((id) => {
+    const scene = script.document.scenesById[id];
+    return !scene?.purpose.trim() || !scene.narration.trim() || !scene.visual.description.trim();
+  });
   const shotsPlanned = script.document.sceneOrder.reduce(
     (total, id) => total + (script.document.scenesById[id]?.shotOrder.length ?? 0),
     0,
@@ -217,17 +223,51 @@ export function DraftStudio({
         </div>
         <ol className="video-workflow-readiness" aria-label="Production readiness">
           <li className={sceneBriefsReady > 0 ? "is-ready" : ""}>
-            <CheckCircle2 size={13} aria-hidden="true" />
-            {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
+            <button
+              type="button"
+              aria-label="Open Story to review scene briefs"
+              onClick={() => {
+                if (firstIncompleteScene) {
+                  setSceneId(firstIncompleteScene);
+                  setShotId("");
+                }
+                onMode("story");
+              }}
+            >
+              <CheckCircle2 size={13} aria-hidden="true" />
+              {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
+            </button>
           </li>
           <li className={shotsPlanned > 0 ? "is-ready" : ""}>
-            <CheckCircle2 size={13} aria-hidden="true" />
-            {shotsPlanned} planned shots
+            <button
+              type="button"
+              aria-label="Open Shots to plan shots"
+              onClick={() => {
+                setShotId("");
+                onMode("shots");
+              }}
+            >
+              <CheckCircle2 size={13} aria-hidden="true" />
+              {shotsPlanned} planned shots
+            </button>
           </li>
-          <li className={latestRenderId ? "is-ready" : ""}>
-            <CheckCircle2 size={13} aria-hidden="true" />
-            {latestRenderId ? "Render ready" : "Render pending"}
-          </li>
+          {latestRenderId ? (
+            <li className="is-ready">
+              <button
+                type="button"
+                aria-label="Review the latest render"
+                onClick={() => onOpenRender(latestRenderId)}
+              >
+                <CheckCircle2 size={13} aria-hidden="true" />
+                Render ready
+              </button>
+            </li>
+          ) : (
+            <li>
+              <CheckCircle2 size={13} aria-hidden="true" />
+              Render pending
+            </li>
+          )}
         </ol>
         <span className="vs-kbd-hint" aria-hidden="true">
           <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save

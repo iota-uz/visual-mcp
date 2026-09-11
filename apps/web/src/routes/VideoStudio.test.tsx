@@ -13,7 +13,9 @@ const { query, mutation, paginate } = vi.hoisted(() => ({
 vi.mock("convex/react", () => ({
   useQuery: query,
   useMutation: mutation,
-  useAction: () => vi.fn(),
+  // VideoReview fires previewAsset on mount; a resolved no-op keeps the
+  // review section mountable in route tests.
+  useAction: () => vi.fn().mockResolvedValue({ url: "" }),
   usePaginatedQuery: paginate,
 }));
 const project = {
@@ -166,6 +168,37 @@ test("language switch reads independent draft and blocks while edits are unsaved
   await user.type(screen.getByLabelText("Narration"), " changed");
   expect(screen.getByRole("button", { name: "Русский" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save version" })).toBeDisabled();
+});
+
+test("readiness pills navigate to the workspace that advances each count", async () => {
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Shots" }));
+  expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Open Story to review scene briefs" }));
+  expect(screen.getByLabelText("Narration")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Open Shots to plan shots" }));
+  expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
+});
+
+test("pending render stays telemetry while a ready render is one click away", async () => {
+  const original = query.getMockImplementation();
+  if (!original) throw new Error("Expected the query test double to be configured");
+  // Without a render the pill is plain status, not an invented action.
+  mount();
+  expect(screen.getByText("Render pending")).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Review the latest render" }),
+  ).not.toBeInTheDocument();
+  query.mockImplementation((ref, args) =>
+    getFunctionName(ref) === "video:latestRender" && args !== "skip"
+      ? { jobId: "render-1" }
+      : original(ref, args),
+  );
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Review the latest render" }));
+  expect(await screen.findByText("Loading exact render…")).toBeInTheDocument();
 });
 
 test("language loading preserves the previous workspace as read-only context", async () => {
