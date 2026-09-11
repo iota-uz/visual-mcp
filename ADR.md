@@ -53,6 +53,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 - **Ошибки локальных media jobs освобождают leases и несут безопасный reason code** — [запись](adr/platform/video-result-failure-lifecycle.md) · accepted · 2026-09-11 (запрос пользователя)
 
+- **Видеооперации группируют попытки, а persistence receipt хранит явное состояние байтов** — [запись](adr/platform/video-operation-attempts-and-persistence-states.md) · accepted · 2026-09-11 (пункты 5–9 плана)
+
 - **MCP становится healthy только с совместимым Convex Video backend** — [запись](adr/platform/video-backend-contract-health-gate.md) · accepted · 2026-09-11 (production incident)
 
 - **Video Studio переносится в Visual Canvas с долговечным облачным состоянием** — [запись](adr/platform/video-studio-integration.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)

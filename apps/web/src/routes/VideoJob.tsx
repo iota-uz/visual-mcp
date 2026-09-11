@@ -48,6 +48,7 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
   // Convex subscription delivers durable progress; no polling interval or paid retry is needed.
   const job = useQuery(api.videoJobs.getJob, { jobId });
   const cancel = useMutation(api.videoJobs.cancel);
+  const regenerate = useMutation(api.videoJobs.regenerate);
   const reconcile = useAction(api.videoRecovery.reconcile);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -66,12 +67,13 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
         replace
       />
     );
-  async function act(kind: "cancel" | "reconcile") {
+  async function act(kind: "cancel" | "reconcile" | "regenerate") {
     setPending(true);
     setError("");
     try {
       if (kind === "cancel") await cancel({ jobId });
-      else await reconcile({ jobId });
+      else if (kind === "reconcile") await reconcile({ jobId });
+      else await regenerate({ jobId });
     } catch {
       setError(
         "Operation could not be confirmed. Wait for this job’s status to update; do not submit another generation.",
@@ -144,6 +146,13 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
           Recover already stored output
         </Button>
       )}
+      {job.kind === "render" &&
+        job.error?.recovery.kind === "regenerate" &&
+        job.error.recovery.safeToRegenerate === true && (
+          <Button disabled={pending} onClick={() => void act("regenerate")}>
+            Render again
+          </Button>
+        )}
       {["running", "queued"].includes(job.state) && (
         <div>
           <Button disabled={pending} onClick={() => void act("cancel")}>

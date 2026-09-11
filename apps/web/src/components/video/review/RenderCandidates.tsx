@@ -1,4 +1,4 @@
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 import { Button } from "../../ui/Button";
@@ -14,22 +14,24 @@ export function RenderCandidates({
   activeJobId: Id<"videoJobs">;
   onOpenRender: (jobId: Id<"videoJobs">) => void;
 }) {
-  const jobs = usePaginatedQuery(
-    api.videoJobs.listJobs,
-    { workspaceId, projectId, kind: "render" },
-    { initialNumItems: 10 },
-  );
-  const renders = jobs.results.filter((job) => job.state === "succeeded");
-  if (jobs.status === "LoadingFirstPage") {
+  const operations = useQuery(api.videoJobs.listOperations, {
+    workspaceId,
+    projectId,
+    kind: "render",
+    limit: 30,
+  });
+  const renders = operations
+    ?.map((operation) => operation.latestSuccessfulAttempt)
+    .filter((attempt) => attempt !== null);
+  if (!operations) {
     return (
       <p className="video-candidates-loading" role="status">
         Loading saved exports…
       </p>
     );
   }
-  if (!renders.length) {
-    const pending = jobs.results.filter((job) => job.state !== "succeeded");
-    if (!pending.length) return null;
+  if (!renders?.length) {
+    if (!operations.length) return null;
     return (
       <p className="video-candidates-loading" role="status">
         Export in progress… Finished exports appear here.
@@ -51,11 +53,6 @@ export function RenderCandidates({
             onOpenRender={onOpenRender}
           />
         ))}
-        {jobs.status === "CanLoadMore" && (
-          <Button size="sm" variant="ghost" onClick={() => jobs.loadMore(10)}>
-            Earlier exports
-          </Button>
-        )}
       </div>
     </nav>
   );

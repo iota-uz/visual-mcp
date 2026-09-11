@@ -103,7 +103,7 @@ test("unknown paid outcome never exposes automatic retry; stored receipt can rec
   expect(action).toHaveBeenCalledWith({ jobId: "job" });
   expect(mutation).not.toHaveBeenCalled();
 });
-test("lost local output explains safe regeneration without triggering it", () => {
+test("lost local output exposes one explicit server-keyed retry and never triggers it automatically", async () => {
   query.mockReturnValue({
     ...base,
     kind: "render",
@@ -113,7 +113,7 @@ test("lost local output explains safe regeneration without triggering it", () =>
       code: "RESULT_PERSISTENCE_FAILED",
       reasonCode: "STORED_OUTPUT_UNAVAILABLE",
       message: "Reserved output is unavailable",
-      recovery: { kind: "regenerate" },
+      recovery: { kind: "regenerate", safeToRegenerate: true },
     },
   });
 
@@ -126,7 +126,25 @@ test("lost local output explains safe regeneration without triggering it", () =>
   expect(
     screen.queryByRole("button", { name: "Recover already stored output" }),
   ).not.toBeInTheDocument();
+  const retry = screen.getByRole("button", { name: "Render again" });
   expect(action).not.toHaveBeenCalled();
+  expect(mutation).not.toHaveBeenCalled();
+  await userEvent.click(retry);
+  expect(mutation).toHaveBeenCalledWith({ jobId: "job" });
+});
+test("unknown or untrusted regeneration advice never exposes Render again", () => {
+  query.mockReturnValue({
+    ...base,
+    kind: "render",
+    state: "outcome_unknown",
+    error: {
+      code: "OUTCOME_UNKNOWN",
+      message: "The effect is unknown",
+      recovery: { kind: "inspect_job", safeToRegenerate: false },
+    },
+  });
+  render(page());
+  expect(screen.queryByRole("button", { name: "Render again" })).not.toBeInTheDocument();
   expect(mutation).not.toHaveBeenCalled();
 });
 test("arbitrary execution output is not interpreted as media authority", () => {

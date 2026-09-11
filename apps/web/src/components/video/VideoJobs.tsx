@@ -1,4 +1,4 @@
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -21,12 +21,10 @@ const kindLabels: Record<string, string> = {
   shot: "Generated shot",
   voice: "Voice-over",
   critique: "Quality review",
-  video: "Generated video",
-  music: "Music",
-  sfx: "Sound effect",
-  upload: "Media upload",
+  media: "Media operation",
 };
 const activeStates = new Set(["queued", "running", "cancel_requested"]);
+
 export function VideoJobs({
   workspaceId,
   projectId,
@@ -36,175 +34,172 @@ export function VideoJobs({
   projectId: Id<"videoProjects">;
   onOpenRender?: (jobId: Id<"videoJobs">) => void;
 }) {
-  const jobs = usePaginatedQuery(
-    api.videoJobs.listJobs,
-    { workspaceId, projectId },
-    { initialNumItems: 10 },
-  );
+  const operations = useQuery(api.videoJobs.listOperations, { workspaceId, projectId, limit: 30 });
   const cancel = useMutation(api.videoJobs.cancel);
+  const regenerate = useMutation(api.videoJobs.regenerate);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
-  async function stop(jobId: Id<"videoJobs">) {
+  const active =
+    operations?.filter((operation) => activeStates.has(operation.latestAttempt.state)) ?? [];
+  const history =
+    operations?.filter((operation) => !activeStates.has(operation.latestAttempt.state)) ?? [];
+
+  async function act(kind: "cancel" | "regenerate", jobId: Id<"videoJobs">) {
     setPending(jobId);
     setError("");
     try {
-      await cancel({ jobId });
+      if (kind === "cancel") await cancel({ jobId });
+      else await regenerate({ jobId });
     } catch {
       setError(
-        "Cancellation could not be confirmed. Inspect this job before making another request.",
+        kind === "regenerate"
+          ? "A new attempt was not confirmed. Inspect this operation; do not create another key."
+          : "Cancellation could not be confirmed. Inspect this job before making another request.",
       );
     } finally {
       setPending(null);
     }
   }
-  const active = jobs.results.filter((job) => activeStates.has(job.state));
-  const history = jobs.results.filter((job) => !activeStates.has(job.state));
-  const renderJobs = (items: typeof jobs.results) =>
-    items.map((job) => (
-      <Disclosure
-        key={job.jobId}
-        className="video-job"
-        summary={
-          <div className="video-job-summary">
-            <span className="video-job-summary-main">
-              <strong>{kindLabels[job.kind] ?? job.kind}</strong>
-              <JobVersion versionId={job.versionId} kind={job.kind} />
-            </span>
-            <span className="video-job-summary-meta">
-              <time dateTime={new Date(job.createdAt).toISOString()}>
-                {new Intl.DateTimeFormat(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }).format(job.createdAt)}
-              </time>
-              <Badge
-                tone={
-                  job.state === "succeeded"
-                    ? "success"
-                    : job.state === "outcome_unknown" || job.state === "failed"
-                      ? "warning"
-                      : job.state === "running"
-                        ? "info"
-                        : "neutral"
-                }
-              >
-                {labels[job.state] ?? job.state}
-              </Badge>
-            </span>
-          </div>
-        }
-      >
-        <div className="video-job-body">
-          <div className="video-job-stage">
-            <span>Current step</span>
-            <strong>{job.stage.replaceAll("_", " ")}</strong>
-          </div>
-          {job.context && (
-            <p className="video-hint">
-              Scene {job.context.sceneId} · shot {job.context.shotId}
-            </p>
-          )}
-          {job.stale && (
-            <p className="video-warning">
-              This job used an older draft. Its result did not replace your current edits.
-            </p>
-          )}
-          {job.error && (
-            <p role="alert">
-              {job.error.code}. {job.error.message}
-            </p>
-          )}
-          {job.error?.code === "WORKER_NOT_CONFIGURED" && (
-            <p className="video-hint">
-              An administrator must configure the render worker. No render was started; after
-              configuration, request a new render of this saved version.
-            </p>
-          )}
-          {job.state === "outcome_unknown" && (
-            <p className="video-warning">
-              The provider may have processed this request. Inspect this job instead of submitting
-              the same generation again.
-            </p>
-          )}
-          <div className="video-actions">
-            {(job.state === "queued" || job.state === "running") && (
-              <Button size="sm" disabled={pending !== null} onClick={() => void stop(job.jobId)}>
-                {pending === job.jobId ? "Requesting cancellation…" : "Request cancellation"}
-              </Button>
+
+  const cards = (items: NonNullable<typeof operations>) =>
+    items.map((operation) => {
+      const successfulAttempt = operation.latestSuccessfulAttempt;
+      return (
+        <Disclosure
+          key={operation.operationId}
+          className="video-job"
+          summary={
+            <div className="video-job-summary">
+              <span className="video-job-summary-main">
+                <strong>{kindLabels[operation.kind] ?? operation.kind}</strong>
+                <span>
+                  {operation.attempts.length}{" "}
+                  {operation.attempts.length === 1 ? "attempt" : "attempts"}
+                </span>
+              </span>
+              <span className="video-job-summary-meta">
+                {operation.retryCount > 0 && <Badge>{operation.retryCount} retries</Badge>}
+                <Badge tone={operation.latestSuccessfulAttempt ? "success" : "warning"}>
+                  {operation.latestSuccessfulAttempt
+                    ? "Draft saved"
+                    : labels[operation.latestAttempt.state]}
+                </Badge>
+              </span>
+            </div>
+          }
+        >
+          <div className="video-job-body">
+            {successfulAttempt && (
+              <section className="video-job-success" aria-label="Latest successful draft">
+                <Badge tone="success">Latest successful draft</Badge>
+                <JobVersion versionId={successfulAttempt.versionId} kind={operation.kind} />
+                {operation.kind === "render" && onOpenRender && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => onOpenRender(successfulAttempt.jobId)}
+                  >
+                    Review export
+                  </Button>
+                )}
+              </section>
             )}
-            {job.kind === "render" && job.state === "succeeded" && onOpenRender && (
-              <Button size="sm" variant="primary" onClick={() => onOpenRender(job.jobId)}>
-                Review export
-              </Button>
+            {operation.latestAttempt.state === "outcome_unknown" && (
+              <p className="video-warning">
+                The outcome is unknown. This operation cannot be regenerated from here.
+              </p>
             )}
+            <div className="video-actions">
+              {activeStates.has(operation.latestAttempt.state) && (
+                <Button
+                  size="sm"
+                  disabled={pending !== null}
+                  onClick={() => void act("cancel", operation.latestAttempt.jobId)}
+                >
+                  {pending === operation.latestAttempt.jobId
+                    ? "Requesting cancellation…"
+                    : "Request cancellation"}
+                </Button>
+              )}
+              {operation.kind === "render" &&
+                operation.latestAttempt.error?.recovery.kind === "regenerate" &&
+                operation.latestAttempt.error.recovery.safeToRegenerate === true && (
+                  <Button
+                    size="sm"
+                    disabled={pending !== null}
+                    onClick={() => void act("regenerate", operation.latestAttempt.jobId)}
+                  >
+                    {pending === operation.latestAttempt.jobId ? "Starting…" : "Render again"}
+                  </Button>
+                )}
+            </div>
+            <Disclosure summary="Attempt history" className="video-job-technical">
+              <ol className="video-attempt-history">
+                {operation.attempts.map((attempt) => (
+                  <li key={attempt.jobId}>
+                    <div>
+                      <strong>Attempt {attempt.attemptNumber}</strong>{" "}
+                      <Badge
+                        tone={
+                          attempt.state === "succeeded"
+                            ? "success"
+                            : attempt.error
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
+                        {labels[attempt.state] ?? attempt.state}
+                      </Badge>
+                    </div>
+                    <p className="video-hint">
+                      {attempt.stage.replaceAll("_", " ")} ·{" "}
+                      {new Date(attempt.updatedAt).toLocaleString()}
+                    </p>
+                    {attempt.error && (
+                      <p role="alert">
+                        {attempt.error.code}. {attempt.error.message}
+                      </p>
+                    )}
+                    <code>{attempt.jobId}</code>
+                  </li>
+                ))}
+              </ol>
+            </Disclosure>
           </div>
-          {(job.state === "queued" || job.state === "running") && (
-            <p className="video-hint">
-              Processing may finish after cancellation is requested. Provider charges may still
-              apply.
-            </p>
-          )}
-          <Disclosure summary="Technical details" className="video-job-technical">
-            <dl className="video-job-facts">
-              <div>
-                <dt>Job ID</dt>
-                <dd>
-                  <code>{job.jobId}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Last update</dt>
-                <dd>
-                  <time dateTime={new Date(job.updatedAt).toISOString()}>
-                    {new Date(job.updatedAt).toLocaleString()}
-                  </time>
-                </dd>
-              </div>
-            </dl>
-          </Disclosure>
-        </div>
-      </Disclosure>
-    ));
+        </Disclosure>
+      );
+    });
+
   return (
     <section className="video-jobs" aria-label="Production jobs">
       <div className="video-section-heading">
         <div>
           <h2>Production jobs</h2>
           <p className="video-hint">
-            Generation, voice, review and export activity for this project.
+            Attempts are grouped so a failed retry never hides a saved draft.
           </p>
         </div>
         {active.length > 0 && <Badge tone="info">{active.length} active</Badge>}
       </div>
-      {jobs.status === "LoadingFirstPage" && <p role="status">Loading jobs…</p>}
-      {jobs.status !== "LoadingFirstPage" && jobs.results.length === 0 && (
-        <p className="video-hint">
-          No jobs yet. Saving a script does not automatically start generation.
-        </p>
-      )}
+      {!operations && <p role="status">Loading jobs…</p>}
+      {operations?.length === 0 && <p className="video-hint">No jobs yet.</p>}
       {error && <p role="alert">{error}</p>}
       {active.length > 0 && (
         <div className="video-job-group">
           <h3>In progress</h3>
-          {renderJobs(active)}
+          {cards(active)}
         </div>
       )}
       {history.length > 0 && (
         <div className="video-job-group">
-          <h3>Recent history</h3>
-          {renderJobs(history)}
+          <h3>Recent operations</h3>
+          {cards(history)}
         </div>
-      )}
-      {jobs.status === "CanLoadMore" && (
-        <Button size="sm" onClick={() => jobs.loadMore(10)}>
-          More jobs
-        </Button>
       )}
     </section>
   );
 }
+
 function JobVersion({ versionId, kind }: { versionId: Id<"videoVersions"> | null; kind: string }) {
   const version = useQuery(api.video.getVersion, versionId ? { versionId } : "skip");
   return (

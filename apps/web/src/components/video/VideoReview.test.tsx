@@ -44,6 +44,20 @@ beforeEach(() => {
   });
   state.save.mockReset().mockResolvedValue({ revision: 1 });
   state.query.mockImplementation((ref, args: { jobId?: string; versionId?: string }) => {
+    if (getFunctionName(ref) === "videoJobs:listOperations")
+      return (
+        state.jobResults ?? [
+          { jobId: "job", state: "succeeded" },
+          { jobId: "older", state: "succeeded" },
+        ]
+      ).map((job) => ({
+        operationId: job.jobId,
+        kind: "render",
+        retryCount: 0,
+        latestAttempt: job,
+        latestSuccessfulAttempt: job.state === "succeeded" ? job : null,
+        attempts: [job],
+      }));
     if (getFunctionName(ref) === "video:getVersion")
       return { label: args.versionId === "older-version" ? "Earlier cut" : "Launch cut" };
     if (getFunctionName(ref) === "videoReview:renderMetadata") {
