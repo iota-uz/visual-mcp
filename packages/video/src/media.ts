@@ -88,5 +88,22 @@ export const VideoRenderResult = z
       .max(100),
   })
   .strict();
+export const VideoRenderFailure = z
+  .object({
+    error: z
+      .object({
+        code: z.string().min(1),
+        message: z.string().min(1),
+        effect: z.enum(["not_applied", "partial", "unknown"]),
+        result: VideoRenderResult.optional(),
+        persisted: z
+          .array(z.enum(["video", "poster", "captions"]))
+          .max(3)
+          .optional(),
+      })
+      .strict(),
+  })
+  .strict();
 export type VideoRenderRequest = z.infer<typeof VideoRenderRequest>;
 export type VideoRenderResult = z.infer<typeof VideoRenderResult>;
+export type VideoRenderFailure = z.infer<typeof VideoRenderFailure>;

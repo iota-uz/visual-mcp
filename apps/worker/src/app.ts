@@ -19,7 +19,7 @@
  * open render/exec oracle.
  */
 
-import { VideoRenderRequest } from "@visual-canvas/video/media";
+import { VideoRenderFailure, VideoRenderRequest } from "@visual-canvas/video/media";
 import { Hono, type MiddlewareHandler } from "hono";
 import { handleAssetImport } from "./asset-import.js";
 import { handleCompileCss } from "./compile-css.js";
@@ -39,6 +39,17 @@ import { registerMediaProcessRoute } from "./video/process-route.js";
 import { handleVideoRender, VideoWorkerError } from "./video/render.js";
 
 export const app = new Hono();
+
+export function videoWorkerFailureBody(error: VideoWorkerError) {
+  return VideoRenderFailure.parse({
+    error: {
+      code: error.code,
+      message: error.message,
+      effect: error.effect,
+      ...(error.result ? { result: error.result, persisted: error.persisted ?? [] } : {}),
+    },
+  });
+}
 
 app.get("/healthz", (c) => c.json({ ok: true }));
 
@@ -152,18 +163,7 @@ app.post("/video/render", async (c) => {
     return c.json(await handleVideoRender(parsed.data, c.req.raw.signal));
   } catch (error) {
     if (error instanceof VideoWorkerError)
-      return c.json(
-        {
-          error: {
-            code: error.code,
-            message: error.message,
-            effect: error.effect,
-          },
-          result: error.result,
-          persisted: error.persisted,
-        },
-        error.code === "WORKER_BUSY" ? 429 : 500,
-      );
+      return c.json(videoWorkerFailureBody(error), error.code === "WORKER_BUSY" ? 429 : 500);
     return c.json(
       {
         error: {

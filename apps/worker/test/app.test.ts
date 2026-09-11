@@ -6,7 +6,8 @@
 
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { app } from "../src/app.js";
+import { app, videoWorkerFailureBody } from "../src/app.js";
+import { VideoWorkerError } from "../src/video/render.js";
 
 const ORIGINAL_TOKEN = process.env.WORKER_TOKEN;
 
@@ -21,6 +22,44 @@ after(() => {
 test("/healthz requires no auth", async () => {
   const res = await app.request("/healthz");
   assert.equal(res.status, 200);
+});
+
+test("video persistence failures keep recovery metadata inside the typed error envelope", () => {
+  const result = {
+    jobId: "job",
+    fence: 1,
+    video: {
+      sha256: "a".repeat(64),
+      sizeBytes: 1,
+      mimeType: "video/mp4" as const,
+      width: 1080,
+      height: 1920,
+      durationMs: 1000,
+      fps: { numerator: 30, denominator: 1 },
+    },
+    poster: {
+      sha256: "b".repeat(64),
+      sizeBytes: 1,
+      mimeType: "image/png" as const,
+      width: 1080,
+      height: 1920,
+    },
+    captions: {
+      sha256: "c".repeat(64),
+      sizeBytes: 1,
+      mimeType: "text/vtt" as const,
+    },
+    partial: false,
+    checks: [],
+  };
+  const body = videoWorkerFailureBody(
+    new VideoWorkerError("RESULT_PERSISTENCE_FAILED", "Upload failed", "partial", result, [
+      "video",
+    ]),
+  );
+  assert.equal(body.error.result?.jobId, "job");
+  assert.deepEqual(body.error.persisted, ["video"]);
+  assert.equal("result" in body, false);
 });
 
 test("/render without a bearer token is rejected", async () => {

@@ -1,15 +1,49 @@
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { z } from "zod";
 import { JobRequest } from "../packages/video/src/jobs";
 import { VideoRenderResult } from "../packages/video/src/media";
 import { MediaProcessResult } from "../packages/video/src/operations";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { presignObject } from "./lib/objectStore";
+import { verifiedMediaMetadata } from "./lib/videoAssetMetadata";
 import { getWorkerConfig } from "./lib/worker";
 import { completeRender } from "./videoRender";
 
 const m = (name: string) => makeFunctionReference<"mutation">(name),
   q = (name: string) => makeFunctionReference<"query">(name);
+const StoredVerification = z
+  .object({
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    sizeBytes: z.number().int().positive().max(2_000_000_000),
+    mimeType: z.string().min(1),
+    kind: z.enum(["image", "video", "audio", "data"]),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    durationMs: z.number().int().positive().optional(),
+    frameCount: z.number().int().positive().optional(),
+    fps: z
+      .string()
+      .regex(/^\d+\/\d+$/)
+      .optional(),
+    hasAudio: z.boolean().optional(),
+    audioStreams: z
+      .array(
+        z.object({
+          codec: z.string().nullable(),
+          channels: z.number().int().positive().nullable(),
+          sampleRateHz: z.number().positive().nullable(),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const renderArtifactLimits = {
+  video: { mimeType: "video/mp4", maxBytes: 2_000_000_000 },
+  poster: { mimeType: "image/png", maxBytes: 100_000_000 },
+  captions: { mimeType: "text/vtt", maxBytes: 4 * 1024 * 1024 },
+} as const;
 export const admit = internalMutation({
   args: { jobId: v.id("videoJobs"), fence: v.number() },
   handler: async (ctx, args) => {
@@ -101,27 +135,36 @@ export const run = internalAction({
         await ctx.runAction(makeFunctionReference<"action">("videoCritiqueRecovery:run"), args);
         return;
       }
-      const render = job.kind === "render" ? VideoRenderResult.parse(receipt.result) : null;
+      let render =
+        job.kind === "render" && receipt.result ? VideoRenderResult.parse(receipt.result) : null;
+      const retainedRender = render;
       const processing = job.kind === "media" ? MediaProcessResult.parse(receipt.result) : null;
       const staged: {
         objectKey: string;
         role: string;
-        sha256: string;
-        sizeBytes: number;
+        sha256?: string;
+        sizeBytes?: number;
         mimeType: string;
-      }[] = render
+        maxBytes?: number;
+      }[] = retainedRender
         ? ["video", "poster", "captions"].map((name) => ({
             objectKey: receipt.keys[name],
             role: name,
-            ...render[name as "video" | "poster" | "captions"],
+            ...retainedRender[name as "video" | "poster" | "captions"],
           }))
-        : processing
-          ? processing.outputs.map((o) => ({
-              ...o,
-              role: o.name,
-              objectKey: receipt.keys[o.name],
+        : job.kind === "render"
+          ? Object.entries(renderArtifactLimits).map(([role, limits]) => ({
+              objectKey: receipt.keys?.[role],
+              role,
+              ...limits,
             }))
-          : receipt.staged;
+          : processing
+            ? processing.outputs.map((o) => ({
+                ...o,
+                role: o.name,
+                objectKey: receipt.keys[o.name],
+              }))
+            : receipt.staged;
       if (!Array.isArray(staged) || staged.length < 1 || staged.length > 32)
         throw new Error("Invalid persisted receipt");
       const worker = getWorkerConfig();
@@ -141,7 +184,19 @@ export const run = internalAction({
         sizeBytes: number;
         headAdvanced?: boolean;
       }[] = [];
+      const verified: {
+        artifact: (typeof staged)[number];
+        data: z.infer<typeof StoredVerification>;
+      }[] = [];
       for (const artifact of staged) {
+        if (
+          typeof artifact.objectKey !== "string" ||
+          typeof artifact.role !== "string" ||
+          typeof artifact.mimeType !== "string"
+        )
+          throw new Error("Invalid persisted artifact descriptor");
+        const maxBytes = artifact.sizeBytes ?? artifact.maxBytes;
+        if (!maxBytes) throw new Error("Persisted artifact byte limit unavailable");
         const response = await fetch(`${worker.url}/media/verify`, {
           method: "POST",
           headers: {
@@ -151,25 +206,109 @@ export const run = internalAction({
           body: JSON.stringify({
             sourceUrl: await presignObject(artifact.objectKey, "GET", 900),
             declaredMimeType: artifact.mimeType,
-            maxBytes: artifact.sizeBytes,
-            expectedSize: artifact.sizeBytes,
-            expectedSha256: artifact.sha256,
+            maxBytes,
+            ...(artifact.sizeBytes ? { expectedSize: artifact.sizeBytes } : {}),
+            ...(artifact.sha256 ? { expectedSha256: artifact.sha256 } : {}),
           }),
           signal: AbortSignal.timeout(540000),
         });
         if (!response.ok) throw new Error("Stored output unavailable");
-        const data = (await response.json()) as {
-          sha256: string;
-          sizeBytes: number;
-          mimeType: string;
-          kind: string;
-        };
+        const data = StoredVerification.parse(await response.json());
         if (
-          data.sha256 !== artifact.sha256 ||
-          data.sizeBytes !== artifact.sizeBytes ||
+          (artifact.sha256 && data.sha256 !== artifact.sha256) ||
+          (artifact.sizeBytes && data.sizeBytes !== artifact.sizeBytes) ||
           data.mimeType !== artifact.mimeType
         )
           throw new Error("Stored output mismatch");
+        verified.push({ artifact, data });
+      }
+      if (job.kind === "render" && !render) {
+        const request = recoveryRequest;
+        if (request.kind !== "render") throw new Error("Render recovery request unavailable");
+        const input = await ctx.runQuery(q("videoRender:inputs"), {
+          jobId: job._id,
+          fence: job.fence,
+        });
+        const video = verified.find((item) => item.artifact.role === "video")?.data;
+        const poster = verified.find((item) => item.artifact.role === "poster")?.data;
+        const captions = verified.find((item) => item.artifact.role === "captions")?.data;
+        if (
+          !video?.width ||
+          !video.height ||
+          !video.durationMs ||
+          !video.fps ||
+          !poster?.width ||
+          !poster.height ||
+          !captions
+        )
+          throw new Error("Stored render metadata unavailable");
+        const format = input.manifest.format;
+        const [fpsNumerator, fpsDenominator] = video.fps.split("/").map(Number);
+        const sourceFence = Number(String(receipt.keys.video).split("/")[2]);
+        const frames = request.range
+          ? request.range.endFrame - request.range.startFrame
+          : input.manifest.timeline.durationFrames;
+        const expectedDurationMs = (frames * 1000 * format.fps.denominator) / format.fps.numerator;
+        if (
+          !Number.isSafeInteger(sourceFence) ||
+          !fpsNumerator ||
+          !fpsDenominator ||
+          video.width !== format.width ||
+          video.height !== format.height ||
+          poster.width !== format.width ||
+          poster.height !== format.height ||
+          fpsNumerator * format.fps.denominator !== format.fps.numerator * fpsDenominator ||
+          Math.abs(video.durationMs - expectedDurationMs) > 120
+        )
+          throw new Error("Stored render differs from version contract");
+        render = VideoRenderResult.parse({
+          jobId: job._id,
+          fence: sourceFence,
+          video: {
+            sha256: video.sha256,
+            sizeBytes: video.sizeBytes,
+            mimeType: "video/mp4",
+            width: video.width,
+            height: video.height,
+            durationMs: video.durationMs,
+            fps: format.fps,
+          },
+          poster: {
+            sha256: poster.sha256,
+            sizeBytes: poster.sizeBytes,
+            mimeType: "image/png",
+            width: poster.width,
+            height: poster.height,
+          },
+          captions: {
+            sha256: captions.sha256,
+            sizeBytes: captions.sizeBytes,
+            mimeType: "text/vtt",
+          },
+          partial: Boolean(request.range),
+          checks: [
+            { name: "dimensions_frames_duration_fps", outcome: "pass" },
+            {
+              name: "source_integrity",
+              outcome: "not_evaluated",
+              reason:
+                "Recovered from immutable reserved outputs after the worker response was lost",
+            },
+            {
+              name: "audio_presence",
+              outcome: "not_evaluated",
+              reason:
+                "Recovered output has measured audio metadata but no retained worker expectation",
+            },
+            {
+              name: "font_mapping",
+              outcome: "not_evaluated",
+              reason: "Worker provenance was unavailable in the lost response",
+            },
+          ],
+        });
+      }
+      for (const { artifact, data } of verified) {
         const leaseId = `recovery:${job._id}:${job.fence}:${artifact.role}`;
         await ctx.runMutation(m("assets:acquireObjectLease"), {
           objectKey: artifact.objectKey,
@@ -188,9 +327,9 @@ export const run = internalAction({
           kind: data.kind,
           mediaMetadata: verifiedMediaMetadata(data),
           objectKey: artifact.objectKey,
-          contentHash: artifact.sha256,
-          mimeType: artifact.mimeType,
-          size: artifact.sizeBytes,
+          contentHash: data.sha256,
+          mimeType: data.mimeType,
+          size: data.sizeBytes,
           originalFilename: artifact.role,
           sourceType: "upload",
           objectLeaseId: leaseId,
@@ -239,9 +378,9 @@ export const run = internalAction({
         artifacts.push({
           role: artifact.role,
           asset: { assetId: saved.assetId, revisionId: saved.versionId },
-          sha256: artifact.sha256,
-          mimeType: artifact.mimeType,
-          sizeBytes: artifact.sizeBytes,
+          sha256: data.sha256,
+          mimeType: data.mimeType,
+          sizeBytes: data.sizeBytes,
           ...(saved.headAdvanced !== undefined ? { headAdvanced: saved.headAdvanced } : {}),
         });
       }
@@ -296,7 +435,14 @@ export const run = internalAction({
         fence: job.fence,
         result,
       });
-    } catch {
+    } catch (error) {
+      console.error("Video result recovery failed", {
+        jobId: job._id,
+        fence: job.fence,
+        kind: job.kind,
+        stage: job.stage,
+        reason: error instanceof Error ? error.message : "Unknown recovery error",
+      });
       await ctx.runMutation(m("videoJobs:fail"), {
         jobId: job._id,
         fence: job.fence,
@@ -307,5 +453,3 @@ export const run = internalAction({
     }
   },
 });
-
-import { verifiedMediaMetadata } from "./lib/videoAssetMetadata";

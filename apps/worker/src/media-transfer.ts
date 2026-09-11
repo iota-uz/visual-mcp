@@ -186,6 +186,9 @@ export async function inspectTransferredFile(path: string, mime: string) {
       ? {
           width: video.width,
           height: video.height,
+          ...(Number.isSafeInteger(Number(video.nb_frames)) && Number(video.nb_frames) > 0
+            ? { frameCount: Number(video.nb_frames) }
+            : {}),
           fps: video.avg_frame_rate ?? null,
         }
       : {}),

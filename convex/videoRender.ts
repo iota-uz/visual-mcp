@@ -1,7 +1,11 @@
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { JobRequest } from "../packages/video/src/jobs";
-import { VideoRenderRequest, VideoRenderResult } from "../packages/video/src/media";
+import {
+  VideoRenderFailure,
+  VideoRenderRequest,
+  VideoRenderResult,
+} from "../packages/video/src/media";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction, internalQuery } from "./_generated/server";
 import { sha256HexBytes } from "./lib/hash";
@@ -301,10 +305,10 @@ export const run = internalAction({
         }
       }
       if (!response.ok) {
-        const error = (await response.json().catch(() => null)) as {
-          error?: { code?: string; effect?: string; result?: unknown; persisted?: string[] };
-        } | null;
-        const partial = VideoRenderResult.safeParse(error?.error?.result);
+        const failure = VideoRenderFailure.safeParse(await response.json().catch(() => null));
+        const partial = VideoRenderResult.safeParse(
+          failure.success ? failure.data.error.result : undefined,
+        );
         if (partial.success && partial.data.jobId === args.jobId && partial.data.fence === fence) {
           await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
             jobId: args.jobId,
@@ -314,12 +318,17 @@ export const run = internalAction({
               kind: "render",
               keys,
               result: partial.data,
-              persisted: error?.error?.persisted ?? [],
+              persisted: failure.success ? (failure.data.error.persisted ?? []) : [],
             },
           });
           throw new ConvexError({ code: "RESULT_PERSISTENCE_FAILED", effect: "partial" });
         }
-        throw new Error("Render response unavailable; reserved outputs retained");
+        if (failure.success)
+          throw new ConvexError({
+            code: failure.data.error.code,
+            effect: failure.data.error.effect,
+          });
+        throw new ConvexError({ code: "WORKER_RESPONSE_INVALID", effect: "unknown" });
       }
       const result = VideoRenderResult.parse(await response.json());
       if (result.jobId !== args.jobId || result.fence !== fence)

@@ -15,7 +15,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-test("render persistence failure reconciles exact bytes and atomic measurement evidence without rerender", async () => {
+test("render persistence failure preserves the worker receipt and can recover reserved-only bytes without rerender", async () => {
   const t = convexTest(schema, modules);
   const { userId, workspaceId } = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
@@ -111,7 +111,18 @@ test("render persistence failure reconciles exact bytes and atomic measurement e
       const url = String(input instanceof Request ? input.url : input);
       if (url.includes("/video/render")) {
         renderPosts++;
-        return Response.json(result);
+        return Response.json(
+          {
+            error: {
+              code: "RESULT_PERSISTENCE_FAILED",
+              message: "Rendered bytes exist but persistence could not be confirmed",
+              effect: "partial",
+              result,
+              persisted: ["video"],
+            },
+          },
+          { status: 500 },
+        );
       }
       return new Response(null, { status: 404 });
     }),
@@ -120,6 +131,13 @@ test("render persistence failure reconciles exact bytes and atomic measurement e
   const failed = await t.run((ctx) => ctx.db.get("videoJobs", accepted.jobId));
   expect(failed?.state).not.toBe("succeeded");
   expect(failed?.persistenceReceipt).toContain("result");
+  if (!failed?.persistenceReceipt) throw new Error("Expected retained render receipt");
+  const storedReceipt = JSON.parse(failed.persistenceReceipt);
+  await t.run((ctx) =>
+    ctx.db.patch("videoJobs", accepted.jobId, {
+      persistenceReceipt: JSON.stringify({ kind: "render", keys: storedReceipt.keys }),
+    }),
+  );
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -128,9 +146,15 @@ test("render persistence failure reconciles exact bytes and atomic measurement e
       expect(url).not.toContain("openai.com");
       if (url.includes("/media/verify")) {
         const request = JSON.parse(String(init?.body));
+        const recovered =
+          request.declaredMimeType === "video/mp4"
+            ? { sha256: "a".repeat(64), sizeBytes: 1 }
+            : request.declaredMimeType === "image/png"
+              ? { sha256: "b".repeat(64), sizeBytes: 2 }
+              : { sha256: "c".repeat(64), sizeBytes: 3 };
         return Response.json({
-          sha256: request.expectedSha256,
-          sizeBytes: request.expectedSize,
+          sha256: request.expectedSha256 ?? recovered.sha256,
+          sizeBytes: request.expectedSize ?? recovered.sizeBytes,
           mimeType: request.declaredMimeType,
           kind:
             request.declaredMimeType === "video/mp4"
@@ -140,7 +164,7 @@ test("render persistence failure reconciles exact bytes and atomic measurement e
                 : "data",
           ...(request.declaredMimeType !== "text/vtt" ? { width: 1080, height: 1920 } : {}),
           ...(request.declaredMimeType === "video/mp4"
-            ? { durationMs: 2000, frameCount: 60, fps: "30/1", hasAudio: false }
+            ? { durationMs: 30000, frameCount: 900, fps: "30/1", hasAudio: false }
             : {}),
         });
       }
@@ -151,15 +175,17 @@ test("render persistence failure reconciles exact bytes and atomic measurement e
   await t.action(action("videoRecovery:run"), { jobId: accepted.jobId, fence: 2 });
   const ready = await t.run((ctx) => ctx.db.get("videoJobs", accepted.jobId));
   expect(ready?.state).toBe("succeeded");
-  const saved = JSON.parse(ready!.result!);
+  if (!ready?.result) throw new Error("Expected recovered render result");
+  const saved = JSON.parse(ready.result);
   expect(saved.evidenceId).toBeTruthy();
   expect(saved.sha256).toBe(result.video.sha256);
   expect(renderPosts).toBe(1);
   const asset = await t.run((ctx) => ctx.db.get("assetVersions", saved.video.revisionId));
   expect(asset?.mediaMetadata?.width).toBe(1080);
-  expect(asset?.mediaMetadata?.frameCount).toBe(60);
+  expect(asset?.mediaMetadata?.frameCount).toBe(900);
   const evidence = await t.run((ctx) => ctx.db.get("videoWorkflowEvidence", saved.evidenceId));
-  const measurement = JSON.parse(evidence!.content);
-  expect(measurement.outcome).toBe("pass");
+  if (!evidence) throw new Error("Expected recovered render evidence");
+  const measurement = JSON.parse(evidence.content);
+  expect(measurement.outcome).toBe("uncertain");
   expect(measurement.artifactSha256).toBe(result.video.sha256);
 });
