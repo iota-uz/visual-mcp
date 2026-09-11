@@ -51,6 +51,7 @@ import type * as lib_videoLearningSchema from "../lib/videoLearningSchema.js";
 import type * as lib_videoMigration from "../lib/videoMigration.js";
 import type * as lib_videoProcessing from "../lib/videoProcessing.js";
 import type * as lib_videoProviderAdapters from "../lib/videoProviderAdapters.js";
+import type * as lib_videoPurge from "../lib/videoPurge.js";
 import type * as lib_videoReviewSchema from "../lib/videoReviewSchema.js";
 import type * as lib_videoWorkflow from "../lib/videoWorkflow.js";
 import type * as lib_videoWorkflowSchema from "../lib/videoWorkflowSchema.js";
@@ -132,6 +133,7 @@ declare const fullApi: ApiFromModules<{
   "lib/videoMigration": typeof lib_videoMigration;
   "lib/videoProcessing": typeof lib_videoProcessing;
   "lib/videoProviderAdapters": typeof lib_videoProviderAdapters;
+  "lib/videoPurge": typeof lib_videoPurge;
   "lib/videoReviewSchema": typeof lib_videoReviewSchema;
   "lib/videoWorkflow": typeof lib_videoWorkflow;
   "lib/videoWorkflowSchema": typeof lib_videoWorkflowSchema;

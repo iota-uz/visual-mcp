@@ -233,6 +233,9 @@ export const agentSubmit = internalMutation({
 });
 function publicJob(j: Doc<"videoJobs">) {
   const request = JobRequest.parse(JSON.parse(j.request));
+  const safeToRegenerate =
+    ["render", "media"].includes(j.kind) && j.stage === "recovery_source_unavailable";
+  const canReconcile = Boolean(j.persistenceReceipt) && !safeToRegenerate;
   return {
     ...receipt(j, false),
     workspaceId: j.workspaceId,
@@ -257,23 +260,26 @@ function publicJob(j: Doc<"videoJobs">) {
     error: j.errorCode
       ? {
           code: j.errorCode,
-          message:
-            j.errorCode === "EXECUTE_NOT_STARTED"
+          message: safeToRegenerate
+            ? "Reserved output is unavailable. This local media operation may be submitted again with a new idempotency key"
+            : j.errorCode === "EXECUTE_NOT_STARTED"
               ? "Code never started. You may intentionally choose a new execution with a new key; this operation is never replayed automatically"
               : j.errorCode === "WORKER_NOT_CONFIGURED"
                 ? "Ask the service operator to configure WORKER_URL and WORKER_TOKEN; no rendering started"
                 : j.errorCode === "PROVIDER_NOT_CONFIGURED"
                   ? "Ask the service operator to configure the provider credential; no paid request sent"
-                  : j.persistenceReceipt
+                  : canReconcile
                     ? "Persisted output is available for reconciliation; do not generate again"
                     : "Inspect job state; do not automatically repeat generation",
           recovery: {
-            kind: j.errorCode.endsWith("NOT_CONFIGURED")
-              ? "configure_service"
-              : j.persistenceReceipt
-                ? "reconcile"
-                : "inspect_job",
-            safeToRegenerate: false,
+            kind: safeToRegenerate
+              ? "regenerate"
+              : j.errorCode.endsWith("NOT_CONFIGURED")
+                ? "configure_service"
+                : canReconcile
+                  ? "reconcile"
+                  : "inspect_job",
+            safeToRegenerate,
           },
           effect: j.errorEffect ?? "unknown",
         }
@@ -645,6 +651,7 @@ export const fail = internalMutation({
     ...fenceArgs,
     code: v.string(),
     outcomeUnknown: v.boolean(),
+    stage: v.optional(v.string()),
     effect: v.optional(
       v.union(
         v.literal("none"),
@@ -660,6 +667,7 @@ export const fail = internalMutation({
     if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(args.code)) error("VALIDATION_ERROR", "Invalid error code");
     await ctx.db.patch(j._id, {
       state: args.outcomeUnknown ? "outcome_unknown" : "failed",
+      ...(args.stage ? { stage: args.stage } : {}),
       errorCode: args.code,
       errorEffect: args.effect ?? "unknown",
       updatedAt: Date.now(),

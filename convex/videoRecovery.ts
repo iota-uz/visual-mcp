@@ -65,6 +65,7 @@ export const begin = internalMutation({
     if (job.state === "succeeded") return { jobId: job._id, state: job.state };
     if (
       !["failed", "outcome_unknown"].includes(job.state) ||
+      job.stage === "recovery_source_unavailable" ||
       !job.persistenceReceipt ||
       !["image", "voice", "render", "shot", "media", "critique"].includes(job.kind)
     )
@@ -449,6 +450,9 @@ export const run = internalAction({
         code: "RESULT_PERSISTENCE_FAILED",
         outcomeUnknown: false,
         effect: "partial",
+        ...(error instanceof Error && error.message === "Stored output unavailable"
+          ? { stage: "recovery_source_unavailable" }
+          : {}),
       });
     }
   },

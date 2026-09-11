@@ -120,6 +120,12 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
               this page. This page never resubmits generation.
             </p>
           )}
+          {job.error.recovery.kind === "regenerate" && (
+            <p>
+              The reserved output is gone. This local render or media operation can be submitted
+              again with a new idempotency key.
+            </p>
+          )}
         </div>
       )}
       {job.state === "outcome_unknown" && (

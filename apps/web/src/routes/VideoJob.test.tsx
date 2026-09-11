@@ -103,6 +103,30 @@ test("unknown paid outcome never exposes automatic retry; stored receipt can rec
   expect(action).toHaveBeenCalledWith({ jobId: "job" });
   expect(mutation).not.toHaveBeenCalled();
 });
+test("lost local output explains safe regeneration without triggering it", () => {
+  query.mockReturnValue({
+    ...base,
+    kind: "render",
+    state: "failed",
+    stage: "recovery_source_unavailable",
+    error: {
+      code: "RESULT_PERSISTENCE_FAILED",
+      message: "Reserved output is unavailable",
+      recovery: { kind: "regenerate" },
+    },
+  });
+
+  render(page());
+
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "This local render or media operation can be submitted again with a new idempotency key.",
+  );
+  expect(
+    screen.queryByRole("button", { name: "Recover already stored output" }),
+  ).not.toBeInTheDocument();
+  expect(action).not.toHaveBeenCalled();
+  expect(mutation).not.toHaveBeenCalled();
+});
 test("arbitrary execution output is not interpreted as media authority", () => {
   expect(
     jobAssets({ kind: "execute", outputs: [{ asset: { assetId: "a", revisionId: "r" } }] }),

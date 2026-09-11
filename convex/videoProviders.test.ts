@@ -120,8 +120,25 @@ test("verification failure retains staged paid result and never claims ready", a
   });
   expect(job.state).toBe("failed");
   expect(job.error.effect).toBe("partial");
+  expect(job.error.recovery.safeToRegenerate).toBe(false);
   const stored = await t.run((ctx) => ctx.db.get(receipt.jobId as Id<"videoJobs">));
   expect(stored?.persistenceReceipt).toContain("staged");
+  await t.run((ctx) =>
+    ctx.db.patch(receipt.jobId as Id<"videoJobs">, {
+      stage: "recovery_source_unavailable",
+    }),
+  );
+  const providerWithUnavailableSource = await as.query(
+    makeFunctionReference<"query">("videoJobs:getJob"),
+    { jobId: receipt.jobId },
+  );
+  expect(providerWithUnavailableSource.error.recovery.safeToRegenerate).toBe(false);
+  expect(providerWithUnavailableSource.error.recovery.kind).not.toBe("regenerate");
+  await t.run((ctx) =>
+    ctx.db.patch(receipt.jobId as Id<"videoJobs">, {
+      stage: stored?.stage,
+    }),
+  );
   expect((await t.run((ctx) => ctx.db.query("assets").collect())).length).toBe(0);
   expect(posts).toBe(1);
   const hash = await sha256HexBytes(new TextEncoder().encode("hi"));

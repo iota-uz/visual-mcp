@@ -188,4 +188,61 @@ test("render persistence failure preserves the worker receipt and can recover re
   const measurement = JSON.parse(evidence.content);
   expect(measurement.outcome).toBe("uncertain");
   expect(measurement.artifactSha256).toBe(result.video.sha256);
+
+  const unavailable = await as.mutation(mutation("videoJobs:submit"), {
+    workspaceId,
+    projectId: p.projectId,
+    versionId: cp.version.versionId,
+    idempotencyKey: "render-unavailable",
+    request: {
+      kind: "render",
+      versionId: cp.version.versionId,
+      mode: "final",
+      rubricPolicy,
+      rubricHash,
+    },
+  });
+  await t.run((ctx) =>
+    ctx.db.patch("videoJobs", unavailable.jobId, {
+      state: "failed",
+      stage: "persisting",
+      errorCode: "RESULT_PERSISTENCE_FAILED",
+      errorEffect: "partial",
+      persistenceReceipt: JSON.stringify({
+        kind: "render",
+        keys: {
+          video: `video-results/${unavailable.jobId}/1/video`,
+          poster: `video-results/${unavailable.jobId}/1/poster`,
+          captions: `video-results/${unavailable.jobId}/1/captions`,
+        },
+      }),
+    }),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 422 })),
+  );
+  vi.stubEnv("WORKER_URL", "https://worker.example");
+  vi.stubEnv("WORKER_TOKEN", "fixture");
+  await t.mutation(mutation("videoRecovery:begin"), {
+    jobId: unavailable.jobId,
+    principalId: userId,
+  });
+  const recovering = await t.run((ctx) => ctx.db.get("videoJobs", unavailable.jobId));
+  if (!recovering) throw new Error("Expected render recovery job");
+  await t.action(action("videoRecovery:run"), {
+    jobId: unavailable.jobId,
+    fence: recovering.fence,
+  });
+
+  const unavailableStored = await t.run((ctx) => ctx.db.get("videoJobs", unavailable.jobId));
+  expect(unavailableStored?.state).toBe("failed");
+  expect(unavailableStored?.stage).toBe("recovery_source_unavailable");
+  const unavailablePublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
+    jobId: unavailable.jobId,
+  });
+  expect(unavailablePublic.error?.recovery).toEqual({
+    kind: "regenerate",
+    safeToRegenerate: true,
+  });
 });

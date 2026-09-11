@@ -178,7 +178,7 @@ export const providerDefinitions: Definition[] = [
   {
     name: "job_reconcile",
     description:
-      "Resume recovery of a known provider/persistence receipt without another paid generation POST. Only recoverable jobs qualify; absence of a receipt is not permission to resubmit. Poll job_get after admission.",
+      "Resume recovery of a known provider/persistence receipt without another paid generation POST. Only recovery.kind=reconcile jobs qualify. If job_get instead returns recovery.kind=regenerate with safeToRegenerate=true, the stored bytes for a local render/media operation are proven unavailable: submit that operation with a new idempotency key instead. Poll job_get after admission.",
     readOnly: false,
     input: z.object({ job_id: id }).strict(),
     output: z.object({ job_id: id, state: JobState }).strict(),

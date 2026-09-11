@@ -11,7 +11,7 @@ export function buildInstructions(): string {
     "",
     "WRITES. Canvas uses stable refs and opaque canvas_get state tokens for canvas_patch base; other guards use returned versions/revisions/hashes. Video patches require the exact read revision and IDs; nested documents use camelCase, transport references snake_case. Reread/recompute on conflicts. canvas_save is idempotent by ref; partial means content persisted: inspect warnings. Reconcile unknown outcomes with returned receipts, never a new idempotency key.",
     "",
-    "VIDEO. Checkpoints pin inputs; draft preview, rendered MP4 and human approval are distinct. Review exact rendered media. Critic passes and candidate selection never grant human approval. Paid producers require explicit allowPaid; poll job_get and reconcile receipts instead of blindly resubmitting. Respect pause and bounded iteration limits.",
+    "VIDEO. Checkpoints pin inputs; draft preview, rendered MP4 and human approval are distinct. Review exact rendered media. Critic passes and candidate selection never grant human approval. Paid producers require explicit allowPaid; poll job_get and reconcile receipts instead of blindly resubmitting. A new idempotency key is allowed only when job_get explicitly returns recovery.kind=regenerate and safeToRegenerate=true; this is reserved for local render/media work after stored bytes are proven unavailable. Respect pause and bounded iteration limits.",
     "",
     "ASSETS. Media saved under /assets automatically becomes reusable workspace media; reuse returned asset_ref. /src source and /output artifacts remain canvas-local. Upload URLs are for existing media/files. Preserve trusted SVG. Shared assets accept image, video and audio with validated MIME/size/metadata.",
     "",
