@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { type MenuItem, MenuPopup } from "./Menu";
 
 /*
@@ -21,6 +22,13 @@ import { type MenuItem, MenuPopup } from "./Menu";
  * adds only what a floating menu needs: collision-aware placement, outside
  * dismissal, and a press gesture that never fires while scrolling,
  * dragging, multi-touching, or after the pointer wanders.
+ *
+ * The popup renders through a portal into document.body. Ancestors like
+ * the scene navigator (overflow-y: auto) or any transformed pane would
+ * otherwise become the fixed-position containing block and clip the
+ * popup while the coordinates below are viewport client pixels. Portaled
+ * to <body>, fixed positioning and the client coordinate space agree by
+ * construction, and no studio scroll container can clip or offset it.
  *
  * The browser keeps its own menu wherever this has nothing to offer: the
  * trigger only calls preventDefault when it actually opens one.
@@ -261,22 +269,27 @@ export function useContextMenuTrigger({
     if (pressRef.current && event.pointerId === pressRef.current.pointerId) cancelPress();
   }
 
-  const menu = state ? (
-    <div
-      ref={wrapRef}
-      className="menu-popup-fixed"
-      style={{ left: (placed ?? state).x, top: (placed ?? state).y }}
-    >
-      <MenuPopup
-        key={state.nonce}
-        id={popupId}
-        label={state.label}
-        items={state.items}
-        onDismiss={close}
-        className="menu-popup menu-popup-fixed-inner"
-      />
-    </div>
-  ) : null;
+  // Portal vessel: a child of <body>, so position: fixed resolves against
+  // the viewport and no studio overflow/transform ancestor clips it.
+  const menu = state
+    ? createPortal(
+        <div
+          ref={wrapRef}
+          className="menu-popup-fixed"
+          style={{ left: (placed ?? state).x, top: (placed ?? state).y }}
+        >
+          <MenuPopup
+            key={state.nonce}
+            id={popupId}
+            label={state.label}
+            items={state.items}
+            onDismiss={close}
+            className="menu-popup menu-popup-fixed-inner"
+          />
+        </div>,
+        document.body,
+      )
+    : null;
 
   return {
     triggerProps: {

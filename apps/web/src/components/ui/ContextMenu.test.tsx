@@ -51,7 +51,7 @@ function Harness({
     getMenu: () => (items ? { items, label } : null),
   });
   return (
-    <div>
+    <div data-testid="overflow-ancestor" style={{ overflowY: "auto", transform: "scale(1)" }}>
       <div {...triggerProps}>
         <button type="button" data-anchor id="target">
           Target
@@ -299,6 +299,61 @@ describe("ContextMenu long-press", () => {
   test("plain areas never arm a press", () => {
     render(<Harness items={items()} />);
     expect(press("plain")).toBe(false);
+  });
+});
+
+describe("ContextMenu viewport placement", () => {
+  test("popup renders through a portal into document.body, outside any overflow/transform ancestor", () => {
+    render(<Harness items={items()} />);
+    fireEvent.contextMenu(target(), { clientX: 60, clientY: 80 });
+    const vessel = document.querySelector(".menu-popup-fixed");
+    expect(vessel).not.toBeNull();
+    const zone = screen.getByTestId("overflow-ancestor");
+    expect(zone).not.toBeNull();
+    expect(zone?.contains(vessel)).toBe(false);
+    expect(vessel?.parentElement).toBe(document.body);
+  });
+
+  test("pointer invocation places the popup at the pointer's viewport coordinates", () => {
+    render(<Harness items={items()} />);
+    fireEvent.contextMenu(target(), { clientX: 150, clientY: 220 });
+    const vessel = document.querySelector(".menu-popup-fixed") as HTMLElement;
+    // Inside the viewport the raw client coords pass through unclamped.
+    expect(vessel.style.left).toBe("150px");
+    expect(vessel.style.top).toBe("220px");
+  });
+
+  test("keyboard invocation places the popup beside the anchor rectangle, not at the pointer", () => {
+    render(<Harness items={items()} />);
+    const anchor = target();
+    anchor.focus();
+    anchor.getBoundingClientRect = () =>
+      ({
+        left: 300,
+        right: 420,
+        top: 160,
+        bottom: 200,
+        width: 120,
+        height: 40,
+        x: 300,
+        y: 160,
+      }) as DOMRect;
+    fireEvent.keyDown(anchor, { key: "ContextMenu" });
+    const vessel = document.querySelector(".menu-popup-fixed") as HTMLElement;
+    expect(vessel.style.left).toBe("300px");
+    expect(vessel.style.top).toBe("204px");
+  });
+
+  test("placement clamps to the viewport edge when the pointer is outside it", () => {
+    render(<Harness items={items()} />);
+    fireEvent.contextMenu(target(), { clientX: 5000, clientY: -400 });
+    const vessel = document.querySelector(".menu-popup-fixed") as HTMLElement;
+    const left = Number.parseFloat(vessel.style.left);
+    const top = Number.parseFloat(vessel.style.top);
+    // jsdom measures the unstyled popup at zero width, so the clamp lands
+    // at innerWidth minus the margin; what matters is it clamped at all.
+    expect(left).toBeLessThanOrEqual(window.innerWidth - 8);
+    expect(top).toBeGreaterThanOrEqual(8);
   });
 });
 

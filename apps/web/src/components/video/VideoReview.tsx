@@ -131,7 +131,14 @@ export function VideoReview({
             />
           ) : (
             <div className="video-review-loading">
-              <Button onClick={() => void refresh()}>Load preview</Button>
+              <div>
+                <h3>Preview not loaded yet</h3>
+                <p>
+                  Fetch a fresh playable link for this exact MP4. Approval unlocks once the preview
+                  loads.
+                </p>
+                <Button onClick={() => void refresh()}>Load preview</Button>
+              </div>
             </div>
           )}
         </div>
@@ -176,6 +183,9 @@ export function VideoReview({
                   <p className="video-hint">
                     Partial previews and analysis proxies cannot be approved.
                   </p>
+                )}
+                {metadata.approvable && !loaded && (
+                  <p className="video-hint">Load and watch the preview to unlock approval.</p>
                 )}
               </>
             )}

@@ -27,7 +27,15 @@ export function RenderCandidates({
       </p>
     );
   }
-  if (!renders.length) return null;
+  if (!renders.length) {
+    const pending = jobs.results.filter((job) => job.state !== "succeeded");
+    if (!pending.length) return null;
+    return (
+      <p className="video-candidates-loading" role="status">
+        Export in progress… Finished exports appear here.
+      </p>
+    );
+  }
   return (
     <nav className="video-candidates" aria-label="Saved render candidates">
       <div className="video-candidates-heading">

@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   save: vi.fn(),
   partial: false,
   stale: false,
+  jobResults: null as null | Array<{ jobId: string; state: string }>,
 }));
 vi.mock("convex/react", () => ({
   useQuery: state.query,
@@ -21,7 +22,7 @@ vi.mock("convex/react", () => ({
   usePaginatedQuery: (ref: Parameters<typeof getFunctionName>[0]) =>
     getFunctionName(ref) === "videoJobs:listJobs"
       ? {
-          results: [
+          results: state.jobResults ?? [
             { jobId: "job", state: "succeeded" },
             { jobId: "older", state: "succeeded" },
           ],
@@ -33,6 +34,7 @@ vi.mock("convex/react", () => ({
 beforeEach(() => {
   state.partial = false;
   state.stale = false;
+  state.jobResults = null;
   state.approve.mockReset().mockResolvedValue({ approvalId: "approval" });
   state.preview.mockReset().mockResolvedValue({
     videoUrl: "https://example.test/video",
@@ -128,4 +130,34 @@ test("partial preview stays unapprovable after load and saved feedback remains v
   expect(screen.getByRole("button", { name: "Approve this exact MP4" })).toBeDisabled();
   expect(screen.getByLabelText("Your feedback")).toHaveValue("Persisted feedback");
   expect(state.approve).not.toHaveBeenCalled();
+});
+test("approval explains its preview gate before the video loads", async () => {
+  mount();
+  await screen.findByLabelText("Video preview");
+  expect(screen.getByText("Load and watch the preview to unlock approval.")).toBeInTheDocument();
+  fireEvent.loadedData(screen.getByLabelText("Video preview"));
+  await waitFor(() =>
+    expect(
+      screen.queryByText("Load and watch the preview to unlock approval."),
+    ).not.toBeInTheDocument(),
+  );
+});
+test("missing preview link shows an honest loading state", async () => {
+  state.preview.mockReturnValue(new Promise(() => {}));
+  mount();
+  expect(
+    await screen.findByRole("heading", { name: "Preview not loaded yet" }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Load preview" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Video preview")).not.toBeInTheDocument();
+});
+test("running exports are announced while no finished export exists", async () => {
+  state.jobResults = [{ jobId: "run", state: "running" }];
+  mount();
+  expect(
+    await screen.findByText("Export in progress… Finished exports appear here."),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("navigation", { name: "Saved render candidates" }),
+  ).not.toBeInTheDocument();
 });

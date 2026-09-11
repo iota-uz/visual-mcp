@@ -40,8 +40,15 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
   width: 100%;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
+  /* .video-studio-body supplies align-items: start for its grid layout;
+     as a column flexbox that same declaration shrink-wraps every child's
+     width, so the status bar and workspace must re-stretch explicitly. */
+  align-items: stretch;
 }
 
 .video-studio-statusbar {
@@ -92,6 +99,8 @@
 .video-studio-workspace {
   display: grid;
   grid-template-columns: 224px minmax(0, 1fr) minmax(280px, 320px);
+  /* Fills the shell below the status bar so the collapsed inspector rail
+     runs the full workspace height instead of capping at content. */
   flex: 1;
   width: 100%;
   min-width: 0;
@@ -115,7 +124,9 @@
   overflow-y: auto;
   border-right: 1px solid var(--app-line);
   background: color-mix(in srgb, var(--app-paper) 88%, var(--app-white));
-  animation: vs-rise 0.45s var(--app-ease-out) 0.05s both;
+  /* No entrance transform here: a transform (even an animation's) on this
+     scroll container would become the containing block for positioned
+     descendants, and persistent chrome should not animate per mode. */
 }
 
 .video-studio-navigator .confirm-inline {
@@ -704,7 +715,6 @@
     animation: none;
   }
 
-  .video-studio-navigator,
   .video-studio-workspace > .video-editing-column,
   .video-studio-inspector-content {
     animation: none;
