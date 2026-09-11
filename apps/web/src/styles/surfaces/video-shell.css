@@ -216,9 +216,10 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--app-space-3);
   padding: var(--app-space-4);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-white));
   border-radius: var(--app-radius-md);
-  background: #101923;
-  color: #f4f7fb;
+  background: var(--app-accent-soft);
+  color: var(--app-ink);
 }
 
 .video-render-callout h2,
@@ -233,7 +234,7 @@
 
 .video-render-callout p {
   margin: var(--app-space-1) 0 0;
-  color: #aebdcd;
+  color: var(--app-muted);
   font-size: var(--app-text-sm);
   line-height: 1.5;
 }
