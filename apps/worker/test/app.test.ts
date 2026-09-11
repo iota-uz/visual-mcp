@@ -53,12 +53,18 @@ test("video persistence failures keep recovery metadata inside the typed error e
     checks: [],
   };
   const body = videoWorkerFailureBody(
-    new VideoWorkerError("RESULT_PERSISTENCE_FAILED", "Upload failed", "partial", result, [
-      "video",
-    ]),
+    new VideoWorkerError(
+      "RESULT_PERSISTENCE_FAILED",
+      "Upload failed",
+      "partial",
+      result,
+      ["video"],
+      "RESULT_UPLOAD_FAILED",
+    ),
   );
   assert.equal(body.error.result?.jobId, "job");
   assert.deepEqual(body.error.persisted, ["video"]);
+  assert.equal(body.error.reasonCode, "RESULT_UPLOAD_FAILED");
   assert.equal("result" in body, false);
 });
 

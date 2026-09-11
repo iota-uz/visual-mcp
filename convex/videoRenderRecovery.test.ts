@@ -115,6 +115,7 @@ test("render persistence failure preserves the worker receipt and can recover re
           {
             error: {
               code: "RESULT_PERSISTENCE_FAILED",
+              reasonCode: "RESULT_UPLOAD_FAILED",
               message: "Rendered bytes exist but persistence could not be confirmed",
               effect: "partial",
               result,
@@ -130,6 +131,7 @@ test("render persistence failure preserves the worker receipt and can recover re
   await t.action(action("videoRender:run"), { jobId: accepted.jobId });
   const failed = await t.run((ctx) => ctx.db.get("videoJobs", accepted.jobId));
   expect(failed?.state).not.toBe("succeeded");
+  expect(failed?.errorReasonCode).toBe("RESULT_UPLOAD_FAILED");
   expect(failed?.persistenceReceipt).toContain("result");
   if (!failed?.persistenceReceipt) throw new Error("Expected retained render receipt");
   const storedReceipt = JSON.parse(failed.persistenceReceipt);
@@ -202,22 +204,29 @@ test("render persistence failure preserves the worker receipt and can recover re
       rubricHash,
     },
   });
-  await t.run((ctx) =>
-    ctx.db.patch("videoJobs", unavailable.jobId, {
+  await t.run(async (ctx) => {
+    const keys = {
+      video: `video-results/${unavailable.jobId}/1/video`,
+      poster: `video-results/${unavailable.jobId}/1/poster`,
+      captions: `video-results/${unavailable.jobId}/1/captions`,
+    };
+    await ctx.db.patch("videoJobs", unavailable.jobId, {
       state: "failed",
       stage: "persisting",
       errorCode: "RESULT_PERSISTENCE_FAILED",
       errorEffect: "partial",
       persistenceReceipt: JSON.stringify({
         kind: "render",
-        keys: {
-          video: `video-results/${unavailable.jobId}/1/video`,
-          poster: `video-results/${unavailable.jobId}/1/poster`,
-          captions: `video-results/${unavailable.jobId}/1/captions`,
-        },
+        keys,
       }),
-    }),
-  );
+    });
+    for (const [name, objectKey] of Object.entries(keys))
+      await ctx.db.insert("assetObjectLeases", {
+        objectKey,
+        leaseId: `${unavailable.jobId}:1:${name}`,
+        createdAt: Date.now(),
+      });
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(null, { status: 422 })),
@@ -238,6 +247,15 @@ test("render persistence failure preserves the worker receipt and can recover re
   const unavailableStored = await t.run((ctx) => ctx.db.get("videoJobs", unavailable.jobId));
   expect(unavailableStored?.state).toBe("failed");
   expect(unavailableStored?.stage).toBe("recovery_source_unavailable");
+  expect(unavailableStored?.errorReasonCode).toBe("STORED_OUTPUT_UNAVAILABLE");
+  expect(
+    await t.run((ctx) =>
+      ctx.db
+        .query("assetObjectLeases")
+        .filter((q) => q.eq(q.field("objectKey"), `video-results/${unavailable.jobId}/1/video`))
+        .collect(),
+    ),
+  ).toHaveLength(0);
   const unavailablePublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
     jobId: unavailable.jobId,
   });
@@ -245,14 +263,30 @@ test("render persistence failure preserves the worker receipt and can recover re
     kind: "regenerate",
     safeToRegenerate: true,
   });
+  expect(unavailablePublic.error?.reasonCode).toBe("STORED_OUTPUT_UNAVAILABLE");
 
-  await t.run((ctx) =>
-    ctx.db.patch("videoJobs", unavailable.jobId, {
+  if (!unavailableStored) throw new Error("Expected unavailable render job");
+  const notAppliedObjectKey = `video-results/${unavailable.jobId}/${unavailableStored.fence}/video`;
+  await t.run(async (ctx) => {
+    await ctx.db.patch("videoJobs", unavailable.jobId, {
+      state: "running",
       stage: "outputs_reserved",
-      errorCode: "RENDER_FAILED",
-      errorEffect: "not_applied",
-    }),
-  );
+      persistenceReceipt: JSON.stringify({ kind: "render", keys: { video: notAppliedObjectKey } }),
+    });
+    await ctx.db.insert("assetObjectLeases", {
+      objectKey: notAppliedObjectKey,
+      leaseId: `${unavailable.jobId}:${unavailableStored.fence}:video`,
+      createdAt: Date.now(),
+    });
+  });
+  await t.mutation(mutation("videoJobs:fail"), {
+    jobId: unavailable.jobId,
+    fence: unavailableStored.fence,
+    code: "RENDER_FAILED",
+    reasonCode: "SOURCE_TRIM_EXCEEDED",
+    outcomeUnknown: false,
+    effect: "not_applied",
+  });
   const notAppliedPublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
     jobId: unavailable.jobId,
   });
@@ -260,4 +294,59 @@ test("render persistence failure preserves the worker receipt and can recover re
     kind: "regenerate",
     safeToRegenerate: true,
   });
+  expect(notAppliedPublic.error?.reasonCode).toBe("SOURCE_TRIM_EXCEEDED");
+  expect(
+    await t.run((ctx) =>
+      ctx.db
+        .query("assetObjectLeases")
+        .withIndex("by_objectKey", (q) => q.eq("objectKey", notAppliedObjectKey))
+        .collect(),
+    ),
+  ).toHaveLength(0);
+
+  const mediaCleanup = await t.run(async (ctx) => {
+    const jobId = await ctx.db.insert("videoJobs", {
+      workspaceId,
+      principalId: userId,
+      idempotencyKey: "media-not-applied",
+      inputHash: "media-not-applied",
+      request: JSON.stringify({
+        kind: "media",
+        asset: { assetId: "asset", revisionId: "revision" },
+        operation: { kind: "qa" },
+      }),
+      kind: "media",
+      state: "running",
+      fence: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      stage: "outputs_reserved",
+      persistenceReceipt: "{}",
+    });
+    const objectKey = `video-results/${jobId}/1/qa-report`;
+    await ctx.db.patch(jobId, {
+      persistenceReceipt: JSON.stringify({ kind: "media", keys: { report: objectKey } }),
+    });
+    await ctx.db.insert("assetObjectLeases", {
+      objectKey,
+      leaseId: `${jobId}:1:qa:report`,
+      createdAt: Date.now(),
+    });
+    return { jobId, objectKey };
+  });
+  await t.mutation(mutation("videoJobs:fail"), {
+    jobId: mediaCleanup.jobId,
+    fence: 1,
+    code: "MEDIA_PROCESS_FAILED",
+    outcomeUnknown: false,
+    effect: "not_applied",
+  });
+  expect(
+    await t.run((ctx) =>
+      ctx.db
+        .query("assetObjectLeases")
+        .withIndex("by_objectKey", (q) => q.eq("objectKey", mediaCleanup.objectKey))
+        .collect(),
+    ),
+  ).toHaveLength(0);
 });

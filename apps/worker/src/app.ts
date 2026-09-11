@@ -44,6 +44,7 @@ export function videoWorkerFailureBody(error: VideoWorkerError) {
   return VideoRenderFailure.parse({
     error: {
       code: error.code,
+      ...(error.reasonCode ? { reasonCode: error.reasonCode } : {}),
       message: error.message,
       effect: error.effect,
       ...(error.result ? { result: error.result, persisted: error.persisted ?? [] } : {}),

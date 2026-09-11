@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { VideoRenderRequest } from "@visual-canvas/video/media";
 import { downloadSource, fileIdentity, validateTransferUrl } from "../src/video/media.js";
 import {
+  classifyRenderFailure,
   handleVideoRender,
   renderSourceExtension,
   renderSourceNeedsProbe,
@@ -95,6 +96,20 @@ test("container duration may differ from a clip by at most one frame", () => {
   assert.equal(sourceTrimFits(0, 21968.98, 21968.98, 660, 30), true);
   assert.equal(sourceTrimFits(0, 21900, 21900, 660, 30), false);
   assert.equal(sourceTrimFits(0, 22034, 22000, 660, 30), false);
+});
+test("worker exposes bounded reason codes instead of exception details", () => {
+  assert.equal(
+    classifyRenderFailure(new Error("Unsupported source MIME")),
+    "UNSUPPORTED_SOURCE_MIME",
+  );
+  assert.equal(
+    classifyRenderFailure(new Error("Clip exceeds source trim range")),
+    "SOURCE_TRIM_EXCEEDED",
+  );
+  assert.equal(
+    classifyRenderFailure(new Error("https://signed.example/private?token=secret")),
+    "RENDER_PROCESS_FAILED",
+  );
 });
 test("streaming ingestion validates actual bytes and checksum", async () => {
   const root = process.env.VIDEO_RENDER_TMP_ROOT ?? tmpdir();

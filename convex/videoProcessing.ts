@@ -50,13 +50,18 @@ export const run = internalAction({
         fence: job.fence,
         result: { ...result, kind: "media", operation: result.kind },
       });
-    } catch {
+    } catch (error) {
+      const known =
+        error instanceof ConvexError ? (error.data as { code?: string; effect?: string }) : null;
+      const effect = ["not_applied", "partial", "unknown"].includes(known?.effect ?? "")
+        ? (known?.effect as "not_applied" | "partial" | "unknown")
+        : "unknown";
       await ctx.runMutation(m("videoJobs:fail"), {
         jobId: job._id,
         fence: job.fence,
-        code: "MEDIA_PROCESSING_FAILED",
-        outcomeUnknown: false,
-        effect: "partial",
+        code: known?.code ?? "MEDIA_PROCESSING_FAILED",
+        outcomeUnknown: effect === "unknown",
+        effect,
       });
     }
   },

@@ -11,6 +11,7 @@ process.once("message", async (request: unknown) => {
             code: error.code,
             message: error.message,
             effect: error.effect,
+            reasonCode: error.reasonCode,
             result: error.result,
             persisted: error.persisted,
           }

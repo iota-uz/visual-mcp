@@ -96,6 +96,7 @@ const jobSchema = receiptSchema.extend({
   error: z
     .object({
       code: z.string(),
+      reasonCode: z.string().nullable().optional(),
       message: z.string(),
       effect: z.string(),
       recovery: z

@@ -11,5 +11,11 @@ const crons = cronJobs();
 
 crons.interval("cache ttl sweep", { hours: 24 }, internal.canvases.sweepCacheTtl, {});
 crons.interval("export cache sweep", { hours: 24 }, internal.exports.sweep, {});
+crons.interval(
+  "orphan asset object lease sweep",
+  { hours: 6 },
+  internal.assets.sweepOrphanObjectLeases,
+  {},
+);
 
 export default crons;

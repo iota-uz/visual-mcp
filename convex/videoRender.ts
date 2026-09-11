@@ -265,6 +265,12 @@ export const run = internalAction({
         outputs,
         ...(claimed.request.range ? { range: claimed.request.range } : {}),
       });
+      await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
+        jobId: args.jobId,
+        fence,
+        stage: "outputs_reserved",
+        receipt: { kind: "render", keys },
+      });
       if (!process.env.WORKER_URL || !process.env.WORKER_TOKEN)
         throw new ConvexError({
           code: "WORKER_NOT_CONFIGURED",
@@ -276,12 +282,6 @@ export const run = internalAction({
         fence,
       });
       dispatched = true;
-      await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
-        jobId: args.jobId,
-        fence,
-        stage: "outputs_reserved",
-        receipt: { kind: "render", keys },
-      });
       const response = await fetch(`${worker.url}/video/render`, {
         method: "POST",
         headers: {
@@ -321,12 +321,19 @@ export const run = internalAction({
               persisted: failure.success ? (failure.data.error.persisted ?? []) : [],
             },
           });
-          throw new ConvexError({ code: "RESULT_PERSISTENCE_FAILED", effect: "partial" });
+          throw new ConvexError({
+            code: "RESULT_PERSISTENCE_FAILED",
+            effect: "partial",
+            reasonCode: failure.success
+              ? (failure.data.error.reasonCode ?? "RESULT_UPLOAD_FAILED")
+              : "RESULT_UPLOAD_FAILED",
+          });
         }
         if (failure.success)
           throw new ConvexError({
             code: failure.data.error.code,
             effect: failure.data.error.effect,
+            reasonCode: failure.data.error.reasonCode,
           });
         throw new ConvexError({ code: "WORKER_RESPONSE_INVALID", effect: "unknown" });
       }
@@ -399,6 +406,12 @@ export const run = internalAction({
             : dispatched
               ? "unknown"
               : "not_applied",
+        ...(error instanceof ConvexError &&
+        typeof (error.data as { reasonCode?: unknown }).reasonCode === "string"
+          ? { reasonCode: (error.data as { reasonCode: string }).reasonCode }
+          : error instanceof Error && error.message === "Persisted output size mismatch"
+            ? { reasonCode: "STORED_OUTPUT_MISMATCH" }
+            : {}),
       });
     }
   },

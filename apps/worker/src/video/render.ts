@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
-import { VideoRenderRequest, VideoRenderResult } from "@visual-canvas/video/media";
+import {
+  type VideoFailureReasonCode,
+  VideoRenderRequest,
+  VideoRenderResult,
+} from "@visual-canvas/video/media";
 import { chromium } from "playwright";
 import { acquireMediaCapacity } from "./capacity.js";
 import type { RenderProps } from "./composition.js";
@@ -23,6 +27,7 @@ export class VideoWorkerError extends Error {
     public effect: "not_applied" | "partial" | "unknown",
     public result?: VideoRenderResult,
     public persisted?: string[],
+    public reasonCode?: VideoFailureReasonCode,
   ) {
     super(message);
   }
@@ -39,6 +44,9 @@ export async function handleVideoRender(
       "RENDER_INTERRUPTED",
       "Request was cancelled before rendering",
       "not_applied",
+      undefined,
+      undefined,
+      "REQUEST_INTERRUPTED",
     );
   const releaseCapacity = acquireMediaCapacity();
   if (!releaseCapacity)
@@ -46,6 +54,9 @@ export async function handleVideoRender(
       "WORKER_BUSY",
       "A video render is already running. Retry this job later.",
       "not_applied",
+      undefined,
+      undefined,
+      "WORKER_CAPACITY_EXHAUSTED",
     );
   let ownedScratch: string | undefined;
   try {
@@ -97,6 +108,9 @@ export async function handleVideoRender(
             "RENDER_INTERRUPTED",
             "Rendering interrupted; reserved output objects may require reconciliation",
             "unknown",
+            undefined,
+            undefined,
+            "REQUEST_INTERRUPTED",
           ),
         );
       // Parent-enforced deadline covers bundle, browser startup and uploads as
@@ -105,7 +119,14 @@ export async function handleVideoRender(
       callerSignal?.addEventListener("abort", abort, { once: true });
       child.on("error", () =>
         finish(
-          new VideoWorkerError("RENDER_FAILED", "Render process could not start", "not_applied"),
+          new VideoWorkerError(
+            "RENDER_FAILED",
+            "Render process could not start",
+            "not_applied",
+            undefined,
+            undefined,
+            "RENDER_PROCESS_FAILED",
+          ),
         ),
       );
       child.on("exit", () => {
@@ -115,6 +136,9 @@ export async function handleVideoRender(
               "RENDER_INTERRUPTED",
               "Render process ended without a confirmed result",
               "unknown",
+              undefined,
+              undefined,
+              "REQUEST_INTERRUPTED",
             ),
           );
       });
@@ -124,6 +148,7 @@ export async function handleVideoRender(
           result?: unknown;
           error?: {
             code: string;
+            reasonCode?: VideoFailureReasonCode;
             message: string;
             effect: "partial" | "unknown" | "not_applied";
             result?: VideoRenderResult;
@@ -138,12 +163,23 @@ export async function handleVideoRender(
               wire.error.effect,
               wire.error.result,
               wire.error.persisted,
+              wire.error.reasonCode,
             ),
           );
         else {
           const parsed = VideoRenderResult.safeParse(wire.result);
           if (parsed.success) finish(undefined, parsed.data);
-          else finish(new VideoWorkerError("RENDER_FAILED", "Invalid renderer receipt", "unknown"));
+          else
+            finish(
+              new VideoWorkerError(
+                "RENDER_FAILED",
+                "Invalid renderer receipt",
+                "unknown",
+                undefined,
+                undefined,
+                "RENDER_RECEIPT_INVALID",
+              ),
+            );
         }
       });
       child.send(request);
@@ -165,14 +201,20 @@ export async function executeVideoRender(
       "RENDER_INTERRUPTED",
       "Request cancelled before rendering",
       "not_applied",
+      undefined,
+      undefined,
+      "REQUEST_INTERRUPTED",
     );
   if (active)
     throw new VideoWorkerError(
       "WORKER_BUSY",
       "A video render is already running. Retry this job later.",
       "not_applied",
+      undefined,
+      undefined,
+      "WORKER_CAPACITY_EXHAUSTED",
     );
-  const range = renderRange(request);
+  renderRange(request);
   if (
     request.script.language !== request.version.language ||
     request.timeline.fps.numerator !== request.format.fps.numerator ||
@@ -182,18 +224,27 @@ export async function executeVideoRender(
       "VALIDATION_ERROR",
       "Version language or timeline frame rate does not match the pinned inputs",
       "not_applied",
+      undefined,
+      undefined,
+      "VERSION_CONTRACT_MISMATCH",
     );
   if (request.format.width % 2 || request.format.height % 2)
     throw new VideoWorkerError(
       "VALIDATION_ERROR",
       "H264 yuv420p dimensions must be even",
       "not_applied",
+      undefined,
+      undefined,
+      "DIMENSIONS_UNSUPPORTED",
     );
   if (request.inputs.reduce((sum, item) => sum + item.sizeBytes, 0) > MAX_TOTAL_INPUT_BYTES)
     throw new VideoWorkerError(
       "EXECUTION_LIMIT_EXCEEDED",
       "Render inputs exceed 4,000,000,000 bytes",
       "not_applied",
+      undefined,
+      undefined,
+      "INPUT_LIMIT_EXCEEDED",
     );
   active = true;
   const controller = new AbortController();
@@ -214,12 +265,18 @@ export async function executeVideoRender(
         "RENDER_INTERRUPTED",
         "Rendering stopped or timed out; already uploaded outputs may require reconciliation",
         "unknown",
+        undefined,
+        undefined,
+        "REQUEST_INTERRUPTED",
       );
     // Never return exception text containing signed URLs, filesystem paths or browser logs.
     throw new VideoWorkerError(
       "RENDER_FAILED",
       "Rendering or source validation failed. Check the pinned media and frame-aligned timing.",
       "not_applied",
+      undefined,
+      undefined,
+      classifyRenderFailure(error),
     );
   } finally {
     clearTimeout(timer);
@@ -432,6 +489,7 @@ async function renderInDirectory(
       "partial",
       result,
       persisted,
+      "RESULT_UPLOAD_FAILED",
     );
   }
   return result;
@@ -474,4 +532,33 @@ export function sourceTrimFits(
     endMs <= sourceDurationMs + frameToleranceMs &&
     startMs + (clipDurationFrames / fps) * 1000 <= endMs + frameToleranceMs
   );
+}
+
+/** Converts internal exception categories into a bounded, non-sensitive diagnostic code. */
+export function classifyRenderFailure(error: unknown): VideoFailureReasonCode {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Unsupported source MIME") return "UNSUPPORTED_SOURCE_MIME";
+  if (message === "Input transfer failed") return "INPUT_TRANSFER_FAILED";
+  if (
+    message === "Input checksum or size mismatch" ||
+    message === "Input size exceeds reserved bytes"
+  )
+    return "INPUT_INTEGRITY_MISMATCH";
+  if (
+    message === "Source stream type mismatch" ||
+    message === "Audio tracks require audio sources" ||
+    message === "Audio source requires audio track" ||
+    message === "Component image requires a pinned image source"
+  )
+    return "SOURCE_STREAM_MISMATCH";
+  if (message === "Clip exceeds source trim range") return "SOURCE_TRIM_EXCEEDED";
+  if (message === "Rendered metadata differs from inputs") return "OUTPUT_METADATA_MISMATCH";
+  if (
+    message === "Duplicate input asset" ||
+    message === "Components require a visual track" ||
+    message === "Text cannot be an audio source" ||
+    message === "Missing pinned source"
+  )
+    return "VERSION_CONTRACT_MISMATCH";
+  return "RENDER_PROCESS_FAILED";
 }

@@ -30,6 +30,64 @@ const input = {
   languages: ["ru", "uz"],
   format: { width: 1080, height: 1920, fps: { numerator: 30, denominator: 1 } },
 };
+test("planned duration initializes the timeline but never overrides its actual duration", async () => {
+  const { as, workspaceId } = await setup();
+  const created = await as.mutation(ref("createProject"), {
+    ...input,
+    workspaceId,
+    idempotencyKey: "planned-duration",
+    languages: ["ru"],
+    format: { ...input.format, plannedDurationMs: 55_000 },
+  });
+  const draft = await as.query(makeFunctionReference<"query">("video:getDraft"), {
+    draftId: created.drafts[0].draftId,
+  });
+  expect(draft.timeline.durationFrames).toBe(1650);
+
+  const changed = await as.mutation(ref("patchTimeline"), {
+    draftId: draft.draftId,
+    idempotencyKey: "actual-duration",
+    expectedRevision: draft.timelineRevision,
+    operations: [{ op: "replace", path: "/durationFrames", value: 900 }],
+  });
+  const actual = await as.query(makeFunctionReference<"query">("video:getDraft"), {
+    draftId: draft.draftId,
+  });
+  const project = await as.query(makeFunctionReference<"query">("video:getProject"), {
+    projectId: created.projectId,
+  });
+  expect(changed.changed).toBe(true);
+  expect(actual.timeline.durationFrames).toBe(900);
+  expect(project.format.plannedDurationMs).toBe(55_000);
+});
+
+test("explicit duration migration rewrites the legacy planning field", async () => {
+  const { t, as, workspaceId } = await setup();
+  const created = await as.mutation(ref("createProject"), {
+    ...input,
+    workspaceId,
+    idempotencyKey: "legacy-duration",
+    languages: ["ru"],
+  });
+  await t.run((ctx) =>
+    ctx.db.patch("videoProjects", created.projectId, {
+      format: JSON.stringify({ ...input.format, targetDurationMs: 55_000 }),
+      revisionId: "legacy-revision",
+    }),
+  );
+  await expect(
+    t.mutation(makeFunctionReference<"mutation">("videoDurationMigration:renamePlanningHint"), {
+      projectId: created.projectId,
+      expectedProjectRevision: "legacy-revision",
+    }),
+  ).resolves.toMatchObject({ changed: true, versions: 0 });
+  const project = await as.query(makeFunctionReference<"query">("video:getProject"), {
+    projectId: created.projectId,
+  });
+  expect(project.format).toMatchObject({ plannedDurationMs: 55_000 });
+  expect(project.format).not.toHaveProperty("targetDurationMs");
+});
+
 test("patch identifies only changed scenes and exact current dependent clips/checkpoint/render jobs", async () => {
   const { as, workspaceId } = await setup();
   const p = await as.mutation(ref("createProject"), {

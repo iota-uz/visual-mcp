@@ -1,6 +1,7 @@
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
+import { durationMsForFrames } from "../packages/video/src/contracts";
 import { JobRequest } from "../packages/video/src/jobs";
 import { VideoRenderResult } from "../packages/video/src/media";
 import { MediaProcessResult } from "../packages/video/src/operations";
@@ -81,6 +82,7 @@ export const begin = internalMutation({
       state: "running",
       stage: "reconciling",
       errorCode: undefined,
+      errorReasonCode: undefined,
       errorEffect: undefined,
       updatedAt: Date.now(),
     });
@@ -249,7 +251,7 @@ export const run = internalAction({
         const frames = request.range
           ? request.range.endFrame - request.range.startFrame
           : input.manifest.timeline.durationFrames;
-        const expectedDurationMs = (frames * 1000 * format.fps.denominator) / format.fps.numerator;
+        const expectedDurationMs = durationMsForFrames(frames, format.fps);
         if (
           !Number.isSafeInteger(sourceFence) ||
           !fpsNumerator ||
@@ -450,6 +452,10 @@ export const run = internalAction({
         code: "RESULT_PERSISTENCE_FAILED",
         outcomeUnknown: false,
         effect: "partial",
+        reasonCode:
+          error instanceof Error && error.message === "Stored output unavailable"
+            ? "STORED_OUTPUT_UNAVAILABLE"
+            : "STORED_OUTPUT_MISMATCH",
         ...(error instanceof Error && error.message === "Stored output unavailable"
           ? { stage: "recovery_source_unavailable" }
           : {}),

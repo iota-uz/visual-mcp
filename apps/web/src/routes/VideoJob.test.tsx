@@ -111,6 +111,7 @@ test("lost local output explains safe regeneration without triggering it", () =>
     stage: "recovery_source_unavailable",
     error: {
       code: "RESULT_PERSISTENCE_FAILED",
+      reasonCode: "STORED_OUTPUT_UNAVAILABLE",
       message: "Reserved output is unavailable",
       recovery: { kind: "regenerate" },
     },
@@ -121,6 +122,7 @@ test("lost local output explains safe regeneration without triggering it", () =>
   expect(screen.getByRole("alert")).toHaveTextContent(
     "It can be submitted again with a new idempotency key.",
   );
+  expect(screen.getByRole("alert")).toHaveTextContent("STORED_OUTPUT_UNAVAILABLE");
   expect(
     screen.queryByRole("button", { name: "Recover already stored output" }),
   ).not.toBeInTheDocument();

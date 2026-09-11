@@ -35,6 +35,27 @@ async function job(ctx: QueryCtx | MutationCtx, jobId: Id<"videoJobs">) {
     return error("NOT_FOUND_OR_FORBIDDEN", "Job unavailable");
   return j;
 }
+function reservedObjectKeys(j: Doc<"videoJobs">) {
+  if (!j.persistenceReceipt) return [];
+  try {
+    const receipt = JSON.parse(j.persistenceReceipt) as { keys?: Record<string, unknown> };
+    return Object.values(receipt.keys ?? {}).filter(
+      (key): key is string => typeof key === "string" && key.startsWith(`video-results/${j._id}/`),
+    );
+  } catch {
+    return [];
+  }
+}
+async function releaseReservedObjectLeases(ctx: MutationCtx, j: Doc<"videoJobs">) {
+  for (const objectKey of reservedObjectKeys(j)) {
+    const leases = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_objectKey", (q) => q.eq("objectKey", objectKey))
+      .collect();
+    for (const lease of leases)
+      if (lease.leaseId.startsWith(`${j._id}:`)) await ctx.db.delete(lease._id);
+  }
+}
 function receipt(j: Doc<"videoJobs">, replayed: boolean) {
   return {
     jobId: j._id,
@@ -262,6 +283,7 @@ function publicJob(j: Doc<"videoJobs">) {
     error: j.errorCode
       ? {
           code: j.errorCode,
+          reasonCode: j.errorReasonCode ?? null,
           message: safeToRegenerate
             ? "Reserved output is unavailable. This local media operation may be submitted again with a new idempotency key"
             : j.errorCode === "EXECUTE_NOT_STARTED"
@@ -638,7 +660,7 @@ export async function completeVideoJob(
     result: canonical(args.result),
     ...(j.kind === "execute" && args.result?.success === false
       ? { errorCode: "CODE_EXECUTION_FAILED", errorEffect: "unknown" as const }
-      : {}),
+      : { errorCode: undefined, errorReasonCode: undefined, errorEffect: undefined }),
     stale,
     updatedAt: Date.now(),
   });
@@ -652,6 +674,7 @@ export const fail = internalMutation({
   args: {
     ...fenceArgs,
     code: v.string(),
+    reasonCode: v.optional(v.string()),
     outcomeUnknown: v.boolean(),
     stage: v.optional(v.string()),
     effect: v.optional(
@@ -667,10 +690,18 @@ export const fail = internalMutation({
   handler: async (ctx, args) => {
     const j = await fenced(ctx, args);
     if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(args.code)) error("VALIDATION_ERROR", "Invalid error code");
+    if (args.reasonCode && !/^[A-Z][A-Z0-9_]{0,79}$/.test(args.reasonCode))
+      error("VALIDATION_ERROR", "Invalid error reason code");
+    if (
+      ["render", "media"].includes(j.kind) &&
+      (args.effect === "not_applied" || args.stage === "recovery_source_unavailable")
+    )
+      await releaseReservedObjectLeases(ctx, j);
     await ctx.db.patch(j._id, {
       state: args.outcomeUnknown ? "outcome_unknown" : "failed",
       ...(args.stage ? { stage: args.stage } : {}),
       errorCode: args.code,
+      errorReasonCode: args.reasonCode,
       errorEffect: args.effect ?? "unknown",
       updatedAt: Date.now(),
     });

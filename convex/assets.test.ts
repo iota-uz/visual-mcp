@@ -7,6 +7,29 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 describe("Asset Library bindings", () => {
+  test("sweeps expired object leases while retaining active preparations", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("assetObjectLeases", {
+        objectKey: "old/object",
+        leaseId: "old",
+        createdAt: Date.now() - 25 * 60 * 60 * 1000,
+      });
+      await ctx.db.insert("assetObjectLeases", {
+        objectKey: "active/object",
+        leaseId: "active",
+        createdAt: Date.now(),
+      });
+    });
+
+    await expect(t.mutation(internal.assets.sweepOrphanObjectLeases, {})).resolves.toEqual({
+      examined: 2,
+      released: 1,
+    });
+    const leases = await t.run((ctx) => ctx.db.query("assetObjectLeases").collect());
+    expect(leases.map((lease) => lease.leaseId)).toEqual(["active"]);
+  });
+
   test("serializes object cleanup with asset-version creation", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) =>

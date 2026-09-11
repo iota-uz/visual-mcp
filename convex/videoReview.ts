@@ -1,7 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { z } from "zod";
-import { canonical, Format, Timeline } from "../packages/video/src/contracts";
+import { canonical, durationMsForFrames, Format, Timeline } from "../packages/video/src/contracts";
 import { RenderEngine } from "../packages/video/src/media";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -109,7 +109,7 @@ async function registeredRender(ctx: QueryCtx | MutationCtx, jobId: Id<"videoJob
   const frameCount = request.range
     ? request.range.endFrame - request.range.startFrame
     : timeline.durationFrames;
-  const videoDurationMs = ((frameCount * timeline.fps.denominator) / timeline.fps.numerator) * 1000;
+  const videoDurationMs = durationMsForFrames(frameCount, timeline.fps);
   return {
     job,
     result,

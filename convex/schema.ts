@@ -176,6 +176,7 @@ export default defineSchema({
     stage: v.string(),
     result: v.optional(v.string()),
     errorCode: v.optional(v.string()),
+    errorReasonCode: v.optional(v.string()),
     errorEffect: v.optional(
       v.union(
         v.literal("none"),

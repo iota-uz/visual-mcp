@@ -229,5 +229,18 @@ export const MediaProcessResult = z
       .strict(),
   })
   .strict();
+export const MediaProcessFailure = z
+  .object({
+    error: z
+      .object({
+        code: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/),
+        message: z.string().min(1),
+        effect: z.enum(["not_applied", "partial", "unknown"]),
+        result: MediaProcessResult.optional(),
+        persisted: z.array(z.string().min(1).max(200)).max(64).optional(),
+      })
+      .strict(),
+  })
+  .strict();
 export type MediaProcessRequest = z.infer<typeof MediaProcessRequest>;
 export type MediaProcessResult = z.infer<typeof MediaProcessResult>;

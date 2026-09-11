@@ -269,7 +269,7 @@ const createProjectDefinition = mutationDefinition({
       width: v.number(),
       height: v.number(),
       fps: v.object({ numerator: v.number(), denominator: v.number() }),
-      targetDurationMs: v.optional(v.number()),
+      plannedDurationMs: v.optional(v.number()),
     }),
   },
   handler: async (ctx, args) => {
@@ -332,7 +332,7 @@ const createProjectDefinition = mutationDefinition({
         durationFrames: Math.max(
           1,
           Math.round(
-            ((format.targetDurationMs ?? 30000) * format.fps.numerator) /
+            ((format.plannedDurationMs ?? 30000) * format.fps.numerator) /
               format.fps.denominator /
               1000,
           ),

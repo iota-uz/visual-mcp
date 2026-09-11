@@ -1,7 +1,9 @@
 import { makeFunctionReference } from "convex/server";
+import { ConvexError } from "convex/values";
 import type { z } from "zod";
 import {
   type MediaOperation,
+  MediaProcessFailure,
   MediaProcessRequest,
   MediaProcessResult,
 } from "../../packages/video/src/operations";
@@ -77,6 +79,14 @@ export async function processMedia(
     ),
     outputs,
   });
+  await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
+    jobId: job._id,
+    fence: job.fence,
+    stage: "outputs_reserved",
+    receipt: { kind: "media", operation: operation.kind, keys },
+  });
+  if (!process.env.WORKER_URL || !process.env.WORKER_TOKEN)
+    throw new ConvexError({ code: "WORKER_NOT_CONFIGURED", effect: "not_applied" });
   const worker = getWorkerConfig();
   const response = await fetch(`${worker.url}/video/process`, {
     method: "POST",
@@ -87,8 +97,16 @@ export async function processMedia(
     body: JSON.stringify(request),
     signal: AbortSignal.timeout(330000),
   });
-  const payload = await response.json();
-  const result = MediaProcessResult.parse(response.ok ? payload : payload.result);
+  const payload: unknown = await response.json().catch(() => null);
+  const failure = response.ok ? null : MediaProcessFailure.safeParse(payload);
+  if (!response.ok && (!failure?.success || !failure.data.error.result))
+    throw new ConvexError({
+      code: failure?.success ? failure.data.error.code : "WORKER_RESPONSE_INVALID",
+      effect: failure?.success ? failure.data.error.effect : "unknown",
+    });
+  const result = MediaProcessResult.parse(
+    response.ok ? payload : failure?.success ? failure.data.error.result : undefined,
+  );
   if (
     result.jobId !== job._id ||
     result.fence !== job.fence ||
@@ -115,9 +133,10 @@ export async function processMedia(
     ...(!response.ok ? { stage: "outputs_partial" } : {}),
   });
   if (!response.ok)
-    throw new Error(
-      "Media processing partial persistence; known output metadata retained for reconciliation",
-    );
+    throw new ConvexError({
+      code: failure?.success ? failure.data.error.code : "RESULT_PERSISTENCE_FAILED",
+      effect: failure?.success ? failure.data.error.effect : "partial",
+    });
   const registered = [];
   for (const output of result.outputs) {
     const objectKey = keys[output.name]!,

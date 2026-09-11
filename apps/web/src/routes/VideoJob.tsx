@@ -114,6 +114,11 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
           <p>
             {job.error.code}: {job.error.message}
           </p>
+          {job.error.reasonCode && (
+            <p>
+              Diagnostic: <code>{job.error.reasonCode}</code>
+            </p>
+          )}
           {job.error.recovery.kind === "configure_service" && (
             <p>
               An administrator must configure the service on the server. No credentials belong in

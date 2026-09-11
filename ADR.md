@@ -51,6 +51,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **Ошибки локальных media jobs освобождают leases и несут безопасный reason code** — [запись](adr/platform/video-result-failure-lifecycle.md) · accepted · 2026-09-11 (запрос пользователя)
+
 - **MCP становится healthy только с совместимым Convex Video backend** — [запись](adr/platform/video-backend-contract-health-gate.md) · accepted · 2026-09-11 (production incident)
 
 - **Video Studio переносится в Visual Canvas с долговечным облачным состоянием** — [запись](adr/platform/video-studio-integration.md) · accepted · 2026-09-10 (запрос пользователя, VIDEO-PLAN)
@@ -61,6 +63,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Продукт использует hosted remote MCP; локальный stdio runtime удалён** — [запись](adr/platform/hosted-remote-mcp-only.md) · accepted · 2026-08-09 (`0bf0e03`, `9a73635`)
 
 ## product
+
+- **Timeline — единственный источник фактической длительности видео** — [запись](adr/product/timeline-is-actual-duration.md) · accepted · 2026-09-11 (запрос пользователя)
 
 - **Preview меняет размер за углы, а режимы студии разделяют историю правок** — [запись](adr/product/video-preview-resize-and-draft-history.md) · accepted · 2026-09-11 (запрос пользователя)
 

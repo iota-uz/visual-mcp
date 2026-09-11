@@ -2,6 +2,24 @@ import { z } from "zod";
 import { AssetRef, Format, Language, Script, Timeline } from "./contracts.js";
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
+export const VideoFailureReasonCode = z.enum([
+  "REQUEST_INTERRUPTED",
+  "WORKER_CAPACITY_EXHAUSTED",
+  "RENDER_PROCESS_FAILED",
+  "RENDER_RECEIPT_INVALID",
+  "VERSION_CONTRACT_MISMATCH",
+  "DIMENSIONS_UNSUPPORTED",
+  "INPUT_LIMIT_EXCEEDED",
+  "INPUT_TRANSFER_FAILED",
+  "INPUT_INTEGRITY_MISMATCH",
+  "UNSUPPORTED_SOURCE_MIME",
+  "SOURCE_STREAM_MISMATCH",
+  "SOURCE_TRIM_EXCEEDED",
+  "OUTPUT_METADATA_MISMATCH",
+  "RESULT_UPLOAD_FAILED",
+  "STORED_OUTPUT_UNAVAILABLE",
+  "STORED_OUTPUT_MISMATCH",
+]);
 export const RenderEngine = z
   .object({
     remotionVersion: z.string().min(1).max(100),
@@ -93,6 +111,7 @@ export const VideoRenderFailure = z
     error: z
       .object({
         code: z.string().min(1),
+        reasonCode: VideoFailureReasonCode.optional(),
         message: z.string().min(1),
         effect: z.enum(["not_applied", "partial", "unknown"]),
         result: VideoRenderResult.optional(),
@@ -107,3 +126,4 @@ export const VideoRenderFailure = z
 export type VideoRenderRequest = z.infer<typeof VideoRenderRequest>;
 export type VideoRenderResult = z.infer<typeof VideoRenderResult>;
 export type VideoRenderFailure = z.infer<typeof VideoRenderFailure>;
+export type VideoFailureReasonCode = z.infer<typeof VideoFailureReasonCode>;

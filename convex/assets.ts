@@ -483,6 +483,27 @@ export const releaseObjectLease = internalMutation({
   },
 });
 
+const OBJECT_LEASE_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * Bounds abandoned preparation locks. A committed asset version no longer
+ * needs its lease; an unreferenced stale lease must not block cleanup forever.
+ */
+export const sweepOrphanObjectLeases = internalMutation({
+  args: {},
+  returns: v.object({ examined: v.number(), released: v.number() }),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - OBJECT_LEASE_TTL_MS;
+    const oldest = await ctx.db.query("assetObjectLeases").order("asc").take(200);
+    let released = 0;
+    for (const lease of oldest) {
+      if (lease.createdAt > cutoff) break;
+      await ctx.db.delete(lease._id);
+      released++;
+    }
+    return { examined: oldest.length, released };
+  },
+});
+
 /**
  * Releases the caller's lease and atomically claims deletion only when no
  * revision or other in-flight preparation can retain the object.

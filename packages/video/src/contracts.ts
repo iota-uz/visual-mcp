@@ -17,7 +17,15 @@ export const Format = z
         denominator: z.number().int().min(1).max(1001),
       })
       .strict(),
-    targetDurationMs: z.number().int().positive().max(1200000).optional(),
+    plannedDurationMs: z
+      .number()
+      .int()
+      .positive()
+      .max(1200000)
+      .optional()
+      .describe(
+        "Planning hint used only to initialize a new timeline; actual duration is always derived from timeline.durationFrames and fps",
+      ),
   })
   .strict();
 export const Brief = z
@@ -267,6 +275,16 @@ export const Patch = z
   .max(100);
 export type ScriptDocument = z.infer<typeof Script>;
 export type TimelineDocument = z.infer<typeof Timeline>;
+/** Timeline frames and its rational FPS are the sole source of actual duration. */
+export function durationMsForFrames(
+  frames: number,
+  fps: { numerator: number; denominator: number },
+) {
+  return (frames * 1000 * fps.denominator) / fps.numerator;
+}
+export function timelineDurationMs(timeline: TimelineDocument) {
+  return durationMsForFrames(timeline.durationFrames, timeline.fps);
+}
 const DependencyReason = z.enum([
   "script_changed",
   "timeline_changed",
