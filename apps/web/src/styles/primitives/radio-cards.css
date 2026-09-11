@@ -43,18 +43,28 @@
   transition:
     border-color var(--app-duration-fast) var(--app-ease-out),
     background-color var(--app-duration-fast) var(--app-ease-out),
-    box-shadow var(--app-duration-fast) var(--app-ease-out);
+    box-shadow var(--app-duration-fast) var(--app-ease-out),
+    transform var(--app-duration-fast) var(--app-ease-out);
 }
 
 .radio-card:hover {
-  border-color: #b7c6d8;
-  background: #fbfcfe;
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  background: var(--app-white);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.radio-card:active {
+  transform: translateY(0) scale(0.995);
 }
 
 .radio-card:has(input:checked) {
   border-color: var(--app-accent);
   background: var(--app-accent-soft);
-  box-shadow: inset 3px 0 0 var(--app-accent);
+  box-shadow:
+    inset 3px 0 0 var(--app-accent),
+    0 0 0 3px var(--app-accent-soft),
+    var(--app-shadow-sm);
 }
 
 .radio-card:has(input:focus-visible) {
@@ -104,11 +114,19 @@
 }
 
 .radio-card-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--app-paper);
   color: var(--app-muted);
+  transition: transform var(--app-duration-fast) var(--app-ease-out);
 }
 
 .radio-card:has(input:checked) .radio-card-icon {
   color: var(--app-accent-text);
+  transform: scale(1.06);
 }
 
 .radio-card-copy {
@@ -137,7 +155,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .radio-card,
-  .radio-card-indicator::after {
+  .radio-card-indicator::after,
+  .radio-card-icon {
     transition-duration: 0s;
+  }
+
+  .radio-card:hover,
+  .radio-card:active,
+  .radio-card:has(input:checked) .radio-card-icon {
+    transform: none;
   }
 }

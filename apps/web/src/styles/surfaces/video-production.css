@@ -180,6 +180,37 @@
   background: var(--app-paper);
 }
 
+/* Render request: stable status line so submit feedback never shifts layout. */
+.video-render-request {
+  display: grid;
+  justify-items: start;
+  gap: var(--app-space-2);
+}
+
+.video-render-request .video-hint {
+  min-height: calc(var(--app-text-sm) * 1.6);
+}
+
+.video-job-group {
+  display: grid;
+  gap: var(--app-space-3);
+}
+
+.video-job-group > h3 {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+}
+
+.video-job-summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 639px) {
   .video-loop-facts,
   .video-job-facts,

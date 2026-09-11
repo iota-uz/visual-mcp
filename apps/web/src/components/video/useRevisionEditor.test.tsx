@@ -63,4 +63,36 @@ describe("versioned draft editing", () => {
     act(() => result.current.edit({ text: "corrected" }));
     expect(result.current.document.text).toBe("corrected");
   });
+
+  test("concurrent saves collapse into a single write", async () => {
+    let release!: (value: string) => void;
+    const write = vi.fn(() => new Promise<string>((resolve) => (release = resolve)));
+    const { result } = renderHook(() =>
+      useRevisionEditor({ revision: "r1", document: { text: "old" } }, write),
+    );
+    act(() => result.current.edit({ text: "new" }));
+    let first: Promise<void>, second: Promise<void>;
+    act(() => {
+      first = result.current.save();
+      second = result.current.save();
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release("r2");
+      await first;
+      await second;
+    });
+    expect(result.current.state).toBe("saved");
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  test("saving a clean document performs no write", async () => {
+    const write = vi.fn().mockResolvedValue("r1");
+    const { result } = renderHook(() =>
+      useRevisionEditor({ revision: "r1", document: { text: "old" } }, write),
+    );
+    await act(() => result.current.save());
+    expect(write).not.toHaveBeenCalled();
+    expect(result.current.state).toBe("saved");
+  });
 });

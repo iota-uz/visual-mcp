@@ -6,8 +6,15 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--app-paper);
+  background:
+    radial-gradient(circle at 1px 1px, var(--app-grid-dot) 1px, transparent 1.4px) 0 0 /
+    var(--app-grid-size) var(--app-grid-size),
+    var(--app-paper);
   padding-top: var(--app-canvas-bar-h);
+}
+
+.video-studio-page ::selection {
+  background: color-mix(in srgb, var(--app-accent) 22%, transparent);
 }
 .video-studio-body {
   display: grid;
@@ -243,12 +250,31 @@
   font-size: var(--app-text-sm);
 }
 .video-editor-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-3);
+  min-height: 30px;
+  padding: 6px var(--app-space-3);
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-white) 75%, transparent);
   font-size: var(--app-text-sm);
-  display: grid;
-  gap: var(--app-space-2);
 }
 .video-editor-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   color: var(--app-muted);
+  font-weight: 600;
+}
+.video-editor-status > span::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--app-success);
+  box-shadow: 0 0 0 3px var(--app-success-soft);
+  content: "";
 }
 .video-conflict-document {
   max-height: 260px;
@@ -707,6 +733,7 @@
 .video-clip-inspector {
   display: grid;
   gap: var(--app-space-4);
+  min-width: 0;
   padding: var(--app-space-4);
   border-top: 1px solid #2b3a4d;
   background: #182331;
@@ -920,4 +947,96 @@
 }
 .video-archive-rows {
   margin-block: var(--app-space-4);
+}
+
+/* Studio second pass, kept as one ascending tail so the shared base above
+ * keeps its original source order: section titles, button press physics,
+ * field polish, then entrance motion. */
+
+/* Section titles read as panel eyebrows with a display title. */
+.video-section-title > span {
+  font-size: var(--app-eyebrow-size);
+  font-weight: var(--app-eyebrow-weight);
+  letter-spacing: var(--app-eyebrow-tracking);
+  text-transform: uppercase;
+}
+
+.video-section-title h2 {
+  font-family: var(--app-font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.005em;
+}
+
+/* Studio fields: hover tint before the primitive focus ring takes over. */
+.video-studio-page .field input:hover,
+.video-studio-page .field-select:hover,
+.video-studio-page .video-field textarea:hover {
+  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+}
+
+.video-studio-page .video-field textarea {
+  border-radius: var(--app-radius-md);
+  line-height: 1.65;
+}
+
+.video-studio-page .field-label,
+.video-studio-page .video-field {
+  color: var(--app-ink-soft);
+}
+
+.video-studio-page .video-field-heading .video-hint {
+  font-size: var(--app-text-xs);
+}
+
+/* Desktop press physics for studio buttons. */
+.video-studio-page .btn {
+  transition:
+    background var(--app-duration-fast) var(--app-ease-out),
+    border-color var(--app-duration-fast) var(--app-ease-out),
+    box-shadow var(--app-duration-fast) var(--app-ease-out),
+    color var(--app-duration-fast) var(--app-ease-out),
+    transform var(--app-duration-fast) var(--app-ease-out);
+}
+
+.video-studio-page .btn:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.video-studio-page .btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.video-studio-page .btn-secondary:not(:disabled):hover,
+.video-studio-page .btn-ghost:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.video-studio-page .btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 18px color-mix(in srgb, var(--app-accent) 28%, transparent),
+    0 1px 2px rgba(20, 44, 72, 0.12);
+}
+
+/* Shared entrance motion for studio panes. */
+@keyframes vs-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--app-motion-distance));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-studio-page .btn:active:not(:disabled),
+  .video-studio-page .btn-secondary:not(:disabled):hover,
+  .video-studio-page .btn-ghost:not(:disabled):hover,
+  .video-studio-page .btn-primary:not(:disabled):hover {
+    transform: none;
+  }
 }

@@ -186,7 +186,10 @@ export function StoryboardEditor({
         <div className="video-scene-editor" key={id}>
           <div className="video-scene-editor-heading">
             <div>
-              <span>Editing scene {document.sceneOrder.indexOf(id ?? "") + 1}</span>
+              <span>
+                Editing scene {document.sceneOrder.indexOf(id ?? "") + 1} of{" "}
+                {document.sceneOrder.length}
+              </span>
               <strong>{scene.purpose || "Untitled scene"}</strong>
             </div>
             <SceneReadiness scene={scene} />
@@ -304,6 +307,7 @@ export function SceneNavigator({
               className="video-scene-card"
               key={sceneId}
               aria-current={selectedId === sceneId ? "true" : undefined}
+              title={scene?.purpose || "Untitled scene"}
               onClick={() => onSelect(sceneId)}
             >
               <span className="video-scene-index">{String(index + 1).padStart(2, "0")}</span>

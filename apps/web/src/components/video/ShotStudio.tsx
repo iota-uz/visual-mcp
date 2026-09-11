@@ -177,6 +177,7 @@ export function ShotStudio({
                       type="button"
                       key={id}
                       aria-current={shotId === id ? "true" : undefined}
+                      title={item?.purpose || "Untitled shot"}
                       onClick={() => selectShot(id)}
                     >
                       <span>{String(index + 1).padStart(2, "0")}</span>

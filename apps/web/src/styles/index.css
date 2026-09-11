@@ -67,5 +67,4 @@
 @import "./surfaces/video-timeline.css" layer(surfaces);
 @import "./surfaces/video-review.css" layer(surfaces);
 @import "./surfaces/video-production.css" layer(surfaces);
-@import "./surfaces/video-studio-pro.css" layer(surfaces);
 @import "./surfaces/kitchen-sink.css" layer(surfaces);

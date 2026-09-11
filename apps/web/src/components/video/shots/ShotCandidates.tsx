@@ -203,6 +203,17 @@ export function ShotCandidates({
         </>
       )}
       {message && <p role="status">{message}</p>}
+      {jobs.status === "LoadingFirstPage" && (
+        <p className="video-hint" role="status">
+          Loading shot candidates…
+        </p>
+      )}
+      {rows.length === 0 && jobs.status !== "LoadingFirstPage" && (
+        <p className="video-hint">
+          No candidates yet for this shot. Generate one above, or arrange this shot’s media on the
+          timeline.
+        </p>
+      )}
       <TextInput
         id="compare-shot-time"
         label="Compare candidates at time (seconds)"
@@ -217,8 +228,9 @@ export function ShotCandidates({
         {rows.map((job) => {
           const asset = readCandidate(job.result);
           const stale = readShotContext(job)?.scriptRevision !== revision;
+          const selected = asset !== null && shot.selectedVideo?.revisionId === asset.revisionId;
           return (
-            <article key={job.jobId}>
+            <article key={job.jobId} data-selected={selected || undefined}>
               <p>
                 {job.state} · {stale ? "Older shot plan" : "Current shot plan"}
               </p>
@@ -228,7 +240,7 @@ export function ShotCandidates({
                   workspaceId={workspaceId}
                   asset={asset}
                   time={time}
-                  selected={shot.selectedVideo?.revisionId === asset.revisionId}
+                  selected={selected}
                   disabled={disabled}
                   choosing={reasonFor === job.jobId}
                   reason={reason}

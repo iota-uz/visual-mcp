@@ -101,10 +101,15 @@
   touch-action: none;
   cursor: grab;
   user-select: none;
+  transition: filter var(--app-duration-fast) var(--app-ease-out);
+}
+.video-timeline-clip-shell > .video-timeline-clip:hover {
+  filter: brightness(1.12);
 }
 .video-timeline-clip-shell[data-dragging="true"] > .video-timeline-clip {
   z-index: 4;
   cursor: grabbing;
+  filter: brightness(1.15);
   box-shadow:
     0 0 0 2px #fff,
     0 8px 18px rgba(0, 0, 0, 0.28);

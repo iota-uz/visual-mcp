@@ -73,6 +73,7 @@ function RenderCandidate({
       variant={active ? "secondary" : "ghost"}
       className="video-candidate"
       aria-current={active ? "true" : undefined}
+      title={version?.label ?? "Saved version"}
       disabled={!metadata || active}
       onClick={() => onOpenRender(jobId)}
     >

@@ -13,6 +13,10 @@ export function useRevisionEditor<T>(
   const [state, setState] = useState<EditorState>("saved");
   const [error, setError] = useState("");
   const pending = useRef<{ document: T; revision: string; key: string } | null>(null);
+  // State alone cannot serialize rapid saves: two presses in the same tick
+  // share one render's closure and both read "editing". The ref closes the
+  // race so concurrent saves collapse into the single in-flight write.
+  const inflight = useRef(false);
   const awaitingAcknowledgement = useRef<{ revision: string; previous: string } | null>(null);
   const writer = useRef(write);
   writer.current = write;
@@ -35,7 +39,7 @@ export function useRevisionEditor<T>(
   }, [snapshot, base.revision, dirty, state]);
 
   const save = useCallback(async () => {
-    if (!dirty || state === "saving" || state === "conflict") return;
+    if (!dirty || state === "saving" || state === "conflict" || inflight.current) return;
     // Retry only the identical operation after a lost response. Changed edits
     // are not allowed until that attempt has been reconciled or discarded.
     const attempt = pending.current ?? {
@@ -44,6 +48,7 @@ export function useRevisionEditor<T>(
       key: crypto.randomUUID(),
     };
     pending.current = attempt;
+    inflight.current = true;
     setState("saving");
     setError("");
     try {
@@ -66,6 +71,8 @@ export function useRevisionEditor<T>(
             : "Saving could not be confirmed. Retry the same save before making more changes.",
       );
       if (conflict || invalid) pending.current = null;
+    } finally {
+      inflight.current = false;
     }
   }, [document, base.revision, dirty, state]);
 

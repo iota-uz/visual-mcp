@@ -14,6 +14,7 @@ import { ShotStudio } from "./ShotStudio";
 import { SceneNavigator, StoryboardEditor } from "./StoryboardEditor";
 import { TimelineEditor } from "./TimelineEditor";
 import { useRevisionEditor } from "./useRevisionEditor";
+import { useStudioShortcuts } from "./useStudioShortcuts";
 import { useUnsavedNavigation } from "./useUnsavedNavigation";
 
 export type StudioMode = "story" | "shots" | "timeline" | "review";
@@ -111,34 +112,12 @@ export function DraftStudio({
   scriptSaveRef.current = script.save;
   const timelineSaveRef = useRef(timeline.save);
   timelineSaveRef.current = timeline.save;
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-  const onModeRef = useRef(onMode);
-  onModeRef.current = onMode;
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void scriptSaveRef.current();
-        void timelineSaveRef.current();
-        return;
-      }
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable);
-      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
-      const order: StudioMode[] = ["story", "shots", "timeline", "review"];
-      const index = ["1", "2", "3", "4"].indexOf(event.key);
-      if (index >= 0 && order[index] && order[index] !== modeRef.current)
-        onModeRef.current(order[index] as StudioMode);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useStudioShortcuts({
+    mode,
+    onMode,
+    saveScript: () => void scriptSaveRef.current(),
+    saveTimeline: () => void timelineSaveRef.current(),
+  });
   const saveState =
     script.state === "saving" || timeline.state === "saving"
       ? "saving"

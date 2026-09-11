@@ -148,6 +148,7 @@ export function VideoPlayer({
               type="button"
               className="video-region-draw"
               aria-label="Mark a region on this frame"
+              aria-keyshortcuts="Escape"
               onPointerDown={(event) => {
                 const box = event.currentTarget.getBoundingClientRect();
                 drag.current = {
