@@ -122,10 +122,13 @@ test("verification failure retains staged paid result and never claims ready", a
   expect(job.error.effect).toBe("partial");
   expect(job.error.recovery.safeToRegenerate).toBe(false);
   const stored = await t.run((ctx) => ctx.db.get(receipt.jobId as Id<"videoJobs">));
-  expect(stored?.persistenceReceipt).toContain("staged");
+  expect(stored?.persistenceReceipt?.state).toBe("persisted");
+  expect(stored?.persistenceReceipt?.artifacts).toHaveLength(1);
   await t.run((ctx) =>
     ctx.db.patch(receipt.jobId as Id<"videoJobs">, {
-      stage: "recovery_source_unavailable",
+      persistenceReceipt: stored?.persistenceReceipt
+        ? { ...stored.persistenceReceipt, state: "source_unavailable" }
+        : undefined,
     }),
   );
   const providerWithUnavailableSource = await as.query(
@@ -136,7 +139,7 @@ test("verification failure retains staged paid result and never claims ready", a
   expect(providerWithUnavailableSource.error.recovery.kind).not.toBe("regenerate");
   await t.run((ctx) =>
     ctx.db.patch(receipt.jobId as Id<"videoJobs">, {
-      stage: stored?.stage,
+      persistenceReceipt: stored?.persistenceReceipt,
     }),
   );
   expect((await t.run((ctx) => ctx.db.query("assets").collect())).length).toBe(0);

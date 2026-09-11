@@ -183,7 +183,13 @@ export const run = internalAction({
       await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
         jobId: args.jobId,
         fence,
-        receipt: { kind: request.kind, staged, metadata: output.metadata },
+        receipt: {
+          state: "persisted",
+          kind: request.kind,
+          artifacts: staged,
+          metadata: JSON.stringify(output.metadata),
+          persistedRoles: staged.map((artifact) => artifact.role),
+        },
       });
       const artifacts = [];
       for (const artifact of staged) {

@@ -8,6 +8,8 @@ import { MediaProcessResult } from "../packages/video/src/operations";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { presignObject } from "./lib/objectStore";
 import { verifiedMediaMetadata } from "./lib/videoAssetMetadata";
+import { emitVideoMetric } from "./lib/videoObservability";
+import type { PersistenceReceipt } from "./lib/videoPersistence";
 import { getWorkerConfig } from "./lib/worker";
 import { completeRender } from "./videoRender";
 
@@ -66,7 +68,7 @@ export const begin = internalMutation({
     if (job.state === "succeeded") return { jobId: job._id, state: job.state };
     if (
       !["failed", "outcome_unknown"].includes(job.state) ||
-      job.stage === "recovery_source_unavailable" ||
+      job.persistenceReceipt?.state === "source_unavailable" ||
       !job.persistenceReceipt ||
       !["image", "voice", "render", "shot", "media", "critique"].includes(job.kind)
     )
@@ -133,15 +135,22 @@ export const run = internalAction({
     )
       return;
     try {
-      const receipt = JSON.parse(job.persistenceReceipt);
+      const receipt = job.persistenceReceipt as PersistenceReceipt;
+      const byRole = new Map(receipt.artifacts.map((artifact) => [artifact.role, artifact]));
+      const receiptMetadata = receipt.metadata ? JSON.parse(receipt.metadata) : null;
       if (job.kind === "critique") {
         await ctx.runAction(makeFunctionReference<"action">("videoCritiqueRecovery:run"), args);
         return;
       }
       let render =
-        job.kind === "render" && receipt.result ? VideoRenderResult.parse(receipt.result) : null;
+        job.kind === "render" && receipt.result
+          ? VideoRenderResult.parse(JSON.parse(receipt.result))
+          : null;
       const retainedRender = render;
-      const processing = job.kind === "media" ? MediaProcessResult.parse(receipt.result) : null;
+      const processing =
+        job.kind === "media" && receipt.result
+          ? MediaProcessResult.parse(JSON.parse(receipt.result))
+          : null;
       const staged: {
         objectKey: string;
         role: string;
@@ -151,13 +160,13 @@ export const run = internalAction({
         maxBytes?: number;
       }[] = retainedRender
         ? ["video", "poster", "captions"].map((name) => ({
-            objectKey: receipt.keys[name],
+            objectKey: byRole.get(name)?.objectKey ?? "",
             role: name,
             ...retainedRender[name as "video" | "poster" | "captions"],
           }))
         : job.kind === "render"
           ? Object.entries(renderArtifactLimits).map(([role, limits]) => ({
-              objectKey: receipt.keys?.[role],
+              objectKey: byRole.get(role)?.objectKey ?? "",
               role,
               ...limits,
             }))
@@ -165,9 +174,12 @@ export const run = internalAction({
             ? processing.outputs.map((o) => ({
                 ...o,
                 role: o.name,
-                objectKey: receipt.keys[o.name],
+                objectKey: byRole.get(o.name)?.objectKey ?? "",
               }))
-            : receipt.staged;
+            : receipt.artifacts.map((artifact) => ({
+                ...artifact,
+                mimeType: artifact.mimeType ?? "",
+              }));
       if (!Array.isArray(staged) || staged.length < 1 || staged.length > 32)
         throw new Error("Invalid persisted receipt");
       const worker = getWorkerConfig();
@@ -247,7 +259,7 @@ export const run = internalAction({
           throw new Error("Stored render metadata unavailable");
         const format = input.manifest.format;
         const [fpsNumerator, fpsDenominator] = video.fps.split("/").map(Number);
-        const sourceFence = Number(String(receipt.keys.video).split("/")[2]);
+        const sourceFence = Number(String(byRole.get("video")?.objectKey).split("/")[2]);
         const frames = request.range
           ? request.range.endFrame - request.range.startFrame
           : input.manifest.timeline.durationFrames;
@@ -262,8 +274,21 @@ export const run = internalAction({
           poster.height !== format.height ||
           fpsNumerator * format.fps.denominator !== format.fps.numerator * fpsDenominator ||
           Math.abs(video.durationMs - expectedDurationMs) > 120
-        )
+        ) {
+          if (Math.abs(video.durationMs - expectedDurationMs) > 120)
+            emitVideoMetric(
+              "duration_mismatch",
+              {
+                jobId: job._id,
+                operationId: job.operationId,
+                expectedDurationMs,
+                actualDurationMs: video.durationMs,
+                value: Math.abs(video.durationMs - expectedDurationMs),
+              },
+              { alert: true },
+            );
           throw new Error("Stored render differs from version contract");
+        }
         render = VideoRenderResult.parse({
           jobId: job._id,
           fence: sourceFence,
@@ -372,10 +397,10 @@ export const run = internalAction({
               : {
                   kind: "provider",
                   jobId: job._id,
-                  provider: receipt.metadata.provider,
-                  requestedModel: receipt.metadata.requestedModel,
-                  actualModel: receipt.metadata.actualModel,
-                  metadata: JSON.stringify(receipt.metadata),
+                  provider: receiptMetadata.provider,
+                  requestedModel: receiptMetadata.requestedModel,
+                  actualModel: receiptMetadata.actualModel,
+                  metadata: JSON.stringify(receiptMetadata),
                 },
         });
         artifacts.push({
@@ -407,16 +432,18 @@ export const run = internalAction({
               ...processing,
               kind: "media",
               operation: processing.kind,
-              outputs: processing.outputs.map((output) => ({
-                ...output,
-                asset: artifacts.find((a) => a.role === output.name)!.asset,
-              })),
+              outputs: processing.outputs.map((output) => {
+                const registered = artifacts.find((artifact) => artifact.role === output.name);
+                if (!registered)
+                  throw new Error(`Recovered output ${output.name} was not registered`);
+                return { ...output, asset: registered.asset };
+              }),
             }
           : {
               kind: job.kind,
               artifacts,
-              metadata: receipt.metadata,
-              partial: receipt.metadata.partial === true,
+              metadata: receiptMetadata,
+              partial: receiptMetadata?.partial === true,
             };
       if (render) {
         const request = JobRequest.parse(JSON.parse(job.request));
@@ -457,7 +484,7 @@ export const run = internalAction({
             ? "STORED_OUTPUT_UNAVAILABLE"
             : "STORED_OUTPUT_MISMATCH",
         ...(error instanceof Error && error.message === "Stored output unavailable"
-          ? { stage: "recovery_source_unavailable" }
+          ? { persistenceSourceUnavailable: true }
           : {}),
       });
     }

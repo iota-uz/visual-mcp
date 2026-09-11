@@ -121,7 +121,20 @@ test("valid >4MiB CJK report reconciles unchanged bytes into bounded UTF8 summar
   await t.mutation(m("videoJobs:savePersistenceReceipt"), {
     jobId: accepted.jobId,
     fence: 1,
-    receipt: { kind: "critique", objectKey: `video-results/${accepted.jobId}/1/critique`, sha256 },
+    receipt: {
+      state: "persisted",
+      kind: "critique",
+      artifacts: [
+        {
+          role: "critique",
+          objectKey: `video-results/${accepted.jobId}/1/critique`,
+          sha256,
+          sizeBytes: bytes.length,
+          mimeType: "application/json",
+        },
+      ],
+      persistedRoles: ["critique"],
+    },
   });
   await t.mutation(m("videoJobs:fail"), {
     jobId: accepted.jobId,

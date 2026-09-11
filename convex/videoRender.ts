@@ -7,7 +7,11 @@ import {
   VideoRenderResult,
 } from "../packages/video/src/media";
 import type { Id } from "./_generated/dataModel";
-import { type ActionCtx, internalAction, internalQuery } from "./_generated/server";
+import {
+  type ActionCtx,
+  internalAction,
+  internalQuery,
+} from "./_generated/server";
 import { sha256HexBytes } from "./lib/hash";
 import { headObject, presignObject, putObject } from "./lib/objectStore";
 import { verifiedMediaMetadata } from "./lib/videoAssetMetadata";
@@ -50,9 +54,14 @@ export async function completeRender(
       "font_mapping",
     ];
     const missing = required.filter(
-      (name) => !result.checks.some((c) => c.name === name && c.outcome !== "not_evaluated"),
+      (name) =>
+        !result.checks.some(
+          (c) => c.name === name && c.outcome !== "not_evaluated",
+        ),
     );
-    const outcome = result.checks.some((c) => required.includes(c.name) && c.outcome === "fail")
+    const outcome = result.checks.some(
+      (c) => required.includes(c.name) && c.outcome === "fail",
+    )
       ? "fail"
       : missing.length || result.partial
         ? "uncertain"
@@ -78,30 +87,33 @@ export async function completeRender(
       leaseId,
     });
     await putObject(objectKey, reportBytes, "application/json");
-    const saved = await ctx.runMutation(mutationRef("assets:commitAssetVersion"), {
-      scope: "workspace",
-      ownerUserId: data.job.principalId,
-      workspaceId: data.job.workspaceId,
-      slug: `render-${args.jobId}-${result.fence}-technical-report`,
-      name: "Technical render report",
-      tags: ["video-qa"],
-      kind: "data",
-      objectKey,
-      contentHash: reportSha256,
-      mimeType: "application/json",
-      size: reportBytes.length,
-      originalFilename: "technical-report.json",
-      sourceType: "upload",
-      objectLeaseId: leaseId,
-      provenance: {
-        kind: "render",
-        jobId: args.jobId,
-        metadata: JSON.stringify({
-          versionId: data.version._id,
-          algorithm: "trusted-render-measurements-v1",
-        }),
+    const saved = await ctx.runMutation(
+      mutationRef("assets:commitAssetVersion"),
+      {
+        scope: "workspace",
+        ownerUserId: data.job.principalId,
+        workspaceId: data.job.workspaceId,
+        slug: `render-${args.jobId}-${result.fence}-technical-report`,
+        name: "Technical render report",
+        tags: ["video-qa"],
+        kind: "data",
+        objectKey,
+        contentHash: reportSha256,
+        mimeType: "application/json",
+        size: reportBytes.length,
+        originalFilename: "technical-report.json",
+        sourceType: "upload",
+        objectLeaseId: leaseId,
+        provenance: {
+          kind: "render",
+          jobId: args.jobId,
+          metadata: JSON.stringify({
+            versionId: data.version._id,
+            algorithm: "trusted-render-measurements-v1",
+          }),
+        },
       },
-    });
+    );
     const report = { assetId: saved.assetId, revisionId: saved.versionId };
     await ctx.runMutation(mutationRef("videoEvidence:completeWithEvidence"), {
       jobId: args.jobId,
@@ -148,7 +160,12 @@ export const inputs = internalQuery({
   args: { jobId: v.id("videoJobs"), fence: v.number() },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
-    if (!job || job.fence !== args.fence || job.kind !== "render" || !job.versionId)
+    if (
+      !job ||
+      job.fence !== args.fence ||
+      job.kind !== "render" ||
+      !job.versionId
+    )
       throw new Error("Render fence unavailable");
     const version = await ctx.db.get(job.versionId);
     if (!version) throw new Error("Version unavailable");
@@ -208,10 +225,14 @@ export const run = internalAction({
         (error.data as { code?: string }).code === "CAPACITY_EXCEEDED" &&
         (args.admissionAttempt ?? 0) < 30
       ) {
-        await ctx.scheduler.runAfter(5000, makeFunctionReference<"action">("videoRender:run"), {
-          jobId: args.jobId,
-          admissionAttempt: (args.admissionAttempt ?? 0) + 1,
-        });
+        await ctx.scheduler.runAfter(
+          5000,
+          makeFunctionReference<"action">("videoRender:run"),
+          {
+            jobId: args.jobId,
+            admissionAttempt: (args.admissionAttempt ?? 0) + 1,
+          },
+        );
         return;
       }
       if (error instanceof ConvexError) {
@@ -227,10 +248,13 @@ export const run = internalAction({
     const fence = claimed.fence as number;
     let dispatched = false;
     try {
-      const data = await ctx.runQuery(makeFunctionReference<"query">("videoRender:inputs"), {
-        jobId: args.jobId,
-        fence,
-      });
+      const data = await ctx.runQuery(
+        makeFunctionReference<"query">("videoRender:inputs"),
+        {
+          jobId: args.jobId,
+          fence,
+        },
+      );
       const outputs: Record<string, { url: string; method: "PUT" }> = {};
       const keys: Record<string, string> = {};
       for (const name of ["video", "poster", "captions"]) {
@@ -268,8 +292,14 @@ export const run = internalAction({
       await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
         jobId: args.jobId,
         fence,
-        stage: "outputs_reserved",
-        receipt: { kind: "render", keys },
+        receipt: {
+          state: "reserved",
+          kind: "render",
+          artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+            role,
+            objectKey,
+          })),
+        },
       });
       if (!process.env.WORKER_URL || !process.env.WORKER_TOKEN)
         throw new ConvexError({
@@ -295,7 +325,10 @@ export const run = internalAction({
         const error = (await response.json().catch(() => null)) as {
           error?: { code?: string; effect?: string };
         } | null;
-        if (error?.error?.code === "WORKER_BUSY" && error.error.effect === "not_applied") {
+        if (
+          error?.error?.code === "WORKER_BUSY" &&
+          error.error.effect === "not_applied"
+        ) {
           await ctx.runMutation(mutationRef("videoJobs:retryBusyRender"), {
             jobId: args.jobId,
             fence,
@@ -305,22 +338,36 @@ export const run = internalAction({
         }
       }
       if (!response.ok) {
-        const failure = VideoRenderFailure.safeParse(await response.json().catch(() => null));
+        const failure = VideoRenderFailure.safeParse(
+          await response.json().catch(() => null),
+        );
         const partial = VideoRenderResult.safeParse(
           failure.success ? failure.data.error.result : undefined,
         );
-        if (partial.success && partial.data.jobId === args.jobId && partial.data.fence === fence) {
-          await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
-            jobId: args.jobId,
-            fence,
-            stage: "outputs_partial",
-            receipt: {
-              kind: "render",
-              keys,
-              result: partial.data,
-              persisted: failure.success ? (failure.data.error.persisted ?? []) : [],
+        if (
+          partial.success &&
+          partial.data.jobId === args.jobId &&
+          partial.data.fence === fence
+        ) {
+          await ctx.runMutation(
+            mutationRef("videoJobs:savePersistenceReceipt"),
+            {
+              jobId: args.jobId,
+              fence,
+              receipt: {
+                state: "partially_persisted",
+                kind: "render",
+                artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+                  role,
+                  objectKey,
+                })),
+                result: JSON.stringify(partial.data),
+                persistedRoles: failure.success
+                  ? (failure.data.error.persisted ?? [])
+                  : [],
+              },
             },
-          });
+          );
           throw new ConvexError({
             code: "RESULT_PERSISTENCE_FAILED",
             effect: "partial",
@@ -335,7 +382,10 @@ export const run = internalAction({
             effect: failure.data.error.effect,
             reasonCode: failure.data.error.reasonCode,
           });
-        throw new ConvexError({ code: "WORKER_RESPONSE_INVALID", effect: "unknown" });
+        throw new ConvexError({
+          code: "WORKER_RESPONSE_INVALID",
+          effect: "unknown",
+        });
       }
       const result = VideoRenderResult.parse(await response.json());
       if (result.jobId !== args.jobId || result.fence !== fence)
@@ -343,49 +393,75 @@ export const run = internalAction({
       await ctx.runMutation(mutationRef("videoJobs:savePersistenceReceipt"), {
         jobId: args.jobId,
         fence,
-        receipt: { kind: "render", keys, result },
+        receipt: {
+          state: "persisted",
+          kind: "render",
+          artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+            role,
+            objectKey,
+          })),
+          result: JSON.stringify(result),
+          persistedRoles: ["video", "poster", "captions"],
+        },
       });
-      const registered: Record<string, { assetId: Id<"assets">; revisionId: Id<"assetVersions"> }> =
-        {};
+      const registered: Record<
+        string,
+        { assetId: Id<"assets">; revisionId: Id<"assetVersions"> }
+      > = {};
       for (const name of ["video", "poster", "captions"] as const) {
         const artifact = result[name],
           key = keys[name]!;
         const head = await headObject(key);
-        if (!head.ok || Number(head.headers.get("content-length")) !== artifact.sizeBytes)
+        if (
+          !head.ok ||
+          Number(head.headers.get("content-length")) !== artifact.sizeBytes
+        )
           throw new Error("Persisted output size mismatch");
-        const saved = await ctx.runMutation(mutationRef("assets:commitAssetVersion"), {
-          scope: "workspace",
-          ownerUserId: data.job.principalId,
-          workspaceId: data.job.workspaceId,
-          slug: `render-${args.jobId}-${fence}-${name}`,
-          name: `${data.version.label} ${name}`,
-          tags: ["video-render"],
-          kind: name === "video" ? "video" : name === "poster" ? "image" : "data",
-          objectKey: key,
-          contentHash: artifact.sha256,
-          mediaMetadata: verifiedMediaMetadata(artifact),
-          mimeType: artifact.mimeType,
-          size: artifact.sizeBytes,
-          originalFilename: `${name}.${name === "video" ? "mp4" : name === "poster" ? "png" : "vtt"}`,
-          sourceType: "upload",
-          provenance: {
-            kind: "render",
-            jobId: args.jobId,
-            metadata: JSON.stringify({
-              versionId: data.version._id,
-              manifestSha256: data.version.manifestSha256,
-              partial: result.partial,
-              engine: result.engine ?? null,
-            }),
+        const saved = await ctx.runMutation(
+          mutationRef("assets:commitAssetVersion"),
+          {
+            scope: "workspace",
+            ownerUserId: data.job.principalId,
+            workspaceId: data.job.workspaceId,
+            slug: `render-${args.jobId}-${fence}-${name}`,
+            name: `${data.version.label} ${name}`,
+            tags: ["video-render"],
+            kind:
+              name === "video" ? "video" : name === "poster" ? "image" : "data",
+            objectKey: key,
+            contentHash: artifact.sha256,
+            mediaMetadata: verifiedMediaMetadata(artifact),
+            mimeType: artifact.mimeType,
+            size: artifact.sizeBytes,
+            originalFilename: `${name}.${name === "video" ? "mp4" : name === "poster" ? "png" : "vtt"}`,
+            sourceType: "upload",
+            provenance: {
+              kind: "render",
+              jobId: args.jobId,
+              metadata: JSON.stringify({
+                versionId: data.version._id,
+                manifestSha256: data.version.manifestSha256,
+                partial: result.partial,
+                engine: result.engine ?? null,
+              }),
+            },
+            objectLeaseId: `${args.jobId}:${fence}:${name}`,
           },
-          objectLeaseId: `${args.jobId}:${fence}:${name}`,
-        });
+        );
         registered[name] = {
           assetId: saved.assetId,
           revisionId: saved.versionId,
         };
       }
-      await completeRender(ctx, { jobId: args.jobId }, fence, result, registered, data, claimed);
+      await completeRender(
+        ctx,
+        { jobId: args.jobId },
+        fence,
+        result,
+        registered,
+        data,
+        claimed,
+      );
     } catch (error) {
       await ctx.runMutation(mutationRef("videoJobs:fail"), {
         jobId: args.jobId,
@@ -409,7 +485,8 @@ export const run = internalAction({
         ...(error instanceof ConvexError &&
         typeof (error.data as { reasonCode?: unknown }).reasonCode === "string"
           ? { reasonCode: (error.data as { reasonCode: string }).reasonCode }
-          : error instanceof Error && error.message === "Persisted output size mismatch"
+          : error instanceof Error &&
+              error.message === "Persisted output size mismatch"
             ? { reasonCode: "STORED_OUTPUT_MISMATCH" }
             : {}),
       });

@@ -23,6 +23,8 @@ test("generated revision CAS preserves concurrent head and stores candidate", as
       workspaceId,
       principalId: ownerUserId,
       idempotencyKey: "edit",
+      operationId: "edit-operation",
+      attemptNumber: 1,
       inputHash: "h",
       request: "{}",
       kind: "image",

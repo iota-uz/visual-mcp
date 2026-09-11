@@ -154,3 +154,100 @@ test("effect admission is monotonic and expired executor never reclaims", async 
   expect((await as.query(q("getJob"), { jobId: r.jobId })).state).toBe("outcome_unknown");
   expect(await t.mutation(m("claim"), { jobId: r.jobId })).toBeNull();
 });
+
+test("safe render regeneration creates a server-keyed attempt and grouped API preserves the last success", async () => {
+  const { t, as, workspaceId } = await setup();
+  const project = await as.mutation(makeFunctionReference<"mutation">("video:createProject"), {
+    workspaceId,
+    idempotencyKey: "project",
+    title: "Attempts",
+    brief: { topic: "fixture", direction: "fixture" },
+    languages: ["ru"],
+    format: { width: 1080, height: 1920, fps: { numerator: 30, denominator: 1 } },
+  });
+  const draft = project.drafts[0];
+  const checkpoint = await as.mutation(makeFunctionReference<"mutation">("video:checkpoint"), {
+    draftId: draft.draftId,
+    idempotencyKey: "checkpoint",
+    expectedProjectRevision: project.revisionId,
+    expectedScriptRevision: draft.scriptRevision,
+    expectedTimelineRevision: draft.timelineRevision,
+    label: "Pinned",
+  });
+  const first = await as.mutation(m("submit"), {
+    workspaceId,
+    projectId: project.projectId,
+    versionId: checkpoint.version.versionId,
+    idempotencyKey: "client-key",
+    request: { kind: "render", versionId: checkpoint.version.versionId, mode: "final" },
+  });
+  await t.mutation(m("claim"), { jobId: first.jobId });
+  await t.mutation(m("fail"), {
+    jobId: first.jobId,
+    fence: 1,
+    code: "RENDER_FAILED",
+    effect: "not_applied",
+    outcomeUnknown: false,
+  });
+  const second = await as.mutation(m("regenerate"), { jobId: first.jobId });
+  expect(second.operationId).toBe(first.operationId);
+  expect(second.attemptNumber).toBe(2);
+  expect(second.operation.idempotencyKey).not.toBe("client-key");
+  await expect(as.mutation(m("regenerate"), { jobId: first.jobId })).rejects.toThrow(
+    "REGENERATION_CONFLICT",
+  );
+
+  await t.run(async (ctx) => {
+    await ctx.db.patch("videoJobs", first.jobId, {
+      state: "succeeded",
+      stage: "persisted",
+      result: JSON.stringify({ kind: "render", video: { assetId: "a", revisionId: "r" } }),
+      errorCode: undefined,
+      errorEffect: undefined,
+    });
+    await ctx.db.patch("videoJobs", second.jobId, {
+      state: "failed",
+      stage: "failed",
+      errorCode: "RENDER_FAILED",
+      errorEffect: "not_applied",
+    });
+  });
+  const operations = await as.query(q("listOperations"), {
+    workspaceId,
+    projectId: project.projectId,
+  });
+  expect(operations).toHaveLength(1);
+  expect(
+    operations[0].attempts.map((attempt: { attemptNumber: number }) => attempt.attemptNumber),
+  ).toEqual([2, 1]);
+  expect(operations[0].latestAttempt.jobId).toBe(second.jobId);
+  expect(operations[0].latestSuccessfulAttempt.jobId).toBe(first.jobId);
+  expect(operations[0].retryCount).toBe(1);
+});
+
+test("paid and unknown-effect jobs cannot use the regeneration endpoint", async () => {
+  const { t, as, workspaceId } = await setup();
+  const paid = await as.mutation(m("submit"), {
+    workspaceId,
+    idempotencyKey: "paid",
+    request: {
+      kind: "image",
+      allowPaid: true,
+      prompt: "fixture",
+      model: "gpt-image-2.5-sunburst",
+      quality: "high",
+      size: "1152x2048",
+    },
+  });
+  await t.mutation(m("claim"), { jobId: paid.jobId });
+  await t.mutation(m("fail"), {
+    jobId: paid.jobId,
+    fence: 1,
+    code: "OUTCOME_UNKNOWN",
+    effect: "unknown",
+    outcomeUnknown: true,
+  });
+  await expect(as.mutation(m("regenerate"), { jobId: paid.jobId })).rejects.toThrow(
+    "REGENERATION_UNSAFE",
+  );
+});

@@ -17,6 +17,12 @@ import {
 } from "./_generated/server";
 import { requireIotaIdentity, requireUserId } from "./lib/auth";
 import { sha256HexBytes } from "./lib/hash";
+import { emitVideoMetric } from "./lib/videoObservability";
+import {
+  markSourceUnavailable,
+  PersistenceReceiptValidator,
+  persistenceStage,
+} from "./lib/videoPersistence";
 import { assertVideoProductionAllowed } from "./lib/videoWorkflow";
 
 const error = (code: string, message: string, effect = "not_applied"): never => {
@@ -36,15 +42,9 @@ async function job(ctx: QueryCtx | MutationCtx, jobId: Id<"videoJobs">) {
   return j;
 }
 function reservedObjectKeys(j: Doc<"videoJobs">) {
-  if (!j.persistenceReceipt) return [];
-  try {
-    const receipt = JSON.parse(j.persistenceReceipt) as { keys?: Record<string, unknown> };
-    return Object.values(receipt.keys ?? {}).filter(
-      (key): key is string => typeof key === "string" && key.startsWith(`video-results/${j._id}/`),
-    );
-  } catch {
-    return [];
-  }
+  return (j.persistenceReceipt?.artifacts ?? [])
+    .map((artifact) => artifact.objectKey)
+    .filter((objectKey) => objectKey.startsWith(`video-results/${j._id}/`));
 }
 async function releaseReservedObjectLeases(ctx: MutationCtx, j: Doc<"videoJobs">) {
   for (const objectKey of reservedObjectKeys(j)) {
@@ -64,6 +64,9 @@ function receipt(j: Doc<"videoJobs">, replayed: boolean) {
     pollAfterMs: 1000,
     kind: j.kind,
     operation: { toolName: j.kind, idempotencyKey: j.idempotencyKey },
+    operationId: j.operationId,
+    attemptNumber: j.attemptNumber,
+    retryOfJobId: j.retryOfJobId ?? null,
     statusUrl: j.projectId ? `/v/${j.projectId}?job=${j._id}` : `/jobs/${j._id}`,
   };
 }
@@ -84,6 +87,11 @@ async function submitJob(
     request: unknown;
   },
   principal?: Id<"users">,
+  retry?: {
+    operationId: string;
+    attemptNumber: number;
+    retryOfJobId: Id<"videoJobs">;
+  },
 ) {
   const principalId = await identity(ctx, principal);
   if (!(await ctx.db.get(args.workspaceId)))
@@ -199,6 +207,9 @@ async function submitJob(
     ...(args.projectId ? { projectId: args.projectId } : {}),
     ...(args.versionId ? { versionId: args.versionId } : {}),
     idempotencyKey: args.idempotencyKey,
+    operationId: retry?.operationId ?? crypto.randomUUID(),
+    attemptNumber: retry?.attemptNumber ?? 1,
+    ...(retry ? { retryOfJobId: retry.retryOfJobId } : {}),
     inputHash,
     request: canonical(request),
     kind: request.kind,
@@ -242,7 +253,9 @@ async function submitJob(
       makeFunctionReference<"mutation">("videoExecuteRecovery:expireQueued"),
       { jobId: id, createdAt: now },
     );
-  return receipt((await ctx.db.get(id))!, false);
+  const inserted = await ctx.db.get(id);
+  if (!inserted) throw new Error("New video job was not readable after insert");
+  return receipt(inserted, false);
 }
 export const submit = mutation({
   args: submitArgs,
@@ -257,8 +270,12 @@ function publicJob(j: Doc<"videoJobs">) {
   const safeToRegenerate =
     ["render", "media"].includes(j.kind) &&
     !j.errorCode?.endsWith("NOT_CONFIGURED") &&
-    (j.stage === "recovery_source_unavailable" || j.errorEffect === "not_applied");
-  const canReconcile = Boolean(j.persistenceReceipt) && !safeToRegenerate;
+    (j.persistenceReceipt?.state === "source_unavailable" ||
+      (!j.persistenceReceipt && j.errorEffect === "not_applied"));
+  const canReconcile =
+    Boolean(j.persistenceReceipt) &&
+    j.persistenceReceipt?.state !== "source_unavailable" &&
+    !safeToRegenerate;
   return {
     ...receipt(j, false),
     workspaceId: j.workspaceId,
@@ -279,6 +296,13 @@ function publicJob(j: Doc<"videoJobs">) {
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
     stale: j.stale ?? false,
+    persistence: j.persistenceReceipt
+      ? {
+          state: j.persistenceReceipt.state,
+          artifactCount: j.persistenceReceipt.artifacts.length,
+          persistedRoles: j.persistenceReceipt.persistedRoles ?? [],
+        }
+      : null,
     result: j.result ? JSON.parse(j.result) : null,
     error: j.errorCode
       ? {
@@ -453,6 +477,125 @@ export const agentListJobs = internalQuery({
   args: { ...listJobArgs, videoPrincipalId: v.id("users") },
   handler: (ctx, { videoPrincipalId, ...args }) => listJobRows(ctx, args, videoPrincipalId),
 });
+
+const listOperationArgs = {
+  workspaceId: v.id("workspaces"),
+  projectId: v.optional(v.id("videoProjects")),
+  kind: v.optional(v.string()),
+  limit: v.optional(v.number()),
+};
+async function listOperationRows(
+  ctx: QueryCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    projectId?: Id<"videoProjects">;
+    kind?: string;
+    limit?: number;
+  },
+  principal?: Id<"users">,
+) {
+  await identity(ctx, principal);
+  const limit = args.limit ?? 20;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50)
+    error("VALIDATION_ERROR", "Operation limit must be 1–50");
+  if (args.projectId && (await ctx.db.get(args.projectId))?.workspaceId !== args.workspaceId)
+    error("NOT_FOUND_OR_FORBIDDEN", "Project unavailable");
+  const rows = await ctx.db
+    .query("videoJobs")
+    .withIndex("by_workspaceId_and_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
+    .order("desc")
+    .filter((q) =>
+      q.and(
+        ...[
+          ...(args.projectId ? [q.eq(q.field("projectId"), args.projectId)] : []),
+          ...(args.kind ? [q.eq(q.field("kind"), args.kind)] : []),
+        ],
+      ),
+    )
+    .take(100);
+  const operationIds: string[] = [];
+  for (const row of rows) {
+    if (!operationIds.includes(row.operationId)) operationIds.push(row.operationId);
+    if (operationIds.length === limit) break;
+  }
+  return Promise.all(
+    operationIds.map(async (operationId) => {
+      const attempts = (
+        await ctx.db
+          .query("videoJobs")
+          .withIndex("by_operationId_and_attemptNumber", (q) => q.eq("operationId", operationId))
+          .order("desc")
+          .collect()
+      ).map(publicJob);
+      const latestAttempt = attempts[0];
+      if (!latestAttempt) throw new Error("Video operation has no attempts");
+      const latestSuccessfulAttempt =
+        attempts.find((attempt) => attempt.state === "succeeded") ?? null;
+      return {
+        operationId,
+        kind: latestAttempt.kind,
+        latestAttempt,
+        latestSuccessfulAttempt,
+        attempts,
+        retryCount: Math.max(0, attempts.length - 1),
+      };
+    }),
+  );
+}
+export const listOperations = query({
+  args: listOperationArgs,
+  handler: (ctx, args) => listOperationRows(ctx, args),
+});
+export const agentListOperations = internalQuery({
+  args: { ...listOperationArgs, videoPrincipalId: v.id("users") },
+  handler: (ctx, { videoPrincipalId, ...args }) => listOperationRows(ctx, args, videoPrincipalId),
+});
+
+export const regenerate = mutation({
+  args: { jobId: v.id("videoJobs") },
+  handler: async (ctx, args) => {
+    const principalId = await identity(ctx);
+    const source = await job(ctx, args.jobId);
+    const exposed = publicJob(source);
+    if (
+      exposed.error?.recovery.kind !== "regenerate" ||
+      exposed.error.recovery.safeToRegenerate !== true ||
+      !["render", "media"].includes(source.kind)
+    )
+      error("REGENERATION_UNSAFE", "This operation is not explicitly safe to regenerate");
+    const latest = await ctx.db
+      .query("videoJobs")
+      .withIndex("by_operationId_and_attemptNumber", (q) => q.eq("operationId", source.operationId))
+      .order("desc")
+      .first();
+    if (!latest || latest._id !== source._id)
+      error("REGENERATION_CONFLICT", "A newer attempt already exists; inspect the operation");
+    const request = JobRequest.parse(JSON.parse(source.request));
+    const next = await submitJob(
+      ctx,
+      {
+        workspaceId: source.workspaceId,
+        ...(source.projectId ? { projectId: source.projectId } : {}),
+        ...(source.versionId ? { versionId: source.versionId } : {}),
+        idempotencyKey: crypto.randomUUID(),
+        request,
+      },
+      principalId,
+      {
+        operationId: source.operationId,
+        attemptNumber: source.attemptNumber + 1,
+        retryOfJobId: source._id,
+      },
+    );
+    emitVideoMetric("retry_count", {
+      jobId: next.jobId,
+      operationId: source.operationId,
+      value: source.attemptNumber,
+      kind: source.kind,
+    });
+    return next;
+  },
+});
 async function cancelJob(
   ctx: MutationCtx,
   args: { jobId: Id<"videoJobs"> },
@@ -604,23 +747,26 @@ export const savePersistenceReceipt = internalMutation({
   args: {
     jobId: v.id("videoJobs"),
     fence: v.number(),
-    receipt: v.any(),
-    stage: v.optional(
-      v.union(
-        v.literal("outputs_reserved"),
-        v.literal("outputs_partial"),
-        v.literal("bytes_persisted"),
-        v.literal("provider_submitted"),
-      ),
-    ),
+    receipt: PersistenceReceiptValidator,
   },
   handler: async (ctx, args) => {
-    await fenced(ctx, args);
+    const j = await fenced(ctx, args);
     bounded(args.receipt, 262144);
+    if (args.receipt.kind !== j.kind)
+      error("PERSISTENCE_RECEIPT_INVALID", "Receipt kind differs from job");
+    const previous = j.persistenceReceipt;
+    const rank = { reserved: 0, partially_persisted: 1, persisted: 2, source_unavailable: 3 };
+    if (
+      previous &&
+      (previous.kind !== args.receipt.kind ||
+        previous.state === "source_unavailable" ||
+        (args.receipt.state !== "source_unavailable" &&
+          rank[args.receipt.state] < rank[previous.state]))
+    )
+      error("PERSISTENCE_RECEIPT_INVALID", "Persistence state cannot move backwards");
     await ctx.db.patch(args.jobId, {
-      persistenceReceipt: canonical(args.receipt),
-      stage:
-        args.stage ?? (args.receipt?.kind === "shot" ? "provider_submitted" : "bytes_persisted"),
+      persistenceReceipt: args.receipt,
+      stage: persistenceStage(args.receipt),
       updatedAt: Date.now(),
     });
   },
@@ -631,7 +777,7 @@ export async function completeVideoJob(
     jobId: Id<"videoJobs">;
     fence: number;
     videoPrincipalId?: Id<"users">;
-    result: any;
+    result: unknown;
   },
 ) {
   const j = await fenced(ctx, args);
@@ -654,17 +800,25 @@ export async function completeVideoJob(
         (d.scriptRevision !== version?.scriptRevision ||
           d.timelineRevision !== version?.timelineRevision));
   }
+  const executionFailed =
+    j.kind === "execute" &&
+    typeof args.result === "object" &&
+    args.result !== null &&
+    "success" in args.result &&
+    args.result.success === false;
   await ctx.db.patch(j._id, {
-    state: j.kind === "execute" && args.result?.success === false ? "failed" : "succeeded",
+    state: executionFailed ? "failed" : "succeeded",
     stage: "persisted",
     result: canonical(args.result),
-    ...(j.kind === "execute" && args.result?.success === false
+    ...(executionFailed
       ? { errorCode: "CODE_EXECUTION_FAILED", errorEffect: "unknown" as const }
       : { errorCode: undefined, errorReasonCode: undefined, errorEffect: undefined }),
     stale,
     updatedAt: Date.now(),
   });
-  return publicJob((await ctx.db.get(j._id))!);
+  const completed = await ctx.db.get(j._id);
+  if (!completed) throw new Error("Completed video job was not readable after patch");
+  return publicJob(completed);
 }
 export const complete = internalMutation({
   args: { ...fenceArgs, result: v.any() },
@@ -677,6 +831,7 @@ export const fail = internalMutation({
     reasonCode: v.optional(v.string()),
     outcomeUnknown: v.boolean(),
     stage: v.optional(v.string()),
+    persistenceSourceUnavailable: v.optional(v.boolean()),
     effect: v.optional(
       v.union(
         v.literal("none"),
@@ -699,12 +854,41 @@ export const fail = internalMutation({
       await releaseReservedObjectLeases(ctx, j);
     await ctx.db.patch(j._id, {
       state: args.outcomeUnknown ? "outcome_unknown" : "failed",
-      ...(args.stage ? { stage: args.stage } : {}),
+      ...(args.persistenceSourceUnavailable && j.persistenceReceipt
+        ? {
+            persistenceReceipt: markSourceUnavailable(j.persistenceReceipt),
+            stage: "recovery_source_unavailable",
+          }
+        : args.stage
+          ? { stage: args.stage }
+          : {}),
       errorCode: args.code,
       errorReasonCode: args.reasonCode,
       errorEffect: args.effect ?? "unknown",
       updatedAt: Date.now(),
     });
+    if (args.code === "RESULT_PERSISTENCE_FAILED")
+      emitVideoMetric(
+        "result_persistence_failed",
+        {
+          jobId: j._id,
+          operationId: j.operationId,
+          attemptNumber: j.attemptNumber,
+          kind: j.kind,
+          effect: args.effect ?? "unknown",
+        },
+        { alert: args.outcomeUnknown },
+      );
+    if (args.persistenceSourceUnavailable)
+      emitVideoMetric(
+        "recovery_source_unavailable",
+        {
+          jobId: j._id,
+          operationId: j.operationId,
+          kind: j.kind,
+        },
+        { alert: true },
+      );
   },
 });
 export const recordEffect = internalMutation({

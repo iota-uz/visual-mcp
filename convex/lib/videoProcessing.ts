@@ -43,7 +43,13 @@ export async function processMedia(
   ];
   const names =
     operation.kind === "compare"
-      ? ["contactsheet", ...operation.timesMs.flatMap((_, i) => [`frame-a-${i}`, `frame-b-${i}`])]
+      ? [
+          "contactsheet",
+          ...operation.timesMs.flatMap((_, i) => [
+            `frame-a-${i}`,
+            `frame-b-${i}`,
+          ]),
+        ]
       : operation.kind === "frames"
         ? ["contactsheet", ...operation.timesMs.map((_, i) => `frame-${i}`)]
         : operation.kind === "audio_mix"
@@ -82,11 +88,21 @@ export async function processMedia(
   await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
     jobId: job._id,
     fence: job.fence,
-    stage: "outputs_reserved",
-    receipt: { kind: "media", operation: operation.kind, keys },
+    receipt: {
+      state: "reserved",
+      kind: "media",
+      artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+        role,
+        objectKey,
+      })),
+      metadata: JSON.stringify({ operation: operation.kind }),
+    },
   });
   if (!process.env.WORKER_URL || !process.env.WORKER_TOKEN)
-    throw new ConvexError({ code: "WORKER_NOT_CONFIGURED", effect: "not_applied" });
+    throw new ConvexError({
+      code: "WORKER_NOT_CONFIGURED",
+      effect: "not_applied",
+    });
   const worker = getWorkerConfig();
   const response = await fetch(`${worker.url}/video/process`, {
     method: "POST",
@@ -101,11 +117,17 @@ export async function processMedia(
   const failure = response.ok ? null : MediaProcessFailure.safeParse(payload);
   if (!response.ok && (!failure?.success || !failure.data.error.result))
     throw new ConvexError({
-      code: failure?.success ? failure.data.error.code : "WORKER_RESPONSE_INVALID",
+      code: failure?.success
+        ? failure.data.error.code
+        : "WORKER_RESPONSE_INVALID",
       effect: failure?.success ? failure.data.error.effect : "unknown",
     });
   const result = MediaProcessResult.parse(
-    response.ok ? payload : failure?.success ? failure.data.error.result : undefined,
+    response.ok
+      ? payload
+      : failure?.success
+        ? failure.data.error.result
+        : undefined,
   );
   if (
     result.jobId !== job._id ||
@@ -115,12 +137,15 @@ export async function processMedia(
     result.source.revisionId !== asset.revisionId ||
     result.kind !== operation.kind ||
     result.sources.length !== sources.length ||
-    result.sources.some(
-      (s, index) =>
+    result.sources.some((s, index) => {
+      const expected = allAssets[index];
+      return (
+        !expected ||
         s.sha256 !== sources[index].contentHash ||
-        s.asset.assetId !== allAssets[index]!.assetId ||
-        s.asset.revisionId !== allAssets[index]!.revisionId,
-    ) ||
+        s.asset.assetId !== expected.assetId ||
+        s.asset.revisionId !== expected.revisionId
+      );
+    }) ||
     result.outputs.length !== names.length ||
     new Set(result.outputs.map((o) => o.name)).size !== names.length ||
     result.outputs.some((o) => !names.includes(o.name))
@@ -129,19 +154,34 @@ export async function processMedia(
   await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
     jobId: job._id,
     fence: job.fence,
-    receipt: { kind: "media", operation: operation.kind, keys, result },
-    ...(!response.ok ? { stage: "outputs_partial" } : {}),
+    receipt: {
+      state: response.ok ? "persisted" : "partially_persisted",
+      kind: "media",
+      artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+        role,
+        objectKey,
+      })),
+      result: JSON.stringify(result),
+      metadata: JSON.stringify({ operation: operation.kind }),
+      persistedRoles: result.outputs.map((output) => output.name),
+    },
   });
   if (!response.ok)
     throw new ConvexError({
-      code: failure?.success ? failure.data.error.code : "RESULT_PERSISTENCE_FAILED",
+      code: failure?.success
+        ? failure.data.error.code
+        : "RESULT_PERSISTENCE_FAILED",
       effect: failure?.success ? failure.data.error.effect : "partial",
     });
   const registered = [];
   for (const output of result.outputs) {
-    const objectKey = keys[output.name]!,
-      head = await headObject(objectKey);
-    if (!head.ok || Number(head.headers.get("content-length")) !== output.sizeBytes)
+    const objectKey = keys[output.name];
+    if (!objectKey) throw new Error("Media output reservation missing");
+    const head = await headObject(objectKey);
+    if (
+      !head.ok ||
+      Number(head.headers.get("content-length")) !== output.sizeBytes
+    )
       throw new Error("Media output not persisted");
     const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
       scope: "workspace",

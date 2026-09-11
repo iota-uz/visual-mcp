@@ -37,7 +37,11 @@ test("render persistence failure preserves the worker receipt and can recover re
     title: "Recovery",
     brief: { topic: "fixture", direction: "fixture" },
     languages: ["ru"],
-    format: { width: 1080, height: 1920, fps: { numerator: 30, denominator: 1 } },
+    format: {
+      width: 1080,
+      height: 1920,
+      fps: { numerator: 30, denominator: 1 },
+    },
   });
   const d = p.drafts[0];
   const cp = await as.mutation(mutation("video:checkpoint"), {
@@ -52,7 +56,9 @@ test("render persistence failure preserves the worker receipt and can recover re
     rubric: "Exact technical fixture",
   });
   const rubricHash = await sha256HexBytes(
-    new TextEncoder().encode(canonical({ version: policyVersion, ...rubricPolicy })),
+    new TextEncoder().encode(
+      canonical({ version: policyVersion, ...rubricPolicy }),
+    ),
   );
   const accepted = await as.mutation(mutation("videoJobs:submit"), {
     workspaceId,
@@ -116,7 +122,8 @@ test("render persistence failure preserves the worker receipt and can recover re
             error: {
               code: "RESULT_PERSISTENCE_FAILED",
               reasonCode: "RESULT_UPLOAD_FAILED",
-              message: "Rendered bytes exist but persistence could not be confirmed",
+              message:
+                "Rendered bytes exist but persistence could not be confirmed",
               effect: "partial",
               result,
               persisted: ["video"],
@@ -132,12 +139,18 @@ test("render persistence failure preserves the worker receipt and can recover re
   const failed = await t.run((ctx) => ctx.db.get("videoJobs", accepted.jobId));
   expect(failed?.state).not.toBe("succeeded");
   expect(failed?.errorReasonCode).toBe("RESULT_UPLOAD_FAILED");
-  expect(failed?.persistenceReceipt).toContain("result");
-  if (!failed?.persistenceReceipt) throw new Error("Expected retained render receipt");
-  const storedReceipt = JSON.parse(failed.persistenceReceipt);
+  expect(failed?.persistenceReceipt?.state).toBe("partially_persisted");
+  expect(failed?.persistenceReceipt?.result).toBeTruthy();
+  if (!failed?.persistenceReceipt)
+    throw new Error("Expected retained render receipt");
+  const storedReceipt = failed.persistenceReceipt;
   await t.run((ctx) =>
     ctx.db.patch("videoJobs", accepted.jobId, {
-      persistenceReceipt: JSON.stringify({ kind: "render", keys: storedReceipt.keys }),
+      persistenceReceipt: {
+        state: "partially_persisted",
+        kind: "render",
+        artifacts: storedReceipt.artifacts,
+      },
     }),
   );
   vi.stubGlobal(
@@ -164,17 +177,30 @@ test("render persistence failure preserves the worker receipt and can recover re
               : request.declaredMimeType === "image/png"
                 ? "image"
                 : "data",
-          ...(request.declaredMimeType !== "text/vtt" ? { width: 1080, height: 1920 } : {}),
+          ...(request.declaredMimeType !== "text/vtt"
+            ? { width: 1080, height: 1920 }
+            : {}),
           ...(request.declaredMimeType === "video/mp4"
-            ? { durationMs: 30000, frameCount: 900, fps: "30/1", hasAudio: false }
+            ? {
+                durationMs: 30000,
+                frameCount: 900,
+                fps: "30/1",
+                hasAudio: false,
+              }
             : {}),
         });
       }
       return new Response(null, { status: 200 });
     }),
   );
-  await t.mutation(mutation("videoRecovery:begin"), { jobId: accepted.jobId, principalId: userId });
-  await t.action(action("videoRecovery:run"), { jobId: accepted.jobId, fence: 2 });
+  await t.mutation(mutation("videoRecovery:begin"), {
+    jobId: accepted.jobId,
+    principalId: userId,
+  });
+  await t.action(action("videoRecovery:run"), {
+    jobId: accepted.jobId,
+    fence: 2,
+  });
   const ready = await t.run((ctx) => ctx.db.get("videoJobs", accepted.jobId));
   expect(ready?.state).toBe("succeeded");
   if (!ready?.result) throw new Error("Expected recovered render result");
@@ -182,10 +208,14 @@ test("render persistence failure preserves the worker receipt and can recover re
   expect(saved.evidenceId).toBeTruthy();
   expect(saved.sha256).toBe(result.video.sha256);
   expect(renderPosts).toBe(1);
-  const asset = await t.run((ctx) => ctx.db.get("assetVersions", saved.video.revisionId));
+  const asset = await t.run((ctx) =>
+    ctx.db.get("assetVersions", saved.video.revisionId),
+  );
   expect(asset?.mediaMetadata?.width).toBe(1080);
   expect(asset?.mediaMetadata?.frameCount).toBe(900);
-  const evidence = await t.run((ctx) => ctx.db.get("videoWorkflowEvidence", saved.evidenceId));
+  const evidence = await t.run((ctx) =>
+    ctx.db.get("videoWorkflowEvidence", saved.evidenceId),
+  );
   if (!evidence) throw new Error("Expected recovered render evidence");
   const measurement = JSON.parse(evidence.content);
   expect(measurement.outcome).toBe("uncertain");
@@ -215,10 +245,14 @@ test("render persistence failure preserves the worker receipt and can recover re
       stage: "persisting",
       errorCode: "RESULT_PERSISTENCE_FAILED",
       errorEffect: "partial",
-      persistenceReceipt: JSON.stringify({
+      persistenceReceipt: {
+        state: "partially_persisted",
         kind: "render",
-        keys,
-      }),
+        artifacts: Object.entries(keys).map(([role, objectKey]) => ({
+          role,
+          objectKey,
+        })),
+      },
     });
     for (const [name, objectKey] of Object.entries(keys))
       await ctx.db.insert("assetObjectLeases", {
@@ -237,14 +271,18 @@ test("render persistence failure preserves the worker receipt and can recover re
     jobId: unavailable.jobId,
     principalId: userId,
   });
-  const recovering = await t.run((ctx) => ctx.db.get("videoJobs", unavailable.jobId));
+  const recovering = await t.run((ctx) =>
+    ctx.db.get("videoJobs", unavailable.jobId),
+  );
   if (!recovering) throw new Error("Expected render recovery job");
   await t.action(action("videoRecovery:run"), {
     jobId: unavailable.jobId,
     fence: recovering.fence,
   });
 
-  const unavailableStored = await t.run((ctx) => ctx.db.get("videoJobs", unavailable.jobId));
+  const unavailableStored = await t.run((ctx) =>
+    ctx.db.get("videoJobs", unavailable.jobId),
+  );
   expect(unavailableStored?.state).toBe("failed");
   expect(unavailableStored?.stage).toBe("recovery_source_unavailable");
   expect(unavailableStored?.errorReasonCode).toBe("STORED_OUTPUT_UNAVAILABLE");
@@ -252,13 +290,21 @@ test("render persistence failure preserves the worker receipt and can recover re
     await t.run((ctx) =>
       ctx.db
         .query("assetObjectLeases")
-        .filter((q) => q.eq(q.field("objectKey"), `video-results/${unavailable.jobId}/1/video`))
+        .filter((q) =>
+          q.eq(
+            q.field("objectKey"),
+            `video-results/${unavailable.jobId}/1/video`,
+          ),
+        )
         .collect(),
     ),
   ).toHaveLength(0);
-  const unavailablePublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
-    jobId: unavailable.jobId,
-  });
+  const unavailablePublic = await as.query(
+    makeFunctionReference<"query">("videoJobs:getJob"),
+    {
+      jobId: unavailable.jobId,
+    },
+  );
   expect(unavailablePublic.error?.recovery).toEqual({
     kind: "regenerate",
     safeToRegenerate: true,
@@ -270,8 +316,12 @@ test("render persistence failure preserves the worker receipt and can recover re
   await t.run(async (ctx) => {
     await ctx.db.patch("videoJobs", unavailable.jobId, {
       state: "running",
-      stage: "outputs_reserved",
-      persistenceReceipt: JSON.stringify({ kind: "render", keys: { video: notAppliedObjectKey } }),
+      stage: "unrelated_progress_label",
+      persistenceReceipt: {
+        state: "reserved",
+        kind: "render",
+        artifacts: [{ role: "video", objectKey: notAppliedObjectKey }],
+      },
     });
     await ctx.db.insert("assetObjectLeases", {
       objectKey: notAppliedObjectKey,
@@ -287,9 +337,12 @@ test("render persistence failure preserves the worker receipt and can recover re
     outcomeUnknown: false,
     effect: "not_applied",
   });
-  const notAppliedPublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
-    jobId: unavailable.jobId,
-  });
+  const notAppliedPublic = await as.query(
+    makeFunctionReference<"query">("videoJobs:getJob"),
+    {
+      jobId: unavailable.jobId,
+    },
+  );
   expect(notAppliedPublic.error?.recovery).toEqual({
     kind: "regenerate",
     safeToRegenerate: true,
@@ -299,7 +352,9 @@ test("render persistence failure preserves the worker receipt and can recover re
     await t.run((ctx) =>
       ctx.db
         .query("assetObjectLeases")
-        .withIndex("by_objectKey", (q) => q.eq("objectKey", notAppliedObjectKey))
+        .withIndex("by_objectKey", (q) =>
+          q.eq("objectKey", notAppliedObjectKey),
+        )
         .collect(),
     ),
   ).toHaveLength(0);
@@ -321,11 +376,19 @@ test("render persistence failure preserves the worker receipt and can recover re
       createdAt: Date.now(),
       updatedAt: Date.now(),
       stage: "outputs_reserved",
-      persistenceReceipt: "{}",
+      persistenceReceipt: {
+        state: "reserved",
+        kind: "media",
+        artifacts: [],
+      },
     });
     const objectKey = `video-results/${jobId}/1/qa-report`;
     await ctx.db.patch(jobId, {
-      persistenceReceipt: JSON.stringify({ kind: "media", keys: { report: objectKey } }),
+      persistenceReceipt: {
+        state: "reserved",
+        kind: "media",
+        artifacts: [{ role: "report", objectKey }],
+      },
     });
     await ctx.db.insert("assetObjectLeases", {
       objectKey,
@@ -345,7 +408,9 @@ test("render persistence failure preserves the worker receipt and can recover re
     await t.run((ctx) =>
       ctx.db
         .query("assetObjectLeases")
-        .withIndex("by_objectKey", (q) => q.eq("objectKey", mediaCleanup.objectKey))
+        .withIndex("by_objectKey", (q) =>
+          q.eq("objectKey", mediaCleanup.objectKey),
+        )
         .collect(),
     ),
   ).toHaveLength(0);

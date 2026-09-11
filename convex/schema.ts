@@ -17,6 +17,7 @@ import { v } from "convex/values";
 import { ThemeIdValidator, ThemeOverrideValidator } from "./lib/theme";
 import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
 import { learningTables } from "./lib/videoLearningSchema";
+import { PersistenceReceiptValidator } from "./lib/videoPersistence";
 import { videoReviewTables } from "./lib/videoReviewSchema";
 import { workflowTables } from "./lib/videoWorkflowSchema";
 
@@ -152,12 +153,15 @@ export default defineSchema({
   ...authSupportTables,
   videoJobs: defineTable({
     cancelRequestedAt: v.optional(v.number()),
-    persistenceReceipt: v.optional(v.string()),
+    persistenceReceipt: v.optional(PersistenceReceiptValidator),
     workspaceId: v.id("workspaces"),
     principalId: v.id("users"),
     projectId: v.optional(v.id("videoProjects")),
     versionId: v.optional(v.id("videoVersions")),
     idempotencyKey: v.string(),
+    operationId: v.string(),
+    attemptNumber: v.number(),
+    retryOfJobId: v.optional(v.id("videoJobs")),
     inputHash: v.string(),
     request: v.string(),
     kind: v.string(),
@@ -198,7 +202,8 @@ export default defineSchema({
     .index("by_workspaceId_and_createdAt", ["workspaceId", "createdAt"])
     .index("by_state_and_createdAt", ["state", "createdAt"])
     .index("by_projectId_and_state", ["projectId", "state"])
-    .index("by_versionId_and_kind", ["versionId", "kind"]),
+    .index("by_versionId_and_kind", ["versionId", "kind"])
+    .index("by_operationId_and_attemptNumber", ["operationId", "attemptNumber"]),
   videoJobEffects: defineTable({
     jobId: v.id("videoJobs"),
     callId: v.string(),
@@ -380,7 +385,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_objectKey", ["objectKey"])
-    .index("by_leaseId", ["leaseId"]),
+    .index("by_leaseId", ["leaseId"])
+    .index("by_createdAt", ["createdAt"]),
 
   assetObjectDeletionClaims: defineTable({
     objectKey: v.string(),

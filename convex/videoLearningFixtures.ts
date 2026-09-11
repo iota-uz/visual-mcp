@@ -131,6 +131,8 @@ export const exercise = internalMutation({
         state: "succeeded",
         fence: 1,
         idempotencyKey: `fixture-evidence${sequence}`,
+        operationId: `fixture-evidence-operation-${sequence}`,
+        attemptNumber: 1,
         inputHash: "fixture",
         request: "{}",
         stage: "fixture",

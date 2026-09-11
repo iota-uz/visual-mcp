@@ -135,15 +135,16 @@ export const run = internalAction({
       output.metadata.originalVideoSha256 = originalHash;
       output.metadata.analysisAsset = analysisAsset;
       output.metadata.proxySampling = proxySampling;
-      const reportPayload = JSON.parse(new TextDecoder().decode(output.artifacts[0]!.bytes));
+      const artifact = output.artifacts[0];
+      if (!artifact) throw new ProviderFailure("CRITIQUE_REPORT_MISSING", "not_applied");
+      const reportPayload = JSON.parse(new TextDecoder().decode(artifact.bytes));
       reportPayload.metadata = {
         ...reportPayload.metadata,
         ...output.metadata,
       };
-      output.artifacts[0]!.bytes = new TextEncoder().encode(JSON.stringify(reportPayload));
-      if (output.artifacts[0]!.bytes.length > MAX_CRITIQUE_REPORT_BYTES)
+      artifact.bytes = new TextEncoder().encode(JSON.stringify(reportPayload));
+      if (artifact.bytes.length > MAX_CRITIQUE_REPORT_BYTES)
         throw new ProviderFailure("CRITIQUE_REPORT_TOO_LARGE", "partial");
-      const artifact = output.artifacts[0]!;
       const objectKey = `video-results/${job._id}/${job.fence}/critique`,
         leaseId = `${job._id}:${job.fence}:critique`,
         sha256 = await sha256HexBytes(artifact.bytes);
@@ -156,10 +157,20 @@ export const run = internalAction({
         jobId: job._id,
         fence: job.fence,
         receipt: {
+          state: "persisted",
           kind: "critique",
-          objectKey,
-          sha256,
-          metadata: compactCritiqueMetadata(output.metadata),
+          artifacts: [
+            {
+              role: "critique",
+              objectKey,
+              leaseId,
+              sha256,
+              sizeBytes: artifact.bytes.length,
+              mimeType: "application/json",
+            },
+          ],
+          metadata: JSON.stringify(compactCritiqueMetadata(output.metadata)),
+          persistedRoles: ["critique"],
         },
       });
       const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {

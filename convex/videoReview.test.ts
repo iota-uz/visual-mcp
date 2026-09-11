@@ -83,6 +83,8 @@ async function setup(partial = false) {
       projectId: project.projectId,
       versionId,
       idempotencyKey: "render",
+      operationId: "render-operation",
+      attemptNumber: 1,
       inputHash: sha256,
       request: JSON.stringify({ kind: "render", mode: "final", versionId }),
       kind: "render",

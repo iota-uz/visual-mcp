@@ -70,7 +70,16 @@ export const run = internalAction({
       await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
         jobId: job._id,
         fence: job.fence,
-        receipt: { kind: "shot", provider: receipt },
+        receipt: {
+          state: "reserved",
+          kind: "shot",
+          artifacts: [],
+          provider: {
+            requestId: receipt.request_id,
+            ...(receipt.status_url ? { statusUrl: receipt.status_url } : {}),
+            ...(receipt.cancel_url ? { cancelUrl: receipt.cancel_url } : {}),
+          },
+        },
       });
       await ctx.runMutation(m("videoJobs:markDispatch"), {
         jobId: job._id,
@@ -107,17 +116,17 @@ export const poll = internalAction({
       !job.persistenceReceipt
     )
       return;
-    const savedReceipt = JSON.parse(job.persistenceReceipt);
+    const savedReceipt = job.persistenceReceipt;
     const receipt = savedReceipt.provider;
-    if (!receipt?.status_url) return;
+    if (!receipt?.statusUrl) return;
     try {
       const keyId = process.env.HIGGSFIELD_API_KEY_ID ?? "",
         keySecret = process.env.HIGGSFIELD_API_KEY_SECRET ?? "";
       if (
         (job.state === "cancel_requested" || job.cancelRequestedAt !== undefined) &&
-        receipt.cancel_url
+        receipt.cancelUrl
       ) {
-        const cancellation = await cancelShot(receipt.cancel_url, keyId, keySecret);
+        const cancellation = await cancelShot(receipt.cancelUrl, keyId, keySecret);
         if (cancellation === "cancelled_before_start") {
           await ctx.runMutation(m("videoJobs:confirmCancelled"), {
             jobId: job._id,
@@ -126,8 +135,8 @@ export const poll = internalAction({
           return;
         }
       }
-      const status = await pollShot(receipt.status_url, keyId, keySecret);
-      if (status.request_id !== receipt.request_id) throw new Error("Provider identity mismatch");
+      const status = await pollShot(receipt.statusUrl, keyId, keySecret);
+      if (status.request_id !== receipt.requestId) throw new Error("Provider identity mismatch");
       if (status.status === "queued" || status.status === "in_progress") {
         if (args.attempt >= 70) throw new Error("Provider timeout");
         await ctx.scheduler.runAfter(10000, makeFunctionReference<"action">("videoShots:poll"), {
@@ -147,16 +156,16 @@ export const poll = internalAction({
         return;
       }
       const objectKey: string =
-          savedReceipt.objectKey ?? `video-results/${job._id}/${job.fence}/shot`,
+          savedReceipt.artifacts[0]?.objectKey ?? `video-results/${job._id}/${job.fence}/shot`,
         leaseId = `${job._id}:${job.fence}:shot`;
       await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
         jobId: job._id,
         fence: job.fence,
         receipt: {
+          state: "reserved",
           kind: "shot",
           provider: receipt,
-          completed: status,
-          objectKey,
+          artifacts: [{ role: "shot", objectKey, leaseId, mimeType: "video/mp4" }],
         },
       });
       await ctx.runMutation(m("assets:acquireObjectLease"), {
@@ -190,6 +199,26 @@ export const poll = internalAction({
       };
       if (!media.persisted || media.kind !== "video" || !/^[a-f0-9]{64}$/.test(media.sha256))
         throw new Error("Invalid ingestion result");
+      await ctx.runMutation(m("videoJobs:savePersistenceReceipt"), {
+        jobId: job._id,
+        fence: job.fence,
+        receipt: {
+          state: "persisted",
+          kind: "shot",
+          provider: receipt,
+          artifacts: [
+            {
+              role: "shot",
+              objectKey,
+              leaseId,
+              mimeType: "video/mp4",
+              sha256: media.sha256,
+              sizeBytes: media.sizeBytes,
+            },
+          ],
+          persistedRoles: ["shot"],
+        },
+      });
       const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
         scope: "workspace",
         ownerUserId: job.principalId,
@@ -212,7 +241,7 @@ export const poll = internalAction({
           provider: "higgsfield",
           requestedModel: "kling-video/v2.5-turbo/pro/image-to-video",
           actualModel: null,
-          metadata: JSON.stringify({ requestId: receipt.request_id }),
+          metadata: JSON.stringify({ requestId: receipt.requestId }),
         },
       });
       await ctx.runMutation(m("videoJobs:complete"), {
@@ -232,7 +261,7 @@ export const poll = internalAction({
           metadata: {
             provider: "higgsfield",
             requestedModel: "higgsfield-kling-v2.5-turbo-pro",
-            requestId: receipt.request_id,
+            requestId: receipt.requestId,
             actualModel: null,
             durationMs: media.durationMs,
             width: media.width,

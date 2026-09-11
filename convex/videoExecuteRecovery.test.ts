@@ -25,6 +25,8 @@ test("queued watchdog distinguishes never-started, claimed and contradictory eff
         workspaceId: workspace,
         principalId: user,
         idempotencyKey: key,
+        operationId: `${key}-operation`,
+        attemptNumber: 1,
         inputHash: "hash",
         request: "{}",
         kind: "execute",

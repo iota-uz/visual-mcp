@@ -8,6 +8,7 @@ import { getObject, headObject } from "./lib/objectStore";
 import { readBoundedBody } from "./lib/videoBytes";
 import { compactCritiqueMetadata, completeCritique } from "./lib/videoCritiqueCompletion";
 import { MAX_CRITIQUE_REPORT_BYTES } from "./lib/videoCritiqueLimits";
+import type { PersistenceReceipt } from "./lib/videoPersistence";
 import { Critique } from "./lib/videoProviderAdapters";
 
 const m = (name: string) => makeFunctionReference<"mutation">(name),
@@ -18,30 +19,30 @@ export const run = internalAction({
   handler: async (ctx, args) => {
     const job = await ctx.runQuery(q("videoShots:status"), { jobId: args.jobId });
     if (
-      !job ||
-      job.kind !== "critique" ||
+      job?.kind !== "critique" ||
       job.fence !== args.fence ||
       job.stage !== "recovering_bytes" ||
       !job.persistenceReceipt
     )
       return;
-    const receipt = JSON.parse(job.persistenceReceipt);
+    const receipt = job.persistenceReceipt as PersistenceReceipt;
+    const artifact = receipt.artifacts.find((item) => item.role === "critique");
 
     const request = JobRequest.parse(JSON.parse(job.request));
     if (
       request.kind !== "critique" ||
       receipt.kind !== "critique" ||
-      !receipt.objectKey ||
-      !receipt.sha256
+      !artifact?.objectKey ||
+      !artifact.sha256
     )
       throw new Error("Critique receipt unavailable");
-    const head = await headObject(receipt.objectKey);
+    const head = await headObject(artifact.objectKey);
     if (!head.ok || Number(head.headers.get("content-length")) > MAX_CRITIQUE_REPORT_BYTES)
       throw new Error("Stored critique unavailable");
-    const response = await getObject(receipt.objectKey);
+    const response = await getObject(artifact.objectKey);
     if (!response.ok) throw new Error("Stored critique unavailable");
     const bytes = await readBoundedBody(response, MAX_CRITIQUE_REPORT_BYTES);
-    if ((await sha256HexBytes(bytes)) !== receipt.sha256)
+    if ((await sha256HexBytes(bytes)) !== artifact.sha256)
       throw new Error("Stored critique hash mismatch");
     const payload = JSON.parse(new TextDecoder().decode(bytes));
     Critique.parse(payload.report);
@@ -53,19 +54,19 @@ export const run = internalAction({
       throw new Error("Critique source mismatch");
     const leaseId = `recovery:${job._id}:${job.fence}:critique`;
     await ctx.runMutation(m("assets:acquireObjectLease"), {
-      objectKey: receipt.objectKey,
+      objectKey: artifact.objectKey,
       leaseId,
     });
     const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
       scope: "workspace",
       ownerUserId: job.principalId,
       workspaceId: job.workspaceId,
-      slug: `critique-${job._id}-${receipt.objectKey.split("/")[2]}`,
+      slug: `critique-${job._id}-${artifact.objectKey.split("/")[2]}`,
       name: "Video critique",
       tags: ["video-critique"],
       kind: "data",
-      objectKey: receipt.objectKey,
-      contentHash: receipt.sha256,
+      objectKey: artifact.objectKey,
+      contentHash: artifact.sha256,
       mimeType: "application/json",
       size: bytes.length,
       originalFilename: "critique.json",

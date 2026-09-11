@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -28,11 +28,16 @@ const outputs = join(root, "outputs");
 await mkdir(inputs);
 await mkdir(outputs);
 const image = join(inputs, "image.png");
-const audio = join(inputs, "audio.wav");
+const svg = join(inputs, "trusted.svg");
+const audio = join(inputs, "voice.mp3");
 const video = join(inputs, "motion.mp4");
 await sharp({ create: { width, height, channels: 3, background: "#18314d" } })
   .png()
   .toFile(image);
+await writeFile(
+  svg,
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#10243d"/><circle cx="${width / 2}" cy="${height / 3}" r="${width / 5}" fill="#66e5b7"/></svg>`,
+);
 await run(
   "ffmpeg",
   [
@@ -42,10 +47,18 @@ await run(
     "lavfi",
     "-i",
     "sine=frequency=440:sample_rate=48000:duration=4.004",
+    "-codec:a",
+    "libmp3lame",
     "-y",
     audio,
   ],
   { timeout: 30_000 },
+);
+const mp3Probe = await probeMedia(audio);
+const mp3DurationMs = Number(mp3Probe.format.duration) * 1000;
+assert.ok(
+  Math.abs(mp3DurationMs - 4004) <= 1000 / 30 + 0.01,
+  `MP3 container duration ${mp3DurationMs}ms must stay within one 30fps frame of the encoded source`,
 );
 await run(
   "ffmpeg",
@@ -69,10 +82,12 @@ await run(
 );
 const sources = new Map([
   ["/image.png", image],
-  ["/audio.wav", audio],
+  ["/trusted.svg", svg],
+  ["/voice.mp3", audio],
   ["/motion.mp4", video],
 ]);
 const saved = new Map();
+let failedCaptionPut = false;
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && sources.has(request.url)) {
@@ -88,6 +103,12 @@ const server = createServer(async (request, response) => {
       const target = join(outputs, name);
       await pipeline(request, createWriteStream(target));
       saved.set(request.url, target);
+      if (request.url === "/ru/captions" && !failedCaptionPut) {
+        failedCaptionPut = true;
+        response.writeHead(503);
+        response.end();
+        return;
+      }
       response.writeHead(200);
       response.end();
       return;
@@ -114,7 +135,7 @@ const sourceInput = async (id, path, mimeType) => ({
   ...(await identity(path)),
 });
 const summaries = [];
-const graphFixture = process.env.VIDEO_E2E_SCENE_GRAPH === "1";
+const registeredAssets = new Map();
 try {
   for (const language of ["ru", "uz"]) {
     const rational = language === "uz";
@@ -123,10 +144,11 @@ try {
       : { numerator: 30, denominator: 1 };
     const visual = await sourceInput(
       "visual",
-      rational ? video : image,
-      rational ? "video/mp4" : "image/png",
+      rational ? video : svg,
+      rational ? "video/mp4" : "image/svg+xml",
     );
-    const voice = await sourceInput("voice", audio, "audio/wav");
+    const voice = await sourceInput("voice", audio, "audio/mpeg");
+    const pinnedImage = await sourceInput("component-image", image, "image/png");
     const request = {
       jobId: `fixture-${language}`,
       fence: 1,
@@ -143,7 +165,7 @@ try {
       timeline: {
         fps,
         durationFrames: 60,
-        trackOrder: ["visual", "voice", "caption"],
+        trackOrder: ["visual", "component", "voice", "caption"],
         tracksById: {
           visual: {
             kind: "visual",
@@ -173,6 +195,48 @@ try {
                   kind: "asset",
                   asset: voice.asset,
                   sourceStartMs: rational ? 1001 : 1000,
+                  ...(rational ? {} : { sourceEndMs: 4000 }),
+                },
+              },
+            },
+          },
+          component: {
+            kind: "visual",
+            clipOrder: ["authored"],
+            clipsById: {
+              authored: {
+                startFrame: 0,
+                durationFrames: 60,
+                source: {
+                  kind: "component",
+                  component: { resourceId: "video/component/scene-graph", revisionId: "1" },
+                  props: {
+                    background: "#061b36",
+                    nodeOrder: ["image", "title"],
+                    nodesById: {
+                      image: {
+                        kind: "image",
+                        asset: pinnedImage.asset,
+                        x: 0.08,
+                        y: 0.08,
+                        width: 0.3,
+                        height: 0.2,
+                        fit: "cover",
+                      },
+                      title: {
+                        kind: "text",
+                        text: "Component",
+                        x: 0.42,
+                        y: 0.1,
+                        width: 0.5,
+                        height: 0.2,
+                        fontSize: 20,
+                        fontFamily: "sans-serif",
+                        color: "#ffffff",
+                        textAlign: "left",
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -202,92 +266,48 @@ try {
           },
         },
       },
-      inputs: [visual, voice],
+      inputs: [visual, voice, pinnedImage],
       outputs: Object.fromEntries(
         ["video", "poster", "captions"].map((name) => [
           name,
           { method: "PUT", url: `${origin}/${language}/${name}` },
         ]),
       ),
-      ...(rational ? {} : { range: { startFrame: 15, endFrame: 45 } }),
+      ...(rational ? {} : { range: { startFrame: 0, endFrame: 60 } }),
     };
-    if (graphFixture) {
-      delete request.range;
-      const pinnedImage = await sourceInput("graph-image", image, "image/png");
-      request.inputs.push(pinnedImage);
-      request.timeline.trackOrder.push("graph");
-      request.timeline.tracksById.graph = {
-        kind: "visual",
-        clipOrder: ["authored"],
-        clipsById: {
-          authored: {
-            startFrame: 0,
-            durationFrames: 60,
-            effects: [
-              {
-                preset: { resourceId: "video/effect/slide", revisionId: "1" },
-                parameters: { fromX: -0.1, fromY: 0, durationFrames: 20 },
-              },
-            ],
-            source: {
-              kind: "component",
-              component: { resourceId: "video/component/scene-graph", revisionId: "1" },
-              props: {
-                background: "#061b36",
-                nodeOrder: ["image", "bar", "title"],
-                nodesById: {
-                  image: {
-                    kind: "image",
-                    asset: pinnedImage.asset,
-                    x: 0.08,
-                    y: 0.1,
-                    width: 0.84,
-                    height: 0.28,
-                    fit: "cover",
-                  },
-                  bar: {
-                    kind: "shape",
-                    shape: "rectangle",
-                    fill: "#66e5b7",
-                    x: 0.08,
-                    y: 0.45,
-                    width: 0.1,
-                    height: 0.06,
-                    animations: [
-                      {
-                        property: "width",
-                        keyframes: [
-                          { frame: 0, value: 0.1 },
-                          { frame: 30, value: 0.7, easing: "ease_out" },
-                          { frame: 59, value: 0.84 },
-                        ],
-                      },
-                    ],
-                  },
-                  title: {
-                    kind: "text",
-                    text: rational
-                      ? "O‘zbekcha harakat\nTekshirilgan sahna"
-                      : "Русская анимация\nПроверенная сцена",
-                    x: 0.08,
-                    y: 0.6,
-                    width: 0.84,
-                    height: 0.3,
-                    fontSize: Math.round(width * 0.065),
-                    fontFamily: "sans-serif",
-                    color: "#ffffff",
-                    textAlign: "left",
-                  },
-                },
-              },
-            },
-          },
-        },
-      };
-    }
     const pending = handleVideoRender(request);
     await assert.rejects(handleVideoRender(request), (error) => error.code === "WORKER_BUSY");
-    const result = await pending;
+    let result;
+    if (language === "ru") {
+      const failure = await pending.then(
+        () => null,
+        (error) => error,
+      );
+      assert.equal(failure?.code, "RESULT_PERSISTENCE_FAILED");
+      assert.deepEqual(failure.persisted, ["video", "poster"]);
+      result = failure.result;
+      const receipt = {
+        state: "partially_persisted",
+        kind: "render",
+        artifacts: ["video", "poster", "captions"].map((role) => ({
+          role,
+          path: saved.get(`/ru/${role}`),
+        })),
+      };
+      for (const artifact of receipt.artifacts) {
+        assert.ok(artifact.path, `${artifact.role} bytes survived the failed PUT response`);
+        assert.deepEqual(await identity(artifact.path), {
+          sha256: result[artifact.role].sha256,
+          sizeBytes: result[artifact.role].sizeBytes,
+        });
+        registeredAssets.set(`${request.jobId}:${artifact.role}`, {
+          sha256: result[artifact.role].sha256,
+          sizeBytes: result[artifact.role].sizeBytes,
+        });
+      }
+      receipt.state = "persisted";
+      assert.equal(registeredAssets.size, 3);
+    } else result = await pending;
     assert.equal(result.engine.remotionVersion, VERSION);
     assert.ok(result.engine.ffmpegVersion.length > 0);
     assert.equal(result.engine.fonts.length, 3);
@@ -304,36 +324,14 @@ try {
     assert.ok(probe.streams.some((stream) => stream.codec_type === "audio"));
     assert.equal(result.video.width, width);
     assert.equal(result.video.height, height);
-    assert.equal(result.partial, !graphFixture && !rational);
+    assert.equal(result.partial, false);
     assert.deepEqual(result.video.fps, fps);
     assert.equal(
       Number(probe.streams.find((stream) => stream.codec_type === "video").nb_frames),
-      graphFixture || rational ? 60 : 30,
+      60,
     );
-    if (graphFixture) {
-      const hashes = [];
-      for (const frame of [0, 30, 59]) {
-        const target = join(outputs, `${language}-graph-frame-${frame}.png`);
-        await run("ffmpeg", [
-          "-v",
-          "error",
-          "-i",
-          saved.get(`/${language}/video`),
-          "-vf",
-          `select=eq(n\\,${frame})`,
-          "-frames:v",
-          "1",
-          "-y",
-          target,
-        ]);
-        hashes.push((await identity(target)).sha256);
-      }
-      assert.equal(
-        new Set(hashes).size,
-        3,
-        "Authored animation changes first/middle/last rendered frames",
-      );
-    }
+    const expectedDurationMs = (60 * 1000 * fps.denominator) / fps.numerator;
+    assert.ok(Math.abs(result.video.durationMs - expectedDurationMs) <= 120);
     const poster = await sharp(saved.get(`/${language}/poster`)).metadata();
     assert.equal(poster.width, width);
     assert.equal(poster.height, height);

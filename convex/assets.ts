@@ -17,6 +17,7 @@ import { sha256HexBytes } from "./lib/hash";
 import { deleteObject, getObject, headObject, presignObject, putObject } from "./lib/objectStore";
 import { slugify } from "./lib/slug";
 import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
+import { emitVideoMetric } from "./lib/videoObservability";
 import { callWorker, getWorkerConfig } from "./lib/worker";
 
 const scopeValidator = v.union(v.literal("personal"), v.literal("workspace"));
@@ -466,6 +467,33 @@ export const acquireObjectLease = internalMutation({
       createdAt: Date.now(),
     });
     return null;
+  },
+});
+
+/** Emits a bounded signal only; cleanup remains lease-owner coordinated. */
+export const observeOrphanObjectLeases = internalMutation({
+  args: {},
+  returns: v.object({ inspected: v.number(), orphaned: v.number() }),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    const leases = await ctx.db
+      .query("assetObjectLeases")
+      .withIndex("by_createdAt", (q) => q.lt("createdAt", cutoff))
+      .take(100);
+    let orphaned = 0;
+    for (const lease of leases) {
+      const referenced = await ctx.db
+        .query("assetVersions")
+        .withIndex("by_objectKey", (q) => q.eq("objectKey", lease.objectKey))
+        .first();
+      if (!referenced) orphaned++;
+    }
+    emitVideoMetric(
+      "orphan_leases",
+      { value: orphaned, inspected: leases.length, cutoffAgeMs: 60 * 60 * 1000 },
+      { alert: orphaned > 0 },
+    );
+    return { inspected: leases.length, orphaned };
   },
 });
 
