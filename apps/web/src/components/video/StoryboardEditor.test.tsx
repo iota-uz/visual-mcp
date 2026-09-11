@@ -70,7 +70,7 @@ test("uses constrained camera controls and normalizes legacy labels", async () =
     />,
   );
 
-  expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("Close-up");
+  expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("close-up");
   expect(screen.getByRole("radio", { name: /Push in/ })).toBeChecked();
   await user.click(screen.getByRole("radio", { name: /Pull out/ }));
 

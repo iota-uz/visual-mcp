@@ -3,159 +3,39 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
-  Lock,
   Magnet,
   Maximize2,
-  Mic2,
-  Music2,
-  Pause,
-  Play,
   Redo2,
-  RotateCcw,
   Scissors,
-  Sparkles,
   Trash2,
   Undo2,
-  Unlock,
-  Volume2,
-  VolumeX,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import type { Dispatch, PointerEvent as ReactPointerEvent, SetStateAction } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
 import { Button } from "../ui/Button";
 import { TextInput } from "../ui/TextInput";
 import { TimelinePreview } from "./TimelinePreview";
+import {
+  type Clip,
+  calculatePointerEdit,
+  formatTimelineTimecode,
+  newTimelineKey,
+  type PointerEditMode,
+  type PointerEditResult,
+  type PointerInteraction,
+  type Selection,
+} from "./timeline/model";
+import { TimelineTrackArea } from "./timeline/TimelineTrackArea";
+import { TimelineTransport } from "./timeline/TimelineTransport";
+import { TRACK_META } from "./timeline/trackMeta";
+import { useTimelineHistory } from "./timeline/useTimelineHistory";
+import { useTimelinePlayback } from "./timeline/useTimelinePlayback";
 
-const TRACK_META = {
-  visual: { label: "Video", icon: Eye },
-  voice: { label: "Voice", icon: Mic2 },
-  music: { label: "Music", icon: Music2 },
-  sfx: { label: "SFX", icon: Sparkles },
-  caption: { label: "Captions", icon: Captions },
-} as const;
-type Selection = { trackId: string; clipId: string };
-type History = { past: TimelineDocument[]; future: TimelineDocument[] };
-type Clip = TimelineDocument["tracksById"][string]["clipsById"][string];
-type PointerEditMode = "move" | "trim-start" | "trim-end";
-type PointerEdit = {
-  mode: PointerEditMode;
-  startFrame: number;
-  durationFrames: number;
-  deltaPixels: number;
-  laneWidth: number;
-  timelineFrames: number;
-  snapping: boolean;
-  snapTargets: number[];
-  snapThresholdPixels?: number;
-};
-type PointerEditResult = { startFrame: number; durationFrames: number };
-type PointerInteraction = Omit<PointerEdit, "deltaPixels" | "snapping"> & {
-  selection: Selection;
-  startX: number;
-};
-
-function sameSelection(left: Selection | undefined, right: Selection) {
-  return left?.trackId === right.trackId && left.clipId === right.clipId;
-}
-function isDropFrameRate(numerator: number, denominator: number) {
-  return denominator === 1001 && (numerator === 30000 || numerator === 60000);
-}
-/** SMPTE-style timecode, including the 29.97/59.94 drop-frame minute rules. */
-export function formatTimelineTimecode(frame: number, numerator: number, denominator: number) {
-  const nominalFps = Math.max(1, Math.round(numerator / denominator));
-  let displayFrame = Math.max(0, Math.floor(frame));
-  const dropFrame = isDropFrameRate(numerator, denominator);
-  if (dropFrame) {
-    const droppedPerMinute = Math.round(nominalFps * 0.066666);
-    const framesPerMinute = nominalFps * 60 - droppedPerMinute;
-    const framesPerTenMinutes = nominalFps * 600 - droppedPerMinute * 9;
-    const framesPerDay = (nominalFps * 3600 - droppedPerMinute * 54) * 24;
-    displayFrame %= framesPerDay;
-    const blocks = Math.floor(displayFrame / framesPerTenMinutes);
-    const remainder = displayFrame % framesPerTenMinutes;
-    displayFrame += droppedPerMinute * 9 * blocks;
-    if (remainder >= droppedPerMinute)
-      displayFrame +=
-        droppedPerMinute * Math.floor((remainder - droppedPerMinute) / framesPerMinute);
-  }
-  const hours = Math.floor(displayFrame / (nominalFps * 3600));
-  const minutes = Math.floor(displayFrame / (nominalFps * 60)) % 60;
-  const seconds = Math.floor(displayFrame / nominalFps) % 60;
-  const frames = displayFrame % nominalFps;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${dropFrame ? ";" : ":"}${String(frames).padStart(2, "0")}`;
-}
-function newKey(prefix: string) {
-  return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
-}
-function clipLabel(clip: Clip) {
-  return clip.source.kind === "text"
-    ? clip.source.text || "Untitled caption"
-    : clip.source.kind === "component"
-      ? clip.source.component.resourceId
-      : clip.source.asset.assetId;
-}
-
-function nearestSnapDelta(edges: number[], targets: number[], threshold: number) {
-  let nearest: number | undefined;
-  for (const edge of edges) {
-    for (const target of targets) {
-      const delta = target - edge;
-      if (
-        Math.abs(delta) <= threshold &&
-        (nearest === undefined || Math.abs(delta) < Math.abs(nearest))
-      )
-        nearest = delta;
-    }
-  }
-  return nearest ?? 0;
-}
-
-/** Converts pointer distance to a bounded, optionally snapped frame edit. */
-export function calculatePointerEdit(input: PointerEdit): PointerEditResult {
-  const laneWidth = Math.max(1, input.laneWidth);
-  const deltaFrames = Math.round((input.deltaPixels / laneWidth) * input.timelineFrames);
-  const originalEnd = input.startFrame + input.durationFrames;
-  const thresholdFrames = Math.max(
-    1,
-    Math.round(((input.snapThresholdPixels ?? 7) / laneWidth) * input.timelineFrames),
-  );
-  if (input.mode === "move") {
-    let startFrame = Math.max(
-      0,
-      Math.min(input.timelineFrames - input.durationFrames, input.startFrame + deltaFrames),
-    );
-    if (input.snapping)
-      startFrame += nearestSnapDelta(
-        [startFrame, startFrame + input.durationFrames],
-        input.snapTargets,
-        thresholdFrames,
-      );
-    return {
-      startFrame: Math.max(0, Math.min(input.timelineFrames - input.durationFrames, startFrame)),
-      durationFrames: input.durationFrames,
-    };
-  }
-  if (input.mode === "trim-start") {
-    let startFrame = Math.max(0, Math.min(originalEnd - 1, input.startFrame + deltaFrames));
-    if (input.snapping)
-      startFrame += nearestSnapDelta([startFrame], input.snapTargets, thresholdFrames);
-    startFrame = Math.max(0, Math.min(originalEnd - 1, startFrame));
-    return { startFrame, durationFrames: originalEnd - startFrame };
-  }
-  let endFrame = Math.max(
-    input.startFrame + 1,
-    Math.min(input.timelineFrames, originalEnd + deltaFrames),
-  );
-  if (input.snapping) endFrame += nearestSnapDelta([endFrame], input.snapTargets, thresholdFrames);
-  endFrame = Math.max(input.startFrame + 1, Math.min(input.timelineFrames, endFrame));
-  return { startFrame: input.startFrame, durationFrames: endFrame - input.startFrame };
-}
+export { calculatePointerEdit, formatTimelineTimecode } from "./timeline/model";
 
 export function TimelineEditor({
   document,
@@ -175,8 +55,10 @@ export function TimelineEditor({
   const fps = numerator / denominator;
   const durationSeconds = (document.durationFrames * denominator) / numerator;
   const [zoom, setZoom] = useState(1);
-  const [playhead, setPlayhead] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  const { playhead, setPlayhead, playing, setPlaying, togglePlayback } = useTimelinePlayback(
+    document.durationFrames,
+    fps,
+  );
   const [snapping, setSnapping] = useState(true);
   const [selection, setSelection] = useState<Selection>();
   const [pointerPreview, setPointerPreview] = useState<
@@ -185,39 +67,14 @@ export function TimelineEditor({
   const [lockedTracks, setLockedTracks] = useState<Set<string>>(() => new Set());
   const [hiddenTracks, setHiddenTracks] = useState<Set<string>>(() => new Set());
   const [mutedTracks, setMutedTracks] = useState<Set<string>>(() => new Set());
-  const history = useRef<History>({ past: [], future: [] });
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const latestDocument = useRef(document);
-  const lastEmittedSignature = useRef<string | undefined>(undefined);
   const pointerInteraction = useRef<PointerInteraction | undefined>(undefined);
   const suppressClipClick = useRef(false);
-  const [, refreshHistory] = useState(0);
-
-  useEffect(() => {
-    setPlayhead((value) => Math.min(value, document.durationFrames));
-    if (JSON.stringify(document) === lastEmittedSignature.current)
-      lastEmittedSignature.current = undefined;
-    else if (document !== latestDocument.current) {
-      history.current = { past: [], future: [] };
-      refreshHistory((value) => value + 1);
-    }
-    latestDocument.current = document;
-  }, [document]);
-  useEffect(() => {
-    if (!playing) return;
-    const timer = window.setInterval(
-      () =>
-        setPlayhead((value) => {
-          if (value >= document.durationFrames) {
-            setPlaying(false);
-            return document.durationFrames;
-          }
-          return Math.min(document.durationFrames, value + 1);
-        }),
-      Math.max(8, 1000 / fps),
-    );
-    return () => window.clearInterval(timer);
-  }, [document.durationFrames, fps, playing]);
+  const { latestDocument, commit, undo, redo, canUndo, canRedo } = useTimelineHistory(
+    document,
+    onChange,
+    disabled,
+  );
 
   const firstClip = useMemo(() => {
     for (const trackId of document.trackOrder) {
@@ -240,36 +97,6 @@ export function TimelineEditor({
   const cannotAddCaption =
     playhead >= document.durationFrames ||
     (captionTrack ? captionTrack.clipOrder.length >= 500 : document.trackOrder.length >= 32);
-  const ticks = Array.from({ length: 9 }, (_, index) => index / 8);
-  function emit(next: TimelineDocument) {
-    latestDocument.current = next;
-    lastEmittedSignature.current = JSON.stringify(next);
-    onChange(next);
-  }
-  function commit(next: TimelineDocument) {
-    if (disabled || next === latestDocument.current) return;
-    history.current.past.push(latestDocument.current);
-    if (history.current.past.length > 50) history.current.past.shift();
-    history.current.future = [];
-    refreshHistory((value) => value + 1);
-    emit(next);
-  }
-  function undo() {
-    if (disabled) return;
-    const previous = history.current.past.pop();
-    if (!previous) return;
-    history.current.future.push(latestDocument.current);
-    refreshHistory((value) => value + 1);
-    emit(previous);
-  }
-  function redo() {
-    if (disabled) return;
-    const next = history.current.future.pop();
-    if (!next) return;
-    history.current.past.push(latestDocument.current);
-    refreshHistory((value) => value + 1);
-    emit(next);
-  }
   function toFrames(seconds: number) {
     return Math.max(1, Math.round((seconds * numerator) / denominator));
   }
@@ -283,8 +110,8 @@ export function TimelineEditor({
     const existingTrackId = current.trackOrder.find(
       (id) => current.tracksById[id]?.kind === "caption",
     );
-    const trackId = existingTrackId ?? newKey("caption");
-    const clipId = newKey("caption");
+    const trackId = existingTrackId ?? newTimelineKey("caption");
+    const clipId = newTimelineKey("caption");
     const durationFrames = Math.max(1, Math.min(current.durationFrames - playhead, toFrames(3)));
     const existingTrack = existingTrackId ? current.tracksById[existingTrackId] : undefined;
     const nextTrack = existingTrack
@@ -376,7 +203,7 @@ export function TimelineEditor({
     const current = latestDocument.current;
     const track = current.tracksById[activeSelection.trackId];
     if (!track || lockedTracks.has(activeSelection.trackId)) return;
-    const secondId = newKey("clip");
+    const secondId = newTimelineKey("clip");
     const index = track.clipOrder.indexOf(activeSelection.clipId);
     const nextOrder = [...track.clipOrder];
     nextOrder.splice(index + 1, 0, secondId);
@@ -406,7 +233,7 @@ export function TimelineEditor({
     const track = current.tracksById[activeSelection.trackId];
     if (!track || track.clipOrder.length >= 500 || lockedTracks.has(activeSelection.trackId))
       return;
-    const clipId = newKey("clip");
+    const clipId = newTimelineKey("clip");
     const startFrame = Math.min(
       document.durationFrames - activeClip.durationFrames,
       activeClip.startFrame + activeClip.durationFrames,
@@ -568,7 +395,7 @@ export function TimelineEditor({
               type="button"
               aria-label="Undo timeline edit"
               title="Undo"
-              disabled={disabled || history.current.past.length === 0}
+              disabled={disabled || !canUndo}
               onClick={undo}
             >
               <Undo2 size={15} aria-hidden="true" />
@@ -577,7 +404,7 @@ export function TimelineEditor({
               type="button"
               aria-label="Redo timeline edit"
               title="Redo"
-              disabled={disabled || history.current.future.length === 0}
+              disabled={disabled || !canRedo}
               onClick={redo}
             >
               <Redo2 size={15} aria-hidden="true" />
@@ -643,261 +470,44 @@ export function TimelineEditor({
         />
       )}
 
-      <fieldset className="video-transport">
-        <legend className="visually-hidden">Timeline transport</legend>
-        <div className="video-transport-buttons">
-          <button
-            type="button"
-            aria-label={playing ? "Pause timeline" : "Play timeline"}
-            onClick={() => {
-              if (!playing && playhead >= document.durationFrames) setPlayhead(0);
-              setPlaying((v) => !v);
-            }}
-          >
-            {playing ? (
-              <Pause size={15} aria-hidden="true" />
-            ) : (
-              <Play size={15} aria-hidden="true" />
-            )}
-          </button>
-          <button type="button" aria-label="Go to start" onClick={() => setPlayhead(0)}>
-            <RotateCcw size={15} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Previous frame"
-            onClick={() => setPlayhead((v) => Math.max(0, v - 1))}
-          >
-            <ChevronLeft size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Next frame"
-            onClick={() => setPlayhead((v) => Math.min(document.durationFrames, v + 1))}
-          >
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
-        </div>
-        <output aria-live="polite">
-          {formatTimelineTimecode(playhead, numerator, denominator)}
-        </output>
-        <input
-          aria-label="Playhead"
-          type="range"
-          min={0}
-          max={document.durationFrames}
-          value={Math.min(playhead, document.durationFrames)}
-          onChange={(event) => setPlayhead(Number(event.target.value))}
-        />
-      </fieldset>
+      <TimelineTransport
+        playhead={playhead}
+        playing={playing}
+        durationFrames={document.durationFrames}
+        numerator={numerator}
+        denominator={denominator}
+        setPlayhead={setPlayhead}
+        onTogglePlayback={togglePlayback}
+      />
 
-      <div className="video-timeline-viewport" ref={viewportRef}>
-        <div className="video-timeline-canvas" style={{ minWidth: `${Math.round(760 * zoom)}px` }}>
-          <div className="video-track-ruler">
-            <div className="video-track-corner">Tracks</div>
-            <div className="video-ruler-scale">
-              {ticks.map((ratio) => (
-                <span key={ratio} style={{ left: `${ratio * 100}%` }}>
-                  {(durationSeconds * ratio).toFixed(durationSeconds < 20 ? 1 : 0)}s
-                </span>
-              ))}
-              <input
-                className="video-ruler-scrubber"
-                aria-label="Timeline ruler"
-                type="range"
-                min={0}
-                max={document.durationFrames}
-                value={Math.min(playhead, document.durationFrames)}
-                onChange={(event) => setPlayhead(Number(event.target.value))}
-              />
-            </div>
-          </div>
-          <div
-            className="video-playhead"
-            aria-hidden="true"
-            style={{
-              left: `calc(176px + (100% - 176px) * ${Math.min(1, playhead / document.durationFrames)})`,
-            }}
-          />
-          {document.trackOrder.length === 0 && (
-            <div className="video-timeline-empty">
-              <Captions size={22} aria-hidden="true" />
-              <span>No clips yet. Add a caption or ask an agent to arrange pinned media.</span>
-            </div>
-          )}
-          {document.trackOrder.map((trackId) => {
-            const track = document.tracksById[trackId];
-            if (!track) return null;
-            const meta = TRACK_META[track.kind];
-            const TrackIcon = meta.icon;
-            const isLocked = lockedTracks.has(trackId),
-              isHidden = hiddenTracks.has(trackId),
-              isMuted = mutedTracks.has(trackId);
-            const hasAudio =
-              track.kind === "voice" || track.kind === "music" || track.kind === "sfx";
-            return (
-              <div
-                className="video-track-row"
-                key={trackId}
-                data-track-disabled={isHidden || isMuted || undefined}
-              >
-                <div className="video-track-label">
-                  <TrackIcon size={15} aria-hidden="true" />
-                  <span>
-                    <strong>{meta.label}</strong>
-                    <small>
-                      {track.clipOrder.length} {track.clipOrder.length === 1 ? "clip" : "clips"}
-                    </small>
-                  </span>
-                  <div className="video-track-controls">
-                    {hasAudio ? (
-                      <button
-                        type="button"
-                        aria-label={`${isMuted ? "Unmute" : "Mute"} ${meta.label} track in editor`}
-                        aria-pressed={isMuted}
-                        title={isMuted ? "Unmute in editor" : "Mute in editor"}
-                        onClick={() => toggleSet(setMutedTracks, trackId)}
-                      >
-                        {isMuted ? (
-                          <VolumeX size={13} aria-hidden="true" />
-                        ) : (
-                          <Volume2 size={13} aria-hidden="true" />
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        aria-label={`${isHidden ? "Show" : "Hide"} ${meta.label} track in editor`}
-                        aria-pressed={isHidden}
-                        title={isHidden ? "Show in editor" : "Hide in editor"}
-                        onClick={() => toggleSet(setHiddenTracks, trackId)}
-                      >
-                        {isHidden ? (
-                          <EyeOff size={13} aria-hidden="true" />
-                        ) : (
-                          <Eye size={13} aria-hidden="true" />
-                        )}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={`${isLocked ? "Unlock" : "Lock"} ${meta.label} track`}
-                      aria-pressed={isLocked}
-                      title={isLocked ? "Unlock track" : "Lock track"}
-                      onClick={() => toggleSet(setLockedTracks, trackId)}
-                    >
-                      {isLocked ? (
-                        <Lock size={13} aria-hidden="true" />
-                      ) : (
-                        <Unlock size={13} aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div className={`video-track-lane video-track-lane-${track.kind}`}>
-                  {track.clipOrder.map((clipId) => {
-                    const clip = track.clipsById[clipId];
-                    if (!clip) return null;
-                    const label = clipLabel(clip),
-                      selected = sameSelection(activeSelection, { trackId, clipId });
-                    const targetSelection = { trackId, clipId };
-                    const preview =
-                      pointerPreview && sameSelection(pointerPreview.selection, targetSelection)
-                        ? pointerPreview
-                        : clip;
-                    return (
-                      <div
-                        key={clipId}
-                        className="video-timeline-clip-shell"
-                        data-dragging={
-                          sameSelection(pointerPreview?.selection, targetSelection) || undefined
-                        }
-                        style={{
-                          left: `${Math.min(100, (preview.startFrame / document.durationFrames) * 100)}%`,
-                          width: `${Math.max(1.5, Math.min(100, (preview.durationFrames / document.durationFrames) * 100))}%`,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className="video-timeline-clip"
-                          aria-pressed={selected}
-                          aria-label={`${meta.label} clip: ${label}`}
-                          aria-keyshortcuts="ArrowLeft ArrowRight Alt+ArrowLeft Alt+ArrowRight Shift+ArrowLeft Shift+ArrowRight Delete"
-                          title={`${label} · ${(clip.durationFrames / fps).toFixed(2)} s · Drag to move`}
-                          onClick={() => {
-                            if (suppressClipClick.current) {
-                              suppressClipClick.current = false;
-                              return;
-                            }
-                            setSelection(targetSelection);
-                            setPlayhead(clip.startFrame);
-                          }}
-                          onFocus={() => setSelection(targetSelection)}
-                          onPointerDown={(event) =>
-                            beginPointerEdit(event, "move", targetSelection, clip)
-                          }
-                          onPointerMove={updatePointerEdit}
-                          onPointerUp={finishPointerEdit}
-                          onPointerCancel={cancelPointerEdit}
-                          onKeyDown={(event) => {
-                            if (disabled || isLocked) return;
-                            if (event.key === "Delete" || event.key === "Backspace") {
-                              event.preventDefault();
-                              deleteClip();
-                            } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                              event.preventDefault();
-                              const delta = event.key === "ArrowLeft" ? -1 : 1;
-                              if (event.altKey) trimStart(delta);
-                              else if (event.shiftKey) trimEnd(delta);
-                              else moveClip(delta);
-                            }
-                          }}
-                        >
-                          <span>{label}</span>
-                          <small>{(preview.durationFrames / fps).toFixed(1)}s</small>
-                          {clip.startFrame + clip.durationFrames > document.durationFrames && (
-                            <i title="Clip exceeds timeline">!</i>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="video-clip-trim-handle video-clip-trim-handle-start"
-                          aria-label={`Trim start of ${label}`}
-                          disabled={disabled || isLocked}
-                          onClick={() => {
-                            suppressClipClick.current = false;
-                          }}
-                          onPointerDown={(event) =>
-                            beginPointerEdit(event, "trim-start", targetSelection, clip)
-                          }
-                          onPointerMove={updatePointerEdit}
-                          onPointerUp={finishPointerEdit}
-                          onPointerCancel={cancelPointerEdit}
-                        />
-                        <button
-                          type="button"
-                          className="video-clip-trim-handle video-clip-trim-handle-end"
-                          aria-label={`Trim end of ${label}`}
-                          disabled={disabled || isLocked}
-                          onClick={() => {
-                            suppressClipClick.current = false;
-                          }}
-                          onPointerDown={(event) =>
-                            beginPointerEdit(event, "trim-end", targetSelection, clip)
-                          }
-                          onPointerMove={updatePointerEdit}
-                          onPointerUp={finishPointerEdit}
-                          onPointerCancel={cancelPointerEdit}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <TimelineTrackArea
+        document={document}
+        durationSeconds={durationSeconds}
+        fps={fps}
+        zoom={zoom}
+        playhead={playhead}
+        selection={activeSelection}
+        pointerPreview={pointerPreview}
+        lockedTracks={lockedTracks}
+        hiddenTracks={hiddenTracks}
+        mutedTracks={mutedTracks}
+        disabled={disabled}
+        viewportRef={viewportRef}
+        suppressClipClick={suppressClipClick}
+        setPlayhead={setPlayhead}
+        setSelection={setSelection}
+        toggleLocked={(trackId) => toggleSet(setLockedTracks, trackId)}
+        toggleHidden={(trackId) => toggleSet(setHiddenTracks, trackId)}
+        toggleMuted={(trackId) => toggleSet(setMutedTracks, trackId)}
+        beginPointerEdit={beginPointerEdit}
+        updatePointerEdit={updatePointerEdit}
+        finishPointerEdit={finishPointerEdit}
+        cancelPointerEdit={cancelPointerEdit}
+        deleteClip={deleteClip}
+        moveClip={moveClip}
+        trimStart={trimStart}
+        trimEnd={trimEnd}
+      />
 
       <div className="video-timeline-settings">
         <output className="video-sequence-length" aria-labelledby="sequence-length-label">

@@ -7,6 +7,7 @@
   "types": "./dist/contracts.d.ts",
   "exports": {
     ".": "./dist/contracts.js",
+    "./camera": "./dist/camera.js",
     "./media": "./dist/media.js",
     "./jobs": "./dist/jobs.js",
     "./workflow": "./dist/workflow.js",
