@@ -35,9 +35,9 @@
   gap: var(--app-space-2);
   min-width: 0;
   padding: var(--app-space-3);
-  border: 1px solid var(--app-cut-line);
+  border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: color-mix(in srgb, var(--app-cut-paper) 45%, var(--app-white));
+  background: color-mix(in srgb, var(--app-paper) 80%, white);
 }
 
 .video-candidates-heading {
@@ -81,14 +81,14 @@
 }
 
 .video-candidate[aria-current="true"] {
-  border-color: var(--app-ink);
-  box-shadow: var(--app-shadow-hard);
+  border-color: var(--app-accent);
+  box-shadow: inset 3px 0 0 var(--app-accent);
   opacity: 1;
 }
 
 .video-candidate.btn:not(:disabled):hover {
   transform: translateY(-1px);
-  border-color: var(--app-ink);
+  border-color: color-mix(in srgb, var(--app-accent) 55%, var(--app-white));
   box-shadow: var(--app-shadow-sm);
 }
 
@@ -135,7 +135,7 @@
   align-items: center;
   padding: var(--app-space-3) var(--app-space-4);
   border-bottom: 1px solid var(--app-line);
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 
 .video-player-heading > div {
@@ -155,7 +155,7 @@
   padding: var(--app-space-6);
   border: 0;
   border-radius: 0;
-  background: color-mix(in srgb, var(--app-cut-paper) 45%, var(--app-white));
+  background: var(--app-paper);
 }
 
 .video-player-controls {
@@ -166,7 +166,7 @@
   margin: 0;
   padding: var(--app-space-3) var(--app-space-4);
   border-top: 1px solid var(--app-line);
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 
 .video-player-controls .btn {
@@ -238,7 +238,7 @@
   min-height: 0;
   max-height: min(78vh, 780px);
   overflow: auto;
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 
 .video-review-notes .video-approval {
@@ -264,7 +264,7 @@
 
 .video-feedback-history {
   border-top: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-cut-paper) 50%, var(--app-white));
+  background: color-mix(in srgb, var(--app-paper) 82%, white);
 }
 
 .video-feedback-heading,
@@ -296,8 +296,8 @@
 .video-feedback-capture {
   margin: 0;
   padding: var(--app-space-2) var(--app-space-3);
-  border-left: 3px solid var(--app-ink);
-  background: color-mix(in srgb, var(--app-cut-tape) 45%, var(--app-white));
+  border-left: 3px solid var(--app-role-system);
+  background: var(--app-accent-soft);
   font-size: var(--app-text-sm);
 }
 

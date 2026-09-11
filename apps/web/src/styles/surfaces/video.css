@@ -6,16 +6,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  /* The bench: a warm wash laid over the shared paper, so the studio reads
-     as a room you step into while the canvas viewer contract underneath
-     stays untouched. */
   background:
-    linear-gradient(
-      180deg,
-      var(--app-cut-paper) 0,
-      color-mix(in srgb, var(--app-cut-paper) 55%, transparent) 340px,
-      transparent 640px
-    ),
     radial-gradient(circle at 1px 1px, var(--app-grid-dot) 1px, transparent 1.4px) 0 0 /
     var(--app-grid-size) var(--app-grid-size),
     var(--app-paper);
@@ -203,11 +194,9 @@
 }
 .video-preview-empty {
   min-height: 300px;
-  border: 1.5px dashed var(--app-cut-line);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-white));
   border-radius: var(--app-radius-md);
-  outline: 1px solid var(--app-line);
-  outline-offset: 5px;
-  background: var(--app-cut-card);
+  background: var(--app-accent-soft);
   color: var(--app-ink);
   display: flex;
   flex-direction: column;
@@ -218,7 +207,7 @@
   gap: var(--app-space-4);
 }
 .video-preview-empty > svg {
-  color: var(--app-danger);
+  color: var(--app-accent-text);
 }
 .video-preview-empty p {
   max-width: 28ch;
@@ -244,7 +233,7 @@
 }
 .video-track {
   padding: var(--app-space-4);
-  background: var(--app-cut-card);
+  background: var(--app-white);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-sm);
 }
@@ -269,8 +258,8 @@
 }
 .video-shot {
   padding: var(--app-space-3);
-  border-left: 3px solid var(--app-ink);
-  background: color-mix(in srgb, var(--app-cut-tape) 45%, var(--app-white));
+  border-left: 3px solid var(--app-accent);
+  background: var(--app-paper);
   overflow-wrap: anywhere;
 }
 .video-shot > span {
@@ -470,7 +459,7 @@
   padding: 0;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-cut-card);
+  background: var(--app-white);
   color: var(--app-ink);
   box-shadow: var(--app-shadow-md);
 }
@@ -547,7 +536,7 @@
   justify-content: flex-start;
   min-width: 0;
   padding-block: var(--app-space-2);
-  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
+  background: var(--app-paper);
 }
 .video-transport-buttons {
   flex: none;
@@ -565,7 +554,7 @@
 }
 .video-timeline-viewport {
   overflow-x: auto;
-  background: color-mix(in srgb, var(--app-cut-paper) 45%, var(--app-white));
+  background: var(--app-paper);
 }
 .video-timeline-canvas {
   position: relative;
@@ -587,7 +576,7 @@
   left: 0;
   z-index: 3;
   border-right: 1px solid var(--app-line);
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 .video-track-corner {
   display: flex;
@@ -606,8 +595,8 @@
     90deg,
     transparent 0,
     transparent calc(12.5% - 1px),
-    color-mix(in srgb, var(--app-ink) 22%, transparent) calc(12.5% - 1px),
-    color-mix(in srgb, var(--app-ink) 22%, transparent) 12.5%
+    var(--app-line) calc(12.5% - 1px),
+    var(--app-line) 12.5%
   );
 }
 .video-ruler-scale span {
@@ -650,7 +639,7 @@
 .video-track-lane {
   position: relative;
   min-width: 0;
-  background-color: color-mix(in srgb, var(--app-cut-paper) 55%, var(--app-white));
+  background-color: var(--app-paper);
   background-image: repeating-linear-gradient(
     90deg,
     transparent 0,
@@ -690,8 +679,8 @@
   background: color-mix(in srgb, var(--app-role-exception) 8%, var(--app-white));
 }
 .video-timeline-clip[aria-pressed="true"] {
-  border-color: var(--app-ink);
-  box-shadow: var(--app-shadow-hard);
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px var(--app-accent);
 }
 .video-timeline-clip span {
   min-width: 0;
@@ -752,7 +741,7 @@
   gap: var(--app-space-4);
   padding: var(--app-space-4);
   border-top: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
+  background: var(--app-paper);
 }
 .video-timeline-settings .field-group {
   width: 180px;
@@ -780,7 +769,7 @@
   min-width: 0;
   padding: var(--app-space-4);
   border-top: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-cut-paper) 65%, transparent);
+  background: var(--app-paper);
 }
 .video-clip-inspector-heading {
   display: flex;
@@ -831,7 +820,7 @@
   font-size: var(--app-text-sm);
 }
 .video-review-kicker {
-  color: var(--app-danger);
+  color: var(--app-accent-text);
   font-family: var(--app-font-mono);
   font-size: var(--app-text-xs);
   font-weight: 700;
@@ -846,7 +835,7 @@
   overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-cut-card);
+  background: var(--app-white);
   box-shadow: var(--app-shadow-md);
 }
 
@@ -858,7 +847,7 @@
   right: 0;
   left: 0;
   height: 8px;
-  background: var(--app-cut-clapper);
+  background: var(--app-stripes);
   content: "";
   pointer-events: none;
 }

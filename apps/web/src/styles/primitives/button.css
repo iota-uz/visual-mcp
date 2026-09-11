@@ -43,14 +43,14 @@
 }
 
 .btn-primary {
-  background: var(--app-ink);
-  border-color: var(--app-ink);
+  background: var(--app-accent);
+  border-color: var(--app-accent);
   color: var(--app-white);
 }
 
 .btn-primary:not(:disabled):hover {
   transform: translateY(-1px);
-  box-shadow: var(--app-shadow-hard);
+  box-shadow: var(--app-shadow-md);
 }
 
 .btn-primary:not(:disabled):active {
@@ -88,10 +88,10 @@
 }
 
 .btn-secondary:not(:disabled):hover {
-  border-color: var(--app-ink);
-  /* The label stays ink: secondary hovers are a frame change, not a
-     colour change, so the hierarchy never inverts on hover. */
-  color: var(--app-ink);
+  border-color: var(--app-accent);
+  /* The border may be the fill blue; the label may not — --app-accent is
+     4.53:1 on white, a rounding error away from failing. */
+  color: var(--app-accent-text);
 }
 
 .btn-danger {

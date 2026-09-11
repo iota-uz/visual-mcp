@@ -64,7 +64,9 @@ or delete history. Full rules: .claude/rules/adr.md
 
 - **Preview меняет размер за углы, а режимы студии разделяют историю правок** — [запись](adr/product/video-preview-resize-and-draft-history.md) · accepted · 2026-09-11 (запрос пользователя)
 
-- **Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы** — [запись](adr/product/cutting-room-design-language.md) · accepted · 2026-09-11 (запрос пользователя)
+- **Палитра студии возвращена к холодной — тёплая «монтажная» не зашла** — [запись](adr/product/studio-palette-revert.md) · accepted · 2026-09-11 (запрос пользователя)
+
+- **Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы** — [запись](adr/product/cutting-room-design-language.md) · reversed · 2026-09-11 (запрос пользователя)
 - **Video Studio — коллекция воркспейса и иммерсивный редактор** — [запись](adr/product/video-studio-surfaces.md) · accepted · 2026-09-10 (запрос пользователя)
 - **Video Studio использует единый производственный workbench** — [запись](adr/product/video-studio-workbench.md) · accepted · 2026-09-10 (запрос пользователя, production UI audit)
 

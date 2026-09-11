@@ -18,7 +18,7 @@
   padding: 0;
   border: 1px solid var(--app-line);
   border-radius: 2px;
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 .video-icon-controls button,
 .video-track-controls button {
@@ -34,15 +34,10 @@
   height: 28px;
 }
 .video-icon-controls button:hover:not(:disabled),
-.video-track-controls button:hover:not([aria-pressed="true"]) {
-  background: color-mix(in srgb, var(--app-cut-paper) 70%, var(--app-white));
-  color: var(--app-ink);
-}
-
-/* An engaged toggle is a punched key: ink fill, paper glyph. */
+.video-track-controls button:hover,
 .video-track-controls button[aria-pressed="true"] {
-  background: var(--app-ink);
-  color: var(--app-white);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
 }
 .video-icon-controls button:disabled {
   cursor: default;
@@ -84,7 +79,7 @@
   padding: var(--app-space-1) var(--app-space-3);
   border: 1.5px solid var(--app-line);
   border-radius: var(--app-radius-xs);
-  background: var(--app-cut-card);
+  background: var(--app-white);
   color: var(--app-ink);
   cursor: pointer;
   font-size: var(--app-text-xs);
@@ -94,8 +89,8 @@
     border-color var(--app-duration-fast) var(--app-ease-out);
 }
 .video-timeline-empty button:hover {
-  background: var(--app-cut-card);
-  border-color: var(--app-ink);
+  background: var(--app-accent-soft);
+  border-color: var(--app-accent);
 }
 .video-timeline-empty button:focus-visible {
   outline: 2px solid var(--app-accent);
@@ -179,8 +174,8 @@
   opacity: 0;
 }
 .video-timeline-toolbar-actions .btn[aria-pressed="true"] {
-  border-color: var(--app-ink);
-  background: var(--app-ink);
+  border-color: var(--app-accent);
+  background: var(--app-accent);
   color: #fff;
 }
 .video-program-monitor {
@@ -192,10 +187,10 @@
   background:
     radial-gradient(
       circle at 50% 42%,
-      color-mix(in srgb, var(--app-cut-paper) 80%, transparent),
-      transparent 38%
+      color-mix(in srgb, var(--app-accent) 7%, transparent),
+      transparent 35%
     ),
-    color-mix(in srgb, var(--app-cut-paper) 40%, var(--app-white));
+    var(--app-paper);
 }
 .video-program-heading {
   display: flex;
@@ -230,8 +225,7 @@
   height: 13px;
   justify-self: stretch;
   background:
-    radial-gradient(circle, var(--app-cut-sprocket-dot) 2.4px, transparent 2.8px) 0 0 / 17px 13px
-    repeat-x;
+    radial-gradient(circle, var(--app-line) 2.4px, transparent 2.8px) 0 0 / 17px 13px repeat-x;
   content: "";
 }
 .video-program-stage-shell {
@@ -437,7 +431,7 @@
   padding: var(--app-space-2);
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-xs);
-  background: var(--app-cut-card);
+  background: var(--app-white);
 }
 .video-trim-controls > span {
   margin-right: var(--app-space-1);

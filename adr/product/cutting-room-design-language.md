@@ -1,7 +1,7 @@
 ---
 id: cutting-room-design-language
 title: Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы
-status: accepted
+status: reversed
 date: 2026-09-11
 deciders: [unknown]
 area: product
@@ -14,7 +14,7 @@ applies_to:
   - apps/web/src/styles/primitives/empty-state.css
   - apps/web/src/styles/surfaces/video*.css
 tags: [product, video-studio, design-language, css-only]
-refs: []
+refs: [studio-palette-revert]
 supersedes: []
 superseded_by: []
 ---
