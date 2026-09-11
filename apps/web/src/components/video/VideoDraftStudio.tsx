@@ -135,6 +135,10 @@ export function DraftStudio({
     0,
   );
   const editorLocked = transitioning || checkpointError;
+  const modKey =
+    typeof navigator === "undefined" || /Mac|iPhone|iPad|Darwin/i.test(navigator.platform ?? "")
+      ? "⌘"
+      : "Ctrl";
 
   async function saveCheckpoint() {
     pendingCheckpoint.current ??= {
@@ -199,7 +203,7 @@ export function DraftStudio({
           </li>
         </ol>
         <span className="vs-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>⌘S</kbd> save
+          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save
         </span>
       </div>
 

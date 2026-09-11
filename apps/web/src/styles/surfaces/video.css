@@ -517,8 +517,12 @@
 }
 .video-transport {
   justify-content: flex-start;
+  min-width: 0;
   padding-block: var(--app-space-2);
   background: #131e2a;
+}
+.video-transport-buttons {
+  flex: none;
 }
 .video-transport output {
   min-width: 76px;
@@ -527,6 +531,7 @@
 }
 .video-transport input[type="range"] {
   flex: 1;
+  min-width: 0;
   accent-color: #5b8cff;
 }
 .video-timeline-viewport {

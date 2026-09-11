@@ -194,6 +194,11 @@ export function ShotCandidates({
                 ? "Retry same shot request"
                 : "Generate shot candidate"}
           </Button>
+          {!pending.current && (!shot.startImage || !shot.subjectAction.trim()) && (
+            <p className="video-hint">
+              Pin a start image and describe the subject action to enable generation.
+            </p>
+          )}
           {disabled && (
             <p className="video-hint">
               Save the current script before generating or selecting a candidate.
@@ -214,53 +219,58 @@ export function ShotCandidates({
           timeline.
         </p>
       )}
-      <TextInput
-        id="compare-shot-time"
-        label="Compare candidates at time (seconds)"
-        labelVisible
-        type="number"
-        min={0}
-        step={0.1}
-        value={time}
-        onChange={(event) => setTime(Number(event.target.value))}
-      />
-      <div className="video-shot-compare">
-        {rows.map((job) => {
-          const asset = readCandidate(job.result);
-          const stale = readShotContext(job)?.scriptRevision !== revision;
-          const selected = asset !== null && shot.selectedVideo?.revisionId === asset.revisionId;
-          return (
-            <article key={job.jobId} data-selected={selected || undefined}>
-              <p>
-                {job.state} · {stale ? "Older shot plan" : "Current shot plan"}
-              </p>
-              {job.error && <p role="alert">{job.error.message}</p>}
-              {job.state === "succeeded" && asset && (
-                <CandidatePlayer
-                  workspaceId={workspaceId}
-                  asset={asset}
-                  time={time}
-                  selected={selected}
-                  disabled={disabled}
-                  choosing={reasonFor === job.jobId}
-                  reason={reason}
-                  onReason={setReason}
-                  onStartChoose={() => {
-                    setReasonFor(job.jobId);
-                    setReason("");
-                  }}
-                  onCancelChoose={() => setReasonFor(null)}
-                  onSelect={(value) => {
-                    onSelect(asset, value, job.jobId);
-                    setReasonFor(null);
-                    setReason("");
-                  }}
-                />
-              )}
-            </article>
-          );
-        })}
-      </div>
+      {rows.length > 0 && (
+        <>
+          <TextInput
+            id="compare-shot-time"
+            label="Compare candidates at time (seconds)"
+            labelVisible
+            type="number"
+            min={0}
+            step={0.1}
+            value={time}
+            onChange={(event) => setTime(Number(event.target.value))}
+          />
+          <div className="video-shot-compare">
+            {rows.map((job) => {
+              const asset = readCandidate(job.result);
+              const stale = readShotContext(job)?.scriptRevision !== revision;
+              const selected =
+                asset !== null && shot.selectedVideo?.revisionId === asset.revisionId;
+              return (
+                <article key={job.jobId} data-selected={selected || undefined}>
+                  <p>
+                    {job.state} · {stale ? "Older shot plan" : "Current shot plan"}
+                  </p>
+                  {job.error && <p role="alert">{job.error.message}</p>}
+                  {job.state === "succeeded" && asset && (
+                    <CandidatePlayer
+                      workspaceId={workspaceId}
+                      asset={asset}
+                      time={time}
+                      selected={selected}
+                      disabled={disabled}
+                      choosing={reasonFor === job.jobId}
+                      reason={reason}
+                      onReason={setReason}
+                      onStartChoose={() => {
+                        setReasonFor(job.jobId);
+                        setReason("");
+                      }}
+                      onCancelChoose={() => setReasonFor(null)}
+                      onSelect={(value) => {
+                        onSelect(asset, value, job.jobId);
+                        setReasonFor(null);
+                        setReason("");
+                      }}
+                    />
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
       {jobs.status === "CanLoadMore" && (
         <Button size="sm" onClick={() => jobs.loadMore(20)}>
           Earlier project candidates
