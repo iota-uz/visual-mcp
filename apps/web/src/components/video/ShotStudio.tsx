@@ -196,10 +196,23 @@ export function ShotStudio({
               <div className="video-shot-editor">
                 <div className="video-shot-editor-heading">
                   <div>
-                    <span>Editing shot {scene.shotOrder.indexOf(shotId) + 1}</span>
+                    <span>
+                      Editing shot {scene.shotOrder.indexOf(shotId) + 1} of {scene.shotOrder.length}
+                    </span>
                     <strong>{shot.purpose || "Untitled shot"}</strong>
                   </div>
                   <span>{productionMethod(shot.method)}</span>
+                </div>
+                <div className="vs-shot-progress" aria-hidden="true">
+                  <i
+                    style={{
+                      width: `${Math.round(
+                        ((scene.shotOrder.indexOf(shotId) + 1) /
+                          Math.max(1, scene.shotOrder.length)) *
+                          100,
+                      )}%`,
+                    }}
+                  />
                 </div>
                 <TextInput
                   id="shot-purpose"

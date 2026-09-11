@@ -21,11 +21,11 @@ import { VideoJobs } from "../components/video/VideoJobs";
 import { VideoReview } from "../components/video/VideoReview";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
-const MODES: Array<{ id: StudioMode; label: string; icon: typeof Film }> = [
-  { id: "story", label: "Story", icon: Clapperboard },
-  { id: "shots", label: "Shots", icon: Layers },
-  { id: "timeline", label: "Timeline", icon: ListVideo },
-  { id: "review", label: "Review", icon: PlaySquare },
+const MODES: Array<{ id: StudioMode; label: string; icon: typeof Film; shortcut: string }> = [
+  { id: "story", label: "Story", icon: Clapperboard, shortcut: "1" },
+  { id: "shots", label: "Shots", icon: Layers, shortcut: "2" },
+  { id: "timeline", label: "Timeline", icon: ListVideo, shortcut: "3" },
+  { id: "review", label: "Review", icon: PlaySquare, shortcut: "4" },
 ];
 
 export function VideoStudioPage() {
@@ -101,6 +101,8 @@ export function VideoStudioPage() {
                 variant={mode === item.id ? "secondary" : "ghost"}
                 icon={item.icon}
                 aria-current={mode === item.id ? "step" : undefined}
+                data-shortcut={item.shortcut}
+                title={`${item.label} (${item.shortcut})`}
                 onClick={() => setParam({ mode: item.id })}
               >
                 {item.label}

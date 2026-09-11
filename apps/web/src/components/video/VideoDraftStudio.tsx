@@ -107,6 +107,44 @@ export function DraftStudio({
     if (activeSceneId !== sceneId) setSceneId(activeSceneId);
     if (shotId && !activeScene?.shotsById[shotId]) setShotId("");
   }, [activeScene, activeSceneId, sceneId, shotId]);
+  const scriptSaveRef = useRef(script.save);
+  scriptSaveRef.current = script.save;
+  const timelineSaveRef = useRef(timeline.save);
+  timelineSaveRef.current = timeline.save;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const onModeRef = useRef(onMode);
+  onModeRef.current = onMode;
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void scriptSaveRef.current();
+        void timelineSaveRef.current();
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const order: StudioMode[] = ["story", "shots", "timeline", "review"];
+      const index = ["1", "2", "3", "4"].indexOf(event.key);
+      if (index >= 0 && order[index] && order[index] !== modeRef.current)
+        onModeRef.current(order[index] as StudioMode);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const saveState =
+    script.state === "saving" || timeline.state === "saving"
+      ? "saving"
+      : unsaved
+        ? "dirty"
+        : "saved";
   const sceneBriefsReady = script.document.sceneOrder.filter((id) => {
     const scene = script.document.scenesById[id];
     return Boolean(
@@ -159,10 +197,11 @@ export function DraftStudio({
       className={`video-studio-body video-studio-shell${mode === "review" ? " video-studio-body-review" : ""}`}
       aria-busy={transitioning || undefined}
     >
-      <div className="video-studio-statusbar" role="status">
-        <div>
+      <div className="video-studio-statusbar" role="status" data-save={saveState}>
+        <div className="vs-save-state">
+          <span className="vs-save-dot" data-state={saveState} aria-hidden="true" />
           <Badge tone={unsaved ? "warning" : "success"}>
-            {unsaved ? "Unsaved changes" : "Draft saved"}
+            {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Draft saved"}
           </Badge>
           <span>{draft.language === "ru" ? "Russian" : "Uzbek"} draft</span>
         </div>
@@ -180,6 +219,9 @@ export function DraftStudio({
             {latestRenderId ? "Render ready" : "Render pending"}
           </li>
         </ol>
+        <span className="vs-kbd-hint" aria-hidden="true">
+          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>⌘S</kbd> save
+        </span>
       </div>
 
       {mode === "review" ? (
