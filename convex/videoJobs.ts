@@ -234,7 +234,9 @@ export const agentSubmit = internalMutation({
 function publicJob(j: Doc<"videoJobs">) {
   const request = JobRequest.parse(JSON.parse(j.request));
   const safeToRegenerate =
-    ["render", "media"].includes(j.kind) && j.stage === "recovery_source_unavailable";
+    ["render", "media"].includes(j.kind) &&
+    !j.errorCode?.endsWith("NOT_CONFIGURED") &&
+    (j.stage === "recovery_source_unavailable" || j.errorEffect === "not_applied");
   const canReconcile = Boolean(j.persistenceReceipt) && !safeToRegenerate;
   return {
     ...receipt(j, false),

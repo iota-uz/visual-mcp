@@ -122,8 +122,8 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
           )}
           {job.error.recovery.kind === "regenerate" && (
             <p>
-              The reserved output is gone. This local render or media operation can be submitted
-              again with a new idempotency key.
+              This local render or media operation was not applied, or its reserved output is gone.
+              It can be submitted again with a new idempotency key.
             </p>
           )}
         </div>

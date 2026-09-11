@@ -119,7 +119,7 @@ test("lost local output explains safe regeneration without triggering it", () =>
   render(page());
 
   expect(screen.getByRole("alert")).toHaveTextContent(
-    "This local render or media operation can be submitted again with a new idempotency key.",
+    "It can be submitted again with a new idempotency key.",
   );
   expect(
     screen.queryByRole("button", { name: "Recover already stored output" }),

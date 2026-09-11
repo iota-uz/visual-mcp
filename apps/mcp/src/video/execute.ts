@@ -690,7 +690,7 @@ const definitions: Definition[] = [
     name: "job_get",
     readOnly: true,
     description:
-      "Read an execution/media/learning job and typed result. Failed work is data, not a failed read. Reconcile by exact ID or original operation kind/key. Never create a new operation to recover unknown effects unless recovery.kind=regenerate and safeToRegenerate=true explicitly authorize a new idempotency key for a local render/media operation whose stored bytes are proven unavailable.",
+      "Read an execution/media/learning job and typed result. Failed work is data, not a failed read. Reconcile by exact ID or original operation kind/key. Never create a new operation to recover unknown effects unless recovery.kind=regenerate and safeToRegenerate=true explicitly authorize a new idempotency key for a local render/media operation that was never applied or whose stored bytes are proven unavailable.",
     input: z
       .object({
         job_id: id.optional(),

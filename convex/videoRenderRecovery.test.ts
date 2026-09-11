@@ -245,4 +245,19 @@ test("render persistence failure preserves the worker receipt and can recover re
     kind: "regenerate",
     safeToRegenerate: true,
   });
+
+  await t.run((ctx) =>
+    ctx.db.patch("videoJobs", unavailable.jobId, {
+      stage: "outputs_reserved",
+      errorCode: "RENDER_FAILED",
+      errorEffect: "not_applied",
+    }),
+  );
+  const notAppliedPublic = await as.query(makeFunctionReference<"query">("videoJobs:getJob"), {
+    jobId: unavailable.jobId,
+  });
+  expect(notAppliedPublic.error?.recovery).toEqual({
+    kind: "regenerate",
+    safeToRegenerate: true,
+  });
 });
