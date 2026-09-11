@@ -6,6 +6,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { Script, Timeline } from "../../../../../packages/video/src/contracts";
 import { Badge } from "../Badge";
+import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import { Panel } from "../ui/Panel";
@@ -51,6 +52,8 @@ export function DraftStudio({
   const [checkpointError, setCheckpointError] = useState(false);
   const [sceneId, setSceneId] = useState(draft.script.sceneOrder[0] ?? "");
   const [shotId, setShotId] = useState("");
+  const [pendingSceneDelete, setPendingSceneDelete] = useState<string | null>(null);
+  const navigatorRef = useRef<HTMLElement | null>(null);
   const pendingCheckpoint = useRef<Parameters<typeof checkpoint>[0] | null>(null);
   const script = useRevisionEditor(
     { revision: draft.scriptRevision, document: draft.script },
@@ -135,6 +138,30 @@ export function DraftStudio({
     0,
   );
   const editorLocked = transitioning || checkpointError;
+
+  function moveScene(id: string, delta: -1 | 1) {
+    const document = script.document;
+    const index = document.sceneOrder.indexOf(id);
+    const next = index + delta;
+    if (index < 0 || next < 0 || next >= document.sceneOrder.length) return;
+    const sceneOrder = [...document.sceneOrder];
+    const [moved] = sceneOrder.splice(index, 1);
+    if (!moved) return;
+    sceneOrder.splice(next, 0, moved);
+    script.edit({ ...document, sceneOrder });
+  }
+
+  function deleteScene(id: string) {
+    const document = script.document;
+    const { [id]: _removed, ...scenesById } = document.scenesById;
+    const sceneOrder = document.sceneOrder.filter((sceneId) => sceneId !== id);
+    script.edit({ ...document, sceneOrder, scenesById });
+    if (sceneId === id) {
+      setSceneId(sceneOrder[0] ?? "");
+      setShotId("");
+    }
+    setPendingSceneDelete(null);
+  }
   const modKey =
     typeof navigator === "undefined" || /Mac|iPhone|iPad|Darwin/i.test(navigator.platform ?? "")
       ? "⌘"
@@ -220,7 +247,11 @@ export function DraftStudio({
           className={`video-studio-workspace${mode === "timeline" ? " video-studio-workspace-timeline" : ""}`}
         >
           {mode !== "timeline" && (
-            <aside className="video-studio-navigator" aria-label="Project scenes">
+            <aside
+              ref={navigatorRef}
+              className="video-studio-navigator"
+              aria-label="Project scenes"
+            >
               <SceneNavigator
                 document={script.document}
                 selectedId={activeSceneId}
@@ -228,7 +259,20 @@ export function DraftStudio({
                   setSceneId(next);
                   setShotId("");
                 }}
+                onMoveScene={moveScene}
+                onDeleteScene={setPendingSceneDelete}
+                scenesLocked={script.locked || editorLocked}
               />
+              {pendingSceneDelete && (
+                <ConfirmButton
+                  defaultArmed
+                  confirmLabel="Delete scene"
+                  description="Removes this scene from the draft. Shots planned on it are lost."
+                  onDisarm={() => setPendingSceneDelete(null)}
+                  returnFocusRef={navigatorRef}
+                  onConfirm={async () => deleteScene(pendingSceneDelete)}
+                />
+              )}
             </aside>
           )}
 

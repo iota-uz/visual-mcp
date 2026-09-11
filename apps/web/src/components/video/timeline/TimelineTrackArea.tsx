@@ -1,4 +1,17 @@
-import { Captions, Eye, EyeOff, Lock, Unlock, Volume2, VolumeX } from "lucide-react";
+import {
+  Captions,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Eye,
+  EyeOff,
+  Lock,
+  Scissors,
+  Trash2,
+  Unlock,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import type {
   Dispatch,
   MutableRefObject,
@@ -6,6 +19,8 @@ import type {
   SetStateAction,
 } from "react";
 import type { TimelineDocument } from "../../../../../../packages/video/src/contracts";
+import { useContextMenuTrigger } from "../../ui/ContextMenu";
+import type { MenuItem } from "../../ui/Menu";
 import {
   type Clip,
   clipLabel,
@@ -45,6 +60,8 @@ export function TimelineTrackArea({
   moveClip,
   trimStart,
   trimEnd,
+  splitClip,
+  duplicateClip,
 }: {
   document: TimelineDocument;
   durationSeconds: number;
@@ -73,14 +90,122 @@ export function TimelineTrackArea({
   updatePointerEdit: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   finishPointerEdit: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   cancelPointerEdit: () => void;
-  deleteClip: () => void;
-  moveClip: (delta: number) => void;
-  trimStart: (delta: number) => void;
-  trimEnd: (delta: number) => void;
+  deleteClip: (target?: Selection) => void;
+  moveClip: (delta: number, target?: Selection) => void;
+  trimStart: (delta: number, target?: Selection) => void;
+  trimEnd: (delta: number, target?: Selection) => void;
+  splitClip: (target?: Selection) => void;
+  duplicateClip: (target?: Selection) => void;
 }) {
   const ticks = Array.from({ length: 9 }, (_, index) => index / 8);
+
+  function clipMenu(trackId: string, clipId: string): { items: MenuItem[]; label: string } | null {
+    const track = document.tracksById[trackId];
+    const clip = track?.clipsById[clipId];
+    if (!track || !clip) return null;
+    const meta = TRACK_META[track.kind];
+    const target = { trackId, clipId };
+    setSelection(target);
+    const locked = lockedTracks.has(trackId);
+    const frozen = disabled || locked;
+    const clipEnd = clip.startFrame + clip.durationFrames;
+    const label = `${meta.label} clip: ${clipLabel(clip)}`;
+    return {
+      label,
+      items: [
+        {
+          id: "nudge-left",
+          label: "Nudge left",
+          icon: ChevronLeft,
+          disabled: frozen || clip.startFrame === 0,
+          onSelect: () => moveClip(-1, target),
+        },
+        {
+          id: "nudge-right",
+          label: "Nudge right",
+          icon: ChevronRight,
+          disabled: frozen || clipEnd >= document.durationFrames,
+          onSelect: () => moveClip(1, target),
+        },
+        {
+          id: "split",
+          label: "Split at playhead",
+          icon: Scissors,
+          disabled: frozen || playhead <= clip.startFrame || playhead >= clipEnd,
+          onSelect: () => splitClip(target),
+        },
+        {
+          id: "duplicate",
+          label: "Duplicate",
+          icon: Copy,
+          disabled: frozen || track.clipOrder.length >= 500,
+          onSelect: () => duplicateClip(target),
+        },
+        { id: "sep", separator: true as const },
+        {
+          id: "delete",
+          label: "Delete clip",
+          icon: Trash2,
+          danger: true,
+          disabled: frozen,
+          onSelect: () => deleteClip(target),
+        },
+      ],
+    };
+  }
+
+  function trackMenu(trackId: string): { items: MenuItem[]; label: string } | null {
+    const track = document.tracksById[trackId];
+    if (!track) return null;
+    const meta = TRACK_META[track.kind];
+    const locked = lockedTracks.has(trackId);
+    const hasAudio = track.kind === "voice" || track.kind === "music" || track.kind === "sfx";
+    const concealed = hasAudio ? mutedTracks.has(trackId) : hiddenTracks.has(trackId);
+    return {
+      label: `${meta.label} track`,
+      items: [
+        {
+          id: "lock",
+          label: locked ? "Unlock track" : "Lock track",
+          icon: locked ? Unlock : Lock,
+          onSelect: () => toggleLocked(trackId),
+        },
+        hasAudio
+          ? {
+              id: "mute",
+              label: concealed ? "Unmute in editor" : "Mute in editor",
+              icon: concealed ? VolumeX : Volume2,
+              onSelect: () => toggleMuted(trackId),
+            }
+          : {
+              id: "hide",
+              label: concealed ? "Show in editor" : "Hide in editor",
+              icon: concealed ? EyeOff : Eye,
+              onSelect: () => toggleHidden(trackId),
+            },
+      ],
+    };
+  }
+
+  const { triggerProps, menu } = useContextMenuTrigger({
+    resolveAnchor: (target) => {
+      const element = target instanceof HTMLElement ? target : null;
+      const clip = element?.closest("[data-clip-id]");
+      if (clip instanceof HTMLElement) return clip;
+      const track = element?.closest("[data-track-id]");
+      return track instanceof HTMLElement ? track : null;
+    },
+    getMenu: (anchor) => {
+      const clipId = anchor.dataset.clipId;
+      const trackId = anchor.dataset.trackId;
+      if (clipId && trackId) return clipMenu(trackId, clipId);
+      if (trackId) return trackMenu(trackId);
+      return null;
+    },
+  });
+
   return (
-    <div className="video-timeline-viewport" ref={viewportRef}>
+    <div className="video-timeline-viewport" ref={viewportRef} {...triggerProps}>
       <div className="video-timeline-canvas" style={{ minWidth: `${Math.round(760 * zoom)}px` }}>
         <div className="video-track-ruler">
           <div className="video-track-corner">Tracks</div>
@@ -127,6 +252,7 @@ export function TimelineTrackArea({
             <div
               className="video-track-row"
               key={trackId}
+              data-track-id={trackId}
               data-track-disabled={isHidden || isMuted || undefined}
             >
               <div className="video-track-label">
@@ -197,6 +323,8 @@ export function TimelineTrackArea({
                     <div
                       key={clipId}
                       className="video-timeline-clip-shell"
+                      data-clip-id={clipId}
+                      data-track-id={trackId}
                       data-dragging={
                         sameSelection(pointerPreview?.selection, targetSelection) || undefined
                       }
@@ -285,6 +413,7 @@ export function TimelineTrackArea({
           );
         })}
       </div>
+      {menu}
     </div>
   );
 }

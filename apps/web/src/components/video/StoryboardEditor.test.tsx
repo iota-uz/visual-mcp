@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { Script } from "../../../../../packages/video/src/contracts";
@@ -40,6 +40,45 @@ test("scene navigator communicates selection and brief readiness", async () => {
   expect(screen.getByLabelText("Scene brief incomplete")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /Proof/ }));
   expect(onSelect).toHaveBeenCalledWith("proof");
+});
+
+test("scene context menu moves and stages deletion", async () => {
+  const user = userEvent.setup();
+  const onSelect = vi.fn();
+  const onMoveScene = vi.fn();
+  const onDeleteScene = vi.fn();
+  render(
+    <SceneNavigator
+      document={document}
+      selectedId="opening"
+      onSelect={onSelect}
+      onMoveScene={onMoveScene}
+      onDeleteScene={onDeleteScene}
+    />,
+  );
+  const proof = screen.getByRole("button", { name: /Proof/ });
+  fireEvent.contextMenu(proof, { clientX: 60, clientY: 120 });
+  expect(screen.getByRole("menu")).toHaveAccessibleName("Scene 2 actions");
+  // Opening the menu selects its target, like the canvas does.
+  expect(onSelect).toHaveBeenCalledWith("proof");
+  expect(screen.getByRole("menuitem", { name: "Move earlier" })).toBeEnabled();
+  expect(screen.getByRole("menuitem", { name: "Move later" })).toBeDisabled();
+  expect(screen.getByRole("menuitem", { name: "Delete scene…" })).toHaveClass("is-danger");
+  await user.click(screen.getByRole("menuitem", { name: "Move earlier" }));
+  expect(onMoveScene).toHaveBeenCalledWith("proof", -1);
+  fireEvent.contextMenu(proof, { clientX: 60, clientY: 120 });
+  await user.click(screen.getByRole("menuitem", { name: "Delete scene…" }));
+  expect(onDeleteScene).toHaveBeenCalledWith("proof");
+});
+
+test("scene cards keep the browser menu without handlers", () => {
+  render(<SceneNavigator document={document} selectedId="opening" onSelect={vi.fn()} />);
+  const event = fireEvent.contextMenu(screen.getByRole("button", { name: /Hook/ }), {
+    clientX: 60,
+    clientY: 120,
+  });
+  expect(event).toBe(true);
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });
 
 test("shell can own navigation without duplicating it in the editor", () => {

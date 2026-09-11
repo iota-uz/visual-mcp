@@ -106,3 +106,27 @@
   border: 0;
   background: var(--app-line);
 }
+
+/*
+ * Contextual menus float at the pointer, not off a trigger: fixed
+ * positioning with viewport clamping done in JS, a scrollable cap for
+ * short viewports, and full touch hit targets through --app-hit-min.
+ */
+.menu-popup-fixed {
+  position: fixed;
+  z-index: calc(var(--app-z-chrome) + 2);
+  max-width: calc(100vw - 16px);
+}
+
+.menu-popup-fixed-inner {
+  position: static;
+  width: var(--menu-width, max(200px, calc(var(--app-hit-min) * 4)));
+  max-height: min(340px, calc(100vh - 16px));
+  overflow-y: auto;
+}
+
+@media (pointer: coarse) {
+  .menu-popup-fixed-inner {
+    width: var(--menu-width, max(220px, calc(var(--app-hit-min) * 4)));
+  }
+}

@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { MoreHorizontal } from "lucide-react";
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -74,10 +75,90 @@ export interface MenuProps {
 }
 
 /** The menu's own items, in DOM order, minus the ones that cannot be used. */
-function enabledItems(menu: HTMLElement | null): HTMLElement[] {
+export function enabledMenuItems(menu: HTMLElement | null): HTMLElement[] {
   return [...(menu?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? [])].filter(
     (item) =>
       !(item as HTMLButtonElement).disabled && item.getAttribute("aria-disabled") !== "true",
+  );
+}
+
+export interface MenuPopupProps {
+  id: string;
+  label: string;
+  items: MenuItem[];
+  /** Escape/Tab/activation/outside consumers report back through here. */
+  onDismiss: (returnFocus: boolean) => void;
+  /** Positioning hook: anchored popups pass their side/align classes. */
+  className?: string;
+  style?: CSSProperties;
+  innerRef?: RefObject<HTMLDivElement | null>;
+}
+
+/*
+ * The popup half of Menu, shared with ContextMenu: same rows, same
+ * arrow/Home/End/Escape/Tab contract, different positioning. Focus moves
+ * to the first usable item on mount because the popup only ever mounts
+ * open.
+ */
+export function MenuPopup({
+  id,
+  label,
+  items,
+  onDismiss,
+  className,
+  style,
+  innerRef,
+}: MenuPopupProps) {
+  const ownRef = useRef<HTMLDivElement>(null);
+  const menuRef = innerRef ?? ownRef;
+
+  useEffect(() => {
+    enabledMenuItems(menuRef.current)[0]?.focus();
+  }, [menuRef]);
+
+  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const list = enabledMenuItems(menuRef.current);
+    const index = list.indexOf(document.activeElement as HTMLElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      // Wraps: ArrowUp from the first item is the fastest way to the
+      // destructive one at the bottom.
+      list[(index + delta + list.length) % list.length]?.focus();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      list[0]?.focus();
+    } else if (event.key === "End") {
+      event.preventDefault();
+      list.at(-1)?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onDismiss(true);
+    } else if (event.key === "Tab") {
+      // Tabbing out dismisses rather than leaving an orphaned popup behind
+      // the next control.
+      onDismiss(false);
+    }
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      id={id}
+      className={className ?? "menu-popup"}
+      role="menu"
+      aria-label={label}
+      style={style}
+      onKeyDown={onMenuKeyDown}
+    >
+      {items.map((item) =>
+        "separator" in item ? (
+          <hr key={item.id} className="menu-separator" />
+        ) : (
+          <MenuRow key={item.id} item={item} onActivate={() => onDismiss(true)} />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -110,7 +191,7 @@ export function Menu({
 
   // Focus moving in on open is what makes the arrow keys below reachable.
   useEffect(() => {
-    if (open) enabledItems(menuRef.current)[0]?.focus();
+    if (open) enabledMenuItems(menuRef.current)[0]?.focus();
   }, [open]);
 
   // A click anywhere else dismisses the menu without stealing the click.
@@ -126,31 +207,6 @@ export function Menu({
   function close(returnFocus: boolean) {
     setOpen(false);
     if (returnFocus) triggerRef.current?.focus();
-  }
-
-  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const list = enabledItems(menuRef.current);
-    const index = list.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      // Wraps: ArrowUp from the first item is the fastest way to the
-      // destructive one at the bottom.
-      list[(index + delta + list.length) % list.length]?.focus();
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      list[0]?.focus();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      list.at(-1)?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      close(true);
-    } else if (event.key === "Tab") {
-      // Tabbing out dismisses rather than leaving an orphaned popup behind
-      // the next control.
-      close(false);
-    }
   }
 
   const triggerProps = trigger ?? { icon: MoreHorizontal, label, iconSize: 15 };
@@ -180,22 +236,14 @@ export function Menu({
         }}
       />
       {open && (
-        <div
-          ref={menuRef}
+        <MenuPopup
           id={popupId}
+          label={label}
+          items={items}
+          onDismiss={close}
           className={`menu-popup menu-popup-${side} menu-popup-${align}`}
-          role="menu"
-          aria-label={label}
-          onKeyDown={onMenuKeyDown}
-        >
-          {items.map((item) =>
-            "separator" in item ? (
-              <hr key={item.id} className="menu-separator" />
-            ) : (
-              <MenuRow key={item.id} item={item} onActivate={() => close(true)} />
-            ),
-          )}
-        </div>
+          innerRef={menuRef}
+        />
       )}
     </div>
   );

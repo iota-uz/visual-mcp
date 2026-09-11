@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -179,6 +179,29 @@ test("language loading preserves the previous workspace as read-only context", a
   expect(screen.getByText("Loading the Uzbek draft…")).toBeInTheDocument();
   expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
   expect(screen.getByLabelText("Narration")).toHaveAttribute("readonly");
+});
+
+test("scene context menu stages an armed delete confirmation", async () => {
+  const save = vi.fn().mockResolvedValue({ revisionId: "saved" });
+  mutation.mockReturnValue(save);
+  const user = userEvent.setup();
+  mount();
+  const card = screen.getByRole("button", { name: /Opening/ });
+  fireEvent.contextMenu(card, { clientX: 80, clientY: 140 });
+  await user.click(screen.getByRole("menuitem", { name: "Delete scene…" }));
+  // The menu decision is staged as an armed inline confirmation, not a
+  // second resting Delete button.
+  await user.click(screen.getByRole("button", { name: "Delete scene" }));
+  await user.click(screen.getByRole("button", { name: "Save script now" }));
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draftId: "ru",
+      expectedRevision: "s-ru",
+      operations: expect.arrayContaining([
+        expect.objectContaining({ path: "/sceneOrder", value: [] }),
+      ]),
+    }),
+  );
 });
 
 test("script writes use exact draft revision and scoped canonical paths", async () => {

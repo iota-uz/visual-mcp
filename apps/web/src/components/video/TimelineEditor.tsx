@@ -158,117 +158,121 @@ export function TimelineEditor({
       },
     });
   }
-  function moveClip(delta: number) {
-    if (!activeSelection || !activeClip) return;
-    patchClip(activeSelection.trackId, activeSelection.clipId, {
+  function moveClip(delta: number, target: Selection | undefined = activeSelection) {
+    if (!target) return;
+    const track = document.tracksById[target.trackId];
+    const clip = track?.clipsById[target.clipId];
+    if (!clip) return;
+    patchClip(target.trackId, target.clipId, {
       startFrame: Math.max(
         0,
-        Math.min(
-          document.durationFrames - activeClip.durationFrames,
-          activeClip.startFrame + delta,
-        ),
+        Math.min(document.durationFrames - clip.durationFrames, clip.startFrame + delta),
       ),
     });
   }
-  function trimStart(delta: number) {
-    if (!activeSelection || !activeClip) return;
+  function trimStart(delta: number, target: Selection | undefined = activeSelection) {
+    if (!target) return;
+    const track = document.tracksById[target.trackId];
+    const clip = track?.clipsById[target.clipId];
+    if (!clip) return;
     const nextStart = Math.max(
       0,
-      Math.min(
-        activeClip.startFrame + activeClip.durationFrames - 1,
-        activeClip.startFrame + delta,
-      ),
+      Math.min(clip.startFrame + clip.durationFrames - 1, clip.startFrame + delta),
     );
-    patchClip(activeSelection.trackId, activeSelection.clipId, {
+    patchClip(target.trackId, target.clipId, {
       startFrame: nextStart,
-      durationFrames: activeClip.durationFrames + activeClip.startFrame - nextStart,
+      durationFrames: clip.durationFrames + clip.startFrame - nextStart,
     });
   }
-  function trimEnd(delta: number) {
-    if (!activeSelection || !activeClip) return;
-    patchClip(activeSelection.trackId, activeSelection.clipId, {
+  function trimEnd(delta: number, target: Selection | undefined = activeSelection) {
+    if (!target) return;
+    const track = document.tracksById[target.trackId];
+    const clip = track?.clipsById[target.clipId];
+    if (!clip) return;
+    patchClip(target.trackId, target.clipId, {
       durationFrames: Math.max(
         1,
-        Math.min(
-          document.durationFrames - activeClip.startFrame,
-          activeClip.durationFrames + delta,
-        ),
+        Math.min(document.durationFrames - clip.startFrame, clip.durationFrames + delta),
       ),
     });
   }
-  function splitClip() {
-    if (!activeSelection || !activeTrack || !activeClip || disabled) return;
-    const clipEnd = activeClip.startFrame + activeClip.durationFrames;
-    if (playhead <= activeClip.startFrame || playhead >= clipEnd) return;
+  function splitClip(target: Selection | undefined = activeSelection) {
+    if (!target || disabled) return;
+    const track = document.tracksById[target.trackId];
+    const clip = track?.clipsById[target.clipId];
+    if (!track || !clip) return;
+    const clipEnd = clip.startFrame + clip.durationFrames;
+    if (playhead <= clip.startFrame || playhead >= clipEnd) return;
     const current = latestDocument.current;
-    const track = current.tracksById[activeSelection.trackId];
-    if (!track || lockedTracks.has(activeSelection.trackId)) return;
+    const liveTrack = current.tracksById[target.trackId];
+    if (!liveTrack || lockedTracks.has(target.trackId)) return;
     const secondId = newTimelineKey("clip");
-    const index = track.clipOrder.indexOf(activeSelection.clipId);
-    const nextOrder = [...track.clipOrder];
+    const index = liveTrack.clipOrder.indexOf(target.clipId);
+    const nextOrder = [...liveTrack.clipOrder];
     nextOrder.splice(index + 1, 0, secondId);
     commit({
       ...current,
       tracksById: {
         ...current.tracksById,
-        [activeSelection.trackId]: {
-          ...track,
+        [target.trackId]: {
+          ...liveTrack,
           clipOrder: nextOrder,
           clipsById: {
-            ...track.clipsById,
-            [activeSelection.clipId]: {
-              ...activeClip,
-              durationFrames: playhead - activeClip.startFrame,
+            ...liveTrack.clipsById,
+            [target.clipId]: {
+              ...clip,
+              durationFrames: playhead - clip.startFrame,
             },
-            [secondId]: { ...activeClip, startFrame: playhead, durationFrames: clipEnd - playhead },
+            [secondId]: { ...clip, startFrame: playhead, durationFrames: clipEnd - playhead },
           },
         },
       },
     });
-    setSelection({ trackId: activeSelection.trackId, clipId: secondId });
+    setSelection({ trackId: target.trackId, clipId: secondId });
   }
-  function duplicateClip() {
-    if (!activeSelection || !activeTrack || !activeClip || disabled) return;
+  function duplicateClip(target: Selection | undefined = activeSelection) {
+    if (!target) return;
+    const track = document.tracksById[target.trackId];
+    const clip = track?.clipsById[target.clipId];
+    if (!track || !clip || disabled) return;
     const current = latestDocument.current;
-    const track = current.tracksById[activeSelection.trackId];
-    if (!track || track.clipOrder.length >= 500 || lockedTracks.has(activeSelection.trackId))
-      return;
+    const liveTrack = current.tracksById[target.trackId];
+    if (!liveTrack || liveTrack.clipOrder.length >= 500 || lockedTracks.has(target.trackId)) return;
     const clipId = newTimelineKey("clip");
     const startFrame = Math.min(
-      document.durationFrames - activeClip.durationFrames,
-      activeClip.startFrame + activeClip.durationFrames,
+      document.durationFrames - clip.durationFrames,
+      clip.startFrame + clip.durationFrames,
     );
-    const index = track.clipOrder.indexOf(activeSelection.clipId);
-    const nextOrder = [...track.clipOrder];
+    const index = liveTrack.clipOrder.indexOf(target.clipId);
+    const nextOrder = [...liveTrack.clipOrder];
     nextOrder.splice(index + 1, 0, clipId);
     commit({
       ...current,
       tracksById: {
         ...current.tracksById,
-        [activeSelection.trackId]: {
-          ...track,
+        [target.trackId]: {
+          ...liveTrack,
           clipOrder: nextOrder,
-          clipsById: { ...track.clipsById, [clipId]: { ...activeClip, startFrame } },
+          clipsById: { ...liveTrack.clipsById, [clipId]: { ...clip, startFrame } },
         },
       },
     });
-    setSelection({ trackId: activeSelection.trackId, clipId });
+    setSelection({ trackId: target.trackId, clipId });
   }
-  function deleteClip() {
-    if (!activeSelection || !activeTrack || disabled || lockedTracks.has(activeSelection.trackId))
-      return;
+  function deleteClip(target: Selection | undefined = activeSelection) {
+    if (!target || disabled || lockedTracks.has(target.trackId)) return;
     const current = latestDocument.current;
-    const track = current.tracksById[activeSelection.trackId];
+    const track = current.tracksById[target.trackId];
     if (!track) return;
     const clipsById = { ...track.clipsById };
-    delete clipsById[activeSelection.clipId];
+    delete clipsById[target.clipId];
     commit({
       ...current,
       tracksById: {
         ...current.tracksById,
-        [activeSelection.trackId]: {
+        [target.trackId]: {
           ...track,
-          clipOrder: track.clipOrder.filter((id) => id !== activeSelection.clipId),
+          clipOrder: track.clipOrder.filter((id) => id !== target.clipId),
           clipsById,
         },
       },
@@ -507,6 +511,8 @@ export function TimelineEditor({
         moveClip={moveClip}
         trimStart={trimStart}
         trimEnd={trimEnd}
+        splitClip={splitClip}
+        duplicateClip={duplicateClip}
       />
 
       <div className="video-timeline-settings">
@@ -562,7 +568,7 @@ export function TimelineEditor({
               size="sm"
               icon={Scissors}
               disabled={disabled || clipIsLocked || !canSplit}
-              onClick={splitClip}
+              onClick={() => splitClip()}
             >
               Split at playhead
             </Button>
@@ -570,7 +576,7 @@ export function TimelineEditor({
               size="sm"
               icon={Copy}
               disabled={disabled || clipIsLocked || activeTrack.clipOrder.length >= 500}
-              onClick={duplicateClip}
+              onClick={() => duplicateClip()}
             >
               Duplicate
             </Button>
@@ -579,7 +585,7 @@ export function TimelineEditor({
               variant="danger"
               icon={Trash2}
               disabled={disabled || clipIsLocked}
-              onClick={deleteClip}
+              onClick={() => deleteClip()}
             >
               Delete
             </Button>

@@ -115,6 +115,11 @@
   overflow-y: auto;
   border-right: 1px solid var(--app-line);
   background: color-mix(in srgb, var(--app-paper) 88%, var(--app-white));
+  animation: vs-rise 0.45s var(--app-ease-out) 0.05s both;
+}
+
+.video-studio-navigator .confirm-inline {
+  margin: 0 var(--app-space-2) var(--app-space-4);
 }
 
 .video-studio-workspace > .video-editing-column {
@@ -459,10 +464,6 @@
 /* Workspace rhythm: staggered entrances and quiet scrollbars. */
 .video-studio-workspace > .video-editing-column {
   animation: vs-rise 0.45s var(--app-ease-out) both;
-}
-
-.video-studio-navigator {
-  animation: vs-rise 0.45s var(--app-ease-out) 0.05s both;
 }
 
 .video-studio-inspector-content {

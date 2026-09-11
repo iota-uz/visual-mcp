@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
+import { useContextMenuTrigger } from "../ui/ContextMenu";
 import { Menu } from "../ui/Menu";
 import { TextInput } from "../ui/TextInput";
 import { CameraDirection } from "./story/CameraDirection";
@@ -286,13 +287,69 @@ export function SceneNavigator({
   document,
   selectedId,
   onSelect,
+  onMoveScene,
+  onDeleteScene,
+  scenesLocked,
 }: {
   document: ScriptDocument;
   selectedId?: string;
   onSelect: (id: string) => void;
+  onMoveScene?: (id: string, delta: -1 | 1) => void;
+  onDeleteScene?: (id: string) => void;
+  scenesLocked?: boolean;
 }) {
+  const { triggerProps, menu } = useContextMenuTrigger({
+    resolveAnchor: (target) => {
+      const element = target instanceof HTMLElement ? target : null;
+      const card = element?.closest("[data-scene-id]");
+      return card instanceof HTMLElement ? card : null;
+    },
+    getMenu: (anchor) => {
+      const sceneId = anchor.dataset.sceneId;
+      const scene = sceneId ? document.scenesById[sceneId] : undefined;
+      if (!sceneId || !scene || (!onMoveScene && !onDeleteScene)) return null;
+      onSelect(sceneId);
+      const index = document.sceneOrder.indexOf(sceneId);
+      return {
+        label: `Scene ${index + 1} actions`,
+        items: [
+          ...(onMoveScene
+            ? [
+                {
+                  id: "earlier",
+                  label: "Move earlier",
+                  icon: ChevronLeft,
+                  disabled: scenesLocked || index <= 0,
+                  onSelect: () => onMoveScene(sceneId, -1),
+                },
+                {
+                  id: "later",
+                  label: "Move later",
+                  icon: ChevronRight,
+                  disabled: scenesLocked || index >= document.sceneOrder.length - 1,
+                  onSelect: () => onMoveScene(sceneId, 1),
+                },
+                { id: "sep", separator: true as const },
+              ]
+            : []),
+          ...(onDeleteScene
+            ? [
+                {
+                  id: "delete",
+                  label: "Delete scene…",
+                  icon: Trash2,
+                  danger: true,
+                  disabled: scenesLocked,
+                  onSelect: () => onDeleteScene(sceneId),
+                },
+              ]
+            : []),
+        ],
+      };
+    },
+  });
   return (
-    <nav className="video-scene-navigator" aria-label="Scenes">
+    <nav className="video-scene-navigator" aria-label="Scenes" {...triggerProps}>
       <div className="video-scene-navigator-heading">
         <strong>Scenes</strong>
         <span>{document.sceneOrder.length}</span>
@@ -306,6 +363,7 @@ export function SceneNavigator({
               type="button"
               className="video-scene-card"
               key={sceneId}
+              data-scene-id={sceneId}
               aria-current={selectedId === sceneId ? "true" : undefined}
               title={scene?.purpose || "Untitled scene"}
               onClick={() => onSelect(sceneId)}
@@ -328,6 +386,7 @@ export function SceneNavigator({
           );
         })}
       </div>
+      {menu}
     </nav>
   );
 }
