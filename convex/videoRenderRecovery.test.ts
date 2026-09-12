@@ -364,6 +364,8 @@ test("render persistence failure preserves the worker receipt and can recover re
       workspaceId,
       principalId: userId,
       idempotencyKey: "media-not-applied",
+      operationId: "media-not-applied-operation",
+      attemptNumber: 1,
       inputHash: "media-not-applied",
       request: JSON.stringify({
         kind: "media",

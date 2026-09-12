@@ -270,8 +270,7 @@ function publicJob(j: Doc<"videoJobs">) {
   const safeToRegenerate =
     ["render", "media"].includes(j.kind) &&
     !j.errorCode?.endsWith("NOT_CONFIGURED") &&
-    (j.persistenceReceipt?.state === "source_unavailable" ||
-      (!j.persistenceReceipt && j.errorEffect === "not_applied"));
+    (j.persistenceReceipt?.state === "source_unavailable" || j.errorEffect === "not_applied");
   const canReconcile =
     Boolean(j.persistenceReceipt) &&
     j.persistenceReceipt?.state !== "source_unavailable" &&
@@ -849,7 +848,9 @@ export const fail = internalMutation({
       error("VALIDATION_ERROR", "Invalid error reason code");
     if (
       ["render", "media"].includes(j.kind) &&
-      (args.effect === "not_applied" || args.stage === "recovery_source_unavailable")
+      (args.effect === "not_applied" ||
+        args.persistenceSourceUnavailable === true ||
+        args.stage === "recovery_source_unavailable")
     )
       await releaseReservedObjectLeases(ctx, j);
     await ctx.db.patch(j._id, {
