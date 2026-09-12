@@ -98,7 +98,7 @@ async function listWorkspaces(ctx: QueryCtx) {
             kind: string;
             thumbnail_url: string | null;
             poster: (typeof canvases)[number]["poster"];
-            static_render_status: string;
+            static_render_status: NonNullable<(typeof canvases)[number]["staticRenderStatus"]>;
           }
         | {
             type: "video";
@@ -125,7 +125,7 @@ async function listWorkspaces(ctx: QueryCtx) {
             title: canvas.title,
             kind: canvas.kind,
             thumbnail_url: canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null,
-            poster: canvas.poster ?? null,
+            poster: canvas.poster,
             static_render_status: canvas.staticRenderStatus ?? "ready",
           });
           canvasIndex += 1;
