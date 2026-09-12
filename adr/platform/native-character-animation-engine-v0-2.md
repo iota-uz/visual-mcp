@@ -15,6 +15,8 @@ applies_to:
   - convex/video.ts
   - convex/videoReview.ts
   - apps/web/src/components/video/VideoJobs.tsx
+  - apps/web/src/components/video/review/RenderCandidates.tsx
+  - apps/web/src/routes/VideoStudio.tsx
   - apps/worker/src/video/render.ts
   - apps/worker/src/video/character-runtime.ts
   - apps/worker/src/video/character-pack-view.tsx

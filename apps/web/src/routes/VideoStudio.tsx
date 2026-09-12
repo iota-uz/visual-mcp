@@ -243,7 +243,7 @@ export function VideoStudioPage() {
             )
               return;
             setProductionOpen(false);
-            setParam({ render: jobId, mode: "review" });
+            setParam({ version: null, render: jobId, mode: "review" });
           }}
         />
       </Drawer>

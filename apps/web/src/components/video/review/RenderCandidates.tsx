@@ -67,7 +67,7 @@ function RenderCandidate({
 }) {
   const metadata = useQuery(api.videoReview.renderMetadata, { jobId });
   const version = useQuery(
-    api.video.getVersion,
+    api.video.getVersionSummary,
     metadata ? { versionId: metadata.versionId } : "skip",
   );
   const label = version?.label ?? "Saved version";

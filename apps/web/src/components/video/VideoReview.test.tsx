@@ -58,7 +58,7 @@ beforeEach(() => {
         latestSuccessfulAttempt: job.state === "succeeded" ? job : null,
         attempts: [job],
       }));
-    if (getFunctionName(ref) === "video:getVersion")
+    if (getFunctionName(ref) === "video:getVersionSummary")
       return { label: args.versionId === "older-version" ? "Earlier cut" : "Launch cut" };
     if (getFunctionName(ref) === "videoReview:renderMetadata") {
       const older = args.jobId === "older";
