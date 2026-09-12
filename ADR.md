@@ -72,6 +72,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Весь Video Studio — тихий инструмент, без костюма монтажной** — [запись](adr/product/video-studio-quiet-workbench.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Timeline — единственный источник фактической длительности видео** — [запись](adr/product/timeline-is-actual-duration.md) · accepted · 2026-09-11 (запрос пользователя)
 
 - **Video Studio — тихий инструмент Visual Canvas, тёмная шахта 9:16 в Review** — [запись](adr/product/video-studio-quiet-instrument.md) · accepted · 2026-09-11 (запрос пользователя)
