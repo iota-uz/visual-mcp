@@ -10,7 +10,6 @@
 
 import type { Template, TemplateKind } from "../types.js";
 import { architectureOverviewTemplate } from "./architecture-overview.js";
-import { animatedStoryPlaygroundTemplate } from "./animated-story-playground.js";
 import { browserAppScreenTemplate } from "./browser-app-screen.js";
 import { chartReportTemplate } from "./chart-report.js";
 import { dashboardOverviewTemplate } from "./dashboard-overview.js";
@@ -40,7 +39,6 @@ export const TEMPLATES: readonly Template[] = [
   chartReportTemplate,
   iframeServiceFlowTemplate,
   imageReferenceBoardTemplate,
-  animatedStoryPlaygroundTemplate,
 ];
 
 /**
@@ -69,7 +67,6 @@ export {
   deviceFrameScreenTemplate,
   iframeServiceFlowTemplate,
   imageReferenceBoardTemplate,
-  animatedStoryPlaygroundTemplate,
   mobileAppScreenTemplate,
   multipageReportTemplate,
   onePageInfographicTemplate,

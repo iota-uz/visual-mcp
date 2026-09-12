@@ -28,7 +28,7 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## canvas
 
-- **Нативная анимация сначала проверяется в Canvas playground** — [запись](adr/canvas/native-animation-playground-mvp.md) · accepted · 2026-09-12 (запрос пользователя)
+- **Нативная анимация сначала проверяется в Canvas playground** — [запись](adr/canvas/native-animation-playground-mvp.md) · reversed · 2026-09-12 (исправлено пользователем)
 
 - **Обложка канваса — схематичный постер из геометрии, денормализованный в строку** — [запись](adr/canvas/canvas-poster-from-geometry.md) · accepted · 2026-09-08 (`7068dcf`)
 - **Sticky notes — коллекция notes[] в CanvasDoc без высоты и с проставляемым автором** — [запись](adr/canvas/sticky-notes-collection.md) · accepted · 2026-09-07 (запрос сопровождающего)
@@ -58,6 +58,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Доступ ограничен организацией, права общие внутри неё, MCP tokens живут 90 дней** — [запись](adr/auth/org-wide-access-and-expiring-mcp-tokens.md) · accepted · 2026-08-14 (`55dd64a`, `9a73635`)
 
 ## platform
+
+- **MVP нативной персонажной анимации исполняется внутри Video Studio** — [запись](adr/platform/native-character-animation-video-mvp.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-animation-playground-mvp)
 
 - **Ошибки локальных media jobs освобождают leases и несут безопасный reason code** — [запись](adr/platform/video-result-failure-lifecycle.md) · accepted · 2026-09-11 (запрос пользователя)
 

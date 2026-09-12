@@ -1,7 +1,7 @@
 ---
 id: native-animation-playground-mvp
 title: Нативная анимация сначала проверяется в Canvas playground
-status: accepted
+status: reversed
 date: 2026-09-12
 deciders: [unknown]
 area: canvas
@@ -15,7 +15,7 @@ tags: [canvas, animation, mvp, farq]
 refs:
   - /tmp/codex-remote-attachments/01a09505-516a-7cc1-9dd3-6724edfb26a8/1A209399-2673-4F4E-9B84-EF569EFEFFCD/1-farq_agent_native_animation_engine_spec.docx
 supersedes: []
-superseded_by: []
+superseded_by: [native-character-animation-video-mvp]
 ---
 
 ## Контекст

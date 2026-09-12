@@ -1,6 +1,7 @@
 import {
   AnimatedBarsProps,
   BigStatProps,
+  CharacterSceneProps,
   CompareProps,
   type ComponentSource,
   type Effect,
@@ -9,6 +10,7 @@ import {
 } from "@visual-canvas/video/registry";
 import type { CSSProperties } from "react";
 import { Img, staticFile } from "remotion";
+import { CharacterScene } from "./character-scene.js";
 import type { RenderProps } from "./composition.js";
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
@@ -155,6 +157,10 @@ export function TrustedComponent({
         ))}
       </div>
     );
+  }
+  if (source.component.resourceId === "video/component/character-scene") {
+    const p = CharacterSceneProps.parse(source.props);
+    return <CharacterScene props={p} frame={frame} />;
   }
   if (source.component.resourceId === "video/component/animated-bars") {
     const p = AnimatedBarsProps.parse(source.props);

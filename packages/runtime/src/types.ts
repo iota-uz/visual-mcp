@@ -106,7 +106,6 @@ export const TEMPLATE_IDS = [
   "chart-report",
   "iframe-service-flow",
   "image-reference-board",
-  "animated-story-playground",
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
