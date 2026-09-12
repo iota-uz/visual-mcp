@@ -11,6 +11,7 @@ import { AssetRef } from "./refs.js";
 const Key = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/);
 const Frame = z.number().int().min(0).max(72000);
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
+const MAX_TALK_VISEMES = 128;
 const Timing = z
   .object({
     characters: z.array(z.string().min(1).max(8)).min(1).max(100000),
@@ -152,6 +153,45 @@ function viseme(character: string): "rest" | "a" | "e" | "o" | "u" | "m" {
   return "a";
 }
 
+/**
+ * Keeps long provider alignments inside the bounded talk-action schema without
+ * fabricating timing. Every retained key is one of the original alignment-derived
+ * keys; repeatedly splitting the widest time interval preserves coverage across
+ * the whole line instead of truncating its ending.
+ */
+function compactVisemes<T extends { frame: number }>(keys: T[], limit = MAX_TALK_VISEMES): T[] {
+  if (keys.length <= limit) return keys;
+  const keyAt = (index: number) => {
+    const key = keys[index];
+    if (!key) throw new Error("Viseme compaction index is out of bounds");
+    return key;
+  };
+
+  const selected = new Set([0, keys.length - 1]);
+  const intervals = [{ left: 0, right: keys.length - 1 }];
+  while (selected.size < limit) {
+    intervals.sort((a, b) => {
+      const frameSpanA = keyAt(a.right).frame - keyAt(a.left).frame;
+      const frameSpanB = keyAt(b.right).frame - keyAt(b.left).frame;
+      return frameSpanB - frameSpanA || b.right - b.left - (a.right - a.left) || a.left - b.left;
+    });
+    const intervalIndex = intervals.findIndex(({ left, right }) => right - left > 1);
+    if (intervalIndex < 0) break;
+    const [{ left, right }] = intervals.splice(intervalIndex, 1);
+    const midpoint = (keyAt(left).frame + keyAt(right).frame) / 2;
+    let pivot = left + 1;
+    for (let index = left + 2; index < right; index++) {
+      const distance = Math.abs(keyAt(index).frame - midpoint);
+      const pivotDistance = Math.abs(keyAt(pivot).frame - midpoint);
+      if (distance < pivotDistance) pivot = index;
+    }
+    selected.add(pivot);
+    intervals.push({ left, right: pivot }, { left: pivot, right });
+  }
+
+  return [...selected].sort((a, b) => a - b).map(keyAt);
+}
+
 /** Normalizes the exact JSON artifact emitted by the existing ElevenLabs adapter. */
 export function normalizeElevenLabsAlignment(input: {
   artifact: unknown;
@@ -221,7 +261,7 @@ export function normalizeElevenLabsAlignment(input: {
         durationFrames: Math.max(1, word.endFrame - word.startFrame),
       });
   }
-  return { visemes, words, speechWindows };
+  return { visemes: compactVisemes(visemes), words, speechWindows };
 }
 
 export function compileCharacterDialogue(input: unknown) {

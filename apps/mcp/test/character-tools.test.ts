@@ -153,6 +153,61 @@ describe("character MCP authoring tools", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("dialogue compilation bounds long provider alignment before validating the talk action", async () => {
+    const { call, calls } = localBackend();
+    const text = "абомеу ".repeat(50).trim();
+    const characters = [...text];
+    const result = await callVideoTool(
+      "character_dialogue_compile",
+      {
+        timebase: { numerator: 30, denominator: 1 },
+        durationFrames: 600,
+        lineOrder: ["long"],
+        linesById: {
+          long: {
+            id: "long",
+            actorId: "farq",
+            text,
+            startFrame: 0,
+            target: { kind: "actor", actorId: "customer" },
+            emotion: "confident",
+            gesture: null,
+            voice: {
+              asset: { assetId: "audio", revisionId: "1" },
+              sha256: "a".repeat(64),
+              mimeType: "audio/mpeg",
+              durationFrames: 600,
+              alignment: {
+                asset: { assetId: "alignment", revisionId: "1" },
+                sha256: "b".repeat(64),
+                provider: "elevenlabs",
+                timingBasis: "provider_supplied",
+                artifact: {
+                  original: {
+                    characters,
+                    character_start_times_seconds: characters.map((_, index) => index * 0.04),
+                    character_end_times_seconds: characters.map((_, index) => (index + 1) * 0.04),
+                  },
+                  normalized: null,
+                  language: "ru",
+                },
+              },
+            },
+            listenersByActorId: {},
+          },
+        },
+      },
+      call,
+    );
+
+    expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+    const compiled = data(result).data as {
+      actionsById: Record<string, { type: string; visemes?: unknown[] }>;
+    };
+    expect(compiled.actionsById["dialogue-0-talk"]?.visemes).toHaveLength(128);
+    expect(calls).toHaveLength(0);
+  });
+
   test("procedural bake is deterministic and rejects hostile or non-finite expressions locally", async () => {
     const { call, calls } = localBackend();
     const input = {

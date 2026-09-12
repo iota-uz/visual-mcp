@@ -118,6 +118,55 @@ test("normalization falls back to exact original text when provider normalized t
   );
 });
 
+test("long provider alignment is compacted to the talk-action limit without invented timestamps", () => {
+  const text = "абомеу ".repeat(50).trim();
+  const artifact = alignment(text, 0.04);
+  const inputFrames = new Set(
+    artifact.original.character_start_times_seconds.map((seconds) => Math.round(seconds * 30)),
+  );
+  for (const seconds of artifact.original.character_end_times_seconds)
+    inputFrames.add(Math.round(seconds * 30));
+  inputFrames.add(0);
+
+  const first = normalizeElevenLabsAlignment({
+    artifact,
+    text,
+    durationFrames: 600,
+    timebase: { numerator: 30, denominator: 1 },
+  });
+  const second = normalizeElevenLabsAlignment({
+    artifact,
+    text,
+    durationFrames: 600,
+    timebase: { numerator: 30, denominator: 1 },
+  });
+
+  assert.deepEqual(first, second, "compaction must be deterministic");
+  assert.equal(first.visemes.length, 128);
+  assert.equal(first.visemes[0]?.frame, 0);
+  assert.equal(first.visemes.at(-1)?.frame, Math.round(text.length * 0.04 * 30));
+  assert.ok(first.visemes.every(({ frame }) => inputFrames.has(frame)));
+
+  const compiled = compileCharacterDialogue({
+    timebase: { numerator: 30, denominator: 1 },
+    durationFrames: 600,
+    lineOrder: ["long"],
+    linesById: {
+      long: {
+        ...line("long", "farq", text, 0, "customer"),
+        voice: {
+          ...voice("long", text, 600),
+          alignment: {
+            ...voice("long", text, 600).alignment,
+            artifact,
+          },
+        },
+      },
+    },
+  });
+  assert.equal(compiled.actionsById["dialogue-0-talk"]?.type, "talk");
+});
+
 test("missing, mismatched, and out-of-duration alignment fail instead of fabricating timing", () => {
   assert.equal(
     CharacterDialoguePlan.safeParse({
