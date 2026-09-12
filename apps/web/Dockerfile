@@ -39,6 +39,7 @@ COPY packages/canvas packages/canvas
 COPY packages/runtime packages/runtime
 COPY packages/video packages/video
 COPY convex convex
+COPY apps/worker apps/worker
 COPY apps/web apps/web
 # packages/canvas, packages/runtime and packages/video must build first: apps/web's
 # typecheck reaches both via the chain above, and apps/web imports

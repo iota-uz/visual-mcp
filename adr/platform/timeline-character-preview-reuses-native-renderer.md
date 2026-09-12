@@ -6,6 +6,7 @@ date: 2026-09-12
 deciders: [unknown]
 area: platform
 applies_to:
+  - apps/web/Dockerfile
   - apps/web/src/components/video/TimelinePreview.tsx
   - apps/web/src/components/video/TimelinePreview.test.tsx
   - apps/worker/src/video/character-scene.tsx
