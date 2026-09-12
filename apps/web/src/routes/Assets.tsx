@@ -4,6 +4,7 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "rea
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { AssetMoveDrawer } from "../components/AssetMoveDrawer";
 import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { AssetPreviewDialog } from "../components/AssetPreviewDialog";
 import { AssetTagEditor } from "../components/AssetTagEditor";
@@ -64,6 +65,9 @@ function AssetCard({
   onEditTags,
   onTagSelect,
   onEdit,
+  onSelect,
+  selected,
+  selectionMode,
 }: {
   asset: AssetItem;
   onArchive: () => void;
@@ -71,9 +75,12 @@ function AssetCard({
   onEditTags: () => void;
   onTagSelect: (tag: string) => void;
   onEdit?: () => void;
+  onSelect: () => void;
+  selected: boolean;
+  selectionMode: boolean;
 }) {
   return (
-    <li className="asset-card">
+    <li className="asset-card" data-selected={selected || undefined}>
       <button
         type="button"
         className={`asset-preview asset-preview-${asset.kind}`}
@@ -91,6 +98,15 @@ function AssetCard({
       </button>
       <div className="asset-card-body">
         <div className="asset-card-title-row">
+          {selectionMode && (
+            <input
+              type="checkbox"
+              className="asset-select"
+              checked={selected}
+              onChange={onSelect}
+              aria-label={`Select ${asset.name}`}
+            />
+          )}
           <strong>{asset.name}</strong>
           <div className="asset-card-actions">
             <button
@@ -160,6 +176,9 @@ export function AssetsPage() {
   const [importName, setImportName] = useState("");
   const [previewAsset, setPreviewAsset] = useState<AssetItem | null>(null);
   const [tagAsset, setTagAsset] = useState<AssetItem | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(() => new Set());
+  const [moveOpen, setMoveOpen] = useState(false);
   const debouncedQuery = useDebouncedValue(query, 180);
   const listAssets = useAction(api.assets.listMine);
   const prepareUpload = useAction(api.assets.prepareUploadMine);
@@ -201,6 +220,17 @@ export function AssetsPage() {
     () => ["all", "image", "svg", "font", "video", "audio", "data"] as const,
     [],
   );
+
+  const selectedAssets = useMemo(
+    () => assets?.filter((asset) => selectedAssetIds.has(asset.asset_id)) ?? [],
+    [assets, selectedAssetIds],
+  );
+
+  function leaveSelectionMode() {
+    setSelectionMode(false);
+    setSelectedAssetIds(new Set());
+    setMoveOpen(false);
+  }
 
   async function uploadFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = [...(event.target.files ?? [])];
@@ -405,7 +435,50 @@ export function AssetsPage() {
             </button>
           ))}
         </fieldset>
+        {workspace && assets && assets.length > 0 && !selectionMode && (
+          <Button size="sm" variant="secondary" onClick={() => setSelectionMode(true)}>
+            Select
+          </Button>
+        )}
       </div>
+
+      {selectionMode && assets && (
+        <div className="asset-selection-toolbar" role="toolbar" aria-label="Asset selection">
+          <label>
+            <input
+              type="checkbox"
+              checked={assets.length > 0 && selectedAssets.length === assets.length}
+              ref={(input) => {
+                if (input)
+                  input.indeterminate =
+                    selectedAssets.length > 0 && selectedAssets.length < assets.length;
+              }}
+              onChange={() =>
+                setSelectedAssetIds(
+                  selectedAssets.length === assets.length
+                    ? new Set()
+                    : new Set(assets.map((asset) => asset.asset_id)),
+                )
+              }
+            />
+            Select all visible
+          </label>
+          <strong aria-live="polite">{selectedAssets.length} selected</strong>
+          <div>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={selectedAssets.length === 0}
+              onClick={() => setMoveOpen(true)}
+            >
+              Move
+            </Button>
+            <Button size="sm" variant="secondary" onClick={leaveSelectionMode}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {assets === null && (
         <div className="asset-grid">
@@ -430,6 +503,16 @@ export function AssetsPage() {
               onPreview={() => setPreviewAsset(asset)}
               onEditTags={() => setTagAsset(asset)}
               onTagSelect={(tag) => setQuery(tag)}
+              selectionMode={selectionMode}
+              selected={selectedAssetIds.has(asset.asset_id)}
+              onSelect={() =>
+                setSelectedAssetIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(asset.asset_id)) next.delete(asset.asset_id);
+                  else if (next.size < 100) next.add(asset.asset_id);
+                  return next;
+                })
+              }
               onEdit={editImageHandler(asset)}
               onArchive={async () => {
                 await archiveAsset({ assetRef: asset.asset_ref });
@@ -474,6 +557,26 @@ export function AssetsPage() {
             );
             setTagAsset(null);
             notify({ message: `Tags for “${tagAsset.name}” saved.` });
+          }}
+        />
+      )}
+      {workspace && (
+        <AssetMoveDrawer
+          open={moveOpen}
+          sourceWorkspace={workspace.slug}
+          assets={selectedAssets.map((asset) => ({
+            assetRef: asset.asset_ref,
+            kind: asset.kind,
+            name: asset.name,
+          }))}
+          onClose={() => setMoveOpen(false)}
+          onMoved={(movedRefs) => {
+            const moved = new Set(movedRefs);
+            setAssets((current) => current?.filter((asset) => !moved.has(asset.asset_ref)) ?? null);
+            notify({
+              message: `${movedRefs.length} asset${movedRefs.length === 1 ? "" : "s"} moved.`,
+            });
+            leaveSelectionMode();
           }}
         />
       )}

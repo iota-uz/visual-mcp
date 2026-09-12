@@ -135,6 +135,9 @@ describe("Railway MCP service", () => {
     expect(byName.get("canvas_patch")?.inputSchema.properties).toHaveProperty("operations");
     expect(byName.get("canvas_page_move")?.outputSchema.properties).toHaveProperty("state");
     expect(byName.get("canvas_page_move")?.outputSchema.properties).not.toHaveProperty("pages");
+    expect(byName.get("asset_move")?.inputSchema.properties).toHaveProperty("asset_refs");
+    expect(byName.get("asset_move")?.inputSchema.properties).not.toHaveProperty("asset_ref");
+    expect(byName.get("asset_move")?.outputSchema.properties).toHaveProperty("conflicts");
   });
 
   test("patches page metadata and prototype together with a compact state response", async () => {

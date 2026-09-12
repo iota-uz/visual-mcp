@@ -17,7 +17,7 @@ const FUNCTIONS: Record<string, GatewayFunction> = {
   "assets:getWorkspace": internal.assets.getWorkspace,
   "assets:getWorkspaceBySlug": internal.assets.getWorkspaceBySlug,
   "assets:listInternal": internal.assets.listInternal,
-  "assets:moveByRef": internal.assets.moveByRef,
+  "assets:moveByRefs": internal.assets.moveByRefs,
   "assets:finishObjectDeletion": internal.assets.finishObjectDeletion,
   "assets:releaseObjectLease": internal.assets.releaseObjectLease,
   "assets:resolveRef": internal.assets.resolveRef,

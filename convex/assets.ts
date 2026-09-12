@@ -13,7 +13,7 @@ import {
   validateAssetBytes,
 } from "./lib/assetSecurity";
 import { requireIotaIdentity, resolveUserId } from "./lib/auth";
-import { sha256HexBytes } from "./lib/hash";
+import { sha256Hex, sha256HexBytes } from "./lib/hash";
 import { deleteObject, getObject, headObject, presignObject, putObject } from "./lib/objectStore";
 import { slugify } from "./lib/slug";
 import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
@@ -32,6 +32,42 @@ const kindValidator = v.union(
 
 export const ASSET_TAG_LIMIT = 20;
 export const ASSET_TAG_MAX_LENGTH = 32;
+export const ASSET_MOVE_LIMIT = 100;
+
+const assetMoveItemValidator = v.object({
+  previousAssetRef: v.string(),
+  assetRef: v.string(),
+});
+const assetMoveConflictValidator = v.object({
+  assetRef: v.string(),
+  slug: v.union(v.string(), v.null()),
+  reason: v.union(
+    v.literal("invalid_ref"),
+    v.literal("source_mismatch"),
+    v.literal("not_found"),
+    v.literal("archived"),
+    v.literal("missing_revision"),
+    v.literal("duplicate_asset"),
+    v.literal("slug_collision"),
+  ),
+  message: v.string(),
+});
+const assetMoveResultValidator = v.union(
+  v.object({
+    status: v.literal("moved"),
+    movedCount: v.number(),
+    replayed: v.boolean(),
+    items: v.array(assetMoveItemValidator),
+    conflicts: v.array(assetMoveConflictValidator),
+  }),
+  v.object({
+    status: v.literal("blocked"),
+    movedCount: v.literal(0),
+    replayed: v.literal(false),
+    items: v.array(assetMoveItemValidator),
+    conflicts: v.array(assetMoveConflictValidator),
+  }),
+);
 
 function normalizeAssetTags(tags: string[]): string[] {
   const normalized: string[] = [];
@@ -1256,87 +1292,273 @@ export const restoreByRef = internalMutation({
   },
 });
 
-export const moveByRef = internalMutation({
+type AssetMoveConflict = {
+  assetRef: string;
+  slug: string | null;
+  reason:
+    | "invalid_ref"
+    | "source_mismatch"
+    | "not_found"
+    | "archived"
+    | "missing_revision"
+    | "duplicate_asset"
+    | "slug_collision";
+  message: string;
+};
+
+async function activeWorkspaceBySlug(ctx: AssetLookupCtx, slug: string, label: string) {
+  const workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .unique();
+  if (!workspace || workspace.archivedAt !== undefined)
+    throw new Error(`${label} workspace not found`);
+  return workspace;
+}
+
+function assertAssetMoveInput(args: {
+  assetRefs: string[];
+  sourceWorkspaceSlug: string;
+  destinationWorkspaceSlug: string;
+}) {
+  if (args.assetRefs.length < 1 || args.assetRefs.length > ASSET_MOVE_LIMIT) {
+    throw new Error(`asset_move accepts 1 to ${ASSET_MOVE_LIMIT} asset refs`);
+  }
+  if (args.sourceWorkspaceSlug === args.destinationWorkspaceSlug) {
+    throw new Error("Source and destination workspaces must be different");
+  }
+}
+
+async function inspectAssetMove(
+  ctx: AssetLookupCtx,
   args: {
-    assetRef: v.string(),
-    userId: v.id("users"),
-    destinationScope: scopeValidator,
-    destinationWorkspaceSlug: v.optional(v.string()),
+    assetRefs: string[];
+    sourceWorkspaceSlug: string;
+    destinationWorkspaceSlug: string;
   },
-  returns: v.object({ previousAssetRef: v.string(), assetRef: v.string() }),
-  handler: async (ctx, args) => {
-    const { asset, workspaceSlug: sourceWorkspaceSlug } = await findAssetForRef(
-      ctx,
-      args.assetRef,
-      args.userId,
-    );
-    if (asset.archivedAt !== undefined) throw new Error(`Asset not found: ${args.assetRef}`);
+) {
+  assertAssetMoveInput(args);
+  const sourceWorkspace = await activeWorkspaceBySlug(ctx, args.sourceWorkspaceSlug, "Source");
+  const destinationWorkspace = await activeWorkspaceBySlug(
+    ctx,
+    args.destinationWorkspaceSlug,
+    "Destination",
+  );
+  const conflicts: AssetMoveConflict[] = [];
+  const prepared: Array<{
+    asset: Doc<"assets">;
+    previousAssetRef: string;
+    assetRef: string;
+  }> = [];
+  const seenAssetIds = new Set<string>();
+
+  for (const assetRef of args.assetRefs) {
+    let parsed: ReturnType<typeof parseAssetRef>;
+    try {
+      parsed = parseAssetRef(assetRef);
+    } catch {
+      conflicts.push({
+        assetRef,
+        slug: null,
+        reason: "invalid_ref",
+        message: "Asset ref is invalid",
+      });
+      continue;
+    }
+    if (parsed.scope !== "workspace" || parsed.workspaceSlug !== sourceWorkspace.slug) {
+      conflicts.push({
+        assetRef,
+        slug: parsed.slug,
+        reason: "source_mismatch",
+        message: `Asset does not belong to workspace "${sourceWorkspace.slug}"`,
+      });
+      continue;
+    }
+    const asset = await ctx.db
+      .query("assets")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", sourceWorkspace._id).eq("slug", parsed.slug),
+      )
+      .unique();
+    if (!asset) {
+      conflicts.push({
+        assetRef,
+        slug: parsed.slug,
+        reason: "not_found",
+        message: "Asset was not found in the source workspace",
+      });
+      continue;
+    }
+    if (asset.archivedAt !== undefined) {
+      conflicts.push({
+        assetRef,
+        slug: asset.slug,
+        reason: "archived",
+        message: "Archived assets cannot be moved",
+      });
+      continue;
+    }
+    if (seenAssetIds.has(asset._id)) {
+      conflicts.push({
+        assetRef,
+        slug: asset.slug,
+        reason: "duplicate_asset",
+        message: "The same asset appears more than once",
+      });
+      continue;
+    }
+    seenAssetIds.add(asset._id);
     const version = await latestAssetRevision(ctx, asset._id);
-    if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
-
-    let destinationWorkspace: Doc<"workspaces"> | null = null;
-    if (args.destinationScope === "workspace") {
-      if (!args.destinationWorkspaceSlug) {
-        throw new Error("destination_workspace is required for workspace assets");
-      }
-      destinationWorkspace = await ctx.db
-        .query("workspaces")
-        .withIndex("by_slug", (q) => q.eq("slug", args.destinationWorkspaceSlug as string))
-        .unique();
-      if (!destinationWorkspace || destinationWorkspace.archivedAt !== undefined) {
-        throw new Error("Destination workspace not found");
-      }
-    } else if (args.destinationWorkspaceSlug) {
-      throw new Error("destination_workspace is only valid for workspace assets");
+    if (!version) {
+      conflicts.push({
+        assetRef,
+        slug: asset.slug,
+        reason: "missing_revision",
+        message: "Asset has no media revision",
+      });
+      continue;
     }
-
-    const sameDestination =
-      asset.scope === args.destinationScope &&
-      (asset.scope === "personal" || asset.workspaceId === destinationWorkspace?._id);
-    if (sameDestination) throw new Error("Asset is already in the destination library");
-
-    const collision =
-      args.destinationScope === "personal"
-        ? await ctx.db
-            .query("assets")
-            .withIndex("by_owner_slug", (q) =>
-              q.eq("ownerUserId", args.userId).eq("slug", asset.slug),
-            )
-            .unique()
-        : await ctx.db
-            .query("assets")
-            .withIndex("by_workspace_slug", (q) =>
-              q.eq("workspaceId", destinationWorkspace?._id).eq("slug", asset.slug),
-            )
-            .unique();
+    const collision = await ctx.db
+      .query("assets")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", destinationWorkspace._id).eq("slug", asset.slug),
+      )
+      .unique();
     if (collision) {
-      throw new Error(
-        `An asset with slug "${asset.slug}" already exists in the destination library`,
-      );
+      conflicts.push({
+        assetRef,
+        slug: asset.slug,
+        reason: "slug_collision",
+        message: `Destination already contains an asset with slug "${asset.slug}"`,
+      });
+      continue;
     }
-
-    const previousAssetRef = formatAssetRef({
-      scope: asset.scope,
-      workspaceSlug: sourceWorkspaceSlug,
-      slug: asset.slug,
-      revision: version.revision,
-    });
-    await ctx.db.patch(asset._id, {
-      scope: args.destinationScope,
-      ownerUserId: args.destinationScope === "personal" ? args.userId : undefined,
-      workspaceId: args.destinationScope === "workspace" ? destinationWorkspace?._id : undefined,
-      updatedAt: Date.now(),
-    });
-    return {
-      previousAssetRef,
-      assetRef: formatAssetRef({
-        scope: args.destinationScope,
-        workspaceSlug: destinationWorkspace?.slug,
+    prepared.push({
+      asset,
+      previousAssetRef: formatAssetRef({
+        scope: "workspace",
+        workspaceSlug: sourceWorkspace.slug,
         slug: asset.slug,
         revision: version.revision,
       }),
-    };
+      assetRef: formatAssetRef({
+        scope: "workspace",
+        workspaceSlug: destinationWorkspace.slug,
+        slug: asset.slug,
+        revision: version.revision,
+      }),
+    });
+  }
+  return { sourceWorkspace, destinationWorkspace, conflicts, prepared };
+}
+
+async function moveAssetsByRefs(
+  ctx: MutationCtx,
+  args: {
+    assetRefs: string[];
+    userId: Id<"users">;
+    sourceWorkspaceSlug: string;
+    destinationWorkspaceSlug: string;
+    idempotencyKey: string;
   },
+) {
+  if (!args.idempotencyKey || args.idempotencyKey.length > 200) {
+    throw new Error("idempotency_key must contain 1 to 200 characters");
+  }
+  assertAssetMoveInput(args);
+  const inputHash = await sha256Hex(
+    JSON.stringify([
+      "asset-move-v1",
+      args.sourceWorkspaceSlug,
+      args.destinationWorkspaceSlug,
+      args.assetRefs,
+    ]),
+  );
+  const previous = await ctx.db
+    .query("assetMoveOperations")
+    .withIndex("by_principalId_and_idempotencyKey", (q) =>
+      q.eq("principalId", args.userId).eq("idempotencyKey", args.idempotencyKey),
+    )
+    .unique();
+  if (previous) {
+    if (previous.inputHash !== inputHash) {
+      throw new Error("Idempotency key belongs to a different asset_move request");
+    }
+    const items = await ctx.db
+      .query("assetMoveItems")
+      .withIndex("by_operationId_and_position", (q) => q.eq("operationId", previous._id))
+      .collect();
+    return {
+      status: "moved" as const,
+      movedCount: items.length,
+      replayed: true,
+      items: items.map((item) => ({
+        previousAssetRef: item.previousAssetRef,
+        assetRef: item.assetRef,
+      })),
+      conflicts: [],
+    };
+  }
+
+  const inspection = await inspectAssetMove(ctx, args);
+  if (inspection.conflicts.length > 0) {
+    return {
+      status: "blocked" as const,
+      movedCount: 0 as const,
+      replayed: false as const,
+      items: [],
+      conflicts: inspection.conflicts,
+    };
+  }
+
+  const movedAt = Date.now();
+  for (const item of inspection.prepared) {
+    await ctx.db.patch(item.asset._id, {
+      scope: "workspace",
+      ownerUserId: undefined,
+      workspaceId: inspection.destinationWorkspace._id,
+      updatedAt: movedAt,
+    });
+  }
+  const operationId = await ctx.db.insert("assetMoveOperations", {
+    principalId: args.userId,
+    idempotencyKey: args.idempotencyKey,
+    inputHash,
+    sourceWorkspaceId: inspection.sourceWorkspace._id,
+    destinationWorkspaceId: inspection.destinationWorkspace._id,
+    movedAt,
+  });
+  for (const [position, item] of inspection.prepared.entries()) {
+    await ctx.db.insert("assetMoveItems", {
+      operationId,
+      position,
+      assetId: item.asset._id,
+      previousAssetRef: item.previousAssetRef,
+      assetRef: item.assetRef,
+    });
+  }
+  return {
+    status: "moved" as const,
+    movedCount: inspection.prepared.length,
+    replayed: false,
+    items: inspection.prepared.map((item) => ({
+      previousAssetRef: item.previousAssetRef,
+      assetRef: item.assetRef,
+    })),
+    conflicts: [],
+  };
+}
+
+export const moveByRefs = internalMutation({
+  args: {
+    assetRefs: v.array(v.string()),
+    userId: v.id("users"),
+    sourceWorkspaceSlug: v.string(),
+    destinationWorkspaceSlug: v.string(),
+    idempotencyKey: v.string(),
+  },
+  returns: assetMoveResultValidator,
+  handler: async (ctx, args) => moveAssetsByRefs(ctx, args),
 });
 
 export const attachMine = action({
@@ -1431,6 +1653,44 @@ export const listForCanvasMine = query({
       });
     }
     return rows;
+  },
+});
+
+export const previewMoveMine = query({
+  args: {
+    assetRefs: v.array(v.string()),
+    sourceWorkspaceSlug: v.string(),
+    destinationWorkspaceSlug: v.string(),
+  },
+  returns: v.object({
+    status: v.union(v.literal("ready"), v.literal("blocked")),
+    readyCount: v.number(),
+    conflicts: v.array(assetMoveConflictValidator),
+  }),
+  handler: async (ctx, args) => {
+    await requireIotaIdentity(ctx);
+    const inspection = await inspectAssetMove(ctx, args);
+    return {
+      status: inspection.conflicts.length === 0 ? ("ready" as const) : ("blocked" as const),
+      readyCount: inspection.prepared.length,
+      conflicts: inspection.conflicts,
+    };
+  },
+});
+
+export const moveMine = mutation({
+  args: {
+    assetRefs: v.array(v.string()),
+    sourceWorkspaceSlug: v.string(),
+    destinationWorkspaceSlug: v.string(),
+    idempotencyKey: v.string(),
+  },
+  returns: assetMoveResultValidator,
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const userId = await resolveUserId(ctx, identity);
+    if (!userId) throw new Error("Signed-in user record not found");
+    return moveAssetsByRefs(ctx, { ...args, userId });
   },
 });
 

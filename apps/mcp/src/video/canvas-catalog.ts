@@ -45,7 +45,7 @@ export function attachCanvasCatalog(
       };
       for (const key of ["ref", "source_ref", "destination_ref"])
         if (input[key]) await ref(input[key]);
-      for (const key of ["workspace", "destination_workspace"])
+      for (const key of ["workspace", "source_workspace", "destination_workspace"])
         if (input[key]) await slug(input[key]);
       if (input.scope === "personal" || input.destination_scope === "personal")
         throw new VideoDomainError(
@@ -60,6 +60,17 @@ export function attachCanvasCatalog(
             "Personal assets require direct inspection or import into the selected workspace.",
           );
         await slug(asset.workspaceSlug);
+      }
+      if (Array.isArray(input.asset_refs)) {
+        for (const value of input.asset_refs) {
+          const asset = parseAssetRef(z.string().parse(value));
+          if (asset.scope !== "workspace")
+            throw new VideoDomainError(
+              "SCOPE_MISMATCH",
+              "asset_move accepts workspace assets only.",
+            );
+          await slug(asset.workspaceSlug);
+        }
       }
       if (input.comment_id) {
         const scope = obj(await call("getCanvasCommentScope", { commentId: input.comment_id }));

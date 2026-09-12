@@ -46,11 +46,23 @@ function fixture(mixedAssets = false) {
     }),
     actionContext: () => ({
       storage: {},
-      runMutation: async (_fn: unknown, input: Record<string, unknown>) => ({
-        assetRef: input.assetRef,
-        revision: 1,
-        tags: input.tags,
-      }),
+      runMutation: async (_fn: unknown, input: Record<string, unknown>) =>
+        Array.isArray(input.assetRefs)
+          ? {
+              status: "moved",
+              movedCount: input.assetRefs.length,
+              replayed: false,
+              items: input.assetRefs.map((assetRef) => ({
+                previousAssetRef: assetRef,
+                assetRef: String(assetRef).replace("/farq/", "/aktuar/"),
+              })),
+              conflicts: [],
+            }
+          : {
+              assetRef: input.assetRef,
+              revision: 1,
+              tags: input.tags,
+            },
       runQuery: async (_fn: unknown, input: Record<string, unknown>) =>
         input.slug
           ? {
@@ -337,6 +349,31 @@ test("installed SDK client validates populated asset list/get against published 
       revision: 1,
       tags: ["voice", "approved"],
     });
+    const moved = await client.callTool({
+      name: "asset_move",
+      arguments: {
+        source_workspace: "farq",
+        destination_workspace: "aktuar",
+        asset_refs: ["asset://workspace/farq/image@1", "asset://workspace/farq/audio@1"],
+        idempotency_key: "move-media",
+      },
+    });
+    expect(moved.structuredContent).toEqual({
+      status: "moved",
+      moved_count: 2,
+      replayed: false,
+      items: [
+        {
+          previous_asset_ref: "asset://workspace/farq/image@1",
+          asset_ref: "asset://workspace/aktuar/image@1",
+        },
+        {
+          previous_asset_ref: "asset://workspace/farq/audio@1",
+          asset_ref: "asset://workspace/aktuar/audio@1",
+        },
+      ],
+      conflicts: [],
+    });
   } finally {
     await client.close();
   }
@@ -412,6 +449,17 @@ test("unified execute shares real asset handlers and video tools with workspace 
   await f.wait(rejected.structuredContent.data.job_id);
   expect(f.jobs.get(rejected.structuredContent.data.job_id)?.state).toBe("failed");
   expect(f.effects.get(rejected.structuredContent.data.job_id)).toEqual([]);
+  const crossWorkspaceMove = await f.tool(
+    "execute",
+    {
+      workspace_id: "w1",
+      idempotency_key: "cross-workspace-asset-move",
+      code: "await tools.asset_move({source_workspace:'farq',destination_workspace:'outside',asset_refs:['asset://workspace/farq/image@1'],idempotency_key:'move'});",
+    },
+    "/mcp",
+  );
+  await f.wait(crossWorkspaceMove.structuredContent.data.job_id);
+  expect(f.jobs.get(crossWorkspaceMove.structuredContent.data.job_id)?.state).toBe("failed");
 });
 test("actual MCP→worker runtime→broker roundtrip persists output and never replays completed code", async () => {
   const f = fixture();

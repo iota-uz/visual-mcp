@@ -4465,38 +4465,74 @@ export function registerTools(
   server.registerTool(
     "asset_move",
     {
-      title: "Move an Asset Library item",
+      title: "Move Asset Library items",
       description:
-        "Moves an asset between personal and workspace libraries without uploading bytes again. " +
-        "For destination_scope=workspace, destination_workspace is required. The old asset_ref " +
-        "stops resolving for new operations; existing canvas bindings remain pinned to their " +
-        "immutable revisions. A destination slug collision is returned as an error and never overwrites.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+        "Atomically moves 1 to 100 assets from one workspace library to another without copying " +
+        "bytes or revisions. Pass a one-item asset_refs array for a single asset. If any ref is " +
+        "invalid or any destination slug collides, status=blocked reports every conflict and moves " +
+        "nothing. Old asset refs stop resolving after success; existing pinned canvas and video " +
+        "bindings remain valid. Reuse the same idempotency_key with unchanged input only to recover " +
+        "an uncertain response. Call this tool directly; workspace-scoped execute rejects intentional " +
+        "cross-workspace writes.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: z
         .object({
-          asset_ref: z.string(),
-          destination_scope: assetScopeSchema,
-          destination_workspace: z.string().optional(),
+          source_workspace: z.string().min(1),
+          destination_workspace: z.string().min(1),
+          asset_refs: z.array(z.string()).min(1).max(100),
+          idempotency_key: z.string().min(1).max(200),
         })
         .strict(),
       outputSchema: z.object({
-        status: z.literal("ok"),
-        previous_asset_ref: z.string(),
-        asset_ref: z.string(),
+        status: z.enum(["moved", "blocked"]),
+        moved_count: z.number().int().nonnegative(),
+        replayed: z.boolean(),
+        items: z.array(
+          z.object({ previous_asset_ref: z.string(), asset_ref: z.string() }).strict(),
+        ),
+        conflicts: z.array(
+          z
+            .object({
+              asset_ref: z.string(),
+              slug: z.string().nullable(),
+              reason: z.enum([
+                "invalid_ref",
+                "source_mismatch",
+                "not_found",
+                "archived",
+                "missing_revision",
+                "duplicate_asset",
+                "slug_collision",
+              ]),
+              message: z.string(),
+            })
+            .strict(),
+        ),
       }),
     },
     async (input) =>
       runTool(async () => {
-        const moved = await ctx.runMutation(internal.assets.moveByRef, {
-          assetRef: input.asset_ref,
+        const moved = await ctx.runMutation(internal.assets.moveByRefs, {
+          assetRefs: input.asset_refs,
           userId: principal.userId,
-          destinationScope: input.destination_scope,
+          sourceWorkspaceSlug: input.source_workspace,
           destinationWorkspaceSlug: input.destination_workspace,
+          idempotencyKey: input.idempotency_key,
         });
         return result({
-          status: "ok" as const,
-          previous_asset_ref: moved.previousAssetRef,
-          asset_ref: moved.assetRef,
+          status: moved.status,
+          moved_count: moved.movedCount,
+          replayed: moved.replayed,
+          items: moved.items.map((item) => ({
+            previous_asset_ref: item.previousAssetRef,
+            asset_ref: item.assetRef,
+          })),
+          conflicts: moved.conflicts.map((conflict) => ({
+            asset_ref: conflict.assetRef,
+            slug: conflict.slug,
+            reason: conflict.reason,
+            message: conflict.message,
+          })),
         });
       }),
   );

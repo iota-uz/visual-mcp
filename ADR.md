@@ -35,6 +35,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## assets
 
+- **Перенос ассетов пакетный по умолчанию и атомарный** — [запись](adr/assets/atomic-batch-asset-move.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Теги изменяются на уровне ассета без новой медиа-ревизии** — [запись](adr/assets/mutable-asset-tags.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Буферизуемые ответы генерации обрабатываются в доверенном Node action** — [запись](adr/assets/trusted-provider-node-runtime.md) · accepted · 2026-09-10 (Convex limits, video delivery review)

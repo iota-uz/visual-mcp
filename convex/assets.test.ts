@@ -427,24 +427,31 @@ describe("Asset Library bindings", () => {
     ).toEqual({ assetRef: ref, mode: "restored" });
   });
 
-  test("moves personal to workspace and back without changing immutable versions", async () => {
+  test("moves a workspace batch atomically and replays it without changing versions", async () => {
     const t = convexTest(schema, modules);
-    const { userId, workspaceId } = await t.run(async (ctx) => {
+    const { userId, sourceWorkspaceId, destinationWorkspaceId } = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", {
         email: "move@iota.uz",
         name: "Move",
         lastSeenAt: 0,
       });
-      const workspaceId = await ctx.db.insert("workspaces", {
-        slug: "move-ws",
-        name: "Move WS",
+      const sourceWorkspaceId = await ctx.db.insert("workspaces", {
+        slug: "source",
+        name: "Source",
         createdBy: userId,
       });
-      return { userId, workspaceId };
+      const destinationWorkspaceId = await ctx.db.insert("workspaces", {
+        slug: "destination",
+        name: "Destination",
+        createdBy: userId,
+      });
+      return { userId, sourceWorkspaceId, destinationWorkspaceId };
     });
-    const asset = await t.mutation(internal.assets.commitAssetVersion, {
-      scope: "personal",
+    const first = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
       ownerUserId: userId,
+      workspaceId: sourceWorkspaceId,
+      workspaceSlug: "source",
       slug: "mark",
       name: "Mark",
       tags: [],
@@ -456,33 +463,75 @@ describe("Asset Library bindings", () => {
       originalFilename: "mark.svg",
       sourceType: "upload",
     });
-    const personalRef = "asset://personal/mark@1";
-    const intoWorkspace = await t.mutation(internal.assets.moveByRef, {
-      assetRef: personalRef,
+    const second = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      ownerUserId: userId,
+      workspaceId: sourceWorkspaceId,
+      workspaceSlug: "source",
+      slug: "photo",
+      name: "Photo",
+      tags: ["campaign"],
+      kind: "image",
+      objectKey: "assets/photo",
+      contentHash: "photo-hash",
+      mimeType: "image/png",
+      size: 12,
+      originalFilename: "photo.png",
+      sourceType: "upload",
+    });
+    const sourceRefs = ["asset://workspace/source/mark@1", "asset://workspace/source/photo@1"];
+    const intoWorkspace = await t.mutation(internal.assets.moveByRefs, {
+      assetRefs: sourceRefs,
       userId,
-      destinationScope: "workspace",
-      destinationWorkspaceSlug: "move-ws",
+      sourceWorkspaceSlug: "source",
+      destinationWorkspaceSlug: "destination",
+      idempotencyKey: "move-batch",
     });
-    expect(intoWorkspace).toEqual({
-      previousAssetRef: personalRef,
-      assetRef: "asset://workspace/move-ws/mark@1",
+    expect(intoWorkspace).toMatchObject({
+      status: "moved",
+      movedCount: 2,
+      replayed: false,
+      items: [
+        {
+          previousAssetRef: sourceRefs[0],
+          assetRef: "asset://workspace/destination/mark@1",
+        },
+        {
+          previousAssetRef: sourceRefs[1],
+          assetRef: "asset://workspace/destination/photo@1",
+        },
+      ],
     });
-    await expect(t.query(internal.assets.resolveRef, { ref: personalRef, userId })).rejects.toThrow(
-      "Asset not found",
-    );
+    for (const ref of sourceRefs) {
+      await expect(t.query(internal.assets.resolveRef, { ref, userId })).rejects.toThrow(
+        "Asset not found",
+      );
+    }
     const resolved = await t.query(internal.assets.resolveRef, {
-      ref: intoWorkspace.assetRef,
+      ref: intoWorkspace.items[0]?.assetRef ?? "",
       userId,
     });
-    expect(resolved.assetVersionId).toBe(asset.versionId);
-    const back = await t.mutation(internal.assets.moveByRef, {
-      assetRef: intoWorkspace.assetRef,
+    expect(resolved.assetVersionId).toBe(first.versionId);
+    const replay = await t.mutation(internal.assets.moveByRefs, {
+      assetRefs: sourceRefs,
       userId,
-      destinationScope: "personal",
+      sourceWorkspaceSlug: "source",
+      destinationWorkspaceSlug: "destination",
+      idempotencyKey: "move-batch",
     });
-    expect(back.assetRef).toBe(personalRef);
-    expect((await t.run((ctx) => ctx.db.get(asset.versionId)))?.objectKey).toBe("assets/mark");
-    expect(workspaceId).toBeDefined();
+    expect(replay).toMatchObject({ status: "moved", movedCount: 2, replayed: true });
+    await expect(
+      t.mutation(internal.assets.moveByRefs, {
+        assetRefs: [sourceRefs[0] as string],
+        userId,
+        sourceWorkspaceSlug: "source",
+        destinationWorkspaceSlug: "destination",
+        idempotencyKey: "move-batch",
+      }),
+    ).rejects.toThrow("different asset_move request");
+    expect((await t.run((ctx) => ctx.db.get(first.versionId)))?.objectKey).toBe("assets/mark");
+    expect((await t.run((ctx) => ctx.db.get(second.versionId)))?.objectKey).toBe("assets/photo");
+    expect(destinationWorkspaceId).toBeDefined();
   });
 
   test("refuses destination collisions and refs belonging to another user or workspace", async () => {
@@ -503,8 +552,12 @@ describe("Asset Library bindings", () => {
         name: "One",
         createdBy: owner,
       });
-      await ctx.db.insert("workspaces", { slug: "two", name: "Two", createdBy: owner });
-      return { owner, other, workspace };
+      const destination = await ctx.db.insert("workspaces", {
+        slug: "two",
+        name: "Two",
+        createdBy: owner,
+      });
+      return { owner, other, workspace, destination };
     });
     const base = {
       slug: "logo",
@@ -530,13 +583,34 @@ describe("Asset Library bindings", () => {
       workspaceId: ids.workspace,
       workspaceSlug: "one",
     });
+    await t.mutation(internal.assets.commitAssetVersion, {
+      ...base,
+      scope: "workspace",
+      ownerUserId: ids.owner,
+      workspaceId: ids.destination,
+      workspaceSlug: "two",
+      objectKey: "assets/logo-two",
+      contentHash: "hash-two",
+    });
     await expect(
-      t.mutation(internal.assets.moveByRef, {
-        assetRef: "asset://workspace/one/logo@1",
+      t.mutation(internal.assets.moveByRefs, {
+        assetRefs: ["asset://workspace/one/logo@1"],
         userId: ids.owner,
-        destinationScope: "personal",
+        sourceWorkspaceSlug: "one",
+        destinationWorkspaceSlug: "two",
+        idempotencyKey: "collision",
       }),
-    ).rejects.toThrow("already exists");
+    ).resolves.toMatchObject({
+      status: "blocked",
+      movedCount: 0,
+      conflicts: [{ reason: "slug_collision", slug: "logo" }],
+    });
+    await expect(
+      t.query(internal.assets.resolveRef, {
+        ref: "asset://workspace/one/logo@1",
+        userId: ids.owner,
+      }),
+    ).resolves.toMatchObject({ assetRef: "asset://workspace/one/logo@1" });
     await expect(
       t.mutation(internal.assets.archiveByRef, {
         assetRef: "asset://personal/logo@1",
@@ -551,13 +625,13 @@ describe("Asset Library bindings", () => {
     ).rejects.toThrow("Asset not found");
     await expect(
       t.mutation(internal.assets.restoreByRef, {
-        assetRef: "asset://workspace/two/logo@1",
+        assetRef: "asset://workspace/two/missing@1",
         userId: ids.owner,
       }),
     ).rejects.toThrow("Asset not found");
     await expect(
       t.mutation(internal.assets.archiveByRef, {
-        assetRef: "asset://workspace/two/logo@1",
+        assetRef: "asset://workspace/two/missing@1",
         userId: ids.owner,
       }),
     ).rejects.toThrow("Asset not found");
