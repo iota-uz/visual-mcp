@@ -19,7 +19,7 @@ export type WorkspaceCover =
       title: string;
       kind: string;
       thumbnail_url: string | null;
-      poster: CanvasPoster | null;
+      poster: CanvasPoster | null | undefined;
       static_render_status: StaticRenderState;
     }
   | {
@@ -130,7 +130,7 @@ export function WorkspaceCard({
               <CanvasCover
                 key={item.canvas_id}
                 kind={item.kind}
-                poster={item.poster}
+                poster={item.poster ?? null}
                 thumbnailUrl={item.thumbnail_url}
                 size="strip"
                 className={`canvas-card-${item.kind}`}
