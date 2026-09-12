@@ -1,7 +1,7 @@
 ---
 id: native-character-animation-video-mvp
 title: MVP нативной персонажной анимации исполняется внутри Video Studio
-status: accepted
+status: superseded
 date: 2026-09-12
 deciders: [unknown]
 area: platform
@@ -16,7 +16,7 @@ refs:
   - /tmp/codex-remote-attachments/01a09505-516a-7cc1-9dd3-6724edfb26a8/1A209399-2673-4F4E-9B84-EF569EFEFFCD/1-farq_agent_native_animation_engine_spec.docx
   - запрос пользователя
 supersedes: [native-animation-playground-mvp]
-superseded_by: []
+superseded_by: [native-character-animation-engine-v0-2]
 ---
 
 ## Контекст

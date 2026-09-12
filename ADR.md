@@ -59,7 +59,9 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
-- **MVP нативной персонажной анимации исполняется внутри Video Studio** — [запись](adr/platform/native-character-animation-video-mvp.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-animation-playground-mvp)
+- **Персонажная анимация использует data-driven packs и процедурный runtime** — [запись](adr/platform/native-character-animation-engine-v0-2.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-character-animation-video-mvp)
+
+- **MVP нативной персонажной анимации исполняется внутри Video Studio** — [запись](adr/platform/native-character-animation-video-mvp.md) · superseded · 2026-09-12 (запрос пользователя; supersedes native-animation-playground-mvp)
 
 - **Ошибки локальных media jobs освобождают leases и несут безопасный reason code** — [запись](adr/platform/video-result-failure-lifecycle.md) · accepted · 2026-09-11 (запрос пользователя)
 

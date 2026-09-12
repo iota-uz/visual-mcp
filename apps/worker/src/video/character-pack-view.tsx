@@ -1,0 +1,241 @@
+import type { CharacterPack, CharacterProp, CharacterShape } from "@visual-canvas/video/registry";
+import type { EvaluatedRig, Matrix2D } from "./character-runtime.js";
+import { inverseMatrix, transformPoint } from "./character-runtime.js";
+
+export type CharacterFaceState = {
+  /** Pupil displacement in pack coordinates, after the gaze solver. */
+  gazeX: number;
+  gazeY: number;
+  eyeOpen: number;
+  browTilt: number;
+  mouthCurve: number;
+  viseme: "rest" | "a" | "e" | "o" | "u" | "m";
+  /** Continuous speech envelope, independent of the discrete mouth shape. */
+  mouthOpen: number;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const matrixAttribute = (matrix: Matrix2D) => `matrix(${matrix.join(" ")})`;
+
+/** Typed artwork stays data: no pack-specific code, markup injection or URL loading. */
+export function CharacterVectorShape({ shape }: { shape: CharacterShape }) {
+  const stroke = {
+    stroke: shape.stroke,
+    strokeWidth: shape.strokeWidth,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  switch (shape.kind) {
+    case "ellipse":
+      return (
+        <ellipse
+          cx={shape.x}
+          cy={shape.y}
+          rx={shape.rx}
+          ry={shape.ry}
+          fill={shape.fill}
+          {...stroke}
+        />
+      );
+    case "rect":
+      return (
+        <rect
+          x={shape.x}
+          y={shape.y}
+          width={shape.width}
+          height={shape.height}
+          rx={shape.radius}
+          fill={shape.fill}
+          {...stroke}
+        />
+      );
+    case "path":
+      return <path d={shape.d} fill={shape.fill} {...stroke} />;
+  }
+}
+
+function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }) {
+  if (!pack.capabilities.arms) return null;
+  // Draw in body space to preserve stroke width under scale/squash while the IK
+  // result remains in the same world space as every other evaluated node.
+  const body = rig.body!.matrix;
+  const toBody = inverseMatrix(body);
+  return (
+    <g transform={matrixAttribute(body)} data-character-part="arms">
+      {(["left", "right"] as const).map((side) => {
+        const shoulder = transformPoint(toBody, rig[`${side}Shoulder`]!.origin);
+        const elbow = transformPoint(toBody, rig[`${side}Elbow`]!.origin);
+        const hand = transformPoint(toBody, rig[`${side}Hand`]!.origin);
+        return (
+          <path
+            key={side}
+            data-arm={side}
+            d={`M${shoulder.x} ${shoulder.y} L${elbow.x} ${elbow.y} L${hand.x} ${hand.y}`}
+            fill="none"
+            stroke={pack.style.limbColor}
+            strokeWidth={pack.style.limbWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+/** A separate pass lets the scene draw a held object between the palm and fingers. */
+export function CharacterHandsView({
+  pack,
+  rig,
+  opacity = 1,
+}: {
+  pack: CharacterPack;
+  rig: EvaluatedRig;
+  opacity?: number;
+}) {
+  if (!pack.capabilities.arms) return null;
+  return (
+    <g data-character-part="hands" opacity={opacity}>
+      {(["left", "right"] as const).map((side) => (
+        <circle
+          key={side}
+          data-hand={side}
+          transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
+          r={pack.style.handRadius}
+          fill={pack.style.limbColor}
+        />
+      ))}
+    </g>
+  );
+}
+
+function CharacterFace({
+  pack,
+  rig,
+  face,
+}: {
+  pack: CharacterPack;
+  rig: EvaluatedRig;
+  face: CharacterFaceState;
+}) {
+  const { eyeRadius: radius, eyeSpacing, eyeWhite, eyeColor, mouthColor, mouthWidth } = pack.style;
+  // Keep pupils inside their eye whites, even if an unusually shaped pack asks
+  // for a gaze offset larger than its eye radius.
+  const gazeLength = Math.hypot(face.gazeX, face.gazeY);
+  const gazeScale = pack.capabilities.gaze
+    ? Math.min(1, (radius * 0.5) / Math.max(1e-9, gazeLength))
+    : 0;
+  const eyeOpen = clamp(face.eyeOpen, 0.02, 2);
+  const browTilt = clamp(face.browTilt, -1, 1) * radius * 0.55;
+  const halfWidth = mouthWidth / 2;
+  const mouthOpen = pack.capabilities.talk ? clamp(face.mouthOpen, 0, 1) : 0;
+  const viseme = pack.capabilities.talk ? face.viseme : "rest";
+  const round = viseme === "o" || viseme === "u";
+  const open = mouthOpen > 0.01 && (round || viseme === "a" || viseme === "e");
+  const mouthHalfWidth =
+    halfWidth * (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
+  const mouthHeight =
+    mouthWidth * (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) * mouthOpen;
+  return (
+    <>
+      <g transform={matrixAttribute(rig.eyes!.matrix)} data-character-part="eyes">
+        {([-1, 1] as const).map((side) => (
+          <g key={side} transform={`translate(${(side * eyeSpacing) / 2} 0)`}>
+            <g transform={`scale(1 ${eyeOpen})`}>
+              <circle r={radius} fill={eyeWhite} />
+              <circle
+                cx={face.gazeX * gazeScale}
+                cy={face.gazeY * gazeScale}
+                r={radius * 0.4}
+                fill={eyeColor}
+              />
+            </g>
+            <path
+              d={`M${-radius * 0.8} ${-radius * 1.45 + side * browTilt} L${radius * 0.8} ${-radius * 1.45 - side * browTilt}`}
+              fill="none"
+              stroke={eyeColor}
+              strokeWidth={Math.max(1, radius * 0.16)}
+              strokeLinecap="round"
+            />
+          </g>
+        ))}
+      </g>
+      <g
+        transform={matrixAttribute(rig.mouth!.matrix)}
+        data-character-part="mouth"
+        data-viseme={viseme}
+      >
+        {open ? (
+          <ellipse rx={mouthHalfWidth} ry={Math.max(0.5, mouthHeight)} fill={mouthColor} />
+        ) : (
+          <path
+            d={`M${-halfWidth} 0 Q0 ${clamp(face.mouthCurve, -1, 1) * mouthWidth * 0.55} ${halfWidth} 0`}
+            fill="none"
+            stroke={mouthColor}
+            strokeWidth={Math.max(1.5, mouthWidth * 0.11)}
+            strokeLinecap="round"
+          />
+        )}
+      </g>
+    </>
+  );
+}
+
+/** All evaluated matrices are SVG world coordinates. Artwork is node-local. */
+export function CharacterPackView({
+  pack,
+  rig,
+  face,
+  opacity = 1,
+  renderHands = true,
+}: {
+  pack: CharacterPack;
+  rig: EvaluatedRig;
+  face: CharacterFaceState;
+  opacity?: number;
+  renderHands?: boolean;
+}) {
+  return (
+    <g aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
+      <CharacterArms pack={pack} rig={rig} />
+      {pack.layers.map((layer) => (
+        <g
+          key={layer.id}
+          data-layer={layer.id}
+          transform={matrixAttribute(rig[layer.node]!.matrix)}
+        >
+          {layer.shapes.map((shape, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: Pack shape order is immutable within a checkpoint.
+            <CharacterVectorShape key={index} shape={shape} />
+          ))}
+        </g>
+      ))}
+      <CharacterFace pack={pack} rig={rig} face={face} />
+      {renderHands ? <CharacterHandsView pack={pack} rig={rig} /> : null}
+    </g>
+  );
+}
+
+export function CharacterPropView({
+  prop,
+  matrix,
+  opacity = 1,
+}: {
+  prop: CharacterProp;
+  matrix: Matrix2D;
+  opacity?: number;
+}) {
+  return (
+    <g
+      aria-label={prop.label}
+      data-character-prop="true"
+      transform={matrixAttribute(matrix)}
+      opacity={opacity}
+    >
+      {prop.shapes.map((shape, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: Prop shape order is immutable within a checkpoint.
+        <CharacterVectorShape key={index} shape={shape} />
+      ))}
+    </g>
+  );
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CharacterSceneProps } from "./character.js";
 import { AssetRef, ResourceRef } from "./refs.js";
 
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/);
@@ -165,207 +166,21 @@ export const CompareProps = z
     color: Color,
   })
   .strict();
-/**
- * The first native 2D character contract deliberately describes intent rather
- * than renderer code. A renderer owns the rig implementation; saved timelines
- * only contain stable actors, actions and text overlays.
- */
-const Character = z.enum(["farq-mascot", "customer"]);
-const Emotion = z.enum(["neutral", "happy", "shocked", "thinking"]);
-const ActionFrame = z.number().int().min(0).max(72000);
-const ActionBase = {
-  actorId: Key,
-  startFrame: ActionFrame,
-  durationFrames: z.number().int().min(1).max(72000),
-};
-const CharacterAction = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("enter"), ...ActionBase, from: z.enum(["left", "right"]) }).strict(),
-  z
-    .object({
-      type: z.literal("look"),
-      ...ActionBase,
-      target: z.union([z.literal("camera"), z.literal("left"), z.literal("right"), Key]),
-    })
-    .strict(),
-  z.object({ type: z.literal("blink"), ...ActionBase }).strict(),
-  z
-    .object({
-      type: z.literal("talk"),
-      ...ActionBase,
-      emotion: Emotion.optional(),
-      visemes: z
-        .array(
-          z
-            .object({ frame: ActionFrame, shape: z.enum(["rest", "a", "e", "o", "u", "m"]) })
-            .strict(),
-        )
-        .min(1)
-        .max(128),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("gesture"),
-      ...ActionBase,
-      preset: z.enum(["point", "explain", "shrug", "show-phone"]),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("react"),
-      ...ActionBase,
-      preset: Emotion.exclude(["neutral"]),
-    })
-    .strict(),
-]);
-const CharacterOverlay = z
-  .object({
-    text: z.string().trim().min(1).max(500),
-    x: z.number().min(0).max(1),
-    y: z.number().min(0).max(1),
-    startFrame: ActionFrame,
-    endFrame: z.number().int().min(1).max(72000),
-    style: z.enum(["caption", "price-old", "price-new", "cta"]),
-  })
-  .strict()
-  .superRefine((overlay, ctx) => {
-    if (overlay.endFrame <= overlay.startFrame)
-      ctx.addIssue({
-        code: "custom",
-        path: ["endFrame"],
-        message: "Overlay endFrame must be after startFrame",
-      });
-  });
-const actionOwnership = (action: z.infer<typeof CharacterAction>) => {
-  switch (action.type) {
-    case "enter":
-      return ["transform"];
-    case "look":
-      return ["gaze"];
-    case "blink":
-      return ["eyes"];
-    case "talk":
-      return action.emotion ? ["mouth", "emotion"] : ["mouth"];
-    case "gesture":
-      return ["arms"];
-    case "react":
-      return ["emotion"];
-  }
-};
-/** Serializable semantic AST for the built-in symbolic 2D character rigs. */
-export const CharacterSceneProps = z
-  .object({
-    background: Color,
-    seed: z.number().int().min(0).max(0xffffffff),
-    actorOrder: z.array(Key).min(1).max(8),
-    actorsById: z.record(
-      Key,
-      z
-        .object({
-          character: Character,
-          x: z.number().min(0).max(1),
-          y: z.number().min(0).max(1),
-          scale: z.number().min(0.1).max(3),
-          facing: z.enum(["left", "right"]),
-          initialEmotion: Emotion,
-        })
-        .strict(),
-    ),
-    actionOrder: z.array(Key).max(100),
-    actionsById: z.record(Key, CharacterAction),
-    overlayOrder: z.array(Key).max(32).default([]),
-    overlaysById: z.record(Key, CharacterOverlay).default({}),
-    caption: z.string().trim().min(1).max(500).optional(),
-  })
-  .strict()
-  .superRefine((props, ctx) => {
-    const ordered = (order: string[], records: Record<string, unknown>, path: string) => {
-      if (
-        new Set(order).size !== order.length ||
-        order.length !== Object.keys(records).length ||
-        order.some((id) => !Object.hasOwn(records, id))
-      )
-        ctx.addIssue({
-          code: "custom",
-          path: [path],
-          message: "Order must contain every stable ID exactly once",
-        });
-    };
-    ordered(props.actorOrder, props.actorsById, "actorOrder");
-    ordered(props.actionOrder, props.actionsById, "actionOrder");
-    ordered(props.overlayOrder, props.overlaysById, "overlayOrder");
+export {
+  CharacterAction,
+  CharacterChannel,
+  CharacterEmotion,
+  CharacterGesture,
+  CharacterPack,
+  CharacterProp,
+  CharacterSceneProps,
+  CharacterShape,
+  CharacterTarget,
+  characterActionChannels,
+  RigPoint,
+} from "./character.js";
+export { builtInCharacterPacks, phoneCharacterProp } from "./character-packs.js";
 
-    let previousStart = -1;
-    const occupied = new Map<string, { start: number; end: number; actionId: string }[]>();
-    for (const actionId of props.actionOrder) {
-      const action = props.actionsById[actionId];
-      if (!action) continue;
-      if (action.startFrame < previousStart)
-        ctx.addIssue({
-          code: "custom",
-          path: ["actionOrder"],
-          message: "Actions must be ordered by non-decreasing startFrame",
-        });
-      previousStart = action.startFrame;
-      if (!Object.hasOwn(props.actorsById, action.actorId))
-        ctx.addIssue({
-          code: "custom",
-          path: ["actionsById", actionId, "actorId"],
-          message: "Action actorId must refer to an actor in actorsById",
-        });
-      if (
-        action.type === "look" &&
-        !["camera", "left", "right"].includes(action.target) &&
-        !Object.hasOwn(props.actorsById, action.target)
-      )
-        ctx.addIssue({
-          code: "custom",
-          path: ["actionsById", actionId, "target"],
-          message: "Look target must be camera, a side, or an actor in actorsById",
-        });
-      if (action.type === "look" && action.target === action.actorId)
-        ctx.addIssue({
-          code: "custom",
-          path: ["actionsById", actionId, "target"],
-          message: "An actor cannot look at itself",
-        });
-      if (action.type === "talk")
-        for (const [index, viseme] of action.visemes.entries())
-          if (
-            viseme.frame >= action.durationFrames ||
-            (index > 0 && viseme.frame <= (action.visemes[index - 1]?.frame ?? -1))
-          )
-            ctx.addIssue({
-              code: "custom",
-              path: ["actionsById", actionId, "visemes", index, "frame"],
-              message: "Viseme frames must increase and fit within the talk action",
-            });
-      for (const owner of actionOwnership(action)) {
-        const key = `${action.actorId}:${owner}`;
-        const windows = occupied.get(key) ?? [];
-        if (
-          windows.some(
-            (window) =>
-              action.startFrame < window.end &&
-              window.start < action.startFrame + action.durationFrames,
-          )
-        )
-          ctx.addIssue({
-            code: "custom",
-            path: ["actionsById", actionId],
-            message: `Action conflicts with ${owner} ownership on the same actor`,
-          });
-        windows.push({
-          start: action.startFrame,
-          end: action.startFrame + action.durationFrames,
-          actionId,
-        });
-        occupied.set(key, windows);
-      }
-    }
-    if (new TextEncoder().encode(JSON.stringify(props)).byteLength > 131072)
-      ctx.addIssue({ code: "custom", message: "Character scene exceeds 128KiB props" });
-  });
 const definitions = {
   "video/component/scene-graph": {
     schema: SceneGraphProps,
@@ -389,7 +204,7 @@ const definitions = {
   "video/component/character-scene": {
     schema: CharacterSceneProps,
     description:
-      "Deterministic semantic 2D acting for built-in Farq mascot and customer rigs. Ordered actions own bounded rig channels; no arbitrary SVG, code or remote media.",
+      "Deterministic character-pack animation with normalized rigs, layered semantic actions, priority mixing, spatial gaze/IK targets and persistent prop attachments. Inline bounded vector artwork; no executable markup or remote media.",
   },
 } as const;
 export const ComponentProps = z.union([
@@ -404,7 +219,11 @@ export const ComponentSource = z
   .strict()
   .superRefine((source, ctx) => {
     const definition = definitions[source.component.resourceId as keyof typeof definitions];
-    if (!definition || source.component.revisionId !== "1") {
+    if (
+      !definition ||
+      source.component.revisionId !==
+        (source.component.resourceId === "video/component/character-scene" ? "2" : "1")
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["component"],
@@ -465,7 +284,7 @@ export const Effect = z
   });
 export const componentResources = Object.entries(definitions).map(([resourceId, definition]) => ({
   resourceId,
-  revisionId: "1",
+  revisionId: resourceId === "video/component/character-scene" ? "2" : "1",
   kind: "component" as const,
   description: definition.description,
   schema: z.toJSONSchema(definition.schema),
@@ -482,7 +301,6 @@ export const effectResources = Object.entries(effects).map(([resourceId, schema]
 export type ComponentSource = z.infer<typeof ComponentSource>;
 export type SceneGraphProps = z.infer<typeof SceneGraphProps>;
 export type SceneNode = z.infer<typeof SceneNode>;
-export type CharacterSceneProps = z.infer<typeof CharacterSceneProps>;
 export type Effect = z.infer<typeof Effect>;
 /** Clip-relative timing is validated with the enclosing immutable timeline. */
 export function componentTimingIssues(

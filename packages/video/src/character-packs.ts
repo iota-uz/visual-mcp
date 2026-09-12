@@ -1,0 +1,228 @@
+import { CharacterPack, CharacterProp } from "./character.js";
+
+const expressions = {
+  neutral: { browTilt: 0, mouthCurve: 0.15, eyeOpen: 1 },
+  happy: { browTilt: 0.2, mouthCurve: 0.9, eyeOpen: 0.9 },
+  shocked: { browTilt: 0.8, mouthCurve: 0, eyeOpen: 1.3 },
+  thinking: { browTilt: -0.35, mouthCurve: -0.1, eyeOpen: 0.85 },
+};
+const capabilities = {
+  arms: true,
+  gaze: true,
+  blink: true,
+  talk: true,
+  emotions: ["neutral", "happy", "shocked", "thinking"],
+  gestures: ["point", "explain", "shrug", "think"],
+};
+const motion = {
+  breathingAmplitude: 2,
+  breathingPeriodFrames: 90,
+  blinkIntervalFrames: 125,
+  swayDegrees: 1.3,
+  gazeLimit: 9,
+  headTurnDegrees: 8,
+  elbowBend: "outward",
+};
+
+/** Examples only: actor rendering never branches on these pack IDs. */
+export const builtInCharacterPacks: Record<string, CharacterPack> = {
+  "farq-mascot": CharacterPack.parse({
+    version: 1,
+    id: "farq-mascot",
+    label: "Farq mascot",
+    viewBox: { width: 360, height: 340 },
+    rig: {
+      root: { x: 0, y: 0 },
+      body: { x: 0, y: 0 },
+      head: { x: 0, y: -35 },
+      eyes: { x: 0, y: -48 },
+      mouth: { x: 0, y: 3 },
+      leftShoulder: { x: -62, y: 15 },
+      leftElbow: { x: -112, y: 58 },
+      leftHand: { x: -126, y: 106 },
+      rightShoulder: { x: 62, y: 15 },
+      rightElbow: { x: 112, y: 58 },
+      rightHand: { x: 126, y: 106 },
+    },
+    capabilities,
+    layers: [
+      {
+        id: "shadow",
+        node: "root",
+        shapes: [{ kind: "ellipse", x: 0, y: 133, rx: 115, ry: 20, fill: "#00000040" }],
+      },
+      {
+        id: "mark",
+        node: "body",
+        shapes: [
+          { kind: "ellipse", x: -56, y: -64, rx: 49, ry: 49, fill: "#ff7a1a" },
+          { kind: "ellipse", x: 56, y: -6, rx: 49, ry: 49, fill: "#ff7a1a" },
+          {
+            kind: "path",
+            d: "M-84 49 L84 -119",
+            fill: "#00000000",
+            stroke: "#ff7a1a",
+            strokeWidth: 34,
+          },
+        ],
+      },
+      {
+        id: "face",
+        node: "head",
+        shapes: [
+          {
+            kind: "ellipse",
+            x: 0,
+            y: 0,
+            rx: 87,
+            ry: 87,
+            fill: "#fff8ee",
+            stroke: "#211108",
+            strokeWidth: 9,
+          },
+        ],
+      },
+    ],
+    style: {
+      limbColor: "#ff7a1a",
+      limbWidth: 22,
+      handRadius: 13,
+      eyeColor: "#211108",
+      eyeWhite: "#ffffff",
+      eyeRadius: 23,
+      eyeSpacing: 58,
+      mouthColor: "#211108",
+      mouthWidth: 48,
+    },
+    expressions,
+    motion,
+  }),
+  customer: CharacterPack.parse({
+    version: 1,
+    id: "customer",
+    label: "Customer",
+    viewBox: { width: 360, height: 420 },
+    rig: {
+      root: { x: 0, y: 0 },
+      body: { x: 0, y: 20 },
+      head: { x: 0, y: -82 },
+      eyes: { x: 0, y: -92 },
+      mouth: { x: 0, y: -45 },
+      leftShoulder: { x: -57, y: 6 },
+      leftElbow: { x: -108, y: 55 },
+      leftHand: { x: -124, y: 112 },
+      rightShoulder: { x: 57, y: 6 },
+      rightElbow: { x: 108, y: 55 },
+      rightHand: { x: 124, y: 112 },
+    },
+    capabilities,
+    layers: [
+      {
+        id: "shadow",
+        node: "root",
+        shapes: [{ kind: "ellipse", x: 0, y: 148, rx: 100, ry: 18, fill: "#00000040" }],
+      },
+      {
+        id: "shirt",
+        node: "body",
+        shapes: [
+          {
+            kind: "rect",
+            x: -68,
+            y: -35,
+            width: 136,
+            height: 130,
+            radius: 32,
+            fill: "#347a90",
+            stroke: "#173b48",
+            strokeWidth: 7,
+          },
+        ],
+      },
+      {
+        id: "legs",
+        node: "root",
+        shapes: [
+          { kind: "rect", x: -48, y: 103, width: 32, height: 44, radius: 10, fill: "#173b48" },
+          { kind: "rect", x: 16, y: 103, width: 32, height: 44, radius: 10, fill: "#173b48" },
+        ],
+      },
+      {
+        id: "face",
+        node: "head",
+        shapes: [
+          {
+            kind: "rect",
+            x: -80,
+            y: -78,
+            width: 160,
+            height: 166,
+            radius: 52,
+            fill: "#f2d7b6",
+            stroke: "#211108",
+            strokeWidth: 8,
+          },
+          {
+            kind: "path",
+            d: "M-82 -40 Q-86 -112 10 -90 Q88 -88 82 -32 L55 -53 Q5 -30 -24 -57 L-65 -25 Z",
+            fill: "#38251e",
+          },
+        ],
+      },
+    ],
+    style: {
+      limbColor: "#f2d7b6",
+      limbWidth: 20,
+      handRadius: 12,
+      eyeColor: "#211108",
+      eyeWhite: "#ffffff",
+      eyeRadius: 22,
+      eyeSpacing: 62,
+      mouthColor: "#211108",
+      mouthWidth: 46,
+    },
+    expressions,
+    motion: {
+      ...motion,
+      breathingAmplitude: 1.4,
+      breathingPeriodFrames: 110,
+      blinkIntervalFrames: 145,
+      swayDegrees: 0.7,
+      headTurnDegrees: 12,
+    },
+  }),
+};
+
+export const phoneCharacterProp: CharacterProp = CharacterProp.parse({
+  label: "Phone",
+  width: 66,
+  height: 108,
+  x: 0.5,
+  y: 0.5,
+  initiallyVisible: false,
+  grip: { x: 0, y: 74 },
+  shapes: [
+    {
+      kind: "rect",
+      x: 0,
+      y: 0,
+      width: 66,
+      height: 108,
+      radius: 12,
+      fill: "#211108",
+      stroke: "#fff8ee",
+      strokeWidth: 5,
+    },
+    { kind: "rect", x: 8, y: 13, width: 50, height: 78, radius: 6, fill: "#fff8ee" },
+    { kind: "rect", x: 17, y: 24, width: 32, height: 8, radius: 4, fill: "#ff7a1a" },
+    { kind: "ellipse", x: 33, y: 51, rx: 13, ry: 13, fill: "#ff7a1a" },
+    {
+      kind: "path",
+      d: "M26 51 L31 56 L41 45",
+      fill: "#00000000",
+      stroke: "#211108",
+      strokeWidth: 4,
+    },
+    { kind: "ellipse", x: 33, y: 99, rx: 4, ry: 4, fill: "#fff8ee" },
+  ],
+});
