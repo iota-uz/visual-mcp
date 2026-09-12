@@ -88,11 +88,13 @@ export function CharacterHandsView({
   pack,
   rig,
   pointing = {},
+  foregroundArms = {},
   opacity = 1,
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
   pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
+  foregroundArms?: Partial<Record<"left" | "right", boolean>>;
   opacity?: number;
 }) {
   if (!pack.capabilities.arms) return null;
@@ -110,11 +112,13 @@ export function CharacterHandsView({
                 y: hand.y + ((target.y - hand.y) / distance) * fingerLength,
               }
             : null;
+        const foreground = foregroundArms[side] === true;
         return (
           <g key={side} data-hand={side}>
-            {tip ? (
+            {tip || foreground ? (
               <path
-                data-character-point-arm={side}
+                data-character-point-arm={tip ? side : undefined}
+                data-character-foreground-arm={foreground ? side : undefined}
                 d={`M${rig[`${side}Shoulder`]!.origin.x} ${rig[`${side}Shoulder`]!.origin.y} L${rig[`${side}Elbow`]!.origin.x} ${rig[`${side}Elbow`]!.origin.y} L${hand.x} ${hand.y}`}
                 fill="none"
                 stroke={pack.style.limbColor}
@@ -127,6 +131,8 @@ export function CharacterHandsView({
               transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
               r={pack.style.handRadius}
               fill={pack.style.limbColor}
+              stroke={foreground ? pack.style.eyeColor : undefined}
+              strokeWidth={foreground ? Math.max(2, pack.style.handRadius * 0.25) : undefined}
             />
             {tip ? (
               <path
@@ -225,6 +231,7 @@ export function CharacterPackView({
   opacity = 1,
   renderHands = true,
   pointing,
+  foregroundArms,
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
@@ -232,6 +239,7 @@ export function CharacterPackView({
   opacity?: number;
   renderHands?: boolean;
   pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
+  foregroundArms?: Partial<Record<"left" | "right", boolean>>;
 }) {
   return (
     <g aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
@@ -249,7 +257,14 @@ export function CharacterPackView({
         </g>
       ))}
       <CharacterFace pack={pack} rig={rig} face={face} />
-      {renderHands ? <CharacterHandsView pack={pack} rig={rig} pointing={pointing} /> : null}
+      {renderHands ? (
+        <CharacterHandsView
+          pack={pack}
+          rig={rig}
+          pointing={pointing}
+          foregroundArms={foregroundArms}
+        />
+      ) : null}
     </g>
   );
 }

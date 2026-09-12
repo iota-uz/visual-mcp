@@ -40,6 +40,7 @@ export type CharacterActorState = {
   pose: NumericPose;
   rig: EvaluatedRig;
   pointing: Partial<Record<"left" | "right", Vec2>>;
+  foregroundArms: Partial<Record<"left" | "right", boolean>>;
 };
 const VIEW_WIDTH = 1080,
   VIEW_HEIGHT = 1920;
@@ -381,6 +382,7 @@ function evaluateActor(
   const toLocal = inverseMatrix(actorMatrix),
     tracks: AnimationTrack[] = [];
   const pointing: Partial<Record<"left" | "right", Vec2>> = {};
+  const foregroundArms: Partial<Record<"left" | "right", boolean>> = {};
   const pointingPriority: Partial<Record<"left" | "right", number>> = {};
   const armRequests: {
     id: string;
@@ -458,6 +460,12 @@ function evaluateActor(
             point: gestureTarget(pack, action.preset, side, action.intensity),
           },
         });
+      if (
+        action.preset === "think" &&
+        actionActive(action, frame) &&
+        actionWeight(action, frame) > 0
+      )
+        for (const side of sides) foregroundArms[side] = true;
     } else if (action.type === "point") {
       const point = targetPoint(action.target, props, positions, propsAt);
       armRequests.push({
@@ -557,6 +565,7 @@ function evaluateActor(
     pose,
     rig,
     pointing,
+    foregroundArms,
     face: {
       gazeX: pose["eyes.x"]!,
       gazeY: pose["eyes.y"]!,
@@ -712,6 +721,7 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
         pack={pack}
         rig={state.rig}
         pointing={state.pointing}
+        foregroundArms={state.foregroundArms}
         opacity={state.opacity}
       />
     ) : null;

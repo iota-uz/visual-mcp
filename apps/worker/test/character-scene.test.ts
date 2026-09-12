@@ -230,6 +230,7 @@ test("character scene renders repository-owned SVG rigs and timed overlays", () 
   const thinking = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 215 }));
   assert.match(thinking, /data-character-pack="customer"/);
   assert.match(thinking, /data-character-pack="farq-mascot"/);
+  assert.match(thinking, /data-character-foreground-arm="right"/);
 });
 
 test("arm masks include the forearm channel used by IK", () => {
