@@ -80,3 +80,15 @@
   flex: 1 1 100%;
   --card-grid-min: 260px;
 }
+
+.ks-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--app-space-3);
+  width: 100%;
+}
+
+.ks-asset-grid .asset-preview {
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-md);
+}

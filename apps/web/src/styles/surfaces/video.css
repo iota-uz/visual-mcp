@@ -370,12 +370,7 @@
 .shared-image-candidate code {
   overflow-wrap: anywhere;
 }
-.asset-preview-audio {
-  min-width: 0;
-}
-.asset-preview-content-audio {
-  min-width: 0;
-}
+
 .media-upload {
   display: grid;
   gap: var(--app-space-3);

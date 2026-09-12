@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { Badge } from "../components/Badge";
 import { CanvasCard, type CanvasCardRow } from "../components/CanvasCard";
 import { CanvasCover } from "../components/CanvasCover";
@@ -147,6 +148,31 @@ const KS_CANVASES: CanvasCardRow[] = [
     poster: null,
     static_render_status: "ready",
   },
+];
+
+const KS_PREVIEW_IMAGE =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#2f9f6e"/><rect x="0.4" y="0.5" width="1.6" height="2" fill="#eaf0fe"/></svg>',
+  );
+
+const KS_PREVIEW_SVG =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="11" fill="none" stroke="#2f6df6" stroke-width="2"/><path d="M10 16h12" stroke="#061b36" stroke-width="2"/></svg>',
+  );
+
+const KS_PREVIEW_JSON = `data:application/json,${encodeURIComponent(
+  JSON.stringify({ title: "OSAGO", count: 2 }, null, 2),
+)}`;
+
+const KS_ASSET_PREVIEWS: Array<{ kind: PreviewableAssetKind; name: string; url: string }> = [
+  { kind: "image", name: "Claim photo", url: KS_PREVIEW_IMAGE },
+  { kind: "svg", name: "Iota mark", url: KS_PREVIEW_SVG },
+  { kind: "font", name: "Display", url: "/dev/missing.woff2" },
+  { kind: "video", name: "Draft cut", url: "/dev/missing.mp4" },
+  { kind: "audio", name: "Throw", url: "/dev/missing.ogg" },
+  { kind: "data", name: "Claims", url: KS_PREVIEW_JSON },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -631,6 +657,29 @@ export function KitchenSinkPage() {
             </Button>
           }
         />
+      </Section>
+
+      <Section title="Asset preview">
+        <Row label="kinds">
+          <div className="ks-asset-grid">
+            {KS_ASSET_PREVIEWS.map((asset) => (
+              <div
+                key={asset.kind}
+                className={`asset-preview asset-preview-${asset.kind}`}
+                data-kind={asset.kind}
+              >
+                <AssetPreview
+                  assetId={`ks-${asset.kind}`}
+                  kind={asset.kind}
+                  name={asset.name}
+                  previewUrl={asset.url}
+                  eager
+                />
+                <span className="asset-kind">{asset.kind}</span>
+              </div>
+            ))}
+          </div>
+        </Row>
       </Section>
 
       <Section title="Feedback">

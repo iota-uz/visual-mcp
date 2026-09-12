@@ -64,6 +64,13 @@ const MIME_LABELS: Record<string, string> = {
   "font/otf": "OTF",
   "video/mp4": "MP4",
   "video/webm": "WebM",
+  "audio/wav": "WAV",
+  "audio/x-wav": "WAV",
+  "audio/mpeg": "MP3",
+  "audio/mp4": "M4A",
+  "audio/ogg": "OGG",
+  "audio/flac": "FLAC",
+  "audio/webm": "WEBM",
   "application/json": "JSON",
 };
 
