@@ -28,11 +28,8 @@
 
 .video-scene-navigator-heading strong {
   color: var(--app-ink);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
+  font-size: var(--app-text-xs);
   font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .video-scene-navigator-heading > span {
@@ -40,8 +37,9 @@
   place-items: center;
   min-width: 22px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--app-radius-xs);
   background: var(--app-white);
+  font-variant-numeric: tabular-nums;
 }
 
 .video-scene-list {
@@ -59,9 +57,7 @@
 .video-scene-drag-hint {
   padding: 0 var(--app-space-3) var(--app-space-1);
   color: var(--app-muted);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: var(--app-text-xs);
 }
 
 .video-scene-card {
@@ -80,20 +76,12 @@
   text-align: left;
   transition:
     background var(--app-duration-fast) var(--app-ease-out),
-    border-color var(--app-duration-fast) var(--app-ease-out),
-    box-shadow var(--app-duration-fast) var(--app-ease-out),
-    transform var(--app-duration-fast) var(--app-ease-out);
+    border-color var(--app-duration-fast) var(--app-ease-out);
 }
 
 .video-scene-card:hover {
-  transform: translateX(2px);
-  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  border-color: var(--app-line);
   background: var(--app-white);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.video-scene-card:active {
-  transform: translateX(1px) scale(0.995);
 }
 
 .video-scene-card:focus-visible {
@@ -129,8 +117,8 @@
 
 .video-scene-card[aria-current="true"] .video-scene-index,
 .video-scene-card[aria-pressed="true"] .video-scene-index {
-  border-color: var(--app-danger);
-  background: var(--app-danger);
+  border-color: var(--app-ink);
+  background: var(--app-ink);
   color: var(--app-white);
 }
 
@@ -185,25 +173,6 @@
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
   background: var(--app-white);
-  box-shadow: var(--app-shadow-sm);
-  transition: box-shadow var(--app-duration-base) var(--app-ease-out);
-}
-
-/* The slate the editor is holding carries a clapper across its top edge. */
-.video-scene-editor::before {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  left: -1px;
-  height: 7px;
-  border-radius: var(--app-radius-md) var(--app-radius-md) 0 0;
-  background: var(--app-stripes);
-  content: "";
-  pointer-events: none;
-}
-
-.video-scene-editor:hover {
-  box-shadow: var(--app-shadow-md);
 }
 
 .video-scene-editor-heading {
@@ -222,11 +191,7 @@
 
 .video-scene-editor-heading > div > span {
   color: var(--app-muted);
-  font-family: var(--app-font-mono);
-  font-size: var(--app-eyebrow-size);
-  font-weight: var(--app-eyebrow-weight);
-  letter-spacing: var(--app-eyebrow-tracking);
-  text-transform: uppercase;
+  font-size: var(--app-text-xs);
 }
 
 .video-scene-readiness {
@@ -286,16 +251,9 @@
   gap: var(--app-space-4);
   min-height: 180px;
   padding: var(--app-space-6);
-  border: 1.5px dashed color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  border: 1px dashed var(--app-line);
   border-radius: var(--app-radius-md);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--app-accent) 6%, transparent),
-      color-mix(in srgb, var(--app-accent) 0%, transparent) 70%
-    ),
-    var(--app-white);
-  box-shadow: var(--app-shadow-sm);
+  background: var(--app-paper);
 }
 
 .video-story-empty h3,
@@ -304,9 +262,8 @@
 }
 
 .video-story-empty h3 {
-  font-family: var(--app-font-display);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--app-font-body);
+  font-weight: 650;
 }
 
 .video-story-empty p {
@@ -318,15 +275,22 @@
 .video-story-empty-mark {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
-  font-family: var(--app-font-display);
-  font-size: 20px;
-  font-weight: 600;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--app-radius-xs);
+  background: var(--app-white);
+  border: 1px solid var(--app-line);
+  color: var(--app-ink);
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-sm);
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .video-scene-card {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -364,12 +328,5 @@
   .video-camera-direction-heading {
     align-items: flex-start;
     flex-direction: column;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .video-scene-card:hover,
-  .video-scene-card:active {
-    transform: none;
   }
 }

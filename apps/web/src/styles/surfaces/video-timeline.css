@@ -184,13 +184,7 @@
   min-height: 0;
   overflow: hidden;
   border-bottom: 1px solid var(--app-line);
-  background:
-    radial-gradient(
-      circle at 50% 42%,
-      color-mix(in srgb, var(--app-accent) 7%, transparent),
-      transparent 35%
-    ),
-    var(--app-paper);
+  background: var(--app-paper);
 }
 .video-program-heading {
   display: flex;
@@ -202,11 +196,8 @@
 
 .video-program-heading strong {
   color: var(--app-ink);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
+  font-size: var(--app-text-xs);
   font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 .video-program-heading span {
   color: var(--app-muted);
@@ -216,17 +207,6 @@
   display: grid;
   place-items: center;
   padding: var(--app-space-3) var(--app-space-6) var(--app-space-4);
-}
-
-/* The monitor sits in a film strip: sprocket holes above and below the
-   stage. The pseudos are grid items, so they frame the stage for free. */
-.video-program-stage-wrap::before,
-.video-program-stage-wrap::after {
-  height: 13px;
-  justify-self: stretch;
-  background:
-    radial-gradient(circle, var(--app-line) 2.4px, transparent 2.8px) 0 0 / 17px 13px repeat-x;
-  content: "";
 }
 .video-program-stage-shell {
   position: relative;
@@ -238,8 +218,7 @@
   overflow: hidden;
   border: 1px solid var(--app-line);
   border-radius: 3px;
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-md);
+  background: var(--app-well);
   isolation: isolate;
 }
 
@@ -328,7 +307,7 @@
   display: grid;
   place-items: center;
   padding: var(--app-space-4);
-  color: var(--app-muted);
+  color: color-mix(in srgb, var(--app-white) 72%, transparent);
   font-size: var(--app-text-xs);
   text-align: center;
 }
@@ -393,7 +372,7 @@
   bottom: var(--app-space-4);
   border: 0;
   background: transparent;
-  color: var(--app-accent-text);
+  color: var(--app-white);
   cursor: pointer;
   font-size: var(--app-text-xs);
 }
@@ -407,11 +386,8 @@
 .video-sequence-length span {
   grid-column: 1 / -1;
   color: var(--app-muted);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: var(--app-text-xs);
+  font-weight: 650;
 }
 .video-sequence-length strong {
   color: var(--app-ink);

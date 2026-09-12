@@ -20,9 +20,9 @@
   gap: var(--app-space-2);
   padding: var(--app-space-2) var(--app-space-3);
   border: 1px solid var(--app-line);
-  border-radius: 999px;
+  border-radius: var(--app-radius-md);
   background: var(--app-white);
-  box-shadow: 0 8px 24px rgba(6, 27, 54, 0.14);
+  box-shadow: var(--app-shadow-sm);
   color: var(--app-muted);
   font-size: var(--app-text-sm);
   transform: translateX(-50%);
@@ -216,9 +216,9 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--app-space-3);
   padding: var(--app-space-4);
-  border: 1px solid color-mix(in srgb, var(--app-accent) 24%, var(--app-white));
+  border: 1px solid var(--app-line);
   border-radius: var(--app-radius-md);
-  background: var(--app-accent-soft);
+  background: var(--app-paper);
   color: var(--app-ink);
 }
 
@@ -500,15 +500,6 @@
   font-weight: 600;
 }
 
-/* Workspace rhythm: staggered entrances and quiet scrollbars. */
-.video-studio-workspace > .video-editing-column {
-  animation: vs-rise 0.45s var(--app-ease-out) both;
-}
-
-.video-studio-inspector-content {
-  animation: vs-rise 0.45s var(--app-ease-out) 0.1s both;
-}
-
 .video-studio-workspace > .video-editing-column,
 .video-studio-navigator,
 .video-studio-inspector {
@@ -538,47 +529,12 @@
   background-clip: content-box;
 }
 
-/* Inspector: light callout, carded checkpoint, panel summary. */
-.video-render-callout {
-  border: 1px solid color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--app-accent) 12%, transparent),
-      color-mix(in srgb, var(--app-accent) 4%, transparent)
-    ),
-    var(--app-white);
-  color: var(--app-ink);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.video-render-callout p {
-  color: var(--app-muted);
-}
-
-.video-render-callout h2 {
-  font-family: var(--app-font-display);
-  font-size: 14px;
-}
-
-.video-checkpoint-panel {
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  background: var(--app-white);
-  padding: var(--app-space-4);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.video-checkpoint-panel h2 {
-  font-family: var(--app-font-display);
-  font-size: 14px;
-}
-
 .video-studio-inspector > summary {
-  font-family: var(--app-font-display);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-sm);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
   transition: background var(--app-duration-fast) var(--app-ease-out);
 }
 

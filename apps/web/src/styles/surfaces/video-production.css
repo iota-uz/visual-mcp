@@ -78,11 +78,8 @@
 .video-job-facts dt,
 .video-archive-hashes dt {
   color: var(--app-muted);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: var(--app-text-xs);
+  font-weight: 650;
 }
 
 .video-loop-facts dd,
@@ -241,10 +238,8 @@
 .video-job-group > h3 {
   margin: 0;
   color: var(--app-muted);
-  font-size: var(--app-eyebrow-size);
-  font-weight: var(--app-eyebrow-weight);
-  letter-spacing: var(--app-eyebrow-tracking);
-  text-transform: uppercase;
+  font-size: var(--app-text-xs);
+  font-weight: 700;
 }
 
 .video-job-summary strong {

@@ -114,13 +114,9 @@
   --app-shadow-sm: 0 1px 2px rgba(20, 44, 72, 0.06);
   --app-shadow-md: 0 10px 30px rgba(20, 44, 72, 0.08);
   --app-shadow-lg: 0 18px 50px rgba(18, 42, 70, 0.14);
-  /* Review player bay. Same ink as the product, named so the well cannot
-     pick a second black. */
+  /* Review player bay and Timeline draft monitor. Same ink as the product,
+     named so the well cannot pick a second black. */
   --app-well: var(--app-ink);
-
-  /* Slate stripes for remaining Story/Shots clapper headers until those
-     modes get the quiet-instrument pass. Neutral ink on white. */
-  --app-stripes: repeating-linear-gradient(-48deg, var(--app-ink) 0 9px, #fff 9px 18px);
 
   /* Was the same duration literal repeated at five call sites. */
   --app-transition: 0.15s;

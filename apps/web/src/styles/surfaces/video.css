@@ -63,10 +63,10 @@
 }
 .video-section-heading h2,
 .video-review-column h2 {
-  font-family: var(--app-font-display);
+  font-family: var(--app-font-body);
   font-size: var(--app-text-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  letter-spacing: 0;
   margin: 0;
 }
 .video-save-summary {
@@ -118,9 +118,8 @@
 .video-premise-field textarea {
   min-height: 112px;
   max-height: 320px;
-  /* The logline is set like a title page: editorial serif, generous. */
-  font-family: var(--app-font-display);
-  font-size: 19px;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-base);
   line-height: 1.5;
 }
 .video-field-pair {
@@ -203,9 +202,8 @@
 .video-preview-empty h2,
 .video-preview-empty h3 {
   color: var(--app-ink);
-  font-family: var(--app-font-display);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--app-font-body);
+  font-weight: 650;
 }
 .video-track,
 .video-clip,
@@ -224,11 +222,8 @@
 .video-track h3 {
   margin: 0;
   color: var(--app-ink);
-  font-family: var(--app-font-mono);
-  font-size: 11px;
+  font-size: var(--app-text-sm);
   font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 .video-clip {
   border-top: 1px solid var(--app-line);
@@ -444,7 +439,6 @@
   border-radius: var(--app-radius-md);
   background: var(--app-white);
   color: var(--app-ink);
-  box-shadow: var(--app-shadow-md);
 }
 .video-timeline-toolbar,
 .video-transport {
@@ -463,10 +457,9 @@
 .video-timeline-toolbar h2 {
   margin: 0;
   color: var(--app-ink);
-  font-family: var(--app-font-display);
+  font-family: var(--app-font-body);
   font-size: var(--app-text-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 650;
 }
 .video-timeline-toolbar > div:first-child > span {
   color: var(--app-muted);
@@ -566,11 +559,8 @@
   align-items: center;
   padding-left: var(--app-space-3);
   color: var(--app-muted);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: var(--app-text-xs);
+  font-weight: 650;
 }
 .video-ruler-scale {
   position: relative;
@@ -609,11 +599,8 @@
   min-width: 0;
 }
 .video-track-label strong {
-  font-family: var(--app-font-mono);
-  font-size: 10px;
+  font-size: var(--app-text-xs);
   font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 .video-track-label small {
   color: var(--app-muted);
@@ -766,7 +753,7 @@
 }
 .video-clip-inspector-heading span {
   color: var(--app-muted);
-  font: 500 var(--app-text-xs) var(--app-font-mono);
+  font-size: var(--app-text-xs);
 }
 .video-clip-inspector-heading strong {
   color: var(--app-ink);
@@ -845,23 +832,18 @@
   margin-block: var(--app-space-4);
 }
 
-/* Studio second pass, kept as one ascending tail so the shared base above
- * keeps its original source order: section titles, button press physics,
- * field polish, then entrance motion. */
-
-/* Section titles read as panel eyebrows with a display title. */
 .video-section-title > span {
-  font-size: var(--app-eyebrow-size);
-  font-weight: var(--app-eyebrow-weight);
-  letter-spacing: var(--app-eyebrow-tracking);
-  text-transform: uppercase;
+  font-size: var(--app-text-sm);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .video-section-title h2 {
-  font-family: var(--app-font-display);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-lg);
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 /* Studio fields: hover tint before the primitive focus ring takes over. */
@@ -888,17 +870,4 @@
 .video-studio-page .btn:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
-}
-
-/* Used by Story / Shots / Timeline pane entrances until those modes get
-   the quiet-instrument pass. Review does not animate in. */
-@keyframes vs-rise {
-  from {
-    opacity: 0;
-    transform: translateY(var(--app-motion-distance));
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
