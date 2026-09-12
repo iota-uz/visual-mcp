@@ -15,6 +15,7 @@ const meta = {
     intensity: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
     autoPlay: { control: "boolean" },
     onionSkin: { control: "boolean" },
+    initialFrame: { control: { type: "range", min: 0, max: 239, step: 1 } },
   },
   args: {
     durationFrames: 60,
@@ -23,6 +24,7 @@ const meta = {
     intensity: 0.9,
     autoPlay: true,
     onionSkin: false,
+    initialFrame: 0,
   },
 };
 
@@ -30,6 +32,19 @@ export default meta;
 
 type Story = { args: CharacterAnimationLabProps };
 const story = (scenarioId: ScenarioId): Story => ({ args: { scenarioId } });
+
+export const GoldenAdvertising = {
+  args: { scenarioId: "golden-ad" as const, autoPlay: false, initialFrame: 132 },
+};
+export const GoldenAdvertisingRaw = {
+  args: { scenarioId: "golden-ad-raw" as const, autoPlay: false, initialFrame: 132 },
+};
+export const GoldenAdvertisingCameraOff = {
+  args: { scenarioId: "golden-ad-camera-off" as const, autoPlay: false, initialFrame: 132 },
+};
+export const GoldenAdvertisingSecondPack = {
+  args: { scenarioId: "golden-ad-customer" as const, autoPlay: false, initialFrame: 132 },
+};
 
 export const Idle = story("idle");
 export const Enter = story("enter");

@@ -65,6 +65,7 @@ function ClipContent({ clip, props, kind }: { clip: Clip; props: RenderProps; ki
           frame={frame}
           files={props.files}
           width={props.format.width * layout.width}
+          timebase={props.format.fps}
         />
       </div>
     );

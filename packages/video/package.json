@@ -14,7 +14,11 @@
     "./learning": "./dist/learning.js",
     "./results": "./dist/results.js",
     "./operations": "./dist/operations.js",
-    "./registry": "./dist/registry.js"
+    "./registry": "./dist/registry.js",
+    "./character": "./dist/character.js",
+    "./character-acting": "./dist/character-acting.js",
+    "./character-cues": "./dist/character-cues.js",
+    "./character-staging": "./dist/character-staging.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

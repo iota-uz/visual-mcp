@@ -12,8 +12,17 @@ import {
 
 function pilot() {
   return {
-    background: "#061b36",
+    timebase: { numerator: 30, denominator: 1 },
     seed: 42,
+    staging: { layout: "two-shot", focalActorId: "farq" },
+    camera: { movement: "locked", startFrame: 0, durationFrames: 300 },
+    environment: {
+      background: "#061b36",
+      horizonY: 0.62,
+      ground: "#10294a",
+      accent: "#ffb52e",
+      layers: [],
+    },
     characterPacksById: structuredClone(builtInCharacterPacks),
     actorOrder: ["farq", "customer"],
     actorsById: {
@@ -85,14 +94,13 @@ function pilot() {
   };
 }
 
-test("character-scene accepts serialized character packs and publishes only revision 2", () => {
+test("character-scene accepts serialized character packs and publishes only revision 3", () => {
   const props = CharacterSceneProps.parse(pilot());
   assert.equal(props.actionsById.farqTalk?.type, "talk");
   assert.ok(
     componentResources.some(
       (resource) =>
-        resource.resourceId === "video/component/character-scene" &&
-        resource.revisionId === "2",
+        resource.resourceId === "video/component/character-scene" && resource.revisionId === "3",
     ),
   );
   assert.equal(
@@ -100,7 +108,7 @@ test("character-scene accepts serialized character packs and publishes only revi
       kind: "component",
       component: {
         resourceId: "video/component/character-scene",
-        revisionId: "2",
+        revisionId: "3",
       },
       props,
     }).success,
@@ -129,13 +137,7 @@ test("character-scene rejects unknown references, timing and overlapping owned c
   assert.equal(CharacterSceneProps.safeParse(badViseme).success, false);
 
   const conflict = pilot();
-  conflict.actionOrder = [
-    "farqEnter",
-    "blinkOne",
-    "blinkTwo",
-    "farqTalk",
-    "customerReact",
-  ];
+  conflict.actionOrder = ["farqEnter", "blinkOne", "blinkTwo", "farqTalk", "customerReact"];
   conflict.actionsById.blinkOne = {
     type: "blink",
     actorId: "farq",
@@ -166,7 +168,7 @@ test("character-scene clip timing checks actions and overlays against its enclos
     kind: "component",
     component: {
       resourceId: "video/component/character-scene",
-      revisionId: "2",
+      revisionId: "3",
     },
     props,
   });
@@ -207,10 +209,7 @@ test("custom character IDs and different vector geometry use the same scene cont
   input.actorsById.customer.characterPackId = "robot";
   const parsed = CharacterSceneProps.parse(JSON.parse(JSON.stringify(input)));
   assert.equal(parsed.actorsById.customer?.characterPackId, "robot");
-  assert.equal(
-    parsed.characterPacksById.robot?.layers[0]?.shapes[0]?.kind,
-    "rect",
-  );
+  assert.equal(parsed.characterPacksById.robot?.layers[0]?.shapes[0]?.kind, "rect");
 });
 
 test("official farq character pins the immutable layered SVG source and rigged derivative", () => {
@@ -219,8 +218,7 @@ test("official farq character pins the immutable layered SVG source and rigged d
   assert.deepEqual(pack.sourceAsset, {
     assetRef: "asset://shared/farq-official-layered-mascot@1",
     revisionId: "md7chc5vz33an9cd4jw8nm2bg98e9xfd",
-    contentHash:
-      "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
+    contentHash: "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
     mimeType: "image/svg+xml",
   });
   assert.ok(pack.layers.some((layer) => layer.id === "officialPercent"));
@@ -256,8 +254,7 @@ test("pack artwork remains declarative and rejects executable or external conten
   const input = structuredClone(builtInCharacterPacks.customer!);
   const layer = input.layers[0]!;
   assert.equal(
-    CharacterPack.safeParse({ ...input, svg: "<svg onload='alert(1)'/>" })
-      .success,
+    CharacterPack.safeParse({ ...input, svg: "<svg onload='alert(1)'/>" }).success,
     false,
   );
   assert.equal(
@@ -278,9 +275,7 @@ test("pack artwork remains declarative and rejects executable or external conten
       layers: [
         {
           ...layer,
-          shapes: [
-            { kind: "path", d: "M0 0 <script>bad</script>", fill: "#ffffff" },
-          ],
+          shapes: [{ kind: "path", d: "M0 0 <script>bad</script>", fill: "#ffffff" }],
         },
       ],
     }).success,

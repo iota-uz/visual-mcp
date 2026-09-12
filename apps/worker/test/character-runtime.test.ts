@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { AnimationTrack, Vec2 } from "../src/video/character-runtime.js";
 import {
   compileSemanticActions,
+  evaluateActingPhases,
   evaluateFollowThrough,
   evaluateIdleMotion,
   evaluateRig,
@@ -198,6 +199,69 @@ test("track transitions blend into and out of base pose, movement retains its de
   near(mixAnimationTracks({}, move, 500)["root.x"]!, 100);
 });
 
+test("adjacent same-channel tracks crossfade directly without a rest-pose dip", () => {
+  const outgoing = track("a", "head.rotation", 40, {
+    startFrame: 0,
+    durationFrames: 20,
+    fadeOutFrames: 6,
+  });
+  const incoming = track("b", "head.rotation", -20, {
+    startFrame: 20,
+    durationFrames: 20,
+    fadeInFrames: 6,
+  });
+  near(mixAnimationTracks({ "head.rotation": 0 }, [outgoing, incoming], 19)["head.rotation"]!, 40);
+  near(mixAnimationTracks({ "head.rotation": 0 }, [outgoing, incoming], 20)["head.rotation"]!, 40);
+  const middle = mixAnimationTracks({ "head.rotation": 0 }, [outgoing, incoming], 23)[
+    "head.rotation"
+  ]!;
+  assert.ok(middle < 40 && middle > -20);
+  near(mixAnimationTracks({ "head.rotation": 0 }, [incoming, outgoing], 26)["head.rotation"]!, -20);
+  const disabled = { ...incoming, id: "disabled", weight: 0 };
+  const faded = mixAnimationTracks({ "head.rotation": 0 }, [outgoing, disabled], 19)[
+    "head.rotation"
+  ]!;
+  assert.ok(faded > 2 && faded < 4);
+});
+
+test("acting beats retain real-time timing across frame rates and arbitrary seek order", () => {
+  const sample = (fps: number, seconds: number) =>
+    evaluateActingPhases({
+      frame: Math.round(seconds * fps),
+      startFrame: 0,
+      durationFrames: fps * 2,
+      fps,
+      intensity: 0.8,
+      stillness: 0.25,
+    });
+  for (const seconds of [0.08, 0.25, 0.8, 1.85]) {
+    const at24 = sample(24, seconds);
+    const at60 = sample(60, seconds);
+    assert.ok(Math.abs(at24.accent - at60.accent) < 0.18);
+    assert.ok(Math.abs(at24.gaze - at60.gaze) < 0.18);
+  }
+  const expected = sample(30, 0.7);
+  sample(30, 1.9);
+  sample(30, 0.1);
+  assert.deepEqual(sample(30, 0.7), expected);
+  assert.ok(sample(30, 0.08).gaze > Math.abs(sample(30, 0.08).accent));
+  const explicit = (frame: number) =>
+    evaluateActingPhases({
+      frame,
+      startFrame: 0,
+      durationFrames: 60,
+      fps: 30,
+      anticipationFrames: 5,
+      accentFrame: 9,
+      holdFrames: 7,
+      settleFrames: 6,
+    });
+  assert.equal(explicit(15).hold, 1);
+  assert.ok(explicit(18).settle > 0 && explicit(18).settle < 1);
+  assert.equal(explicit(22).accent, 0);
+  assert.equal(explicit(22).settle, 0);
+});
+
 test("semantic compiler emits inspectable deterministic tracks for procedural goals", () => {
   const actions = [
     {
@@ -272,4 +336,41 @@ test("showProp attachment persists beyond gesture and a later owner supersedes i
   assert.equal(resolvePersistentPropAttachments(scene, 99).phone?.actorId, "first");
   assert.equal(resolvePersistentPropAttachments(scene, 500).phone?.actorId, "second");
   assert.equal(resolvePersistentPropAttachments(scene, 30).phone?.hand, "right");
+});
+
+test("pickup and place contacts switch attachment exactly at their authored contact frames", () => {
+  const scene = {
+    propsById: { box: {} },
+    actionOrder: ["pickup", "place"],
+    actionsById: {
+      pickup: {
+        type: "showProp",
+        interaction: "pickUp" as const,
+        startFrame: 10,
+        durationFrames: 20,
+        actorId: "actor",
+        propId: "box",
+        hand: "right" as const,
+        acting: { accentFrame: 5 },
+      },
+      place: {
+        type: "showProp",
+        interaction: "place" as const,
+        startFrame: 30,
+        durationFrames: 20,
+        releaseFrame: 8,
+        actorId: "actor",
+        propId: "box",
+        hand: "right" as const,
+      },
+    },
+  };
+  assert.equal(resolvePersistentPropAttachments(scene, 14).box, undefined);
+  assert.equal(resolvePersistentPropAttachments(scene, 15).box?.actorId, "actor");
+  assert.equal(resolvePersistentPropAttachments(scene, 37).box?.hand, "right");
+  assert.equal(resolvePersistentPropAttachments(scene, 38).box, undefined);
+  assert.deepEqual(
+    resolvePersistentPropAttachments(scene, 15),
+    resolvePersistentPropAttachments(scene, 15),
+  );
 });

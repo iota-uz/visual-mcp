@@ -1,6 +1,9 @@
 import type { CharacterPack, CharacterProp, CharacterShape } from "@visual-canvas/video/registry";
+import React from "react";
 import type { EvaluatedRig, Matrix2D } from "./character-runtime.js";
 import { inverseMatrix, transformPoint } from "./character-runtime.js";
+
+void React;
 
 export type CharacterFaceState = {
   /** Pupil displacement in pack coordinates, after the gaze solver. */

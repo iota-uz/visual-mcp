@@ -19,6 +19,7 @@ export type CharacterAnimationLabProps = {
   intensity?: number;
   autoPlay?: boolean;
   onionSkin?: boolean;
+  initialFrame?: number;
 };
 
 const rates = [0.25, 0.5, 1, 1.5, 2] as const;
@@ -62,6 +63,7 @@ export function CharacterAnimationLab({
   intensity = defaultLabTuning.intensity,
   autoPlay = true,
   onionSkin: initialOnionSkin = false,
+  initialFrame = 0,
 }: CharacterAnimationLabProps) {
   const prefersReducedMotion =
     typeof window !== "undefined" &&
@@ -73,7 +75,7 @@ export function CharacterAnimationLab({
       blendOutFrames,
       intensity,
     }),
-    [frame, setFrame] = useState(0),
+    [frame, setFrame] = useState(initialFrame),
     [playing, setPlaying] = useState(autoPlay && !prefersReducedMotion),
     [rate, setRate] = useState<(typeof rates)[number]>(1),
     [onionSkin, setOnionSkin] = useState(initialOnionSkin),
@@ -89,10 +91,10 @@ export function CharacterAnimationLab({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: selecting another scenario intentionally resets the transport.
   useEffect(() => {
-    setFrame(0);
+    setFrame(clampLabFrame(initialFrame, scenario.totalFrames));
     setPlaying(autoPlay && !prefersReducedMotion);
     clock.current = { timestamp: 0, fractionalFrame: 0 };
-  }, [selectedId, autoPlay, prefersReducedMotion]);
+  }, [selectedId, autoPlay, prefersReducedMotion, initialFrame, scenario.totalFrames]);
 
   useEffect(() => {
     if (!playing) return;
@@ -140,24 +142,26 @@ export function CharacterAnimationLab({
 
       <div className="cal-workbench">
         <aside className="cal-scenarios" aria-label="Animation scenarios">
-          {["Foundation", "Gesture", "Reaction", "Targeting", "Transitions"].map((group) => (
-            <section key={group}>
-              <h2>{group}</h2>
-              {scenarioCatalog
-                .filter((item) => item.group === group)
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={selectedId === item.id}
-                    onClick={() => setSelectedId(item.id)}
-                  >
-                    <span>{item.label}</span>
-                    <small>{item.description}</small>
-                  </button>
-                ))}
-            </section>
-          ))}
+          {["Advertising", "Foundation", "Gesture", "Reaction", "Targeting", "Transitions"].map(
+            (group) => (
+              <section key={group}>
+                <h2>{group}</h2>
+                {scenarioCatalog
+                  .filter((item) => item.group === group)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={selectedId === item.id}
+                      onClick={() => setSelectedId(item.id)}
+                    >
+                      <span>{item.label}</span>
+                      <small>{item.description}</small>
+                    </button>
+                  ))}
+              </section>
+            ),
+          )}
         </aside>
 
         <section className="cal-stage-column">
@@ -297,7 +301,7 @@ export function CharacterAnimationLab({
           </label>
           <div className="cal-diagnostics">
             <span>Scene contract</span>
-            <strong>character-scene@2</strong>
+            <strong>character-scene@3</strong>
             <span>Renderer</span>
             <strong>Production SVG</strong>
             <span>Seed</span>

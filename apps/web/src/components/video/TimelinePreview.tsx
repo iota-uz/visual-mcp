@@ -4,10 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
-import {
-  CharacterSceneProps,
-  type SceneNode,
-} from "../../../../../packages/video/src/registry";
+import { CharacterSceneProps, type SceneNode } from "../../../../../packages/video/src/registry";
 import { CharacterScene } from "../../../../worker/src/video/character-scene";
 
 type AssetRef = { assetId: string; revisionId: string };
@@ -323,11 +320,13 @@ function ComponentLayer({
   frame,
   media,
   formatWidth,
+  timebase,
 }: {
   clip: Clip;
   frame: number;
   media: Record<string, ResolvedAsset>;
   formatWidth: number;
+  timebase: { numerator: number; denominator: number };
 }) {
   if (clip.source.kind !== "component") return null;
   const props = clip.source.props;
@@ -401,7 +400,11 @@ function ComponentLayer({
     );
   if (clip.source.component.resourceId === "video/component/character-scene") {
     const parsed = CharacterSceneProps.safeParse(props);
-    if (parsed.success)
+    if (
+      parsed.success &&
+      parsed.data.timebase.numerator === timebase.numerator &&
+      parsed.data.timebase.denominator === timebase.denominator
+    )
       return (
         <div style={shellStyle} data-video-component="character-scene">
           <CharacterScene props={parsed.data} frame={localFrame} />
@@ -627,6 +630,7 @@ export function TimelinePreview({
                   frame={displayFrame}
                   media={media}
                   formatWidth={format.width}
+                  timebase={document.fps}
                 />
               );
             })}

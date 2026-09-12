@@ -4,13 +4,33 @@ import { buildCharacterScenario, clampLabFrame, formatLabTime, scenarioCatalog }
 
 describe("character animation lab scenarios", () => {
   it("constructs every catalog scenario with the production scene contract", () => {
-    expect(scenarioCatalog).toHaveLength(18);
+    expect(scenarioCatalog).toHaveLength(22);
     for (const item of scenarioCatalog) {
       const scenario = buildCharacterScenario(item.id);
       expect(CharacterSceneProps.safeParse(scenario.props).success, item.id).toBe(true);
       expect(scenario.totalFrames).toBeGreaterThan(0);
       expect(scenario.phases[0]).toEqual(expect.objectContaining({ frame: 0 }));
     }
+  });
+
+  it("keeps golden diagnostics isolated to acting, camera and character pack", () => {
+    const compiled = buildCharacterScenario("golden-ad").props;
+    const raw = buildCharacterScenario("golden-ad-raw").props;
+    const cameraOff = buildCharacterScenario("golden-ad-camera-off").props;
+    const secondPack = buildCharacterScenario("golden-ad-customer").props;
+    expect(raw.camera).toEqual(compiled.camera);
+    expect(raw.staging).toEqual(compiled.staging);
+    expect(raw.overlaysById).toEqual(compiled.overlaysById);
+    expect(Object.values(raw.actionsById).every((action) => action.acting === undefined)).toBe(
+      true,
+    );
+    expect(Object.values(compiled.actionsById).every((action) => action.acting !== undefined)).toBe(
+      true,
+    );
+    expect(cameraOff.actionsById).toEqual(compiled.actionsById);
+    expect(cameraOff.camera).toEqual({ ...compiled.camera, movement: "locked" });
+    expect(secondPack.actionsById).toEqual(compiled.actionsById);
+    expect(secondPack.characterPacksById.customer?.id).toBe("customer");
   });
 
   it("rebuilds action timing and intensity from tuning controls", () => {

@@ -26,6 +26,7 @@
     "eval:test": "node --test evals/production-ui/*.test.mjs",
     "storybook": "npm run storybook -w apps/web",
     "build:storybook": "npm run build-storybook -w apps/web",
+    "render:character-benchmark": "npm run build -w packages/video -w apps/worker && node --import tsx scripts/render-character-benchmark.mjs",
     "convex:dev": "convex dev",
     "convex:push": "npm run build -w packages/canvas -w packages/runtime -w packages/video && convex dev --once",
     "dev:agent": "node scripts/dev-agent.mjs"

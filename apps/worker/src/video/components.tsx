@@ -132,11 +132,13 @@ export function TrustedComponent({
   frame,
   files,
   width,
+  timebase,
 }: {
   source: ComponentSource;
   frame: number;
   files: RenderProps["files"];
   width: number;
+  timebase: { numerator: number; denominator: number };
 }) {
   const base: CSSProperties = {
     position: "absolute",
@@ -160,6 +162,11 @@ export function TrustedComponent({
   }
   if (source.component.resourceId === "video/component/character-scene") {
     const p = CharacterSceneProps.parse(source.props);
+    if (
+      p.timebase.numerator !== timebase.numerator ||
+      p.timebase.denominator !== timebase.denominator
+    )
+      throw new Error("Character scene timebase must match the composition timebase");
     return <CharacterScene props={p} frame={frame} />;
   }
   if (source.component.resourceId === "video/component/animated-bars") {

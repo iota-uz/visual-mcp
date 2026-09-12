@@ -1,7 +1,9 @@
 import type { CharacterAction } from "../../../../../packages/video/src/character";
+import { stageCharacterActors } from "../../../../../packages/video/src/character-staging";
 import {
   builtInCharacterPacks,
   CharacterSceneProps,
+  compileCharacterActing,
   phoneCharacterProp,
 } from "../../../../../packages/video/src/registry";
 
@@ -28,6 +30,10 @@ const officialFarqPack = builtInCharacterPacks["farq-official"];
 if (!officialFarqPack) throw new Error("The official Farq character pack is not registered");
 
 export type ScenarioId =
+  | "golden-ad"
+  | "golden-ad-raw"
+  | "golden-ad-camera-off"
+  | "golden-ad-customer"
   | "idle"
   | "enter"
   | "blink"
@@ -51,7 +57,7 @@ export type ScenarioPhase = {
 export type CharacterLabScenario = {
   id: ScenarioId;
   label: string;
-  group: "Foundation" | "Gesture" | "Reaction" | "Targeting" | "Transitions";
+  group: "Advertising" | "Foundation" | "Gesture" | "Reaction" | "Targeting" | "Transitions";
   description: string;
   totalFrames: number;
   phases: ScenarioPhase[];
@@ -61,6 +67,30 @@ export type CharacterLabScenario = {
 export const scenarioCatalog: ReadonlyArray<
   Pick<CharacterLabScenario, "id" | "label" | "group" | "description">
 > = [
+  {
+    id: "golden-ad",
+    label: "Golden ad · compiled",
+    group: "Advertising",
+    description: "Notice, explain, product contact, offer point and reaction with authored camera.",
+  },
+  {
+    id: "golden-ad-raw",
+    label: "Golden ad · raw",
+    group: "Advertising",
+    description: "The same staging and beats without compiled acting phase metadata.",
+  },
+  {
+    id: "golden-ad-camera-off",
+    label: "Golden ad · camera off",
+    group: "Advertising",
+    description: "The compiled performance with only the camera treatment isolated.",
+  },
+  {
+    id: "golden-ad-customer",
+    label: "Golden ad · second pack",
+    group: "Advertising",
+    description: "Identical compiled choreography performed by the customer character pack.",
+  },
   {
     id: "idle",
     label: "Idle",
@@ -192,9 +222,18 @@ function actionBase(startFrame: number, tuning: LabTuning) {
 }
 
 function baseScene() {
-  return {
-    background: "#120d0a",
+  return CharacterSceneProps.parse({
+    timebase: { numerator: 30, denominator: 1 },
     seed: 20260912,
+    staging: { layout: "single-product" as const, focalActorId: "farq" },
+    camera: { movement: "locked" as const, startFrame: 0, durationFrames: 72000 },
+    environment: {
+      background: "#120d0a",
+      horizonY: 0.64,
+      ground: "#251611",
+      accent: "#ffb52e",
+      layers: [],
+    },
     characterPacksById: {
       "farq-official": clone(officialFarqPack),
     },
@@ -216,7 +255,7 @@ function baseScene() {
     overlayOrder: [] as string[],
     overlaysById: {},
     caption: "Farq character animation lab",
-  };
+  });
 }
 
 function finalize(
@@ -255,6 +294,169 @@ export function buildCharacterScenario(
     start = 18,
     end = start + tuning.durationFrames,
     phases: ScenarioPhase[] = [{ frame: 0, label: "idle", tone: "neutral" }];
+
+  if (id.startsWith("golden-ad")) {
+    addPhone(scene);
+    const phone = scene.propsById.phone;
+    if (!phone) throw new Error("Golden advertising scene requires its phone prop");
+    phone.initiallyVisible = true;
+    phone.x = 0.64;
+    phone.y = 0.73;
+    scene.environment.horizonY = 0.9;
+    scene.environment.layers.push({
+      id: "productPlinth",
+      plane: "midground",
+      shape: "panel",
+      x: 0.64,
+      y: 0.79,
+      width: 0.24,
+      height: 0.08,
+      color: "#f7ead8",
+      opacity: 1,
+      parallax: 0.08,
+    });
+    scene.staging = { layout: "single-product", focalActorId: "farq", productPropId: "phone" };
+    scene.camera = {
+      movement: id === "golden-ad-camera-off" ? "locked" : "push-in",
+      startFrame: 118,
+      durationFrames: 18,
+      holdFrames: 0,
+      intensity: 0.32,
+    };
+    scene.overlayOrder.push("oldPrice", "newPrice", "offer", "cta");
+    Object.assign(scene.overlaysById, {
+      oldPrice: {
+        text: "158,000 UZS",
+        x: 0.28,
+        y: 0.12,
+        startFrame: 106,
+        endFrame: 178,
+        style: "price-old",
+        accent: "#9aa7b6",
+      },
+      newPrice: {
+        text: "129,000 UZS",
+        x: 0.72,
+        y: 0.22,
+        startFrame: 118,
+        endFrame: 205,
+        style: "price-new",
+        accent: "#ffb52e",
+      },
+      offer: {
+        text: "Save 18%",
+        emphasis: "18% less",
+        x: 0.5,
+        y: 0.36,
+        startFrame: 118,
+        endFrame: 205,
+        style: "savings",
+        accent: "#ffb52e",
+      },
+      cta: {
+        text: "Compare before you buy",
+        x: 0.5,
+        y: 0.88,
+        startFrame: 178,
+        endFrame: 238,
+        style: "cta",
+        accent: "#ffb52e",
+      },
+    });
+    if (id === "golden-ad-customer") {
+      const customer = builtInCharacterPacks.customer;
+      const actor = scene.actorsById.farq;
+      if (!customer || !actor) throw new Error("Golden second-pack scene requires customer data");
+      scene.characterPacksById = { customer: clone(customer) };
+      actor.characterPackId = "customer";
+      actor.scale = 1.25;
+    }
+    scene.actorsById = stageCharacterActors({
+      layout: scene.staging.layout,
+      actorOrder: scene.actorOrder,
+      actorsById: scene.actorsById,
+      characterPacksById: scene.characterPacksById,
+      focalActorId: scene.staging.focalActorId,
+    });
+    const compiled = compileCharacterActing({
+      timebase: scene.timebase,
+      beats: [
+        {
+          id: "notice",
+          type: "notice",
+          actorId: "farq",
+          startFrame: 12,
+          durationFrames: 36,
+          target: { kind: "prop", propId: "phone" },
+          emotion: "thinking",
+        },
+        {
+          id: "explain",
+          type: "explain",
+          actorId: "farq",
+          startFrame: 48,
+          durationFrames: 42,
+          target: { kind: "camera" },
+          hand: "both",
+          emotion: "happy",
+        },
+        {
+          id: "pickup",
+          type: "show_prop",
+          actorId: "farq",
+          startFrame: 90,
+          durationFrames: 42,
+          propId: "phone",
+          hand: "right",
+          interaction: "pickUp",
+          target: { kind: "prop", propId: "phone" },
+        },
+        {
+          id: "offer",
+          type: "point",
+          actorId: "farq",
+          startFrame: 132,
+          durationFrames: 42,
+          target: { kind: "overlay", overlayId: "offer" },
+          hand: "left",
+          emotion: "happy",
+        },
+        {
+          id: "place",
+          type: "show_prop",
+          actorId: "farq",
+          startFrame: 174,
+          durationFrames: 30,
+          propId: "phone",
+          hand: "right",
+          interaction: "place",
+          target: { kind: "point", x: 0.5, y: 0.72 },
+        },
+        {
+          id: "close",
+          type: "react",
+          actorId: "farq",
+          startFrame: 204,
+          durationFrames: 34,
+          emotion: "happy",
+          target: { kind: "camera" },
+        },
+      ],
+    });
+    scene.actionOrder = compiled.actionOrder;
+    scene.actionsById = compiled.actionsById;
+    if (id === "golden-ad-raw")
+      for (const action of Object.values(scene.actionsById)) delete action.acting;
+    phases.push(
+      { frame: 12, label: "notice", tone: "action" },
+      { frame: 48, label: "explain", tone: "transition" },
+      { frame: 90, label: "pick up", tone: "action" },
+      { frame: 132, label: "offer", tone: "action" },
+      { frame: 174, label: "place", tone: "transition" },
+      { frame: 204, label: "close", tone: "action" },
+    );
+    return finalize(id, 240, phases, scene);
+  }
 
   if (id === "idle") return finalize(id, tuning.durationFrames + 30, phases, scene);
 
@@ -315,6 +517,7 @@ export function buildCharacterScenario(
     addPhone(scene);
     addAction(scene, "showProp", {
       type: "showProp",
+      interaction: "reveal",
       ...actionBase(start, tuning),
       propId: "phone",
       hand: "right",
@@ -363,6 +566,7 @@ export function buildCharacterScenario(
     addPhone(scene);
     addAction(scene, "showProp", {
       type: "showProp",
+      interaction: "reveal",
       ...actionBase(start, tuning),
       propId: "phone",
       hand: "right",

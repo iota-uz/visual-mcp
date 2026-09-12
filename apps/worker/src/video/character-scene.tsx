@@ -4,7 +4,7 @@ import type {
   CharacterSceneProps,
   CharacterTarget,
 } from "@visual-canvas/video/registry";
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import {
   type CharacterFaceState,
   CharacterHandsView,
@@ -13,9 +13,19 @@ import {
   CharacterPropView,
 } from "./character-pack-view.js";
 import {
+  AdvertisingOverlay,
+  CameraWorld,
+  EnvironmentBase,
+  EnvironmentPlane,
+  evaluatePresentationCamera,
+  type PresentationCamera,
+  presentationScreenToWorld,
+} from "./character-presentation.js";
+import {
   type AnimationTrack,
   compileSemanticActions,
   type EvaluatedRig,
+  evaluateActingPhases,
   evaluateIdleMotion,
   evaluateRig,
   inverseMatrix,
@@ -31,6 +41,8 @@ import {
   transformPoint,
   type Vec2,
 } from "./character-runtime.js";
+
+void React;
 
 type Emotion = CharacterSceneProps["actorsById"][string]["initialEmotion"];
 type Viseme = CharacterFaceState["viseme"];
@@ -62,6 +74,11 @@ const actionWeight = (action: CharacterAction, frame: number) => {
   const blendOut = action.blendOutFrames ? smooth(remaining / action.blendOutFrames) : 1;
   return action.weight * Math.min(blendIn, blendOut);
 };
+const propContactFrame = (action: Extract<CharacterAction, { type: "showProp" }>) =>
+  action.releaseFrame ??
+  (action.acting
+    ? Math.min(action.durationFrames - 1, action.acting.accentFrame + action.acting.holdFrames)
+    : action.durationFrames - 1);
 
 function propRevealWeight(props: CharacterSceneProps, propId: string, frame: number) {
   const prop = props.propsById[propId];
@@ -172,6 +189,8 @@ function targetPoint(
   props: CharacterSceneProps,
   positions: Record<string, Vec2>,
   propsAt: Record<string, Vec2>,
+  frame: number,
+  camera?: PresentationCamera,
 ): Vec2 {
   if (target.kind === "camera") return { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
   if (target.kind === "point") return { x: target.x * VIEW_WIDTH, y: target.y * VIEW_HEIGHT };
@@ -186,7 +205,10 @@ function targetPoint(
     return propsAt[target.propId] ?? { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
   const overlay = props.overlaysById[target.overlayId];
   return overlay
-    ? { x: overlay.x * VIEW_WIDTH, y: overlay.y * VIEW_HEIGHT }
+    ? presentationScreenToWorld(camera ?? evaluatePresentationCamera(props, frame), {
+        x: overlay.x * VIEW_WIDTH,
+        y: overlay.y * VIEW_HEIGHT,
+      })
     : { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
 }
 function limbLengths(pack: CharacterPack, side: "left" | "right") {
@@ -204,6 +226,7 @@ function armTracks(
   pack: CharacterPack,
   side: "left" | "right",
   localTarget: Vec2,
+  fps: number,
 ): AnimationTrack[] {
   const absoluteShoulder = pack.rig[`${side}Shoulder`],
     elbow = pack.rig[`${side}Elbow`],
@@ -222,10 +245,64 @@ function armTracks(
   const restUpper =
     (Math.atan2(elbow.y - absoluteShoulder.y, elbow.x - absoluteShoulder.x) * 180) / Math.PI;
   const restLower = (Math.atan2(hand.y - elbow.y, hand.x - elbow.x) * 180) / Math.PI - restUpper;
+  const anticipation = Math.min(
+    action.acting?.anticipationFrames ?? Math.round(0.16 * fps),
+    action.durationFrames - 1,
+  );
+  const accent = Math.min(
+    action.acting?.accentFrame ?? anticipation + Math.round(0.1 * fps),
+    action.durationFrames - 1,
+  );
+  const actingTrack = (channel: string, value: number) => ({
+    ...staticTrack(id, action, channel, value),
+    keyframes: action.acting
+      ? [
+          { frame: 0, value: 0 },
+          { frame: anticipation, value: value * -0.16, easing: "smooth" as const },
+          { frame: accent, value, easing: "smooth" as const },
+          {
+            frame: Math.min(action.durationFrames - 1, accent + action.acting.holdFrames),
+            value,
+          },
+          {
+            frame: Math.min(
+              action.durationFrames - 1,
+              accent + action.acting.holdFrames + action.acting.settleFrames,
+            ),
+            value: 0,
+            easing: "smooth" as const,
+          },
+          { frame: action.durationFrames - 1, value: 0 },
+        ]
+      : [
+          { frame: 0, value: 0 },
+          { frame: anticipation, value: value * -0.16, easing: "smooth" as const },
+          { frame: accent, value, easing: "smooth" as const },
+          { frame: action.durationFrames - 1, value },
+        ],
+  });
   return [
-    staticTrack(id, action, `${side}Arm.rotation`, solved.shoulderRotation - restUpper),
-    staticTrack(id, action, `${side}Forearm.rotation`, solved.elbowRotation - restLower),
+    actingTrack(`${side}Arm.rotation`, solved.shoulderRotation - restUpper),
+    actingTrack(`${side}Forearm.rotation`, solved.elbowRotation - restLower),
   ];
+}
+
+function actingPhases(props: CharacterSceneProps, action: CharacterAction, frame: number) {
+  const fps = props.timebase.numerator / props.timebase.denominator;
+  return evaluateActingPhases({
+    frame,
+    startFrame: action.startFrame,
+    durationFrames: action.durationFrames,
+    fps,
+    intensity: 1,
+    stillness: action.acting?.stillness,
+    anticipationFrames: action.acting?.anticipationFrames,
+    accentFrame: action.acting?.accentFrame,
+    holdFrames: action.acting?.holdFrames,
+    settleFrames: action.acting?.settleFrames,
+    gazeLeadFrames: action.acting?.gazeLeadFrames,
+    secondaryDelayFrames: action.acting?.secondaryDelayFrames,
+  });
 }
 function gestureTarget(
   pack: CharacterPack,
@@ -253,6 +330,7 @@ function gestureTarget(
 
 function locomotionPose(props: CharacterSceneProps, actorId: string, frame: number): NumericPose {
   const actor = props.actorsById[actorId]!;
+  const pack = props.characterPacksById[actor.characterPackId]!;
   const entrances = props.actionOrder
     .map((id) => [id, props.actionsById[id]] as const)
     .filter(
@@ -265,7 +343,9 @@ function locomotionPose(props: CharacterSceneProps, actorId: string, frame: numb
   const [id, enter] =
       [...entrances].reverse().find(([, candidate]) => candidate.startFrame <= frame) ??
       entrances[0]!,
-    fromX = baseX + (enter.from === "left" ? -0.72 : 0.72) * VIEW_WIDTH;
+    halfWidth = (pack.viewBox.width * actor.scale) / 2,
+    margin = Math.max(32, halfWidth * 0.12),
+    fromX = enter.from === "left" ? -halfWidth - margin : VIEW_WIDTH + halfWidth + margin;
   const tracks = adaptTracks(
     enter,
     compileSemanticActions([
@@ -326,7 +406,14 @@ function resolveViseme(props: CharacterSceneProps, actorId: string, frame: numbe
       }
       current = candidate;
     }
-    const envelope = Math.min(smooth((local - current.frame) / 2), smooth((nextFrame - local) / 2));
+    const transitionFrames = Math.max(
+      1,
+      Math.round((props.timebase.numerator / props.timebase.denominator) * 0.05),
+    );
+    const envelope = Math.min(
+      smooth((local - current.frame) / transitionFrames),
+      smooth((nextFrame - local) / transitionFrames),
+    );
     return {
       id,
       priority: action.priority,
@@ -381,12 +468,16 @@ function evaluateActor(
   frame: number,
   positions: Record<string, Vec2>,
   propsAt: Record<string, Vec2>,
+  camera?: PresentationCamera,
 ): CharacterActorState {
   const actor = props.actorsById[actorId]!,
     pack = props.characterPacksById[actor.characterPackId]!;
   const facing = effectiveFacing(pack, actor.facing);
   const locomotion = locomotionPose(props, actorId, frame);
-  const idle = evaluateIdleMotion(frame, props.seed, actorId, {
+  // Pack motion periods are authored against the engine's 30fps reference
+  // timebase; resampling keeps ambient motion at the same real-time speed.
+  const idleFrame = frame * (30 / (props.timebase.numerator / props.timebase.denominator));
+  const idle = evaluateIdleMotion(idleFrame, props.seed, actorId, {
     amplitude: pack.motion.breathingAmplitude / 100,
     frequency: (Math.PI * 2) / pack.motion.breathingPeriodFrames,
     blinkPeriodFrames: pack.motion.blinkIntervalFrames,
@@ -428,11 +519,24 @@ function evaluateActor(
     side: "left" | "right";
     target: { space: "body" | "world"; point: Vec2 };
   }[] = [];
+  const emotionCandidates = new Set<Emotion>([actor.initialEmotion]);
   let emotion = actor.initialEmotion,
     emotionPriority = -101;
   for (const id of props.actionOrder) {
     const action = props.actionsById[id];
     if (!action || action.actorId !== actorId || action.type === "enter") continue;
+    if (
+      action.type === "gesture" ||
+      action.type === "point" ||
+      action.type === "showProp" ||
+      action.type === "react"
+    ) {
+      const secondary = actingPhases(props, action, frame).secondary;
+      const side = "hand" in action && action.hand === "left" ? -1 : 1;
+      tracks.push(
+        staticTrack(`${id}:secondary`, action, "head.rotation", secondary * side * 3, "additive"),
+      );
+    }
     if (
       (action.type === "react" || (action.type === "talk" && action.emotion)) &&
       actionActive(action, frame) &&
@@ -440,6 +544,7 @@ function evaluateActor(
       actionOwns(action, "emotion")
     ) {
       const nextEmotion = action.type === "react" ? action.preset : action.emotion!;
+      emotionCandidates.add(nextEmotion);
       if (action.priority >= emotionPriority) {
         emotionPriority = action.priority;
         emotion = nextEmotion;
@@ -451,7 +556,16 @@ function evaluateActor(
         staticTrack(id, action, "face.eyeOpen", expression.eyeOpen),
       );
     }
-    if (action.type === "look") {
+    if (action.type === "face") {
+      if (action.browTilt !== undefined)
+        tracks.push(staticTrack(id, action, "face.browTilt", action.browTilt));
+      if (action.eyeOpen !== undefined)
+        tracks.push(staticTrack(id, action, "face.eyeOpen", action.eyeOpen));
+      if (action.mouthCurve !== undefined)
+        tracks.push(staticTrack(id, action, "face.mouthCurve", action.mouthCurve));
+      if (action.headTilt !== undefined)
+        tracks.push(staticTrack(id, action, "head.rotation", action.headTilt, "additive"));
+    } else if (action.type === "look") {
       const gaze =
         action.target.kind === "camera"
           ? { gazeX: 0, gazeY: 0, headRotation: 0 }
@@ -459,7 +573,7 @@ function evaluateActor(
               origin: pack.rig.eyes,
               target: transformPoint(
                 toLocal,
-                targetPoint(action.target, props, positions, propsAt),
+                targetPoint(action.target, props, positions, propsAt, frame, camera),
               ),
               responseDistance: Math.max(pack.viewBox.width, pack.viewBox.height) * 0.5,
               maxEyeOffsetX: pack.motion.gazeLimit,
@@ -512,7 +626,7 @@ function evaluateActor(
       )
         for (const side of sides) foregroundArms[side] = true;
     } else if (action.type === "point") {
-      const point = targetPoint(action.target, props, positions, propsAt);
+      const point = targetPoint(action.target, props, positions, propsAt, frame, camera);
       armRequests.push({
         id,
         action,
@@ -522,6 +636,30 @@ function evaluateActor(
           point,
         },
       });
+      const gaze = solveGaze({
+        origin: pack.rig.eyes,
+        target: transformPoint(toLocal, point),
+        responseDistance: Math.max(pack.viewBox.width, pack.viewBox.height) * 0.5,
+        maxEyeOffsetX: pack.motion.gazeLimit,
+        maxEyeOffsetY: pack.motion.gazeLimit * 0.75,
+        maxHeadRotation: pack.motion.headTurnDegrees,
+      });
+      const gazeAction = {
+        ...action,
+        startFrame:
+          action.startFrame -
+          (action.acting?.gazeLeadFrames ??
+            Math.round((props.timebase.numerator / props.timebase.denominator) * 0.12)),
+        durationFrames:
+          action.durationFrames +
+          (action.acting?.gazeLeadFrames ??
+            Math.round((props.timebase.numerator / props.timebase.denominator) * 0.12)),
+      };
+      tracks.push(
+        staticTrack(`${id}:attention`, gazeAction, "eyes.x", gaze.gazeX),
+        staticTrack(`${id}:attention`, gazeAction, "eyes.y", gaze.gazeY),
+        staticTrack(`${id}:attention`, gazeAction, "head.rotation", gaze.headRotation, "additive"),
+      );
       if (
         actionActive(action, frame) &&
         actionWeight(action, frame) > 0 &&
@@ -534,6 +672,10 @@ function evaluateActor(
         pointingPriority[action.hand] = action.priority;
       }
     } else if (action.type === "showProp") {
+      const pickupTarget = propsAt[action.propId] ?? {
+        x: props.propsById[action.propId]!.x * VIEW_WIDTH,
+        y: props.propsById[action.propId]!.y * VIEW_HEIGHT,
+      };
       armRequests.push({
         id,
         action,
@@ -541,17 +683,19 @@ function evaluateActor(
         target: action.target
           ? {
               space: "world",
-              point: targetPoint(action.target, props, positions, propsAt),
+              point: targetPoint(action.target, props, positions, propsAt, frame, camera),
             }
-          : {
-              space: "body",
-              point: {
-                x:
-                  (action.hand === "left" ? -1 : 1) * Math.min(145, pack.viewBox.width * 0.4) -
-                  pack.rig.body.x,
-                y: 24 - pack.rig.body.y,
+          : action.interaction === "pickUp"
+            ? { space: "world", point: pickupTarget }
+            : {
+                space: "body",
+                point: {
+                  x:
+                    (action.hand === "left" ? -1 : 1) * Math.min(145, pack.viewBox.width * 0.4) -
+                    pack.rig.body.x,
+                  y: 24 - pack.rig.body.y,
+                },
               },
-            },
       });
     } else if (action.type === "react") {
       const intensity = action.intensity * (action.preset === "shocked" ? 0.18 : 0.07);
@@ -588,9 +732,72 @@ function evaluateActor(
       request.target.space === "world"
         ? transformPoint(worldToBody, request.target.point)
         : request.target.point;
-    tracks.push(...armTracks(request.id, request.action, pack, request.side, target));
+    const shoulder = pack.rig[`${request.side}Shoulder`];
+    const shoulderPoint = {
+      x: shoulder.x - pack.rig.body.x,
+      y: shoulder.y - pack.rig.body.y,
+    };
+    const eyes = {
+      x: pack.rig.eyes.x - pack.rig.body.x,
+      y: pack.rig.eyes.y - pack.rig.body.y,
+    };
+    const headClearance =
+      pack.style.eyeSpacing / 2 + pack.style.eyeRadius + pack.style.handRadius * 1.5;
+    const aboveFace = target.y < eyes.y + pack.style.eyeRadius * 3;
+    const sideSign = request.side === "left" ? -1 : 1;
+    const sameSideX =
+      request.side === "left"
+        ? Math.min(target.x, shoulderPoint.x - 40)
+        : Math.max(target.x, shoulderPoint.x + 40);
+    const lengths = limbLengths(pack, request.side);
+    const safeReach = (lengths.upperLength + lengths.lowerLength) * 0.94;
+    const desiredWristX = eyes.x + sideSign * headClearance;
+    const wristX =
+      Math.abs(desiredWristX - shoulderPoint.x) <= safeReach
+        ? desiredWristX
+        : shoulderPoint.x + sideSign * safeReach * 0.86;
+    const remainingYReach = Math.sqrt(
+      Math.max(0, safeReach ** 2 - (wristX - shoulderPoint.x) ** 2),
+    );
+    const wristY = clamp(
+      target.y,
+      Math.max(shoulderPoint.y - remainingYReach, eyes.y - pack.style.eyeRadius * 1.5),
+      Math.min(shoulderPoint.y + remainingYReach, eyes.y + pack.style.eyeRadius * 2.5),
+    );
+    const routedTarget =
+      request.action.type === "point"
+        ? {
+            ...target,
+            // A distant semantic target remains the finger direction. The IK
+            // wrist itself uses a reachable side anchor so arm normalization
+            // cannot drag the glove back across the face.
+            x: aboveFace ? wristX : sameSideX,
+            y: aboveFace ? wristY : target.y,
+          }
+        : target;
+    tracks.push(
+      ...armTracks(
+        request.id,
+        request.action,
+        pack,
+        request.side,
+        routedTarget,
+        props.timebase.numerator / props.timebase.denominator,
+      ),
+    );
   }
   const pose = mixAnimationTracks(base, tracks, frame);
+  emotion = [...emotionCandidates].sort().reduce((best, candidate) => {
+    const distance = (name: Emotion) => {
+      const expression = pack.expressions[name];
+      return (
+        (pose["face.browTilt"]! - expression.browTilt) ** 2 +
+        (pose["face.mouthCurve"]! - expression.mouthCurve) ** 2 +
+        (pose["face.eyeOpen"]! - expression.eyeOpen) ** 2
+      );
+    };
+    return distance(candidate) < distance(best) ? candidate : best;
+  }, actor.initialEmotion);
   const rig = evaluateRig(
     rigNodes(pack),
     {
@@ -632,7 +839,30 @@ function evaluateActor(
 export function evaluateCharacterActors(
   props: CharacterSceneProps,
   frame: number,
+  camera?: PresentationCamera,
 ): Record<string, CharacterActorState> {
+  for (const id of props.actionOrder) {
+    const action = props.actionsById[id];
+    if (action?.type !== "showProp" || action.interaction !== "pickUp" || action.weight === 0)
+      continue;
+    const actor = props.actorsById[action.actorId]!;
+    const pack = props.characterPacksById[actor.characterPackId]!;
+    const prop = props.propsById[action.propId]!;
+    const facing = effectiveFacing(pack, actor.facing) === "left" ? -1 : 1;
+    const shoulder = pack.rig[`${action.hand}Shoulder`];
+    const shoulderWorld = {
+      x: actor.x * VIEW_WIDTH + shoulder.x * actor.scale * facing,
+      y: actor.y * VIEW_HEIGHT + shoulder.y * actor.scale,
+    };
+    const lengths = limbLengths(pack, action.hand);
+    const reach = (lengths.upperLength + lengths.lowerLength) * actor.scale;
+    const distance = Math.hypot(
+      prop.x * VIEW_WIDTH - shoulderWorld.x,
+      prop.y * VIEW_HEIGHT - shoulderWorld.y,
+    );
+    if (distance > reach + Math.max(prop.width, prop.height) * prop.scale * 0.1)
+      throw new Error(`Unreachable pickup contact: ${action.propId}`);
+  }
   const positions = Object.fromEntries(
     props.actorOrder.map((id) => {
       const p = locomotionPose(props, id, frame);
@@ -649,94 +879,74 @@ export function evaluateCharacterActors(
       },
     ]),
   );
+  for (const id of props.propOrder) {
+    const released = props.actionOrder
+      .map((actionId) => props.actionsById[actionId])
+      .filter((action): action is Extract<CharacterAction, { type: "showProp" }> =>
+        Boolean(
+          action?.type === "showProp" &&
+            action.weight > 0 &&
+            action.propId === id &&
+            (action.interaction === "place" || action.interaction === "release") &&
+            frame >= action.startFrame + propContactFrame(action),
+        ),
+      )
+      .at(-1);
+    if (!released) continue;
+    const contactFrame = released.startFrame + propContactFrame(released) - 1;
+    const contactPositions = Object.fromEntries(
+      props.actorOrder.map((actorId) => {
+        const pose = locomotionPose(props, actorId, contactFrame);
+        return [actorId, { x: pose["root.x"]!, y: pose["root.y"]! }];
+      }),
+    );
+    const contactPropsAt = Object.fromEntries(
+      props.propOrder.map((propId) => [
+        propId,
+        {
+          x: props.propsById[propId]!.x * VIEW_WIDTH,
+          y: props.propsById[propId]!.y * VIEW_HEIGHT,
+        },
+      ]),
+    );
+    const contactState = evaluateActor(
+      props,
+      released.actorId,
+      contactFrame,
+      contactPositions,
+      contactPropsAt,
+    );
+    const hand = contactState.rig[`${released.hand}Hand`];
+    if (hand) propsAt[id] = hand.origin;
+  }
   let states = Object.fromEntries(
-    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt)]),
+    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt, camera)]),
   );
   for (const [id, attachment] of Object.entries(attached)) {
     const hand = attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
     if (hand) propsAt[id] = hand.origin;
   }
   states = Object.fromEntries(
-    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt)]),
+    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt, camera)]),
   );
   return states;
 }
 
-function Overlay({
-  overlay,
-  frame,
-}: {
-  overlay: CharacterSceneProps["overlaysById"][string];
-  frame: number;
-}) {
-  if (frame < overlay.startFrame || frame >= overlay.endFrame) return null;
-  const enter = smooth((frame - overlay.startFrame) / 10),
-    exit = smooth((overlay.endFrame - frame) / 8),
-    opacity = Math.min(enter, exit);
-  const styles: Record<
-    typeof overlay.style,
-    { fill: string; color: string; width: number; height: number; size: number }
-  > = {
-    caption: {
-      fill: "#211108",
-      color: "#fff8ee",
-      width: 820,
-      height: 112,
-      size: 48,
-    },
-    "price-old": {
-      fill: "#fff8ee",
-      color: "#8a3d1b",
-      width: 410,
-      height: 140,
-      size: 52,
-    },
-    "price-new": {
-      fill: "#ff7a1a",
-      color: "#211108",
-      width: 410,
-      height: 140,
-      size: 52,
-    },
-    cta: {
-      fill: "#ff7a1a",
-      color: "#211108",
-      width: 760,
-      height: 126,
-      size: 44,
-    },
-  };
-  const style = styles[overlay.style];
-  return (
-    <g
-      transform={`translate(${overlay.x * VIEW_WIDTH} ${overlay.y * VIEW_HEIGHT}) scale(${0.92 + enter * 0.08})`}
-      opacity={opacity}
-    >
-      <rect
-        x={-style.width / 2}
-        y={-style.height / 2}
-        width={style.width}
-        height={style.height}
-        rx="28"
-        fill={style.fill}
-      />
-      <text
-        y={style.size * 0.34}
-        textAnchor="middle"
-        fill={style.color}
-        fontFamily="DejaVu Sans"
-        fontWeight="700"
-        fontSize={style.size}
-      >
-        {overlay.text}
-      </text>
-    </g>
-  );
-}
-
 export function CharacterScene({ props, frame }: { props: CharacterSceneProps; frame: number }) {
-  const states = evaluateCharacterActors(props, frame),
-    attachments = resolvePersistentPropAttachments(props, frame);
+  const attachments = resolvePersistentPropAttachments(props, frame);
+  let states = evaluateCharacterActors(props, frame);
+  const productId = props.staging.productPropId;
+  const productAttachment = productId ? attachments[productId] : undefined;
+  const productHand =
+    productAttachment && states[productAttachment.actorId]?.rig[`${productAttachment.hand}Hand`];
+  const product = productId ? props.propsById[productId] : undefined;
+  const productWorldPoint =
+    productHand?.origin ??
+    (product ? { x: product.x * VIEW_WIDTH, y: product.y * VIEW_HEIGHT } : undefined);
+  const camera = evaluatePresentationCamera(props, frame, { productWorldPoint });
+  // A second pure pass makes screen-space gaze/point targets use the same
+  // camera that follows an attached product. No state is integrated.
+  states = evaluateCharacterActors(props, frame, camera);
   const actors: ReactNode[] = props.actorOrder.map((id) => {
     const actor = props.actorsById[id],
       state = states[id],
@@ -756,6 +966,30 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
     const prop = props.propsById[id]!,
       attachment = attachments[id],
       hand = attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
+    const released = props.actionOrder
+      .map((actionId) => props.actionsById[actionId])
+      .filter((action): action is Extract<CharacterAction, { type: "showProp" }> =>
+        Boolean(
+          action?.type === "showProp" &&
+            action.propId === id &&
+            (action.interaction === "place" || action.interaction === "release") &&
+            frame >= action.startFrame + propContactFrame(action),
+        ),
+      )
+      .at(-1);
+    let releasedMatrix: ReturnType<typeof resolvePropAttachment> | undefined;
+    if (released) {
+      const contactFrame = released.startFrame + propContactFrame(released) - 1;
+      const contact = evaluateCharacterActors(props, contactFrame)[released.actorId]?.rig[
+        `${released.hand}Hand`
+      ];
+      if (contact)
+        releasedMatrix = resolvePropAttachment(contact.matrix, prop.grip, {
+          rotation: prop.rotation,
+          scaleX: prop.scale,
+          scaleY: prop.scale,
+        });
+    }
     const matrix = hand
       ? resolvePropAttachment(hand.matrix, prop.grip, {
           x: attachment.offset.x,
@@ -764,7 +998,8 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
           scaleX: prop.scale,
           scaleY: prop.scale,
         })
-      : multiplyMatrices(
+      : (releasedMatrix ??
+        multiplyMatrices(
           transformMatrix({
             x: prop.x * VIEW_WIDTH,
             y: prop.y * VIEW_HEIGHT,
@@ -779,7 +1014,7 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
             scaleX: 1,
             scaleY: 1,
           }),
-        );
+        ));
     const revealed = props.actionOrder.some((actionId) => {
       const action = props.actionsById[actionId];
       return (
@@ -818,17 +1053,20 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
       width="100%"
       height="100%"
       role="img"
-      aria-label={props.caption ?? "Farq character animation"}
+      aria-label={props.caption ?? "Character animation"}
     >
-      <rect width="1080" height="1920" fill={props.background} />
-      <circle cx="890" cy="235" r="205" fill="#ff7a1a" opacity="0.12" />
-      <path d="M0 1320 C280 1210 410 1390 670 1280 S920 1240 1080 1350 V1920 H0Z" fill="#2b1710" />
-      {actors}
-      {renderedProps}
-      {hands}
+      <EnvironmentBase environment={props.environment} />
+      <CameraWorld camera={camera}>
+        <EnvironmentPlane environment={props.environment} plane="background" camera={camera} />
+        <EnvironmentPlane environment={props.environment} plane="midground" camera={camera} />
+        {actors}
+        {renderedProps}
+        {hands}
+        <EnvironmentPlane environment={props.environment} plane="foreground" camera={camera} />
+      </CameraWorld>
       {props.overlayOrder.map((id) => {
         const overlay = props.overlaysById[id];
-        return overlay ? <Overlay key={id} overlay={overlay} frame={frame} /> : null;
+        return overlay ? <AdvertisingOverlay key={id} overlay={overlay} frame={frame} /> : null;
       })}
     </svg>
   );

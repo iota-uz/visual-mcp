@@ -106,6 +106,14 @@ export type AnimationTrack = {
   holdAfter?: boolean;
 };
 export type NumericPose = Record<string, number>;
+function trackEnvelope(track: AnimationTrack, frame: number, suppressFadeOut = false) {
+  const local = frame - track.startFrame;
+  let weight = clamp(track.weight ?? 1);
+  if (track.fadeInFrames && local >= 0) weight *= smooth(local / track.fadeInFrames);
+  if (track.fadeOutFrames && !track.holdAfter && !suppressFadeOut)
+    weight *= smooth((track.durationFrames - local) / track.fadeOutFrames);
+  return weight;
+}
 export function sampleTrack(track: AnimationTrack, frame: number): number | undefined {
   if (!track.keyframes.length) return undefined;
   const local = frame - track.startFrame;
@@ -138,28 +146,180 @@ export function mixAnimationTracks(
   frame: number,
 ): NumericPose {
   const result = { ...base };
-  for (const track of [...tracks].sort(
-    (a, b) => a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  )) {
+  const eligible = tracks.filter((track) => {
     if (
       track.bodyMask &&
       !track.bodyMask.some((part) => track.channel === part || track.channel.startsWith(`${part}.`))
     )
-      continue;
-    const value = sampleTrack(track, frame);
-    if (value === undefined) continue;
-    const local = frame - track.startFrame;
-    let weight = clamp(track.weight ?? 1);
-    if (track.fadeInFrames && local >= 0) weight *= smooth(local / track.fadeInFrames);
-    if (track.fadeOutFrames && !track.holdAfter)
-      weight *= smooth((track.durationFrames - local) / track.fadeOutFrames);
-    const previous = result[track.channel] ?? 0;
-    result[track.channel] =
-      track.mode === "additive"
-        ? previous + value * weight
-        : previous + (value - previous) * weight;
+      return false;
+    return true;
+  });
+  const channels = new Map<string, AnimationTrack[]>();
+  for (const track of eligible) {
+    const group = channels.get(track.channel) ?? [];
+    group.push(track);
+    channels.set(track.channel, group);
+  }
+  for (const [channel, channelTracks] of channels) {
+    const priorities = new Map<number, AnimationTrack[]>();
+    for (const track of channelTracks) {
+      const group = priorities.get(track.priority) ?? [];
+      group.push(track);
+      priorities.set(track.priority, group);
+    }
+    let current = result[channel] ?? 0;
+    for (const priority of [...priorities.keys()].sort((a, b) => a - b)) {
+      const group = [...priorities.get(priority)!].sort((a, b) => a.id.localeCompare(b.id));
+      const overrides: { id: string; value: number; weight: number }[] = [];
+      let additive = 0;
+      for (const track of group) {
+        const end = track.startFrame + track.durationFrames;
+        const successor = group
+          .filter(
+            (candidate) =>
+              candidate.mode === track.mode &&
+              candidate.startFrame === end &&
+              (candidate.weight ?? 1) > 0 &&
+              candidate.keyframes.length > 0 &&
+              candidate.id !== track.id,
+          )
+          .sort((a, b) => a.id.localeCompare(b.id))[0];
+        let value = sampleTrack(track, frame);
+        let weight = 0;
+        if (value !== undefined) {
+          weight = trackEnvelope(track, frame, Boolean(successor));
+        } else if (successor && frame >= end && frame <= end + (successor.fadeInFrames ?? 0)) {
+          // Keep the outgoing authored pose during the incoming fade. This is
+          // sampled directly from absolute frame time, so random seeking and
+          // sequential playback produce exactly the same result.
+          value = sampleTrack({ ...track, holdAfter: true }, frame);
+          weight =
+            clamp(track.weight ?? 1) *
+            (1 - smooth((frame - end) / Math.max(1, successor.fadeInFrames ?? 0)));
+        }
+        if (value === undefined || weight <= 0) continue;
+        if (track.mode === "additive") additive += value * weight;
+        else overrides.push({ id: track.id, value, weight });
+      }
+      if (overrides.length) {
+        const total = overrides.reduce((sum, item) => sum + item.weight, 0);
+        const target = overrides.reduce((sum, item) => sum + item.value * item.weight, 0) / total;
+        const alpha = clamp(total);
+        current += (target - current) * alpha;
+      }
+      current += additive;
+    }
+    result[channel] = current;
   }
   return result;
+}
+
+export type ActingPhases = {
+  anticipation: number;
+  accent: number;
+  hold: number;
+  settle: number;
+  /** Leads the primary motion and is useful for gaze/attention tracks. */
+  gaze: number;
+  /** Delayed, lower-amplitude overlap for head/body/hands. */
+  secondary: number;
+};
+
+/**
+ * A deterministic acting phrase sampled from an absolute frame. Durations are
+ * expressed in seconds then quantized through fps, keeping the perceived beat
+ * stable at 24/30/60fps without carrying state between frames.
+ */
+export function evaluateActingPhases(input: {
+  frame: number;
+  startFrame: number;
+  durationFrames: number;
+  fps: number;
+  intensity?: number;
+  stillness?: number;
+  anticipationFrames?: number;
+  accentFrame?: number;
+  holdFrames?: number;
+  settleFrames?: number;
+  gazeLeadFrames?: number;
+  secondaryDelayFrames?: number;
+  gazeLeadSeconds?: number;
+  secondaryDelaySeconds?: number;
+}): ActingPhases {
+  const fps = Math.max(1, input.fps);
+  const duration = Math.max(1, input.durationFrames);
+  const local = input.frame - input.startFrame;
+  const intensity = clamp(input.intensity ?? 1);
+  const motion = intensity;
+  const looseness = 1 - clamp(input.stillness ?? 0);
+  const anticipationFrames = Math.min(
+    input.anticipationFrames ?? Math.round(0.16 * fps),
+    Math.max(1, duration - 1),
+  );
+  const accentFrame = Math.min(
+    duration - 1,
+    input.accentFrame ?? anticipationFrames + Math.round(0.1 * fps),
+  );
+  const settleFrames = Math.min(
+    input.settleFrames ?? Math.round(0.22 * fps),
+    Math.max(1, duration - accentFrame),
+  );
+  const requestedHold = input.holdFrames;
+  const settleStart = Math.max(
+    accentFrame,
+    requestedHold === undefined
+      ? duration - settleFrames
+      : Math.min(duration, accentFrame + requestedHold),
+  );
+  const settleEnd = Math.min(duration, settleStart + settleFrames);
+  const explicitSettle = input.holdFrames !== undefined || input.settleFrames !== undefined;
+  const primary =
+    local < 0 || local >= duration
+      ? 0
+      : local < anticipationFrames
+        ? -0.16 * motion * smooth(local / Math.max(1, anticipationFrames))
+        : local < accentFrame
+          ? (-0.16 +
+              1.16 *
+                smooth(
+                  (local - anticipationFrames) / Math.max(1, accentFrame - anticipationFrames),
+                )) *
+            motion
+          : !explicitSettle || local < settleStart
+            ? motion
+            : local < settleEnd
+              ? motion * (1 - smooth((local - settleStart) / Math.max(1, settleFrames)))
+              : 0;
+  const gazeLead = input.gazeLeadFrames ?? Math.round((input.gazeLeadSeconds ?? 0.12) * fps);
+  const gazeLocal = local + gazeLead;
+  const gaze =
+    gazeLocal < 0 || gazeLocal >= duration + gazeLead
+      ? 0
+      : smooth(gazeLocal / Math.max(1, anticipationFrames)) * intensity;
+  const secondaryDelay =
+    input.secondaryDelayFrames ?? Math.round((input.secondaryDelaySeconds ?? 0.08) * fps);
+  const secondaryLocal = local - secondaryDelay;
+  const secondary =
+    secondaryLocal <= 0
+      ? 0
+      : primary * 0.72 * looseness +
+        evaluateFollowThrough(input.frame, input.startFrame, {
+          amplitude: 0.1 * motion * looseness,
+          delayFrames: secondaryDelay,
+          decayFrames: Math.round(0.34 * fps),
+          frequency: (Math.PI * 2) / Math.max(4, Math.round(0.28 * fps)),
+        });
+  return {
+    anticipation: local >= 0 && local < anticipationFrames ? Math.abs(primary) : 0,
+    accent: primary,
+    hold: local >= accentFrame && local < settleStart ? motion : 0,
+    settle:
+      local >= settleStart && local < settleEnd
+        ? motion * (1 - smooth((local - settleStart) / Math.max(1, settleFrames)))
+        : 0,
+    gaze: clamp(gaze),
+    secondary,
+  };
 }
 
 export type IKResult = {
@@ -270,10 +430,14 @@ export function resolvePersistentPropAttachments(
       {
         type: string;
         startFrame: number;
+        durationFrames: number;
         actorId: string;
         weight?: number;
         propId?: string;
         hand?: "left" | "right" | "both";
+        interaction?: "reveal" | "pickUp" | "place" | "release";
+        releaseFrame?: number;
+        acting?: { accentFrame?: number; holdFrames?: number };
       }
     >;
   },
@@ -292,12 +456,25 @@ export function resolvePersistentPropAttachments(
     if (
       !action ||
       action.type !== "showProp" ||
-      action.startFrame > frame ||
       action.weight === 0 ||
       !action.propId ||
       (action.hand !== "left" && action.hand !== "right")
     )
       continue;
+    const interaction = action.interaction ?? "reveal";
+    const local = frame - action.startFrame;
+    const contactFrame = Math.min(action.durationFrames - 1, action.acting?.accentFrame ?? 8);
+    if (local < 0) continue;
+    if (interaction === "place" || interaction === "release") {
+      const releaseFrame =
+        action.releaseFrame ??
+        (action.acting?.accentFrame !== undefined && action.acting.holdFrames !== undefined
+          ? Math.min(action.durationFrames - 1, action.acting.accentFrame + action.acting.holdFrames)
+          : action.durationFrames - 1);
+      if (local >= releaseFrame) attachments[action.propId] = undefined;
+      continue;
+    }
+    if (interaction === "pickUp" && local < contactFrame) continue;
     const previous = attachments[action.propId];
     if (previous?.actorId === action.actorId && previous.hand === action.hand) continue;
     attachments[action.propId] = {

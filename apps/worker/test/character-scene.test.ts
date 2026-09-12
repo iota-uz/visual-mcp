@@ -7,12 +7,22 @@ import {
 } from "@visual-canvas/video/registry";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { resolvePersistentPropAttachments } from "../src/video/character-runtime.js";
 import { CharacterScene, evaluateCharacterActors } from "../src/video/character-scene.js";
 
 function fixture() {
   return CharacterSceneProps.parse({
-    background: "#170f0a",
+    timebase: { numerator: 30, denominator: 1 },
     seed: 18273,
+    staging: { layout: "two-shot", focalActorId: "mascot", productPropId: "phone" },
+    camera: { movement: "locked", startFrame: 0, durationFrames: 420 },
+    environment: {
+      background: "#170f0a",
+      horizonY: 0.64,
+      ground: "#2b1811",
+      accent: "#ffb52e",
+      layers: [],
+    },
     characterPacksById: structuredClone(builtInCharacterPacks),
     actorOrder: ["customer", "mascot"],
     actorsById: {
@@ -395,4 +405,241 @@ test("zero-weight semantic actions cannot reveal props or override speech and em
   assert.equal(state.emotion, "neutral");
   assert.equal(state.face.viseme, "rest");
   assert.doesNotMatch(markup, /aria-label="Phone"/);
+});
+
+test("adjacent authored gestures preserve a full-scene hand pose across the exact boundary", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["explain", "pointNext"];
+  input.actionsById = {
+    explain: {
+      type: "gesture",
+      actorId: "customer",
+      startFrame: 10,
+      durationFrames: 20,
+      preset: "explain",
+      hand: "right",
+      intensity: 1,
+    },
+    pointNext: {
+      type: "gesture",
+      actorId: "customer",
+      startFrame: 30,
+      durationFrames: 20,
+      preset: "point",
+      hand: "right",
+      intensity: 1,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const restInput = structuredClone(input);
+  restInput.actionOrder = [];
+  restInput.actionsById = {};
+  const rest = evaluateCharacterActors(CharacterSceneProps.parse(restInput), 30).customer!.rig
+    .rightHand.origin;
+  const before = evaluateCharacterActors(props, 29).customer!.rig.rightHand.origin;
+  const boundary = evaluateCharacterActors(props, 30).customer!.rig.rightHand.origin;
+  const after = evaluateCharacterActors(props, 33).customer!.rig.rightHand.origin;
+  assert.ok(Math.hypot(boundary.x - rest.x, boundary.y - rest.y) > 20);
+  assert.ok(Math.hypot(boundary.x - before.x, boundary.y - before.y) < 1);
+  assert.ok(Math.hypot(after.x - boundary.x, after.y - boundary.y) < 220);
+  assert.deepEqual(evaluateCharacterActors(props, 30), evaluateCharacterActors(props, 30));
+});
+
+test("numeric face direction blends continuously and reports no discrete emotion jump", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["face"];
+  input.actionsById = {
+    face: {
+      type: "face",
+      actorId: "customer",
+      startFrame: 20,
+      durationFrames: 30,
+      browTilt: 0.7,
+      eyeOpen: 0.55,
+      mouthCurve: -0.45,
+      headTilt: 8,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const start = evaluateCharacterActors(props, 20).customer!;
+  const middle = evaluateCharacterActors(props, 35).customer!;
+  assert.equal(start.emotion, "neutral");
+  assert.ok(middle.face.browTilt > start.face.browTilt);
+  assert.ok(middle.face.eyeOpen < start.face.eyeOpen);
+  assert.ok(middle.pose["head.rotation"]! > start.pose["head.rotation"]!);
+});
+
+test("an impossible pickup fails explicitly instead of snapping the prop to the hand", () => {
+  const input = structuredClone(fixture());
+  input.propsById.phone.x = 0;
+  input.propsById.phone.y = 0;
+  input.actionOrder = ["pickup"];
+  input.actionsById = {
+    pickup: {
+      type: "showProp",
+      interaction: "pickUp",
+      actorId: "mascot",
+      propId: "phone",
+      hand: "right",
+      startFrame: 10,
+      durationFrames: 30,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  assert.throws(() => evaluateCharacterActors(props, 10), /Unreachable pickup contact: phone/);
+});
+
+test("zero-weight contact actions neither own props nor reject unreachable pickups", () => {
+  const input = structuredClone(fixture());
+  input.propsById.phone.x = 0;
+  input.propsById.phone.y = 0;
+  input.actionOrder = ["disabledPickup", "reveal"];
+  input.actionsById = {
+    disabledPickup: {
+      type: "showProp",
+      interaction: "pickUp",
+      actorId: "mascot",
+      propId: "phone",
+      hand: "right",
+      startFrame: 0,
+      durationFrames: 10,
+      weight: 0,
+    },
+    reveal: {
+      type: "showProp",
+      interaction: "reveal",
+      actorId: "mascot",
+      propId: "phone",
+      hand: "right",
+      startFrame: 10,
+      durationFrames: 10,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  assert.doesNotThrow(() => evaluateCharacterActors(props, 5));
+  assert.equal(resolvePersistentPropAttachments(props, 5).phone, undefined);
+});
+
+test("targeting a placed prop uses its visible frozen contact position", () => {
+  const input = structuredClone(fixture());
+  input.propsById.phone.initiallyVisible = true;
+  input.propsById.phone.attachment = {
+    actorId: "mascot",
+    hand: "right",
+    offset: { x: 0, y: 0 },
+    rotation: 0,
+  };
+  input.actionOrder = ["place", "look"];
+  input.actionsById = {
+    place: {
+      type: "showProp",
+      interaction: "place",
+      actorId: "mascot",
+      propId: "phone",
+      hand: "right",
+      target: { kind: "point", x: 0.58, y: 0.72 },
+      startFrame: 10,
+      durationFrames: 20,
+      releaseFrame: 8,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+    },
+    look: {
+      type: "look",
+      actorId: "customer",
+      target: { kind: "prop", propId: "phone" },
+      startFrame: 30,
+      durationFrames: 20,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const contactHand = evaluateCharacterActors(props, 17).mascot!.rig.rightHand!.origin;
+  const placed = evaluateCharacterActors(props, 35).customer!;
+  const explicit = structuredClone(props);
+  explicit.actionsById.look!.target = {
+    kind: "point",
+    x: contactHand.x / 1080,
+    y: contactHand.y / 1920,
+  };
+  const lookingAtVisiblePosition = evaluateCharacterActors(explicit, 35).customer!;
+  assert.equal(placed.face.gazeX, lookingAtVisiblePosition.face.gazeX);
+  assert.equal(placed.face.gazeY, lookingAtVisiblePosition.face.gazeY);
+});
+
+test("place preserves the exact contact matrix across release and later arbitrary seeks", () => {
+  const input = structuredClone(fixture());
+  input.propsById.phone.initiallyVisible = true;
+  input.propsById.phone.attachment = {
+    actorId: "mascot",
+    hand: "right",
+    offset: { x: 0, y: 0 },
+    rotation: 0,
+  };
+  input.actionOrder = ["place"];
+  input.actionsById = {
+    place: {
+      type: "showProp",
+      interaction: "place",
+      actorId: "mascot",
+      propId: "phone",
+      hand: "right",
+      target: { kind: "point", x: 0.58, y: 0.72 },
+      startFrame: 10,
+      durationFrames: 20,
+      releaseFrame: 8,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const propMatrix = (frame: number) => {
+    const markup = renderToStaticMarkup(createElement(CharacterScene, { props, frame }));
+    return markup.match(/aria-label="Phone"[^>]*transform="([^"]+)"/)?.[1];
+  };
+  const before = propMatrix(17);
+  assert.ok(before);
+  assert.equal(propMatrix(18), before);
+  assert.equal(propMatrix(60), before);
+});
+
+test("ambient breathing and blink timing retain real-time speed at 30 and 60fps", () => {
+  const at30Input = structuredClone(fixture());
+  at30Input.actionOrder = [];
+  at30Input.actionsById = {};
+  const at60Input = structuredClone(at30Input);
+  at60Input.timebase = { numerator: 60, denominator: 1 };
+  const at30 = evaluateCharacterActors(CharacterSceneProps.parse(at30Input), 60).customer!;
+  const at60 = evaluateCharacterActors(CharacterSceneProps.parse(at60Input), 120).customer!;
+  assert.equal(at60.pose["body.scaleX"], at30.pose["body.scaleX"]);
+  assert.equal(at60.pose["body.scaleY"], at30.pose["body.scaleY"]);
+  assert.equal(at60.face.eyeOpen, at30.face.eyeOpen);
+});
+
+test("an above-face point keeps the solved glove outside the authored eye envelope", () => {
+  const input = structuredClone(fixture());
+  input.actorsById.mascot.characterPackId = "farq-official";
+  input.actorsById.mascot.facing = "right";
+  input.actionOrder = ["pointAbove"];
+  input.actionsById = {
+    pointAbove: {
+      type: "point",
+      actorId: "mascot",
+      startFrame: 20,
+      durationFrames: 40,
+      target: { kind: "point", x: 0.5, y: 0.28 },
+      hand: "left",
+      blendInFrames: 0,
+      blendOutFrames: 0,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const state = evaluateCharacterActors(props, 34).mascot!;
+  const pack = props.characterPacksById["farq-official"]!;
+  const eye = state.rig.eyes!.origin;
+  const hand = state.rig.leftHand!.origin;
+  const eyeEnvelope =
+    (pack.style.eyeSpacing / 2 + pack.style.eyeRadius) * props.actorsById.mascot!.scale;
+  assert.ok(hand.x <= eye.x - eyeEnvelope, `${hand.x} intrudes into eye envelope at ${eye.x}`);
 });

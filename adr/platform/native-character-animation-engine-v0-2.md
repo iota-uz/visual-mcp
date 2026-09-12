@@ -1,7 +1,7 @@
 ---
 id: native-character-animation-engine-v0-2
 title: Персонажная анимация использует data-driven packs и процедурный runtime
-status: accepted
+status: superseded
 date: 2026-09-12
 deciders: [unknown]
 area: platform
@@ -28,7 +28,7 @@ tags: [video, animation, characters, rig, ik, remotion]
 refs:
   - запрос пользователя
 supersedes: [native-character-animation-video-mvp]
-superseded_by: []
+superseded_by: [character-advertising-performance]
 ---
 
 ## Контекст

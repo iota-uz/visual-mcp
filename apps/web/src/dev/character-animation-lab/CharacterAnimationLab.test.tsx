@@ -23,4 +23,10 @@ describe("CharacterAnimationLab", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     expect(container.querySelectorAll(".cal-ghost svg")).toHaveLength(2);
   });
+
+  it("opens a golden review at an exact authored frame", () => {
+    render(<CharacterAnimationLab scenarioId="golden-ad" autoPlay={false} initialFrame={132} />);
+    expect(screen.getByRole("slider", { name: "Animation frame" })).toHaveValue("132");
+    expect(screen.getByText("00:04:12")).toBeInTheDocument();
+  });
 });

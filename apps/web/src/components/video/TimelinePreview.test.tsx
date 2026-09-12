@@ -276,10 +276,25 @@ test("renders native character scenes at the current timeline frame", () => {
             durationFrames: 60,
             source: {
               kind: "component",
-              component: { resourceId: "video/component/character-scene", revisionId: "2" },
+              component: { resourceId: "video/component/character-scene", revisionId: "3" },
               props: {
-                background: "#170f0a",
+                timebase: { numerator: 30, denominator: 1 },
                 seed: 42,
+                staging: { layout: "reaction-closeup", focalActorId: "mascot" },
+                camera: {
+                  movement: "locked",
+                  startFrame: 0,
+                  durationFrames: 60,
+                  holdFrames: 0,
+                  intensity: 0.5,
+                },
+                environment: {
+                  background: "#170f0a",
+                  horizonY: 0.65,
+                  ground: "#2b1811",
+                  accent: "#ffb52e",
+                  layers: [],
+                },
                 characterPacksById: {
                   "farq-official": builtInCharacterPacks["farq-official"]!,
                 },
