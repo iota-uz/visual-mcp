@@ -47,22 +47,24 @@ function fixture(mixedAssets = false) {
     actionContext: () => ({
       storage: {},
       runMutation: async (_fn: unknown, input: Record<string, unknown>) =>
-        Array.isArray(input.assetRefs)
-          ? {
-              status: "moved",
-              movedCount: input.assetRefs.length,
-              replayed: false,
-              items: input.assetRefs.map((assetRef) => ({
-                previousAssetRef: assetRef,
-                assetRef: String(assetRef).replace("/farq/", "/aktuar/"),
-              })),
-              conflicts: [],
-            }
-          : {
-              assetRef: input.assetRef,
-              revision: 1,
-              tags: input.tags,
-            },
+        Array.isArray(input.uploads)
+          ? input.uploads.map((_, index) => `upload-${index + 1}`)
+          : Array.isArray(input.assetRefs)
+            ? {
+                status: "moved",
+                movedCount: input.assetRefs.length,
+                replayed: false,
+                items: input.assetRefs.map((assetRef) => ({
+                  previousAssetRef: assetRef,
+                  assetRef: String(assetRef).replace("/farq/", "/aktuar/"),
+                })),
+                conflicts: [],
+              }
+            : {
+                assetRef: input.assetRef,
+                revision: 1,
+                tags: input.tags,
+              },
       runQuery: async (_fn: unknown, input: Record<string, unknown>) =>
         input.slug
           ? {
@@ -395,6 +397,27 @@ test("installed SDK client validates populated asset list/get against published 
   } finally {
     await client.close();
   }
+});
+test("shared Asset Library reserves WAV and OGG uploads without a workspace", async () => {
+  vi.stubEnv("S3_ASSET_ENDPOINT", "https://storage.example.test");
+  vi.stubEnv("S3_ASSET_BUCKET", "fixture");
+  vi.stubEnv("S3_ASSET_ACCESS_KEY_ID", "fixture-access");
+  vi.stubEnv("S3_ASSET_SECRET_ACCESS_KEY", "fixture-secret");
+  const f = fixture();
+
+  const reserved = await f.tool("asset_upload_url", {
+    scope: "shared",
+    files: [
+      { filename: "voice.wav", content_type: "audio/wav", size_bytes: 128 },
+      { filename: "voice.ogg", content_type: "audio/ogg", size_bytes: 96 },
+    ],
+  });
+
+  expect(reserved.isError).not.toBe(true);
+  expect(reserved.structuredContent.uploads).toMatchObject([
+    { upload_id: "upload-1", filename: "voice.wav", method: "PUT" },
+    { upload_id: "upload-2", filename: "voice.ogg", method: "PUT" },
+  ]);
 });
 test("populated mixed audio library works directly and through execute, including audio filter", async () => {
   vi.stubEnv("S3_ASSET_ENDPOINT", "https://storage.example.test");

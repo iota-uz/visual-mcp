@@ -4546,7 +4546,8 @@ export function registerTools(
       description:
         "Creates one-hour presigned PUT URLs for direct binary upload to the private source " +
         "bucket. Pass one file or a files batch (up to 50), PUT each upload, then call " +
-        "asset_finalize once with the corresponding item or items manifest.",
+        "asset_finalize once with the corresponding item or items manifest. Use scope=shared " +
+        "to add image, video, WAV, OGG, or other supported media to the organization-wide library.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z.union([
         z
@@ -4744,7 +4745,9 @@ export function registerTools(
       title: "Import an external media asset",
       description:
         "Downloads an HTTPS asset into the private Asset Library. The canvas never hotlinks the " +
-        "external URL; redirects and private-network targets are rejected.",
+        "external URL; redirects and private-network targets are rejected. WAV and OGG are " +
+        "supported, including sources served as application/octet-stream. Use scope=shared for " +
+        "the organization-wide library.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: z
         .object({

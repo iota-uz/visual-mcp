@@ -1,11 +1,15 @@
 import type { Id } from "../../../convex/_generated/dataModel.js";
+import { verifiedMediaMetadata } from "../../../convex/lib/videoAssetMetadata.js";
 import type { AgentContext } from "./gateway.js";
 import {
   ASSET_MAX_BYTES,
+  ASSET_MIME_TYPES,
   type AssetKind,
   assertSafeImportUrl,
+  sniffAssetMime,
   validateAssetBytes,
 } from "./lib/assetSecurity.js";
+import { sha256HexBytes } from "./lib/hash.js";
 import {
   deleteObject,
   getObject,
@@ -71,6 +75,7 @@ export type PreparedAssetObject = {
   originalFilename: string;
   objectLeaseId: string;
   cleanupClaimId: string;
+  mediaMetadata?: ReturnType<typeof verifiedMediaMetadata>;
 };
 
 /**
@@ -84,7 +89,21 @@ export async function prepareAssetObject(input: {
   rawBytes: Uint8Array;
   declaredMime: string;
 }): Promise<PreparedAssetObject> {
-  const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
+  if (input.rawBytes.byteLength === 0) throw new Error("Asset is empty");
+  if (input.rawBytes.byteLength > ASSET_MAX_BYTES)
+    throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
+  const detectedMime = sniffAssetMime(input.rawBytes, input.declaredMime);
+  const detectedKind = ASSET_MIME_TYPES[detectedMime as keyof typeof ASSET_MIME_TYPES];
+  if (!detectedKind) throw new Error(`Unsupported asset MIME type: ${detectedMime}`);
+  const validated =
+    detectedKind === "audio"
+      ? {
+          bytes: input.rawBytes,
+          mimeType: detectedMime,
+          kind: detectedKind,
+          contentHash: await sha256HexBytes(input.rawBytes),
+        }
+      : await validateAssetBytes(input.rawBytes, input.declaredMime);
   const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
   const objectLeaseId = crypto.randomUUID();
   const cleanupClaimId = crypto.randomUUID();
@@ -92,12 +111,50 @@ export async function prepareAssetObject(input: {
     objectKey,
     leaseId: objectLeaseId,
   });
+  let mediaMetadata: ReturnType<typeof verifiedMediaMetadata> | undefined;
   try {
     await ensureObject(objectKey, validated.bytes, validated.mimeType);
+    if (validated.kind === "audio") {
+      const verified = await callWorker<{
+        sha256: string;
+        sizeBytes: number;
+        mimeType: string;
+        kind: string;
+        durationMs?: number;
+        hasAudio?: boolean;
+        audioStreams?: Array<{
+          codec: string | null;
+          channels: number | null;
+          sampleRateHz: number | null;
+        }>;
+      }>(getWorkerConfig(), "/media/verify", {
+        sourceUrl: await presignObject(objectKey, "GET", 900),
+        declaredMimeType: validated.mimeType,
+        maxBytes: validated.bytes.byteLength,
+        expectedSize: validated.bytes.byteLength,
+        expectedSha256: validated.contentHash,
+      });
+      if (
+        verified.kind !== "audio" ||
+        verified.mimeType !== validated.mimeType ||
+        verified.sizeBytes !== validated.bytes.byteLength ||
+        verified.sha256 !== validated.contentHash
+      ) {
+        throw new Error("Audio verification result does not match the uploaded bytes");
+      }
+      mediaMetadata = verifiedMediaMetadata(verified);
+    }
   } catch (error) {
-    await input.ctx
-      .runMutation(internal.assets.releaseObjectLease, { objectKey, leaseId: objectLeaseId })
-      .catch(() => undefined);
+    await discardPreparedAssetObject(input.ctx, {
+      objectKey,
+      contentHash: validated.contentHash,
+      mimeType: validated.mimeType,
+      size: validated.bytes.byteLength,
+      kind: validated.kind,
+      originalFilename: input.filename,
+      objectLeaseId,
+      cleanupClaimId,
+    }).catch(() => undefined);
     throw error;
   }
   return {
@@ -109,6 +166,7 @@ export async function prepareAssetObject(input: {
     originalFilename: input.filename,
     objectLeaseId,
     cleanupClaimId,
+    mediaMetadata,
   };
 }
 
@@ -175,6 +233,7 @@ export async function persistAsset(
       description: input.description,
       tags: input.tags,
       kind: prepared.kind,
+      mediaMetadata: prepared.mediaMetadata,
       objectKey: prepared.objectKey,
       contentHash: prepared.contentHash,
       mimeType: prepared.mimeType,

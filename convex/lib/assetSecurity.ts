@@ -25,11 +25,9 @@ export const ASSET_MIME_TYPES = {
   "application/json": "data",
 } as const;
 
-// Metadata can reference worker-verified audio. This legacy 25MiB byte validator
-// intentionally does not ingest audio; use videoMedia's streamed verification.
 export type AssetKind = (typeof ASSET_MIME_TYPES)[keyof typeof ASSET_MIME_TYPES];
 
-function sniffMime(bytes: Uint8Array, declared: string): string {
+export function sniffAssetMime(bytes: Uint8Array, declared: string): string {
   if (
     bytes.length >= 8 &&
     bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])
@@ -41,6 +39,10 @@ function sniffMime(bytes: Uint8Array, declared: string): string {
     new TextDecoder().decode(bytes.slice(0, 6)) === "GIF89a"
   )
     return "image/gif";
+  const ascii = (start: number, end: number) =>
+    new TextDecoder("ascii").decode(bytes.slice(start, end));
+  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE") return "audio/wav";
+  if (bytes.length >= 4 && ascii(0, 4) === "OggS") return "audio/ogg";
   const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart().toLowerCase();
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg")))
     return "image/svg+xml";
@@ -55,13 +57,11 @@ export async function validateAssetBytes(
 ): Promise<{ bytes: Uint8Array; mimeType: string; kind: AssetKind; contentHash: string }> {
   if (bytes.byteLength === 0) throw new Error("Asset is empty");
   if (bytes.byteLength > ASSET_MAX_BYTES) throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
-  const mimeType = sniffMime(bytes, declaredMime);
+  const mimeType = sniffAssetMime(bytes, declaredMime);
   const kind = ASSET_MIME_TYPES[mimeType as keyof typeof ASSET_MIME_TYPES];
   if (!kind) throw new Error(`Unsupported asset MIME type: ${mimeType}`);
   if (kind === "audio")
-    throw new Error(
-      "Audio requires videoMedia upload and worker verification; attach its asset ref",
-    );
+    throw new Error("Audio requires worker verification before it can enter the Asset Library");
   return {
     bytes,
     mimeType,

@@ -10,13 +10,14 @@ import {
   ASSET_MAX_BYTES,
   ASSET_MIME_TYPES,
   assertSafeImportUrl,
+  sniffAssetMime,
   validateAssetBytes,
 } from "./lib/assetSecurity";
 import { requireIotaIdentity, resolveUserId } from "./lib/auth";
 import { sha256Hex, sha256HexBytes } from "./lib/hash";
 import { deleteObject, getObject, headObject, presignObject, putObject } from "./lib/objectStore";
 import { slugify } from "./lib/slug";
-import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
+import { MediaMetadataValidator, verifiedMediaMetadata } from "./lib/videoAssetMetadata";
 import { emitVideoMetric } from "./lib/videoObservability";
 import { callWorker, getWorkerConfig } from "./lib/worker";
 
@@ -730,7 +731,21 @@ export async function persistAsset(
     sourceUrl?: string;
   },
 ): Promise<PersistedAsset> {
-  const validated = await validateAssetBytes(input.rawBytes, input.declaredMime);
+  if (input.rawBytes.byteLength === 0) throw new Error("Asset is empty");
+  if (input.rawBytes.byteLength > ASSET_MAX_BYTES)
+    throw new Error(`Asset exceeds ${ASSET_MAX_BYTES} bytes`);
+  const detectedMime = sniffAssetMime(input.rawBytes, input.declaredMime);
+  const detectedKind = ASSET_MIME_TYPES[detectedMime as keyof typeof ASSET_MIME_TYPES];
+  if (!detectedKind) throw new Error(`Unsupported asset MIME type: ${detectedMime}`);
+  const validated =
+    detectedKind === "audio"
+      ? {
+          bytes: input.rawBytes,
+          mimeType: detectedMime,
+          kind: detectedKind,
+          contentHash: await sha256HexBytes(input.rawBytes),
+        }
+      : await validateAssetBytes(input.rawBytes, input.declaredMime);
   const objectKey = `blobs/sha256/${validated.contentHash.slice(0, 2)}/${validated.contentHash}`;
   const objectLeaseId = crypto.randomUUID();
   const cleanupClaimId = crypto.randomUUID();
@@ -739,14 +754,43 @@ export async function persistAsset(
     leaseId: objectLeaseId,
   });
   void acquired;
+  let mediaMetadata: ReturnType<typeof verifiedMediaMetadata> | undefined;
   try {
     await ensureObject(objectKey, validated.bytes, validated.mimeType);
+    if (validated.kind === "audio") {
+      const verified = await callWorker<{
+        sha256: string;
+        sizeBytes: number;
+        mimeType: string;
+        kind: string;
+        durationMs?: number;
+        hasAudio?: boolean;
+        audioStreams?: Array<{
+          codec: string | null;
+          channels: number | null;
+          sampleRateHz: number | null;
+        }>;
+      }>(getWorkerConfig(), "/media/verify", {
+        sourceUrl: await presignObject(objectKey, "GET", 900),
+        declaredMimeType: validated.mimeType,
+        maxBytes: validated.bytes.byteLength,
+        expectedSize: validated.bytes.byteLength,
+        expectedSha256: validated.contentHash,
+      });
+      if (
+        verified.kind !== "audio" ||
+        verified.mimeType !== validated.mimeType ||
+        verified.sizeBytes !== validated.bytes.byteLength ||
+        verified.sha256 !== validated.contentHash
+      ) {
+        throw new Error("Audio verification result does not match the uploaded bytes");
+      }
+      mediaMetadata = verifiedMediaMetadata(verified);
+    }
   } catch (error) {
-    const released: null = await ctx.runMutation(internal.assets.releaseObjectLease, {
-      objectKey,
-      leaseId: objectLeaseId,
-    });
-    void released;
+    await discardPreparedObject(ctx, objectKey, objectLeaseId, cleanupClaimId).catch(
+      () => undefined,
+    );
     throw error;
   }
   let committed: {
@@ -766,6 +810,7 @@ export async function persistAsset(
       description: input.description,
       tags: input.tags,
       kind: validated.kind,
+      mediaMetadata,
       objectKey,
       contentHash: validated.contentHash,
       mimeType: validated.mimeType,
