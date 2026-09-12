@@ -213,7 +213,7 @@ function gestureTarget(
   else
     point =
       side === "right"
-        ? { x: pack.rig.mouth.x + 25, y: pack.rig.mouth.y - 8 }
+        ? { x: pack.rig.mouth.x + 35, y: pack.rig.mouth.y + 32 }
         : { x: -145 * intensity, y: 105 * intensity };
   return { x: point.x - pack.rig.body.x, y: point.y - pack.rig.body.y };
 }

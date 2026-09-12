@@ -112,6 +112,17 @@ export function CharacterHandsView({
             : null;
         return (
           <g key={side} data-hand={side}>
+            {tip ? (
+              <path
+                data-character-point-arm={side}
+                d={`M${rig[`${side}Shoulder`]!.origin.x} ${rig[`${side}Shoulder`]!.origin.y} L${rig[`${side}Elbow`]!.origin.x} ${rig[`${side}Elbow`]!.origin.y} L${hand.x} ${hand.y}`}
+                fill="none"
+                stroke={pack.style.limbColor}
+                strokeWidth={pack.style.limbWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : null}
             <circle
               transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
               r={pack.style.handRadius}

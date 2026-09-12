@@ -224,6 +224,7 @@ test("character scene renders repository-owned SVG rigs and timed overlays", () 
 
   const pointing = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 110 }));
   assert.match(pointing, /data-arm="right"/);
+  assert.match(pointing, /data-character-point-arm="right"/);
   assert.match(pointing, /data-character-point-finger="right"/);
 
   const thinking = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 215 }));
