@@ -2,6 +2,35 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { VideoPlayer } from "./VideoPlayer";
 
+test("pending preview is labeled until media data arrives", () => {
+  render(
+    <VideoPlayer
+      asset={{
+        jobId: "job",
+        versionId: "v",
+        language: "ru",
+        sha256: "hash",
+        videoUrl: "https://example.test/video",
+        width: 360,
+        height: 640,
+        durationMs: 2000,
+        frameCount: 60,
+        videoDurationMs: 2000,
+        containerDurationMs: 2000,
+        fps: { numerator: 30, denominator: 1 },
+        partial: false,
+      }}
+      onLoaded={() => {}}
+      onTime={() => {}}
+    />,
+  );
+  expect(screen.getByText("Loading preview")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
+  fireEvent.loadedData(screen.getByLabelText("Video preview"));
+  expect(screen.queryByText("Loading preview")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Play" })).toBeEnabled();
+});
+
 test("an asynchronously refreshed signed URL remounts the media and restores position", () => {
   const asset = {
     jobId: "job",
@@ -88,6 +117,7 @@ test("region drawing is an explicit mode and the exact-frame controls seek predi
       onRegion={onRegion}
     />,
   );
+  fireEvent.loadedData(screen.getByLabelText("Video preview"));
   expect(screen.queryByLabelText("Mark a region on this frame")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Mark region" }));
   // The parent owns the mode so a controlled rerender is deliberate.

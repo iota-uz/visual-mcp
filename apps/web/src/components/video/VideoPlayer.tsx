@@ -47,7 +47,15 @@ export function VideoPlayer({
   const video = useRef<HTMLVideoElement>(null);
   const playback = useRef({ hash: asset.sha256, time: 0, paused: true });
   const [error, setError] = useState(false);
+  const [ready, setReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const mediaKey = `${asset.sha256}-${asset.videoUrl}-${attempt}`;
+  const [seenMedia, setSeenMedia] = useState(mediaKey);
+  if (seenMedia !== mediaKey) {
+    setSeenMedia(mediaKey);
+    setReady(false);
+    setError(false);
+  }
   const fps = asset.fps.numerator / asset.fps.denominator;
   const lastFrame = Math.max(0, asset.frameCount - 1);
   const lastAnchorMs = Math.ceil((lastFrame / fps) * 1000);
@@ -106,6 +114,7 @@ export function VideoPlayer({
             }}
             onLoadedData={() => {
               setError(false);
+              setReady(true);
               onLoaded(true);
             }}
             onLoadedMetadata={(event) => {
@@ -131,6 +140,7 @@ export function VideoPlayer({
             }}
             onError={() => {
               setError(true);
+              setReady(false);
               onLoaded(false);
             }}
             onTimeUpdate={(event) => {
@@ -158,7 +168,12 @@ export function VideoPlayer({
             )}
             Your browser cannot play this video. Use the download link.
           </video>
-          {paused && !error && !annotationMode && (
+          {!ready && !error && (
+            <span className="video-player-pending" role="status">
+              Loading preview
+            </span>
+          )}
+          {paused && ready && !error && !annotationMode && (
             <span className="video-player-paused" aria-hidden="true">
               <Play size={40} />
             </span>
@@ -219,7 +234,7 @@ export function VideoPlayer({
           variant="ghost"
           icon={paused ? Play : Pause}
           aria-label={paused ? "Play" : "Pause"}
-          disabled={error}
+          disabled={!ready || error}
           onClick={togglePlay}
         />
         <p className="video-player-meta">
@@ -235,7 +250,7 @@ export function VideoPlayer({
             variant="ghost"
             icon={ChevronLeft}
             aria-label="Previous frame"
-            disabled={frame <= 0 || error}
+            disabled={!ready || frame <= 0 || error}
             onClick={() => seekToFrame(frame - 1)}
           />
           <output aria-live="off">
@@ -247,7 +262,7 @@ export function VideoPlayer({
             variant="ghost"
             iconEnd={ChevronRight}
             aria-label="Next frame"
-            disabled={frame >= lastFrame || error}
+            disabled={!ready || frame >= lastFrame || error}
             onClick={() => seekToFrame(frame + 1)}
           />
         </div>
@@ -257,6 +272,7 @@ export function VideoPlayer({
             variant={annotationMode ? "secondary" : "ghost"}
             icon={annotationMode ? X : BoxSelect}
             aria-pressed={annotationMode}
+            disabled={!ready || error}
             onClick={() => onAnnotationModeChange?.(!annotationMode)}
           >
             {annotationMode ? "Cancel region" : "Mark region"}
