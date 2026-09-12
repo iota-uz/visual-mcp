@@ -8,6 +8,7 @@ type Viseme = "rest" | "a" | "e" | "o" | "u" | "m";
 export type CharacterActorState = {
   x: number;
   y: number;
+  opacity: number;
   scaleX: number;
   scaleY: number;
   rotation: number;
@@ -17,6 +18,8 @@ export type CharacterActorState = {
   emotion: Emotion;
   gesture: Gesture;
   viseme: Viseme;
+  mouthScaleY: number;
+  speaking: boolean;
 };
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
@@ -47,6 +50,7 @@ export function evaluateCharacterActors(
     states[actorId] = {
       x: actor.x,
       y: actor.y + idle * 0.0025,
+      opacity: 1,
       scaleX: actor.scale * (1 + Math.abs(idle) * 0.012),
       scaleY: actor.scale * (1 - Math.abs(idle) * 0.012),
       rotation: idle * 1.2,
@@ -56,8 +60,30 @@ export function evaluateCharacterActors(
       emotion: actor.initialEmotion,
       gesture: "rest",
       viseme: "rest",
+      mouthScaleY: 1,
+      speaking: false,
     };
+
+    const enter = props.actionOrder
+      .map((actionId) => props.actionsById[actionId])
+      .find((action) => action?.type === "enter" && action.actorId === actorId);
+    if (enter?.type === "enter" && frame < enter.startFrame) {
+      states[actorId].x += enter.from === "left" ? -0.72 : 0.72;
+      states[actorId].opacity = 0;
+    }
   }
+
+  const actorsWithExplicitLook = new Set(
+    props.actionOrder
+      .map((actionId) => props.actionsById[actionId])
+      .filter(
+        (action) =>
+          action?.type === "look" &&
+          frame >= action.startFrame &&
+          frame < action.startFrame + action.durationFrames,
+      )
+      .map((action) => action?.actorId),
+  );
 
   for (const actionId of props.actionOrder) {
     const action = props.actionsById[actionId];
@@ -72,7 +98,8 @@ export function evaluateCharacterActors(
     const p = progress(frame, action.startFrame, action.durationFrames);
     if (action.type === "enter") {
       const eased = 1 - (1 - p) ** 3;
-      state.x += (action.from === "left" ? -0.55 : 0.55) * (1 - eased);
+      state.x += (action.from === "left" ? -0.72 : 0.72) * (1 - eased);
+      state.opacity = smooth(p * 4);
       state.y -= Math.abs(Math.sin(p * Math.PI * 3)) * 0.018 * (1 - p);
       state.rotation += (action.from === "left" ? -1 : 1) * Math.sin(p * Math.PI) * 8;
       state.scaleX *= 1 + Math.sin(p * Math.PI * 4) * 0.035;
@@ -100,48 +127,106 @@ export function evaluateCharacterActors(
     } else if (action.type === "talk") {
       if (action.emotion) state.emotion = action.emotion;
       const localFrame = frame - action.startFrame;
-      state.viseme =
-        [...action.visemes].reverse().find((viseme) => viseme.frame <= localFrame)?.shape ?? "rest";
+      let currentIndex = -1;
+      for (let index = 0; index < action.visemes.length; index++) {
+        if ((action.visemes[index]?.frame ?? Number.POSITIVE_INFINITY) > localFrame) break;
+        currentIndex = index;
+      }
+      const current = action.visemes[currentIndex];
+      const next = action.visemes[currentIndex + 1];
+      state.speaking = true;
+      state.viseme = current?.shape ?? "rest";
+      if (current) {
+        const beatEnd = next?.frame ?? action.durationFrames;
+        const attack = smooth((localFrame - current.frame) / 2);
+        const release = smooth((beatEnd - localFrame) / 2);
+        const envelope = Math.min(attack, release);
+        state.mouthScaleY =
+          current.shape === "m" || current.shape === "rest" ? 0.55 : 0.82 + envelope * 0.28;
+      } else state.mouthScaleY = 0.55;
     } else if (action.type === "gesture") {
       state.gesture = action.preset;
+      if (action.preset === "point" && !actorsWithExplicitLook.has(action.actorId)) {
+        state.gazeX = 0;
+        state.gazeY = 0.75;
+      }
     } else if (action.type === "react") {
       state.emotion = action.preset;
       const impulse = Math.sin(smooth(p) * Math.PI);
       if (action.preset === "shocked") {
-        state.x -= impulse * 0.035;
-        state.y -= impulse * 0.025;
-        state.rotation -= impulse * 9;
-        state.scaleX *= 1 + impulse * 0.12;
-        state.scaleY *= 1 - impulse * 0.09;
+        const facingDirection = props.actorsById[action.actorId]?.facing === "right" ? 1 : -1;
+        state.x -= facingDirection * impulse * 0.055;
+        state.y += impulse * 0.018;
+        state.rotation -= facingDirection * impulse * 11;
+        state.scaleX *= 1 + impulse * 0.17;
+        state.scaleY *= 1 - impulse * 0.14;
       } else if (action.preset === "happy") state.y -= Math.abs(Math.sin(p * Math.PI * 3)) * 0.022;
-      else state.rotation -= impulse * 7;
+      else {
+        const facingDirection = props.actorsById[action.actorId]?.facing === "right" ? 1 : -1;
+        state.rotation -= facingDirection * impulse * 5;
+        state.gazeX = facingDirection * 0.62;
+        state.gazeY = -0.72;
+      }
     }
   }
   return states;
 }
 
-function mouthPath(viseme: Viseme, emotion: Emotion) {
+function mouthPath(viseme: Viseme, emotion: Emotion, speaking: boolean) {
   if (viseme === "a") return "M-24 34 Q0 72 24 34 Q0 12 -24 34";
   if (viseme === "e") return "M-30 36 Q0 54 30 36";
   if (viseme === "o") return "M-17 38 A17 21 0 1 0 17 38 A17 21 0 1 0 -17 38";
   if (viseme === "u") return "M-12 39 A12 15 0 1 0 12 39 A12 15 0 1 0 -12 39";
   if (viseme === "m") return "M-23 40 Q0 35 23 40";
+  if (speaking) return "M-24 39 Q0 43 24 39";
   if (emotion === "shocked") return "M-18 39 A18 23 0 1 0 18 39 A18 23 0 1 0 -18 39";
   if (emotion === "happy") return "M-28 31 Q0 61 28 31";
   if (emotion === "thinking") return "M-23 40 Q2 31 25 42";
   return "M-24 39 Q0 45 24 39";
 }
 
-function armPaths(gesture: Gesture) {
-  if (gesture === "point") return ["M-62 35 Q-118 48 -138 103", "M62 35 Q122 -16 174 -58"];
+function armPaths(gesture: Gesture, emotion: Emotion) {
+  if (gesture === "point") return ["M-62 35 Q-118 48 -138 103", "M62 35 Q118 88 142 168"];
   if (gesture === "explain") return ["M-62 35 Q-130 -12 -158 -68", "M62 35 Q132 -4 162 -54"];
   if (gesture === "shrug") return ["M-62 35 Q-128 4 -164 22", "M62 35 Q128 4 164 22"];
-  if (gesture === "show-phone") return ["M-62 35 Q-118 80 -138 110", "M62 35 Q112 58 130 92"];
+  if (gesture === "show-phone") return ["M-62 35 Q-118 80 -138 110", "M62 35 Q103 60 116 91"];
+  if (emotion === "thinking") return ["M-62 35 Q-112 72 -126 116", "M62 35 Q67 76 30 73"];
   return ["M-62 35 Q-112 72 -126 116", "M62 35 Q112 72 126 116"];
 }
 
+function Phone() {
+  return (
+    <g aria-label="phone">
+      <circle cx="116" cy="91" r="13" fill="#ff7a1a" />
+      <rect
+        x="112"
+        y="48"
+        width="66"
+        height="108"
+        rx="12"
+        fill="#211108"
+        stroke="#fff8ee"
+        strokeWidth="6"
+      />
+      <rect x="120" y="61" width="50" height="78" rx="6" fill="#fff8ee" />
+      <rect x="129" y="72" width="32" height="8" rx="4" fill="#ff7a1a" />
+      <circle cx="145" cy="99" r="13" fill="#ff7a1a" opacity="0.9" />
+      <path
+        d="M138 99 L143 104 L153 93"
+        fill="none"
+        stroke="#211108"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="131" y="122" width="28" height="6" rx="3" fill="#7d675d" />
+      <circle cx="145" cy="147" r="4" fill="#fff8ee" />
+    </g>
+  );
+}
+
 function FarqRig({ state }: { state: CharacterActorState }) {
-  const [leftArm, rightArm] = armPaths(state.gesture);
+  const [leftArm, rightArm] = armPaths(state.gesture, state.emotion);
   const pupilX = state.gazeX * 9;
   const pupilY = state.gazeY * 7;
   return (
@@ -159,31 +244,22 @@ function FarqRig({ state }: { state: CharacterActorState }) {
           <circle cx={pupilX} cy={pupilY} r="10" fill="#211108" />
         </g>
       ))}
-      <path
-        d={mouthPath(state.viseme, state.emotion)}
-        fill="none"
-        stroke="#211108"
-        strokeWidth="9"
-        strokeLinecap="round"
-      />
-      {state.gesture === "show-phone" ? (
-        <rect
-          x="110"
-          y="56"
-          width="53"
-          height="86"
-          rx="8"
-          fill="#211108"
-          stroke="#fff8ee"
-          strokeWidth="5"
+      <g transform={`translate(0 40) scale(1 ${state.mouthScaleY}) translate(0 -40)`}>
+        <path
+          d={mouthPath(state.viseme, state.emotion, state.speaking)}
+          fill="none"
+          stroke="#211108"
+          strokeWidth="9"
+          strokeLinecap="round"
         />
-      ) : null}
+      </g>
+      {state.gesture === "show-phone" ? <Phone /> : null}
     </>
   );
 }
 
 function CustomerRig({ state }: { state: CharacterActorState }) {
-  const [leftArm, rightArm] = armPaths(state.gesture);
+  const [leftArm, rightArm] = armPaths(state.gesture, state.emotion);
   const pupilX = state.gazeX * 10;
   const pupilY = state.gazeY * 7;
   const browTilt = state.emotion === "thinking" ? -12 : state.emotion === "shocked" ? 10 : 0;
@@ -211,25 +287,16 @@ function CustomerRig({ state }: { state: CharacterActorState }) {
         strokeWidth="8"
         strokeLinecap="round"
       />
-      <path
-        d={mouthPath(state.viseme, state.emotion)}
-        fill="none"
-        stroke="#211108"
-        strokeWidth="9"
-        strokeLinecap="round"
-      />
-      {state.gesture === "show-phone" ? (
-        <rect
-          x="110"
-          y="56"
-          width="53"
-          height="86"
-          rx="8"
-          fill="#211108"
-          stroke="#fff8ee"
-          strokeWidth="5"
+      <g transform={`translate(0 40) scale(1 ${state.mouthScaleY}) translate(0 -40)`}>
+        <path
+          d={mouthPath(state.viseme, state.emotion, state.speaking)}
+          fill="none"
+          stroke="#211108"
+          strokeWidth="9"
+          strokeLinecap="round"
         />
-      ) : null}
+      </g>
+      {state.gesture === "show-phone" ? <Phone /> : null}
     </>
   );
 }
@@ -292,6 +359,7 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
     return (
       <g
         key={actorId}
+        opacity={state.opacity}
         transform={`translate(${state.x * 1080} ${state.y * 1920}) rotate(${state.rotation}) scale(${state.scaleX * facing} ${state.scaleY})`}
       >
         {actor.character === "farq-mascot" ? (
