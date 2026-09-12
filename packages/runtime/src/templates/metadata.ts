@@ -115,6 +115,14 @@ const entries: Record<TemplateId, Omit<Metadata, "compatibleThemes">> = {
     designCharacteristics: ["consistent crops", "source labels", "comparison grid"],
     preview: { viewport: { width: 1280, height: 800 }, format: "tool-call" },
   },
+  "animated-story-playground": {
+    useWhen: ["Testing a short deterministic 2D Farq story before building a video project"],
+    avoidWhen: ["Rendering a final MP4 or managing a reusable character library"],
+    supportedViewports: [{ label: "vertical video", width: 720, height: 1280 }],
+    requiredStates: ["mascot-entry", "price-reveal", "customer-reaction", "cta"],
+    designCharacteristics: ["symbolic mascot", "procedural acting", "vertical staging"],
+    preview: { viewport: { width: 720, height: 1280 }, format: "tool-call" },
+  },
 };
 
 export function templateMetadata(id: TemplateId): Metadata {

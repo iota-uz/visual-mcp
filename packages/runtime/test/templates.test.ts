@@ -167,7 +167,7 @@ test("listTemplates() with no kind returns all templates", () => {
 
 test("listTemplates(kind) filters correctly for each known kind", () => {
   const expectedByKind: Record<TemplateKind, string[]> = {
-    canvas: ["iframe-service-flow", "image-reference-board"],
+    canvas: ["animated-story-playground", "iframe-service-flow", "image-reference-board"],
     diagram: ["architecture-overview", "sequence-flow"],
     mockup: [
       "mobile-app-screen",
@@ -192,6 +192,34 @@ test("listTemplates(kind) filters correctly for each known kind", () => {
       assert.equal(template.kind, kind);
     }
   }
+});
+
+test("animated-story-playground stays a self-contained Canvas pilot", () => {
+  const template = getTemplate("animated-story-playground");
+  assert.ok(template);
+  assert.equal(template.preview.format, "tool-call");
+  assert.match(template.exampleCode, /canvas_save\(/);
+  assert.match(template.exampleCode, /requestAnimationFrame\(render\)/);
+  assert.match(template.exampleCode, /prefers-reduced-motion/);
+  assert.doesNotMatch(template.exampleCode, /<(?:script|img|link)[^>]+https?:\/\//i);
+});
+
+test("animated-story-playground example produces a runnable canvas_save payload", () => {
+  const template = getTemplate("animated-story-playground");
+  assert.ok(template);
+
+  let saved: { kind?: string; html?: string; viewport?: unknown } | undefined;
+  const html = new Function(
+    "canvas_save",
+    `${template.exampleCode}; return html;`,
+  )((payload: { kind?: string; html?: string; viewport?: unknown }) => {
+    saved = payload;
+  });
+
+  assert.equal(saved?.kind, "canvas");
+  assert.deepEqual(saved?.viewport, { width: 720, height: 1280 });
+  assert.equal(html, saved?.html);
+  assert.match(saved?.html ?? "", /<svg viewBox="0 0 720 1280"/);
 });
 
 test("listTemplates(kind) returns a fresh array each call (no external mutation)", () => {

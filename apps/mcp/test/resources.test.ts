@@ -157,6 +157,24 @@ test("registered Canvas templates remain available without a duplicated catalog"
   expect(Buffer.byteLength(read.result.structuredContent.data.content)).toBeLessThanOrEqual(1024);
   expect(read.result.structuredContent.data.sha256).toMatch(/^[a-f0-9]{64}$/);
 });
+
+test("animated story playground is discoverable through the deployed MCP catalog", async () => {
+  const rpc = fixture();
+  const found = await rpc("tools/call", {
+    name: "resource_find",
+    arguments: { kind: "template", query: "animated story playground" },
+  });
+  const item = found.result.structuredContent.data.items.find(
+    (candidate: { uri: string }) => candidate.uri === "canvas://templates/animated-story-playground",
+  );
+  expect(item).toBeDefined();
+
+  const read = await rpc("tools/call", {
+    name: "resource_get",
+    arguments: { uri: item.uri },
+  });
+  expect(read.result.structuredContent.data.content).toContain('<svg viewBox="0 0 720 1280"');
+});
 test("resource hash mismatch and arbitrary URL never silently fetch a replacement", async () => {
   const rpc = fixture();
   const mismatch = await rpc("tools/call", {

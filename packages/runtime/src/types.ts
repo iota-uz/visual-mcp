@@ -106,6 +106,7 @@ export const TEMPLATE_IDS = [
   "chart-report",
   "iframe-service-flow",
   "image-reference-board",
+  "animated-story-playground",
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
@@ -269,7 +270,7 @@ export interface ExportArtifactOutput {
  * ---------------------------------------------------------------------- */
 
 export const ListTemplatesInputSchema = z.object({
-  kind: z.enum(["mockup", "diagram", "report", "infographic", "chart"]).optional(),
+  kind: z.enum(["canvas", "mockup", "diagram", "report", "infographic", "chart"]).optional(),
 });
 export type ListTemplatesInput = z.infer<typeof ListTemplatesInputSchema>;
 

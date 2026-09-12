@@ -28,6 +28,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## canvas
 
+- **Нативная анимация сначала проверяется в Canvas playground** — [запись](adr/canvas/native-animation-playground-mvp.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Обложка канваса — схематичный постер из геометрии, денормализованный в строку** — [запись](adr/canvas/canvas-poster-from-geometry.md) · accepted · 2026-09-08 (`7068dcf`)
 - **Sticky notes — коллекция notes[] в CanvasDoc без высоты и с проставляемым автором** — [запись](adr/canvas/sticky-notes-collection.md) · accepted · 2026-09-07 (запрос сопровождающего)
 - **Стрелки используют общую геометрию, автоматические порты и явные ограничения** — [запись](adr/canvas/controllable-obstacle-aware-arrows.md) · accepted · 2026-09-07 (запрос сопровождающего)
