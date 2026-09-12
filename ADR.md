@@ -114,6 +114,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## process
 
+- **Локальный Storybook исполняет production character renderer покадрово** — [запись](adr/process/local-character-animation-storybook.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Решения ведутся в append-only ADR ledger, отдельном от истории реализации** — [запись](adr/process/architecture-decisions-ledger.md) · accepted · 2026-09-01 (запрос сопровождающего)
 - **Convex публикуется только после сборки workspace-пакетов** — [запись](adr/process/build-packages-before-convex-push.md) · accepted · 2026-08-23 (`ad825c6`)
 - **Агенты проверяют продукт на изолированном локальном стеке, не на live deployment** — [запись](adr/process/isolated-local-agent-stack.md) · accepted · 2026-08-19 (`ab375fd`)

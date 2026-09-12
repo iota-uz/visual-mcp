@@ -110,6 +110,30 @@ test("gaze clamps offsets and stays finite at a coincident target", () => {
   });
 });
 
+test("horizontal gaze drives a bounded head turn independent of target height", () => {
+  const level = solveGaze({
+    origin: { x: 0, y: 0 },
+    target: { x: 50, y: 0 },
+    responseDistance: 100,
+    maxHeadRotation: 18,
+  });
+  const above = solveGaze({
+    origin: { x: 0, y: 0 },
+    target: { x: 50, y: -200 },
+    responseDistance: 100,
+    maxHeadRotation: 18,
+  });
+  const left = solveGaze({
+    origin: { x: 0, y: 0 },
+    target: { x: -1_000, y: 0 },
+    responseDistance: 100,
+    maxHeadRotation: 18,
+  });
+  near(level.headRotation, 9);
+  near(above.headRotation, level.headRotation);
+  near(left.headRotation, -18);
+});
+
 test("prop grip remains on hand under facing, scale and rotation", () => {
   const hand = transformMatrix({ x: 130, y: 250, rotation: 37, scaleX: -1.4, scaleY: 1.4 });
   const grip = { x: 20, y: 80 };

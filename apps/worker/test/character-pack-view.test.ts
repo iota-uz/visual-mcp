@@ -144,21 +144,13 @@ test("a previously unknown pack renders all declared artwork at evaluated nodes 
     createElement(CharacterPackView, { pack, rig: evaluated(pack), face }),
   );
   assert.match(markup, /aria-label="Custom &lt;Robot&gt;"/);
-  assert.match(
-    markup,
-    /data-layer="robotBody" transform="matrix\(2 0 0 2 250 500\)"/,
-  );
-  assert.match(
-    markup,
-    /data-layer="robotHead" transform="matrix\(2 0 0 2 250 320\)"/,
-  );
+  assert.match(markup, /<g role="img" aria-label="Custom &lt;Robot&gt;"/);
+  assert.match(markup, /data-layer="robotBody" transform="matrix\(2 0 0 2 250 500\)"/);
+  assert.match(markup, /data-layer="robotHead" transform="matrix\(2 0 0 2 250 320\)"/);
   assert.match(markup, /fill="#112233"/);
   assert.match(markup, /d="M0 -50 L0 -80"/);
   assert.match(markup, /data-arm="right" d="M50 -30 L80 5 L90 45"/);
-  assert.match(
-    markup,
-    /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/,
-  );
+  assert.match(markup, /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/);
   assert.match(markup, /scale\(1 0.6\)/);
   assert.match(markup, /cx="4" cy="-2"/);
 });
@@ -253,9 +245,8 @@ test("prop artwork follows the supplied grip-resolved affine matrix, including r
   };
   const matrix = resolvePropAttachment([0, 2, -2, 0, 300, 500], prop.grip);
   assert.deepEqual(transformPoint(matrix, prop.grip), { x: 300, y: 500 });
-  const markup = renderToStaticMarkup(
-    createElement(CharacterPropView, { prop, matrix }),
-  );
+  const markup = renderToStaticMarkup(createElement(CharacterPropView, { prop, matrix }));
+  assert.match(markup, /<g role="img" aria-label="Tablet"/);
   assert.match(markup, /transform="matrix\(0 2 -2 0 480 476\)"/);
   assert.match(markup, /width="80" height="120"/);
 });

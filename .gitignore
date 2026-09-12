@@ -3,6 +3,7 @@ node_modules/
 
 # build output
 dist/
+storybook-static/
 *.tsbuildinfo
 
 # Convex agent-skill bundles installed locally by `npx convex ai-files install`

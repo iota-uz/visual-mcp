@@ -227,14 +227,14 @@ export function solveGaze(input: {
   const distance = Math.max(1e-6, input.responseDistance ?? 1);
   const gazeX = clamp(dx / distance, -1, 1),
     gazeY = clamp(dy / distance, -1, 1);
+  const maxHeadRotation = input.maxHeadRotation ?? 12;
   return {
     gazeX: gazeX * (input.maxEyeOffsetX ?? 1),
     gazeY: gazeY * (input.maxEyeOffsetY ?? 1),
-    headRotation: clamp(
-      gazeX * gazeY * (input.maxHeadRotation ?? 12),
-      -(input.maxHeadRotation ?? 12),
-      input.maxHeadRotation ?? 12,
-    ),
+    // A head turns left/right in response to the horizontal bearing. Multiplying
+    // by gazeY made a level target produce no turn and reversed the turn above
+    // versus below the eyes. Keep the solver bounded and frame-addressable.
+    headRotation: clamp(gazeX * maxHeadRotation, -maxHeadRotation, maxHeadRotation),
   };
 }
 

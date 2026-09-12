@@ -1,8 +1,4 @@
-import type {
-  CharacterPack,
-  CharacterProp,
-  CharacterShape,
-} from "@visual-canvas/video/registry";
+import type { CharacterPack, CharacterProp, CharacterShape } from "@visual-canvas/video/registry";
 import type { EvaluatedRig, Matrix2D } from "./character-runtime.js";
 import { inverseMatrix, transformPoint } from "./character-runtime.js";
 
@@ -18,8 +14,13 @@ export type CharacterFaceState = {
   mouthOpen: number;
 };
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, value));
+export type CharacterPointingState = {
+  target: { x: number; y: number };
+  /** Continuous action/blend weight used by the pointing silhouette. */
+  weight: number;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const matrixAttribute = (matrix: Matrix2D) => `matrix(${matrix.join(" ")})`;
 
 /** Typed artwork stays data: no pack-specific code, markup injection or URL loading. */
@@ -59,13 +60,7 @@ export function CharacterVectorShape({ shape }: { shape: CharacterShape }) {
   }
 }
 
-function CharacterArms({
-  pack,
-  rig,
-}: {
-  pack: CharacterPack;
-  rig: EvaluatedRig;
-}) {
+function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }) {
   if (!pack.capabilities.arms) return null;
   // Draw in body space to preserve stroke width under scale/squash while the IK
   // result remains in the same world space as every other evaluated node.
@@ -104,7 +99,7 @@ export function CharacterHandsView({
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
-  pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
+  pointing?: Partial<Record<"left" | "right", CharacterPointingState>>;
   foregroundArms?: Partial<Record<"left" | "right", boolean>>;
   opacity?: number;
 }) {
@@ -114,11 +109,11 @@ export function CharacterHandsView({
     <g data-character-part="hands" opacity={opacity}>
       {(["left", "right"] as const).map((side) => {
         const hand = rig[`${side}Hand`]!.origin;
-        const target = pointing[side];
-        const distance = target
-          ? Math.hypot(target.x - hand.x, target.y - hand.y)
-          : 0;
-        const fingerLength = pack.style.handRadius * 2.4;
+        const point = pointing[side];
+        const target = point?.target;
+        const pointWeight = clamp(point?.weight ?? 0, 0, 1);
+        const distance = target ? Math.hypot(target.x - hand.x, target.y - hand.y) : 0;
+        const fingerLength = pack.style.handRadius * 2.4 * pointWeight;
         const tip =
           target && distance > 0
             ? {
@@ -139,6 +134,7 @@ export function CharacterHandsView({
                 strokeWidth={pack.style.limbWidth}
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                opacity={tip ? pointWeight : undefined}
               />
             ) : null}
             {artworkHands ? (
@@ -161,15 +157,10 @@ export function CharacterHandsView({
                 transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
                 r={pack.style.handRadius}
                 fill={pack.style.handColor ?? pack.style.limbColor}
-                stroke={
-                  pack.style.handStroke ??
-                  (foreground ? pack.style.eyeColor : undefined)
-                }
+                stroke={pack.style.handStroke ?? (foreground ? pack.style.eyeColor : undefined)}
                 strokeWidth={
                   pack.style.handStrokeWidth ??
-                  (foreground
-                    ? Math.max(2, pack.style.handRadius * 0.25)
-                    : undefined)
+                  (foreground ? Math.max(2, pack.style.handRadius * 0.25) : undefined)
                 }
               />
             )}
@@ -181,6 +172,7 @@ export function CharacterHandsView({
                 stroke={pack.style.limbColor}
                 strokeWidth={Math.max(5, pack.style.handRadius * 0.7)}
                 strokeLinecap="round"
+                opacity={pointWeight}
               />
             ) : null}
           </g>
@@ -199,14 +191,7 @@ function CharacterFace({
   rig: EvaluatedRig;
   face: CharacterFaceState;
 }) {
-  const {
-    eyeRadius: radius,
-    eyeSpacing,
-    eyeWhite,
-    eyeColor,
-    mouthColor,
-    mouthWidth,
-  } = pack.style;
+  const { eyeRadius: radius, eyeSpacing, eyeWhite, eyeColor, mouthColor, mouthWidth } = pack.style;
   const eyeAspectRatio = pack.style.eyeAspectRatio ?? 1;
   const pupilScale = pack.style.pupilScale ?? 0.4;
   // Keep pupils inside their eye whites, even if an unusually shaped pack asks
@@ -219,13 +204,9 @@ function CharacterFace({
   const browTilt = clamp(face.browTilt, -1, 1) * radius * 0.55;
   const halfWidth = mouthWidth / 2;
   const viseme = pack.capabilities.talk ? face.viseme : "rest";
-  const spokenMouthOpen = pack.capabilities.talk
-    ? clamp(face.mouthOpen, 0, 1)
-    : 0;
+  const spokenMouthOpen = pack.capabilities.talk ? clamp(face.mouthOpen, 0, 1) : 0;
   const mouthOpen =
-    viseme === "rest"
-      ? Math.max(pack.style.mouthRestOpen ?? 0, spokenMouthOpen)
-      : spokenMouthOpen;
+    viseme === "rest" ? Math.max(pack.style.mouthRestOpen ?? 0, spokenMouthOpen) : spokenMouthOpen;
   const round = viseme === "o" || viseme === "u";
   const open =
     mouthOpen > 0.01 &&
@@ -234,26 +215,16 @@ function CharacterFace({
       viseme === "a" ||
       viseme === "e");
   const mouthHalfWidth =
-    halfWidth *
-    (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
+    halfWidth * (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
   const mouthHeight =
-    mouthWidth *
-    (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) *
-    mouthOpen;
+    mouthWidth * (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) * mouthOpen;
   return (
     <>
-      <g
-        transform={matrixAttribute(rig.eyes!.matrix)}
-        data-character-part="eyes"
-      >
+      <g transform={matrixAttribute(rig.eyes!.matrix)} data-character-part="eyes">
         {([-1, 1] as const).map((side) => (
           <g key={side} transform={`translate(${(side * eyeSpacing) / 2} 0)`}>
             <g transform={`scale(1 ${eyeOpen})`}>
-              <ellipse
-                rx={radius}
-                ry={radius * eyeAspectRatio}
-                fill={eyeWhite}
-              />
+              <ellipse rx={radius} ry={radius * eyeAspectRatio} fill={eyeWhite} />
               <ellipse
                 cx={face.gazeX * gazeScale}
                 cy={face.gazeY * gazeScale}
@@ -263,14 +234,10 @@ function CharacterFace({
               />
               {pack.style.eyeHighlightColor && pack.style.eyeHighlightRadius ? (
                 <circle
-                  cx={
-                    face.gazeX * gazeScale +
-                    (pack.style.eyeHighlightX ?? -radius * 0.16)
-                  }
+                  cx={face.gazeX * gazeScale + (pack.style.eyeHighlightX ?? -radius * 0.16)}
                   cy={
                     face.gazeY * gazeScale +
-                    (pack.style.eyeHighlightY ??
-                      -radius * eyeAspectRatio * 0.22)
+                    (pack.style.eyeHighlightY ?? -radius * eyeAspectRatio * 0.22)
                   }
                   r={pack.style.eyeHighlightRadius}
                   fill={pack.style.eyeHighlightColor}
@@ -281,9 +248,7 @@ function CharacterFace({
               d={`M${-(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 + side * browTilt} Q0 ${-radius * eyeAspectRatio - radius * 1.25} ${(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 - side * browTilt}`}
               fill="none"
               stroke={eyeColor}
-              strokeWidth={
-                pack.style.browStrokeWidth ?? Math.max(1, radius * 0.16)
-              }
+              strokeWidth={pack.style.browStrokeWidth ?? Math.max(1, radius * 0.16)}
               strokeLinecap="round"
             />
           </g>
@@ -296,11 +261,7 @@ function CharacterFace({
       >
         {open ? (
           <>
-            <ellipse
-              rx={mouthHalfWidth}
-              ry={Math.max(0.5, mouthHeight)}
-              fill={mouthColor}
-            />
+            <ellipse rx={mouthHalfWidth} ry={Math.max(0.5, mouthHeight)} fill={mouthColor} />
             {pack.style.tongueColor ? (
               <path
                 d={`M${-mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Q0 ${mouthHeight * 0.9} ${mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Q0 ${mouthHeight * 0.05} ${-mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Z`}
@@ -337,11 +298,12 @@ export function CharacterPackView({
   face: CharacterFaceState;
   opacity?: number;
   renderHands?: boolean;
-  pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
+  pointing?: Partial<Record<"left" | "right", CharacterPointingState>>;
   foregroundArms?: Partial<Record<"left" | "right", boolean>>;
 }) {
   return (
-    <g aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
+    // biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: SVG groups require an explicit role for their accessible labels.
+    <g role="img" aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
       <CharacterArms pack={pack} rig={rig} />
       {pack.layers
         .filter(
@@ -384,7 +346,9 @@ export function CharacterPropView({
   opacity?: number;
 }) {
   return (
+    // biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: SVG groups require an explicit role for their accessible labels.
     <g
+      role="img"
       aria-label={prop.label}
       data-character-prop="true"
       transform={matrixAttribute(matrix)}
