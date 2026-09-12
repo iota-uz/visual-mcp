@@ -2,6 +2,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Archive,
   ArchiveRestore,
+  HardDrive,
   Image as ImageIcon,
   Link2,
   Search,
@@ -49,6 +50,13 @@ interface AssetItem {
   original_filename: string;
   updated_at: number;
   preview_url: string;
+}
+
+interface AssetLibraryStats {
+  active: { asset_count: number; size_bytes: number };
+  archived: { asset_count: number; size_bytes: number };
+  total: { asset_count: number; size_bytes: number };
+  complete: boolean;
 }
 
 const MIME_LABELS: Record<string, string> = {
@@ -201,6 +209,34 @@ function AssetCard({
   );
 }
 
+function AssetLibrarySummary({ stats }: { stats: AssetLibraryStats | null }) {
+  const prefix = stats && !stats.complete ? "At least " : "";
+  const assetCount = (count: number) => `${count} asset${count === 1 ? "" : "s"}`;
+  return (
+    <section className="asset-library-summary" aria-label="Asset library size">
+      <div className="asset-library-summary-total">
+        <HardDrive size={18} aria-hidden="true" />
+        <span>
+          <small>Library size</small>
+          <strong>{stats ? `${prefix}${formatBytes(stats.total.size_bytes)}` : "Loading…"}</strong>
+        </span>
+      </div>
+      <dl>
+        <div className="asset-library-summary-item">
+          <dt>Active</dt>
+          <dd>{stats ? `${prefix}${formatBytes(stats.active.size_bytes)}` : "—"}</dd>
+          <small>{stats ? `${prefix}${assetCount(stats.active.asset_count)}` : "Loading"}</small>
+        </div>
+        <div className="asset-library-summary-item">
+          <dt>Archived</dt>
+          <dd>{stats ? `${prefix}${formatBytes(stats.archived.size_bytes)}` : "—"}</dd>
+          <small>{stats ? `${prefix}${assetCount(stats.archived.asset_count)}` : "Loading"}</small>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 export function AssetsPage() {
   const { wsSlug } = useParams<{ wsSlug?: string }>();
   const workspace = useQuery(api.workspaces.getBySlug, wsSlug ? { slug: wsSlug } : "skip");
@@ -208,6 +244,7 @@ export function AssetsPage() {
   const [mediaPane, setMediaPane] = useState<"image" | "upload" | null>(null);
   const scope = wsSlug ? ("workspace" as const) : ("shared" as const);
   const [assets, setAssets] = useState<AssetItem[] | null>(null);
+  const [libraryStats, setLibraryStats] = useState<AssetLibraryStats | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<AssetKind | "all">("all");
   const [libraryView, setLibraryView] = useState<"active" | "archived">("active");
@@ -223,6 +260,7 @@ export function AssetsPage() {
   const [moveOpen, setMoveOpen] = useState(false);
   const debouncedQuery = useDebouncedValue(query, 180);
   const listAssets = useAction(api.assets.listMine);
+  const getLibraryStats = useAction(api.assets.getLibraryStatsMine);
   const prepareUpload = useAction(api.assets.prepareUploadMine);
   const finalizeUpload = useAction(api.assets.finalizeUploadMine);
   const importAsset = useAction(api.assets.importUrlMine);
@@ -245,6 +283,11 @@ export function AssetsPage() {
     setAssets(rows as AssetItem[]);
   }, [debouncedQuery, kind, libraryView, listAssets, scope, wsSlug]);
 
+  const reloadStats = useCallback(async () => {
+    const stats = await getLibraryStats({ scope, workspaceSlug: wsSlug });
+    setLibraryStats(stats);
+  }, [getLibraryStats, scope, wsSlug]);
+
   useEffect(() => {
     let active = true;
     setAssets(null);
@@ -259,6 +302,21 @@ export function AssetsPage() {
       active = false;
     };
   }, [reload, notify]);
+
+  useEffect(() => {
+    let active = true;
+    setLibraryStats(null);
+    reloadStats().catch((error: unknown) => {
+      if (active)
+        notify({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Unable to load asset sizes",
+        });
+    });
+    return () => {
+      active = false;
+    };
+  }, [reloadStats, notify]);
 
   const tabs = useMemo(
     () => ["all", "image", "svg", "font", "video", "audio", "data"] as const,
@@ -311,7 +369,7 @@ export function AssetsPage() {
         });
       }
       notify({ message: `${files.length} asset${files.length === 1 ? "" : "s"} uploaded.` });
-      await reload();
+      await Promise.all([reload(), reloadStats()]);
     } catch (error) {
       notify({ tone: "error", message: error instanceof Error ? error.message : "Upload failed" });
     } finally {
@@ -334,7 +392,7 @@ export function AssetsPage() {
       setImportName("");
       setImportOpen(false);
       notify({ message: `Imported “${importName}”.` });
-      await reload();
+      await Promise.all([reload(), reloadStats()]);
     } catch (error) {
       notify({ tone: "error", message: error instanceof Error ? error.message : "Import failed" });
     } finally {
@@ -409,6 +467,8 @@ export function AssetsPage() {
         />
       )}
 
+      <AssetLibrarySummary stats={libraryStats} />
+
       {workspace && mediaPane && (
         <section aria-label="Media action">
           <Button
@@ -434,7 +494,10 @@ export function AssetsPage() {
               )}
             </>
           ) : (
-            <MediaUpload workspaceId={workspace.workspace_id} onReady={() => void reload()} />
+            <MediaUpload
+              workspaceId={workspace.workspace_id}
+              onReady={() => void Promise.all([reload(), reloadStats()])}
+            />
           )}
         </section>
       )}
@@ -597,6 +660,7 @@ export function AssetsPage() {
                   (current) => current?.filter((item) => item.asset_id !== asset.asset_id) ?? [],
                 );
                 notify({ message: `Restored “${asset.name}”.` });
+                await reloadStats();
               }}
               onArchive={() => setArchiveTarget(asset)}
             />
@@ -653,6 +717,7 @@ export function AssetsPage() {
             );
             notify({ message: `Archived “${archiveTarget.name}”.` });
             setArchiveTarget(null);
+            await reloadStats();
           }}
         />
       )}
@@ -673,6 +738,7 @@ export function AssetsPage() {
               message: `${movedRefs.length} asset${movedRefs.length === 1 ? "" : "s"} moved.`,
             });
             leaveSelectionMode();
+            void reloadStats();
           }}
         />
       )}

@@ -13,6 +13,7 @@
  */
 
 import { getFunctionName } from "convex/server";
+import { useCallback } from "react";
 import { fixtureFor, type Scenario } from "./data";
 
 const SCENARIOS: Scenario[] = ["full", "empty", "loading", "error"];
@@ -67,29 +68,53 @@ export function useQuery(reference: unknown, args?: unknown): unknown {
 
 export function useMutation(reference: unknown) {
   const name = getFunctionName(reference as never);
-  return async (args: unknown) => {
-    // Logged rather than applied: fixtures are a viewing mode, and a
-    // half-applied write would make the next render disagree with the
-    // scenario the URL asked for.
-    console.info("[fixtures] mutation ignored:", name, args);
-    if (name === "videoReview:preview") {
-      return {
-        videoUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-        posterUrl:
-          "data:image/svg+xml;utf8," +
-          encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><rect width="9" height="16" fill="#061b36"/></svg>',
-          ),
-        captionsUrl: "",
-        expiresAt: Date.now() + 900_000,
-      };
-    }
-    if (name === "video:patchScript" || name === "video:patchTimeline") {
-      return { revisionId: `rev_${Date.now()}` };
-    }
-    if (name === "assets:listMine") return [];
-    return null;
-  };
+  return useCallback(
+    async (args: unknown) => {
+      // Logged rather than applied: fixtures are a viewing mode, and a
+      // half-applied write would make the next render disagree with the
+      // scenario the URL asked for.
+      console.info("[fixtures] mutation ignored:", name, args);
+      if (name === "videoReview:preview") {
+        return {
+          videoUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+          posterUrl:
+            "data:image/svg+xml;utf8," +
+            encodeURIComponent(
+              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><rect width="9" height="16" fill="#061b36"/></svg>',
+            ),
+          captionsUrl: "",
+          expiresAt: Date.now() + 900_000,
+        };
+      }
+      if (name === "video:patchScript" || name === "video:patchTimeline") {
+        return { revisionId: `rev_${Date.now()}` };
+      }
+      if (name === "assets:listMine") return [];
+      if (name === "assets:getLibraryStatsMine") {
+        const current = scenario();
+        if (current === "loading") return new Promise(() => {});
+        const active =
+          current === "full"
+            ? { asset_count: 18, size_bytes: 128_345_702 }
+            : { asset_count: 0, size_bytes: 0 };
+        const archived =
+          current === "full"
+            ? { asset_count: 3, size_bytes: 7_482_164 }
+            : { asset_count: 0, size_bytes: 0 };
+        return {
+          active,
+          archived,
+          total: {
+            asset_count: active.asset_count + archived.asset_count,
+            size_bytes: active.size_bytes + archived.size_bytes,
+          },
+          complete: true,
+        };
+      }
+      return null;
+    },
+    [name],
+  );
 }
 
 // Actions have the same inert viewing-mode behavior as mutations. Exporting

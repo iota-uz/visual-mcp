@@ -10,6 +10,7 @@ const {
   useMutationMock,
   useQueryMock,
   listAssetsMock,
+  getLibraryStatsMock,
   setTagsMock,
   moveAssetsMock,
   archiveAssetMock,
@@ -19,6 +20,7 @@ const {
   useMutationMock: vi.fn(),
   useQueryMock: vi.fn(),
   listAssetsMock: vi.fn(),
+  getLibraryStatsMock: vi.fn(),
   setTagsMock: vi.fn(),
   moveAssetsMock: vi.fn(),
   archiveAssetMock: vi.fn(),
@@ -57,11 +59,20 @@ describe("AssetsPage", () => {
     useMutationMock.mockReset();
     useQueryMock.mockReset();
     listAssetsMock.mockReset();
+    getLibraryStatsMock.mockReset();
     setTagsMock.mockReset();
     moveAssetsMock.mockReset();
     archiveAssetMock.mockReset();
     restoreAssetMock.mockReset();
-    useActionMock.mockReturnValue(listAssetsMock);
+    getLibraryStatsMock.mockResolvedValue({
+      active: { asset_count: 0, size_bytes: 0 },
+      archived: { asset_count: 0, size_bytes: 0 },
+      total: { asset_count: 0, size_bytes: 0 },
+      complete: true,
+    });
+    useActionMock.mockImplementation((fn) =>
+      getFunctionName(fn) === "assets:getLibraryStatsMine" ? getLibraryStatsMock : listAssetsMock,
+    );
     useMutationMock.mockReturnValue(vi.fn());
     useQueryMock.mockReturnValue(undefined);
   });
@@ -90,6 +101,26 @@ describe("AssetsPage", () => {
     expect(listAssetsMock).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "shared", workspaceSlug: undefined }),
     );
+    expect(getLibraryStatsMock).toHaveBeenCalledWith({
+      scope: "shared",
+      workspaceSlug: undefined,
+    });
+  });
+
+  test("shows total, active and archived library sizes", async () => {
+    listAssetsMock.mockResolvedValue([]);
+    getLibraryStatsMock.mockResolvedValue({
+      active: { asset_count: 12, size_bytes: 4_328_034 },
+      archived: { asset_count: 2, size_bytes: 437_434 },
+      total: { asset_count: 14, size_bytes: 4_765_468 },
+      complete: true,
+    });
+    renderAssets();
+
+    const summary = await screen.findByRole("region", { name: "Asset library size" });
+    expect(summary).toHaveTextContent("Library size4.5 MB");
+    expect(summary).toHaveTextContent("Active4.1 MB12 assets");
+    expect(summary).toHaveTextContent("Archived427.2 KB2 assets");
   });
 
   test("opens and closes a fullscreen preview from an asset card", async () => {

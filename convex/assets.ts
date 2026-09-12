@@ -121,6 +121,18 @@ const assetListItemValidator = v.object({
   updated_at: v.number(),
 });
 
+const assetLibraryStatsBucketValidator = v.object({
+  asset_count: v.number(),
+  size_bytes: v.number(),
+});
+
+const assetLibraryStatsValidator = v.object({
+  active: assetLibraryStatsBucketValidator,
+  archived: assetLibraryStatsBucketValidator,
+  total: assetLibraryStatsBucketValidator,
+  complete: v.boolean(),
+});
+
 type Principal = {
   userId: Id<"users">;
   workspaceId: Id<"workspaces"> | null;
@@ -156,6 +168,16 @@ type AssetListRow = {
 };
 type PublicAssetListRow = Omit<AssetListRow, "object_key"> & {
   preview_url: string;
+};
+type AssetLibraryStatsBucket = {
+  asset_count: number;
+  size_bytes: number;
+};
+type AssetLibraryStats = {
+  active: AssetLibraryStatsBucket;
+  archived: AssetLibraryStatsBucket;
+  total: AssetLibraryStatsBucket;
+  complete: boolean;
 };
 
 type AssetLookupCtx = QueryCtx | MutationCtx;
@@ -1191,6 +1213,101 @@ export const listMine = action({
         preview_url: await presignObject(object_key, "GET", 900),
       })),
     );
+  },
+});
+
+export const getLibraryStatsPage = internalQuery({
+  args: {
+    scope: scopeValidator,
+    workspaceId: v.optional(v.id("workspaces")),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: v.object({
+    active: assetLibraryStatsBucketValidator,
+    archived: assetLibraryStatsBucketValidator,
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    if (args.scope === "workspace" && !args.workspaceId) {
+      throw new Error("Workspace is required");
+    }
+    if (args.scope === "shared" && args.workspaceId) {
+      throw new Error("Shared assets cannot have a workspace");
+    }
+    const page =
+      args.scope === "shared"
+        ? await ctx.db
+            .query("assets")
+            .withIndex("by_scope_updated", (q) => q.eq("scope", "shared"))
+            .paginate(args.paginationOpts)
+        : await ctx.db
+            .query("assets")
+            .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", args.workspaceId))
+            .paginate(args.paginationOpts);
+    const active: AssetLibraryStatsBucket = { asset_count: 0, size_bytes: 0 };
+    const archived: AssetLibraryStatsBucket = { asset_count: 0, size_bytes: 0 };
+    for (const asset of page.page) {
+      const version = await latestAssetRevision(ctx, asset._id);
+      if (!version) continue;
+      const bucket = asset.archivedAt === undefined ? active : archived;
+      bucket.asset_count += 1;
+      bucket.size_bytes += version.size;
+    }
+    return {
+      active,
+      archived,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
+  },
+});
+
+export const getLibraryStatsMine = action({
+  args: {
+    scope: scopeValidator,
+    workspaceSlug: v.optional(v.string()),
+  },
+  returns: assetLibraryStatsValidator,
+  handler: async (ctx, args): Promise<AssetLibraryStats> => {
+    const identity = await requireIotaIdentity(ctx);
+    const principal: Principal = await ctx.runQuery(internal.assets.resolvePrincipal, {
+      subject: identity.subject,
+      workspaceSlug: args.scope === "workspace" ? args.workspaceSlug : undefined,
+    });
+    const active: AssetLibraryStatsBucket = { asset_count: 0, size_bytes: 0 };
+    const archived: AssetLibraryStatsBucket = { asset_count: 0, size_bytes: 0 };
+    let cursor: string | null = null;
+    let isDone = false;
+    let pagesScanned = 0;
+    while (!isDone && pagesScanned < ASSET_LIST_SCAN_PAGE_LIMIT) {
+      const page: {
+        active: AssetLibraryStatsBucket;
+        archived: AssetLibraryStatsBucket;
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.assets.getLibraryStatsPage, {
+        scope: args.scope,
+        workspaceId: principal.workspaceId ?? undefined,
+        paginationOpts: { numItems: 100, cursor },
+      });
+      active.asset_count += page.active.asset_count;
+      active.size_bytes += page.active.size_bytes;
+      archived.asset_count += page.archived.asset_count;
+      archived.size_bytes += page.archived.size_bytes;
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+      pagesScanned += 1;
+    }
+    return {
+      active,
+      archived,
+      total: {
+        asset_count: active.asset_count + archived.asset_count,
+        size_bytes: active.size_bytes + archived.size_bytes,
+      },
+      complete: isDone,
+    };
   },
 });
 

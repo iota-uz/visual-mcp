@@ -145,6 +145,84 @@ describe("Asset Library bindings", () => {
     expect(second.page[0]?.asset_id).not.toBe(first.page[0]?.asset_id);
   });
 
+  test("totals latest active and archived asset revisions within one library", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, workspaceId } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        email: "stats@iota.uz",
+        name: "Stats",
+        lastSeenAt: 0,
+      });
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "stats",
+        name: "Stats",
+        createdBy: userId,
+      });
+      return { userId, workspaceId };
+    });
+    await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      workspaceId,
+      createdBy: userId,
+      slug: "active",
+      name: "Active",
+      tags: [],
+      kind: "image",
+      objectKey: "assets/active-1",
+      contentHash: "active-1",
+      mimeType: "image/png",
+      size: 10,
+      originalFilename: "active.png",
+      sourceType: "upload",
+    });
+    await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      workspaceId,
+      createdBy: userId,
+      slug: "active",
+      name: "Active",
+      tags: [],
+      kind: "image",
+      objectKey: "assets/active-2",
+      contentHash: "active-2",
+      mimeType: "image/png",
+      size: 25,
+      originalFilename: "active.png",
+      sourceType: "upload",
+    });
+    const archived = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      workspaceId,
+      createdBy: userId,
+      slug: "archived",
+      name: "Archived",
+      tags: [],
+      kind: "audio",
+      objectKey: "assets/archived",
+      contentHash: "archived",
+      mimeType: "audio/mpeg",
+      size: 75,
+      originalFilename: "archived.mp3",
+      sourceType: "upload",
+    });
+    await t.mutation(internal.assets.archiveByRef, {
+      assetRef: `asset://workspace/stats/archived@${archived.revision}`,
+      userId,
+    });
+
+    await expect(
+      t.query(internal.assets.getLibraryStatsPage, {
+        scope: "workspace",
+        workspaceId,
+        paginationOpts: { numItems: 100, cursor: null },
+      }),
+    ).resolves.toMatchObject({
+      active: { asset_count: 1, size_bytes: 25 },
+      archived: { asset_count: 1, size_bytes: 75 },
+      isDone: true,
+    });
+  });
+
   test("replaces normalized asset tags without creating a media revision and refreshes search", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) =>
