@@ -1,7 +1,10 @@
 import { CheckCircle2, Circle, Clapperboard, Film, Plus, Sparkles, Video } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { normalizeCameraMovement } from "../../../../../packages/video/src/camera";
+import {
+  CAMERA_MOVEMENTS,
+  normalizeCameraMovement,
+} from "../../../../../packages/video/src/camera";
 import type { ScriptDocument } from "../../../../../packages/video/src/contracts";
 import type { PinnedImage } from "../SharedImageStudio";
 import { Button } from "../ui/Button";
@@ -11,6 +14,8 @@ import { ShotCandidates } from "./shots/ShotCandidates";
 import { ShotStartImage } from "./shots/ShotStartImage";
 
 type Shot = ScriptDocument["scenesById"][string]["shotsById"][string];
+type Scene = ScriptDocument["scenesById"][string];
+
 export function ShotStudio({
   workspaceId,
   projectId,
@@ -44,14 +49,32 @@ export function ShotStudio({
       ? sceneChoice
       : document.sceneOrder[0];
   const scene = sceneId ? document.scenesById[sceneId] : undefined;
-  const [shotChoice, setShotChoice] = useState("");
-  const requestedShot = selectedShotId && scene?.shotsById[selectedShotId] ? selectedShotId : null;
-  const shotId = requestedShot ?? (scene?.shotsById[shotChoice] ? shotChoice : scene?.shotOrder[0]);
+  const [expandedId, setExpandedId] = useState<string>();
+  const incomingShot = useRef<string | undefined>(undefined);
+  const shotId =
+    expandedId && scene?.shotsById[expandedId]
+      ? expandedId
+      : selectedShotId && scene?.shotsById[selectedShotId]
+        ? selectedShotId
+        : undefined;
   const shot = shotId ? scene?.shotsById[shotId] : undefined;
+
+  useEffect(() => {
+    if (
+      selectedShotId &&
+      selectedShotId !== incomingShot.current &&
+      scene?.shotsById[selectedShotId]
+    ) {
+      setExpandedId(selectedShotId);
+    }
+    incomingShot.current = selectedShotId;
+  }, [scene, selectedShotId]);
+
   function selectShot(next: string) {
-    setShotChoice(next);
     onSelectShot?.(next);
+    setExpandedId(next);
   }
+
   function addShot() {
     if (!scene || !sceneId) return;
     const id = `shot-${crypto.randomUUID()}`;
@@ -77,6 +100,7 @@ export function ShotStudio({
     });
     selectShot(id);
   }
+
   function patch(value: Partial<Shot>) {
     if (!scene || !sceneId || !shotId || !shot) return;
     onChange({
@@ -87,25 +111,23 @@ export function ShotStudio({
       },
     });
   }
+
   return (
-    <section className="video-shot-studio" aria-label="Shot production">
-      <header className="video-shot-heading">
-        <div className="video-section-title">
-          <h2>Shot production</h2>
-          <span>Shots for the selected scene</span>
-        </div>
-        {scene && (
-          <Button
-            disabled={locked || scene.shotOrder.length >= 100}
-            size="sm"
-            variant="primary"
-            icon={Plus}
-            onClick={addShot}
-          >
-            Add shot
-          </Button>
-        )}
-      </header>
+    <section className="video-shot-studio" aria-label="Shots">
+      {!sceneIdProp && scene && (
+        <Select
+          id="shot-scene"
+          label="Scene"
+          labelVisible
+          disabled={locked}
+          value={sceneId}
+          onChange={(event) => setSceneChoice(event.target.value)}
+          options={document.sceneOrder.map((id) => ({
+            value: id,
+            label: document.scenesById[id]?.purpose || id,
+          }))}
+        />
+      )}
       {!scene ? (
         <div className="video-shot-empty">
           <Film size={28} aria-hidden="true" />
@@ -114,202 +136,89 @@ export function ShotStudio({
             <p>Return to Story and describe what this part of the video needs to communicate.</p>
           </div>
         </div>
+      ) : scene.shotOrder.length === 0 ? (
+        <div className="video-shot-empty">
+          <span className="video-beat-frame" aria-hidden="true" />
+          <div>
+            <h3>Plan the first shot</h3>
+            <p>Start with the material this scene needs, then open a shot to produce it.</p>
+          </div>
+          <Button variant="primary" icon={Plus} onClick={addShot} disabled={locked}>
+            Plan first shot
+          </Button>
+        </div>
       ) : (
         <>
-          <section className="video-shot-scene-context" aria-label="Selected scene context">
-            <div>
-              <span>Scene {document.sceneOrder.indexOf(sceneId ?? "") + 1}</span>
-              <h3>{scene.purpose || "Untitled scene"}</h3>
-            </div>
-            <dl>
-              <div>
-                <dt>Narration</dt>
-                <dd>{scene.narration || "Add narration in Story"}</dd>
-              </div>
-              <div>
-                <dt>Visual direction</dt>
-                <dd>{scene.visual.description || "Add visual direction in Story"}</dd>
-              </div>
-            </dl>
-          </section>
-          {!sceneIdProp && (
-            <Select
-              id="shot-scene"
-              label="Scene"
-              labelVisible
-              disabled={locked}
-              value={sceneId}
-              onChange={(event) => setSceneChoice(event.target.value)}
-              options={document.sceneOrder.map((id) => ({
-                value: id,
-                label: document.scenesById[id]?.purpose || id,
-              }))}
-            />
-          )}
-          {!shot || !shotId ? (
-            <div className="video-shot-empty">
-              <span className="video-shot-empty-number" aria-hidden="true">
-                01
-              </span>
-              <div>
-                <h3>Plan the first shot</h3>
-                <p>
-                  Start with the material this scene needs. You can build it in Remotion, animate a
-                  start image, or use recorded footage.
-                </p>
-              </div>
-              <Button variant="primary" icon={Plus} onClick={addShot} disabled={locked}>
-                Plan first shot
-              </Button>
-            </div>
-          ) : (
-            <div className="video-shot-workspace">
-              <nav className="video-shot-navigator" aria-label="Shots in selected scene">
-                <div className="video-shot-navigator-heading">
-                  <strong>Shots</strong>
-                  <span>{scene.shotOrder.length}</span>
-                </div>
-                {scene.shotOrder.map((id, index) => {
-                  const item = scene.shotsById[id];
-                  const ready = Boolean(item?.purpose.trim() && item.subjectAction.trim());
-                  return (
-                    <button
-                      type="button"
-                      key={id}
-                      aria-current={shotId === id ? "true" : undefined}
-                      title={item?.purpose || "Untitled shot"}
-                      onClick={() => selectShot(id)}
-                    >
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <span>
-                        <strong>{item?.purpose || "Untitled shot"}</strong>
-                        <small>{productionMethod(item?.method)}</small>
+          <ol className="video-beat-list">
+            {scene.shotOrder.map((id, index) => {
+              const item = scene.shotsById[id];
+              if (!item) return null;
+              const expanded = expandedId === id && !locked;
+              const current = shotId === id;
+              return (
+                <li
+                  key={id}
+                  className={`video-beat${expanded ? " is-expanded" : ""}${current ? " is-current" : ""}`}
+                >
+                  <ShotFrame shot={item} />
+                  <div className="video-beat-body">
+                    <div className="video-beat-index-row">
+                      <span className="video-beat-handle" aria-hidden="true">
+                        {String(index + 1).padStart(2, "0")}
                       </span>
-                      {ready ? (
-                        <CheckCircle2 size={14} aria-hidden="true" />
+                      {item.purpose.trim() && item.subjectAction.trim() ? (
+                        <CheckCircle2 size={14} aria-label="Shot ready" />
                       ) : (
-                        <Circle size={14} aria-hidden="true" />
+                        <Circle size={14} aria-label="Shot incomplete" />
                       )}
-                    </button>
-                  );
-                })}
-              </nav>
-              <div className="video-shot-editor">
-                <div className="video-shot-editor-heading">
-                  <div>
-                    <span>
-                      Editing shot {scene.shotOrder.indexOf(shotId) + 1} of {scene.shotOrder.length}
-                    </span>
-                    <strong>{shot.purpose || "Untitled shot"}</strong>
+                      {expanded && (
+                        <Button size="sm" onClick={() => setExpandedId(undefined)}>
+                          Done
+                        </Button>
+                      )}
+                    </div>
+                    {expanded && shot ? (
+                      <ShotEditor
+                        scene={scene}
+                        shot={shot}
+                        shotId={id}
+                        sceneId={sceneId ?? ""}
+                        workspaceId={workspaceId}
+                        projectId={projectId}
+                        draftId={draftId}
+                        revision={revision}
+                        locked={locked}
+                        unsaved={unsaved}
+                        onPatch={patch}
+                      />
+                    ) : locked ? (
+                      <ShotRead shot={item} scene={scene} />
+                    ) : (
+                      <button
+                        type="button"
+                        className="video-beat-open"
+                        aria-expanded="false"
+                        aria-current={current ? "true" : undefined}
+                        onClick={() => selectShot(id)}
+                      >
+                        <span className="visually-hidden">Edit shot {index + 1}. </span>
+                        <ShotRead shot={item} scene={scene} />
+                      </button>
+                    )}
                   </div>
-                  <span>{productionMethod(shot.method)}</span>
-                </div>
-                <div className="vs-shot-progress" aria-hidden="true">
-                  <i
-                    style={{
-                      width: `${Math.round(
-                        ((scene.shotOrder.indexOf(shotId) + 1) /
-                          Math.max(1, scene.shotOrder.length)) *
-                          100,
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <TextInput
-                  id="shot-purpose"
-                  label="Story purpose"
-                  labelVisible
-                  readOnly={locked}
-                  value={shot.purpose}
-                  onChange={(event) => patch({ purpose: event.target.value })}
-                />
-                <RadioCards
-                  label="Production method"
-                  hint="Choose where this shot will come from."
-                  name={`shot-method-${shotId}`}
-                  disabled={locked}
-                  value={shot.method}
-                  onChange={(method) => patch({ method })}
-                  options={[
-                    {
-                      value: "remotion",
-                      label: "Remotion",
-                      description: "Designed motion",
-                      icon: Clapperboard,
-                    },
-                    {
-                      value: "higgsfield",
-                      label: "AI motion",
-                      description: "Animate an image",
-                      icon: Sparkles,
-                    },
-                    {
-                      value: "recording",
-                      label: "Recording",
-                      description: "Use real footage",
-                      icon: Video,
-                    },
-                  ]}
-                />
-                <TextInput
-                  id="shot-action"
-                  label="Subject action"
-                  labelVisible
-                  readOnly={locked}
-                  value={shot.subjectAction}
-                  onChange={(event) => patch({ subjectAction: event.target.value })}
-                />
-                <RadioCards
-                  label="Camera movement"
-                  hint="Uses the same motion vocabulary in prompts and the timeline."
-                  name={`shot-camera-${shotId}`}
-                  disabled={locked}
-                  value={normalizeCameraMovement(shot.cameraMotion)}
-                  onChange={(cameraMotion) => patch({ cameraMotion })}
-                  options={[
-                    { value: "static", label: "Static", description: "Locked frame" },
-                    { value: "push-in", label: "Push in", description: "Move closer" },
-                    { value: "pull-out", label: "Pull out", description: "Reveal context" },
-                  ]}
-                />
-                <label className="video-field" htmlFor="shot-constraints">
-                  Immutable constraints
-                  <textarea
-                    id="shot-constraints"
-                    aria-label="Immutable constraints"
-                    readOnly={locked}
-                    value={shot.constraints.join("\n")}
-                    onChange={(event) =>
-                      patch({ constraints: event.target.value.split("\n").filter(Boolean) })
-                    }
-                  />
-                </label>
-                <ShotStartImage
-                  workspaceId={workspaceId}
-                  source={shot.startImage as PinnedImage | undefined}
-                  onSelected={(asset) => patch({ startImage: asset })}
-                  disabled={locked}
-                />
-                <ShotCandidates
-                  key={`${sceneId}/${shotId}`}
-                  workspaceId={workspaceId}
-                  projectId={projectId}
-                  draftId={draftId}
-                  sceneId={sceneId ?? ""}
-                  shotId={shotId}
-                  revision={revision}
-                  shot={shot}
-                  disabled={locked || unsaved}
-                  onSelect={(asset, reason, jobId) =>
-                    patch({
-                      selectedVideo: asset,
-                      selectedVideoReason: reason,
-                      selectedVideoJobId: jobId,
-                    })
-                  }
-                />
-              </div>
-            </div>
+                </li>
+              );
+            })}
+          </ol>
+          {!locked && (
+            <Button
+              icon={Plus}
+              className="video-beat-add"
+              onClick={addShot}
+              disabled={scene.shotOrder.length >= 100}
+            >
+              Add shot
+            </Button>
           )}
         </>
       )}
@@ -317,8 +226,185 @@ export function ShotStudio({
   );
 }
 
+function ShotFrame({ shot }: { shot: Shot }) {
+  const line = shot.subjectAction.trim() || shot.purpose.trim();
+  return (
+    <div className="video-beat-frame" aria-hidden="true">
+      {line ? (
+        <span className="video-beat-frame-copy">
+          <span>{line}</span>
+        </span>
+      ) : (
+        <span className="video-beat-frame-empty" />
+      )}
+    </div>
+  );
+}
+
+function ShotRead({ shot, scene }: { shot: Shot; scene: Scene }) {
+  const motion = shotMotionLabel(shot, scene);
+  const meta = [productionMethod(shot.method), motion, shot.selectedVideo ? "Candidate chosen" : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className="video-beat-read">
+      <strong className="video-beat-purpose">{shot.purpose.trim() || "Untitled shot"}</strong>
+      {shot.subjectAction.trim() ? (
+        <span className="video-beat-narration">{shot.subjectAction}</span>
+      ) : null}
+      {meta ? <span className="video-beat-meta">{meta}</span> : null}
+    </span>
+  );
+}
+
+function ShotEditor({
+  scene,
+  shot,
+  shotId,
+  sceneId,
+  workspaceId,
+  projectId,
+  draftId,
+  revision,
+  locked,
+  unsaved,
+  onPatch,
+}: {
+  scene: Scene;
+  shot: Shot;
+  shotId: string;
+  sceneId: string;
+  workspaceId: Id<"workspaces">;
+  projectId: Id<"videoProjects">;
+  draftId: Id<"videoDrafts">;
+  revision: string;
+  locked: boolean;
+  unsaved: boolean;
+  onPatch: (value: Partial<Shot>) => void;
+}) {
+  const sceneMotion = normalizeCameraMovement(scene.visual.motion);
+  return (
+    <div className="video-beat-editor">
+      <TextInput
+        id={`shot-purpose-${shotId}`}
+        label="Shot purpose"
+        labelVisible
+        readOnly={locked}
+        value={shot.purpose}
+        onChange={(event) => onPatch({ purpose: event.target.value })}
+      />
+      <RadioCards
+        label="Production method"
+        name={`shot-method-${shotId}`}
+        disabled={locked}
+        value={shot.method}
+        onChange={(method) => onPatch({ method })}
+        options={[
+          {
+            value: "remotion",
+            label: "Remotion",
+            description: "Designed motion",
+            icon: Clapperboard,
+          },
+          {
+            value: "higgsfield",
+            label: "AI motion",
+            description: "Animate an image",
+            icon: Sparkles,
+          },
+          {
+            value: "recording",
+            label: "Recording",
+            description: "Use real footage",
+            icon: Video,
+          },
+        ]}
+      />
+      <TextInput
+        id={`shot-action-${shotId}`}
+        label="Subject action"
+        labelVisible
+        readOnly={locked}
+        value={shot.subjectAction}
+        onChange={(event) => onPatch({ subjectAction: event.target.value })}
+      />
+      <Select
+        id={`shot-camera-${shotId}`}
+        label="Camera"
+        labelVisible
+        disabled={locked}
+        value={normalizeCameraMovement(shot.cameraMotion)}
+        onChange={(event) => onPatch({ cameraMotion: event.target.value })}
+        options={[
+          {
+            value: "",
+            label: sceneMotion
+              ? `Same as scene (${motionName(sceneMotion)})`
+              : "Same as scene",
+          },
+          ...CAMERA_MOVEMENTS.map((value) => ({ value, label: motionName(value) })),
+        ]}
+      />
+      <details className="video-advanced">
+        <summary>Constraints</summary>
+        <label className="video-field" htmlFor={`shot-constraints-${shotId}`}>
+          Immutable constraints
+          <textarea
+            id={`shot-constraints-${shotId}`}
+            aria-label="Immutable constraints"
+            readOnly={locked}
+            value={shot.constraints.join("\n")}
+            onChange={(event) =>
+              onPatch({ constraints: event.target.value.split("\n").filter(Boolean) })
+            }
+          />
+        </label>
+      </details>
+      <ShotStartImage
+        workspaceId={workspaceId}
+        source={shot.startImage as PinnedImage | undefined}
+        onSelected={(asset) => onPatch({ startImage: asset })}
+        disabled={locked}
+      />
+      <ShotCandidates
+        key={`${sceneId}/${shotId}`}
+        workspaceId={workspaceId}
+        projectId={projectId}
+        draftId={draftId}
+        sceneId={sceneId}
+        shotId={shotId}
+        revision={revision}
+        shot={shot}
+        sceneMotion={scene.visual.motion}
+        disabled={locked || unsaved}
+        onSelect={(asset, reason, jobId) =>
+          onPatch({
+            selectedVideo: asset,
+            selectedVideoReason: reason,
+            selectedVideoJobId: jobId,
+          })
+        }
+      />
+    </div>
+  );
+}
+
 function productionMethod(method: Shot["method"] | undefined) {
-  if (method === "higgsfield") return "Generative motion";
-  if (method === "recording") return "Recorded footage";
+  if (method === "higgsfield") return "AI motion";
+  if (method === "recording") return "Recording";
   return "Remotion";
+}
+
+function motionName(value: string) {
+  if (value === "push-in") return "Push in";
+  if (value === "pull-out") return "Pull out";
+  if (value === "static") return "Static";
+  return value;
+}
+
+function shotMotionLabel(shot: Shot, scene: Scene) {
+  const own = normalizeCameraMovement(shot.cameraMotion);
+  if (own) return motionName(own);
+  const inherited = normalizeCameraMovement(scene.visual.motion);
+  return inherited ? `${motionName(inherited)} (scene)` : "";
 }

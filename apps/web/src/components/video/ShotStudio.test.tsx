@@ -20,9 +20,9 @@ const document = Script.parse({
   scenesById: {
     scene: {
       purpose: "Scene",
-      narration: "",
+      narration: "Voice over",
       onScreenText: [],
-      visual: { description: "", shot: "", motion: "" },
+      visual: { description: "Product on a table", shot: "close-up", motion: "static" },
       shotOrder: [],
       shotsById: {},
       claims: [],
@@ -34,6 +34,7 @@ const ids = {
   projectId: "project" as Id<"videoProjects">,
   draftId: "draft" as Id<"videoDrafts">,
 };
+
 test("adding shot preserves stable scene identity and defaults to deterministic media", async () => {
   const onChange = vi.fn();
   render(
@@ -46,7 +47,7 @@ test("adding shot preserves stable scene identity and defaults to deterministic 
       unsaved={false}
     />,
   );
-  await userEvent.click(screen.getByRole("button", { name: "Add shot" }));
+  await userEvent.click(screen.getByRole("button", { name: "Plan first shot" }));
   const next = onChange.mock.calls[0]?.[0];
   expect(next).toBeDefined();
   if (!next) throw new Error("Expected the shot draft to change");
@@ -56,7 +57,7 @@ test("adding shot preserves stable scene identity and defaults to deterministic 
   expect(next.scenesById.scene.shotsById[key].method).toBe("remotion");
 });
 
-test("keeps the selected scene brief visible while planning its first shot", () => {
+test("empty scene shows a first-shot invitation without a scene brief dump", () => {
   render(
     <ShotStudio
       {...ids}
@@ -68,9 +69,54 @@ test("keeps the selected scene brief visible while planning its first shot", () 
       sceneId="scene"
     />,
   );
-  expect(screen.getByRole("region", { name: "Selected scene context" })).toHaveTextContent("Scene");
+  expect(screen.queryByRole("region", { name: "Selected scene context" })).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
   expect(screen.queryByLabelText("Scene")).not.toBeInTheDocument();
+  expect(screen.queryByText("Voice over")).not.toBeInTheDocument();
+});
+
+test("board shows every shot before any editor opens", () => {
+  const planned = Script.parse({
+    ...document,
+    scenesById: {
+      scene: {
+        ...document.scenesById.scene,
+        shotOrder: ["hero", "detail"],
+        shotsById: {
+          hero: {
+            purpose: "Show the product",
+            method: "remotion",
+            subjectAction: "Product rotates",
+            cameraMotion: "",
+            constraints: [],
+          },
+          detail: {
+            purpose: "Logo lockup",
+            method: "higgsfield",
+            subjectAction: "Logo settles",
+            cameraMotion: "push-in",
+            constraints: [],
+          },
+        },
+      },
+    },
+  });
+  render(
+    <ShotStudio
+      {...ids}
+      document={planned}
+      revision="s1"
+      onChange={vi.fn()}
+      locked={false}
+      unsaved={false}
+    />,
+  );
+  expect(screen.getByRole("button", { name: /Edit shot 1/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit shot 2/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Show the product/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Logo lockup/ })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Shot purpose" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Static \(scene\)/)).toBeInTheDocument();
 });
 
 test("offers production methods as a keyboard-accessible radio group", async () => {
@@ -104,8 +150,10 @@ test("offers production methods as a keyboard-accessible radio group", async () 
       unsaved={false}
     />,
   );
+  await user.click(screen.getByRole("button", { name: /Edit shot 1/ }));
 
   expect(screen.getByRole("radio", { name: /Remotion/ })).toBeChecked();
+  expect(screen.getByRole("combobox", { name: "Camera" })).toHaveValue("static");
   await user.click(screen.getByRole("radio", { name: /AI motion/ }));
   expect(onChange).toHaveBeenCalledWith(
     expect.objectContaining({

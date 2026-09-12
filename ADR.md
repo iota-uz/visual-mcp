@@ -59,6 +59,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **Рекламная персонажная сцена объединяет acting, постановку и явный timebase** — [запись](adr/platform/character-advertising-performance.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-character-animation-engine-v0-2)
+
 - **Асимметричные Character Packs фиксируют направление и сохраняют авторские детали** — [запись](adr/platform/brand-faithful-asymmetric-character-packs.md) · accepted · 2026-09-12 (запрос пользователя; `asset://shared/farq-official-layered-mascot@1`)
 
 - **Timeline preview исполняет тот же native character renderer, что и worker** — [запись](adr/platform/timeline-character-preview-reuses-native-renderer.md) · accepted · 2026-09-12 (запрос пользователя)
@@ -83,6 +85,8 @@ or delete history. Full rules: .claude/rules/adr.md
 - **Продукт использует hosted remote MCP; локальный stdio runtime удалён** — [запись](adr/platform/hosted-remote-mcp-only.md) · accepted · 2026-08-09 (`0bf0e03`, `9a73635`)
 
 ## product
+
+- **Студия — взгляд, потом правка; версия в той же комнате** — [запись](adr/product/studio-glance-then-edit.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Story — доска битов, форма по запросу** — [запись](adr/product/story-mode-beat-board.md) · accepted · 2026-09-12 (запрос пользователя)
 

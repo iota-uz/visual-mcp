@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getFunctionName } from "convex/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -184,7 +184,11 @@ test("UZ version deep link without language keeps the header and return lane Uzb
   );
   mount("/v/project?version=uz-version");
   expect(screen.getByRole("button", { name: "O‘zbekcha" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("navigation", { name: "Studio workflow" })).toBeInTheDocument();
+  expect(screen.getByText("uz narration")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Edit scene/ })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Return to editable draft" }));
+  expect(screen.getByRole("button", { name: /Edit scene 1/ })).toBeInTheDocument();
   expect(screen.getByText("uz narration")).toBeInTheDocument();
 });
 
@@ -203,14 +207,14 @@ test("renders honest empty media state and no human approval shortcut", () => {
   );
 });
 
-test("shots retain selected scene context instead of becoming an unlabelled empty form", async () => {
+test("shots keep the selected scene and invite a first shot without a brief dump", async () => {
   const user = userEvent.setup();
   mount();
   await user.click(screen.getByRole("button", { name: "Shots" }));
-  const context = screen.getByRole("region", { name: "Selected scene context" });
-  expect(context).toHaveTextContent("Opening");
-  expect(within(context).getByText("ru narration")).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Scenes" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Opening/ })).toHaveAttribute("aria-current", "true");
   expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Selected scene context" })).not.toBeInTheDocument();
 });
 
 test("timeline exposes a temporal workspace and focused caption controls", async () => {
@@ -246,12 +250,12 @@ test("readiness pills navigate to the workspace that advances each count", async
   const user = userEvent.setup();
   mount();
   await user.click(screen.getByRole("button", { name: "Shots" }));
-  expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Open Story to review scene briefs" }));
+  expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Story" }));
   expect(screen.getByRole("button", { name: /Edit scene 1/ })).toBeInTheDocument();
   expect(screen.getByText("ru narration")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Open Shots to plan shots" }));
-  expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Plan the first shot" })).toBeInTheDocument();
 });
 
 test("pending render stays telemetry while a ready render is one click away", async () => {

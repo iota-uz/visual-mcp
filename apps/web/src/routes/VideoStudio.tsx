@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { Badge } from "../components/Badge";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { LoadingState } from "../components/LoadingState";
 import { Button } from "../components/ui/Button";
@@ -13,9 +12,6 @@ import { IconButton } from "../components/ui/IconButton";
 import { Panel } from "../components/ui/Panel";
 import { HumanLoopPanel } from "../components/video/HumanLoopPanel";
 import { ReelsArchive } from "../components/video/ReelsArchive";
-import { RenderRequest } from "../components/video/RenderRequest";
-import { StoryboardEditor } from "../components/video/StoryboardEditor";
-import { TimelineEditor } from "../components/video/TimelineEditor";
 import { type Draft, DraftStudio, type StudioMode } from "../components/video/VideoDraftStudio";
 import { VideoJobs } from "../components/video/VideoJobs";
 import { VideoReview } from "../components/video/VideoReview";
@@ -92,24 +88,22 @@ export function VideoStudioPage() {
           </span>
           <h1 className="canvas-command-name">{project.title}</h1>
         </div>
-        {!versionId && (
-          <nav className="canvas-mode-switch video-workflow-switch" aria-label="Studio workflow">
-            {MODES.map((item) => (
-              <Button
-                key={item.id}
-                size="sm"
-                variant={mode === item.id ? "secondary" : "ghost"}
-                icon={item.icon}
-                aria-current={mode === item.id ? "step" : undefined}
-                data-shortcut={item.shortcut}
-                title={`${item.label} (${item.shortcut})`}
-                onClick={() => setParam({ mode: item.id })}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </nav>
-        )}
+        <nav className="canvas-mode-switch video-workflow-switch" aria-label="Studio workflow">
+          {MODES.map((item) => (
+            <Button
+              key={item.id}
+              size="sm"
+              variant={mode === item.id ? "secondary" : "ghost"}
+              icon={item.icon}
+              aria-current={mode === item.id ? "step" : undefined}
+              data-shortcut={item.shortcut}
+              title={`${item.label} (${item.shortcut})`}
+              onClick={() => setParam({ mode: item.id })}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </nav>
         <div className="canvas-command-actions">
           <nav className="canvas-mode-switch" aria-label="Draft language">
             {project.drafts.map((item) => (
@@ -143,43 +137,9 @@ export function VideoStudioPage() {
         </div>
       </header>
 
-      {versionId ? (
-        !version ? (
-          <LoadingState />
-        ) : version.version.projectId !== project.projectId ? (
-          <Panel tone="warning">This version does not belong to this project.</Panel>
-        ) : (
-          <div className="video-studio-body">
-            <div className="video-editing-column">
-              <div className="video-save-summary">
-                <Badge>Saved version · {version.version.language.toUpperCase()}</Badge>
-                <strong>{version.label}</strong>
-                <Button
-                  onClick={() => {
-                    setParam({
-                      version: null,
-                      language: version.version.language,
-                    });
-                  }}
-                >
-                  Return to editable draft
-                </Button>
-              </div>
-              <p className="video-hint">
-                Read-only snapshot of the script and timeline. Not a rendered MP4 or an approval.
-              </p>
-              <StoryboardEditor document={version.script} onChange={() => {}} disabled />
-              <TimelineEditor document={version.timeline} onChange={() => {}} disabled />
-              <RenderRequest
-                key={version.version.versionId}
-                workspaceId={project.workspaceId}
-                projectId={project.projectId}
-                versionId={version.version.versionId}
-              />
-            </div>
-          </div>
-        )
-      ) : !visibleDraft ? (
+      {versionId && version && version.version.projectId !== project.projectId ? (
+        <Panel tone="warning">This version does not belong to this project.</Panel>
+      ) : (versionId && !version) || !visibleDraft ? (
         <LoadingState />
       ) : (
         <div className="video-draft-continuity">
@@ -190,7 +150,7 @@ export function VideoStudioPage() {
             </div>
           )}
           <DraftStudio
-            key={visibleDraft.draftId}
+            key={versionId ? `${visibleDraft.draftId}:${versionId}` : visibleDraft.draftId}
             project={project}
             draft={visibleDraft}
             mode={mode}
@@ -199,6 +159,26 @@ export function VideoStudioPage() {
             onMode={(next) => setParam({ mode: next })}
             latestRenderId={activeRender as Id<"videoJobs"> | null}
             onOpenRender={(jobId) => setParam({ render: jobId, mode: "review", production: null })}
+            snapshot={
+              versionId && version
+                ? {
+                    versionId: version.version.versionId,
+                    label: version.label,
+                    language: version.version.language,
+                    script: version.script,
+                    timeline: version.timeline,
+                  }
+                : undefined
+            }
+            onReturnToDraft={
+              versionId
+                ? () =>
+                    setParam({
+                      version: null,
+                      language: version?.version.language ?? language,
+                    })
+                : undefined
+            }
             review={
               activeRender ? (
                 <VideoReview

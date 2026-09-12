@@ -60,6 +60,7 @@ export function ShotCandidates({
   shotId,
   revision,
   shot,
+  sceneMotion,
   disabled,
   onSelect,
 }: {
@@ -70,6 +71,7 @@ export function ShotCandidates({
   shotId: string;
   revision: string;
   shot: Shot;
+  sceneMotion?: string;
   disabled: boolean;
   onSelect: (asset: PinnedImage, reason: string, jobId: string) => void;
 }) {
@@ -103,7 +105,8 @@ export function ShotCandidates({
   });
 
   async function generate() {
-    const movement = normalizeCameraMovement(shot.cameraMotion);
+    const movement =
+      normalizeCameraMovement(shot.cameraMotion) || normalizeCameraMovement(sceneMotion);
     const request =
       pending.current ??
       (shot.startImage
@@ -124,9 +127,13 @@ export function ShotCandidates({
                 shot.subjectAction,
                 movement
                   ? `Camera: ${cameraMovementInstruction(movement)}`
-                  : `Camera: ${shot.cameraMotion}`,
+                  : sceneMotion
+                    ? `Camera: ${sceneMotion}`
+                    : "",
                 ...shot.constraints,
-              ].join("\n"),
+              ]
+                .filter(Boolean)
+                .join("\n"),
               durationMs,
             },
           }

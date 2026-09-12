@@ -477,30 +477,6 @@
   color: var(--app-success);
 }
 
-.vs-kbd-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--app-muted);
-  font-size: var(--app-text-xs);
-}
-
-.vs-kbd-hint kbd {
-  display: inline-grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border: 1px solid var(--app-line);
-  border-bottom-width: 2px;
-  border-radius: 6px;
-  background: var(--app-white);
-  color: var(--app-ink-soft);
-  font-family: var(--app-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-}
-
 .video-studio-workspace > .video-editing-column,
 .video-studio-navigator,
 .video-studio-inspector {
@@ -669,10 +645,6 @@
   }
 
   .video-studio-page .video-workflow-switch .btn::after {
-    display: none;
-  }
-
-  .vs-kbd-hint {
     display: none;
   }
 

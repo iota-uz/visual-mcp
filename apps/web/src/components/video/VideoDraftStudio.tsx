@@ -4,12 +4,18 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { Script, Timeline } from "../../../../../packages/video/src/contracts";
+import {
+  Script,
+  Timeline,
+  type ScriptDocument,
+  type TimelineDocument,
+} from "../../../../../packages/video/src/contracts";
 import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import { Panel } from "../ui/Panel";
 import { TextInput } from "../ui/TextInput";
+import { RenderRequest } from "./RenderRequest";
 import { ShotStudio } from "./ShotStudio";
 import { SceneNavigator, StoryboardEditor } from "./StoryboardEditor";
 import { TimelineEditor } from "./TimelineEditor";
@@ -22,6 +28,13 @@ export type StudioMode = "story" | "shots" | "timeline" | "review";
 
 export type Project = NonNullable<ReturnType<typeof useQuery<typeof api.video.getProject>>>;
 export type Draft = NonNullable<ReturnType<typeof useQuery<typeof api.video.getDraft>>>;
+export type VersionSnapshot = {
+  versionId: Id<"videoVersions">;
+  label: string;
+  language: "ru" | "uz";
+  script: ScriptDocument;
+  timeline: TimelineDocument;
+};
 
 export function DraftStudio({
   project,
@@ -33,6 +46,8 @@ export function DraftStudio({
   latestRenderId,
   onOpenRender,
   review,
+  snapshot,
+  onReturnToDraft,
 }: {
   project: Project;
   draft: Draft;
@@ -43,6 +58,8 @@ export function DraftStudio({
   latestRenderId: Id<"videoJobs"> | null;
   onOpenRender: (jobId: Id<"videoJobs">) => void;
   review?: ReactNode;
+  snapshot?: VersionSnapshot;
+  onReturnToDraft?: () => void;
 }) {
   const [params, setParams] = useSearchParams();
   const patchScript = useMutation(api.video.patchScript);
@@ -55,8 +72,8 @@ export function DraftStudio({
   const [sceneId, setSceneId] = useState(draft.script.sceneOrder[0] ?? "");
   const [shotId, setShotId] = useState("");
   const [pendingSceneDelete, setPendingSceneDelete] = useState<string | null>(null);
-  const inspectorDefaultOpen = useWideStudio() && mode !== "timeline";
   const navigatorRef = useRef<HTMLElement | null>(null);
+  const readOnly = Boolean(snapshot);
   const pendingCheckpoint = useRef<Parameters<typeof checkpoint>[0] | null>(null);
   const script = useRevisionEditor(
     { revision: draft.scriptRevision, document: draft.script },
@@ -93,12 +110,15 @@ export function DraftStudio({
     },
   );
   const unsaved =
-    script.dirty ||
-    timeline.dirty ||
-    script.state === "saving" ||
-    timeline.state === "saving" ||
-    script.awaitingSubscription ||
-    timeline.awaitingSubscription;
+    !readOnly &&
+    (script.dirty ||
+      timeline.dirty ||
+      script.state === "saving" ||
+      timeline.state === "saving" ||
+      script.awaitingSubscription ||
+      timeline.awaitingSubscription);
+  const scriptDocument = snapshot?.script ?? script.document;
+  const timelineDocument = snapshot?.timeline ?? timeline.document;
   const history = useDocumentHistory({ script, timeline }, transitioning || checkpointError);
   const editScript = (next: typeof script.document) => history.edit("script", next);
   const editTimeline = (next: typeof timeline.document) => history.edit("timeline", next);
@@ -109,10 +129,10 @@ export function DraftStudio({
     { projectId: project.projectId, language: draft.language },
     { initialNumItems: 10 },
   );
-  const activeSceneId = script.document.scenesById[sceneId]
+  const activeSceneId = scriptDocument.scenesById[sceneId]
     ? sceneId
-    : (script.document.sceneOrder[0] ?? "");
-  const activeScene = activeSceneId ? script.document.scenesById[activeSceneId] : undefined;
+    : (scriptDocument.sceneOrder[0] ?? "");
+  const activeScene = activeSceneId ? scriptDocument.scenesById[activeSceneId] : undefined;
   useEffect(() => {
     if (activeSceneId !== sceneId) setSceneId(activeSceneId);
     if (shotId && !activeScene?.shotsById[shotId]) setShotId("");
@@ -134,30 +154,18 @@ export function DraftStudio({
       : unsaved
         ? "dirty"
         : "saved";
-  const sceneBriefsReady = script.document.sceneOrder.filter((id) => {
-    const scene = script.document.scenesById[id];
-    return Boolean(
-      scene?.purpose.trim() && scene.narration.trim() && scene.visual.description.trim(),
-    );
-  }).length;
-  // The readiness pills are wayfinding: the briefs pill lands on the first
-  // scene whose brief is still incomplete, so the count reads as an action.
-  const firstIncompleteScene = script.document.sceneOrder.find((id) => {
-    const scene = script.document.scenesById[id];
-    return !scene?.purpose.trim() || !scene.narration.trim() || !scene.visual.description.trim();
-  });
-  const shotsPlanned = script.document.sceneOrder.reduce(
-    (total, id) => total + (script.document.scenesById[id]?.shotOrder.length ?? 0),
+  const shotsPlanned = scriptDocument.sceneOrder.reduce(
+    (total, id) => total + (scriptDocument.scenesById[id]?.shotOrder.length ?? 0),
     0,
   );
-  const editorLocked = transitioning || checkpointError;
+  const editorLocked = transitioning || checkpointError || readOnly;
 
   function reorderScenes(sceneOrder: string[]) {
-    editScript({ ...script.document, sceneOrder });
+    editScript({ ...scriptDocument, sceneOrder });
   }
 
   function deleteScene(id: string) {
-    const document = script.document;
+    const document = scriptDocument;
     const { [id]: _removed, ...scenesById } = document.scenesById;
     const sceneOrder = document.sceneOrder.filter((sceneId) => sceneId !== id);
     editScript({ ...document, sceneOrder, scenesById });
@@ -167,11 +175,6 @@ export function DraftStudio({
     }
     setPendingSceneDelete(null);
   }
-  const modKey =
-    typeof navigator === "undefined" || /Mac|iPhone|iPad|Darwin/i.test(navigator.platform ?? "")
-      ? "⌘"
-      : "Ctrl";
-
   async function saveCheckpoint() {
     pendingCheckpoint.current ??= {
       draftId: draft.draftId,
@@ -214,70 +217,54 @@ export function DraftStudio({
     >
       <div className="video-studio-statusbar" role="status" data-save={saveState}>
         <div className="vs-save-state">
-          <span className="vs-save-dot" data-state={saveState} aria-hidden="true" />
+          <span className="vs-save-dot" data-state={readOnly ? "saved" : saveState} aria-hidden="true" />
           <span>
-            {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Saved"}
+            {readOnly
+              ? `Version · ${snapshot?.label ?? "saved"}`
+              : saveState === "saving"
+                ? "Saving…"
+                : unsaved
+                  ? "Unsaved changes"
+                  : "Saved"}
             {" · "}
-            {draft.language === "ru" ? "RU" : "UZ"}
+            {(snapshot?.language ?? draft.language) === "ru" ? "RU" : "UZ"}
           </span>
         </div>
         {mode !== "review" && (
-          <>
-            <ol className="video-workflow-readiness" aria-label="Production readiness">
-              <li className={sceneBriefsReady > 0 ? "is-ready" : ""}>
+          <ol className="video-workflow-readiness" aria-label="Production readiness">
+            <li className={shotsPlanned > 0 ? "is-ready" : ""}>
+              <button
+                type="button"
+                aria-label="Open Shots to plan shots"
+                onClick={() => {
+                  setShotId("");
+                  onMode("shots");
+                }}
+              >
+                <CheckCircle2 size={13} aria-hidden="true" />
+                {shotsPlanned} planned shots
+              </button>
+            </li>
+            {latestRenderId ? (
+              <li className="is-ready">
                 <button
                   type="button"
-                  aria-label="Open Story to review scene briefs"
-                  onClick={() => {
-                    if (firstIncompleteScene) {
-                      setSceneId(firstIncompleteScene);
-                      setShotId("");
-                    }
-                    onMode("story");
-                  }}
+                  aria-label="Review the latest render"
+                  onClick={() => onOpenRender(latestRenderId)}
                 >
                   <CheckCircle2 size={13} aria-hidden="true" />
-                  {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
+                  Render ready
                 </button>
               </li>
-              <li className={shotsPlanned > 0 ? "is-ready" : ""}>
-                <button
-                  type="button"
-                  aria-label="Open Shots to plan shots"
-                  onClick={() => {
-                    setShotId("");
-                    onMode("shots");
-                  }}
-                >
-                  <CheckCircle2 size={13} aria-hidden="true" />
-                  {shotsPlanned} planned shots
-                </button>
+            ) : (
+              <li>
+                <CheckCircle2 size={13} aria-hidden="true" />
+                Render pending
               </li>
-              {latestRenderId ? (
-                <li className="is-ready">
-                  <button
-                    type="button"
-                    aria-label="Review the latest render"
-                    onClick={() => onOpenRender(latestRenderId)}
-                  >
-                    <CheckCircle2 size={13} aria-hidden="true" />
-                    Render ready
-                  </button>
-                </li>
-              ) : (
-                <li>
-                  <CheckCircle2 size={13} aria-hidden="true" />
-                  Render pending
-                </li>
-              )}
-            </ol>
-            <span className="vs-kbd-hint" aria-hidden="true">
-              <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save · <kbd>{modKey}Z</kbd>{" "}
-              undo
-            </span>
-          </>
+            )}
+          </ol>
         )}
-        {mode !== "review" && (
+        {mode !== "review" && !readOnly && (
           <fieldset className="video-actions" aria-label="Draft edit history">
             <Button
               size="sm"
@@ -298,6 +285,11 @@ export function DraftStudio({
               Redo
             </Button>
           </fieldset>
+        )}
+        {readOnly && onReturnToDraft && (
+          <Button size="sm" onClick={onReturnToDraft}>
+            Return to editable draft
+          </Button>
         )}
       </div>
 
@@ -322,7 +314,7 @@ export function DraftStudio({
               aria-label="Project scenes"
             >
               <SceneNavigator
-                document={script.document}
+                document={scriptDocument}
                 selectedId={activeSceneId}
                 onSelect={(next) => {
                   setSceneId(next);
@@ -348,7 +340,7 @@ export function DraftStudio({
           <main className="video-editing-column" data-document-history>
             {mode === "story" && (
               <>
-                <EditorNotice editor={script} name="script" />
+                {!readOnly && <EditorNotice editor={script} name="script" />}
                 {pendingSceneDelete && (
                   <ConfirmButton
                     defaultArmed
@@ -360,7 +352,7 @@ export function DraftStudio({
                   />
                 )}
                 <StoryboardEditor
-                  document={script.document}
+                  document={scriptDocument}
                   onChange={editScript}
                   disabled={script.locked || editorLocked}
                   selectedId={activeSceneId}
@@ -376,13 +368,13 @@ export function DraftStudio({
             )}
             {mode === "shots" && (
               <>
-                <EditorNotice editor={script} name="script" />
+                {!readOnly && <EditorNotice editor={script} name="script" />}
                 <ShotStudio
                   workspaceId={project.workspaceId}
                   projectId={project.projectId}
                   draftId={draft.draftId}
                   revision={draft.scriptRevision}
-                  document={script.document}
+                  document={scriptDocument}
                   onChange={editScript}
                   locked={script.locked || editorLocked}
                   unsaved={script.dirty || script.awaitingSubscription}
@@ -394,9 +386,9 @@ export function DraftStudio({
             )}
             {mode === "timeline" && (
               <>
-                <EditorNotice editor={timeline} name="timeline" />
+                {!readOnly && <EditorNotice editor={timeline} name="timeline" />}
                 <TimelineEditor
-                  document={timeline.document}
+                  document={timelineDocument}
                   onChange={editTimeline}
                   history={history}
                   disabled={timeline.locked || editorLocked}
@@ -407,77 +399,91 @@ export function DraftStudio({
             )}
           </main>
 
-          <details
-            key={`${mode}-${inspectorDefaultOpen ? "open" : "closed"}`}
-            className="video-studio-inspector"
-            {...(inspectorDefaultOpen ? { open: true } : {})}
-          >
+          <details key={mode} className="video-studio-inspector">
             <summary>
-              <span>Version and render</span>
+              <span>{readOnly ? "Version" : "Version and render"}</span>
               <span aria-hidden="true">›</span>
             </summary>
             <div className="video-studio-inspector-content">
-              {latestRenderId ? (
-                <section className="video-render-callout">
-                  <Film size={18} aria-hidden="true" />
-                  <div>
-                    <h2>Render ready</h2>
-                    <p>Open Review for this language.</p>
-                  </div>
-                  <Button variant="primary" onClick={() => onOpenRender(latestRenderId)}>
-                    Review render
-                  </Button>
-                </section>
-              ) : (
-                <section className="video-render-callout is-empty">
-                  <Film size={18} aria-hidden="true" />
-                  <div>
-                    <h2>No rendered video yet</h2>
-                    <p>Save a version, then render. Saving the draft does not render it.</p>
-                  </div>
-                </section>
-              )}
-              <Panel as="section" className="video-checkpoint-panel">
-                <h2>Save a version</h2>
-                <p className="video-hint">
-                  Freeze this language’s script and timeline. This is not a render or an approval.
-                </p>
-                <form
-                  className="video-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void saveCheckpoint();
-                  }}
-                >
-                  <TextInput
-                    id="checkpoint-label"
-                    label="Version label"
-                    labelVisible
-                    value={label}
-                    onChange={(event) => setLabel(event.target.value)}
-                    required
-                    maxLength={500}
-                    disabled={checkpointBusy || checkpointError || transitioning}
-                    placeholder="Opening revised"
+              {snapshot ? (
+                <>
+                  <section className="video-render-callout">
+                    <Film size={18} aria-hidden="true" />
+                    <div>
+                      <h2>{snapshot.label}</h2>
+                      <p>Read-only snapshot. Render this version or return to the draft.</p>
+                    </div>
+                  </section>
+                  <RenderRequest
+                    key={snapshot.versionId}
+                    workspaceId={project.workspaceId}
+                    projectId={project.projectId}
+                    versionId={snapshot.versionId}
                   />
-                  <Button
-                    variant="primary"
-                    type="submit"
-                    busy={checkpointBusy}
-                    disabled={unsaved || transitioning || !label.trim()}
-                  >
-                    {checkpointBusy
-                      ? "Saving version…"
-                      : checkpointError
-                        ? "Retry same version"
-                        : "Save version"}
-                  </Button>
-                  {unsaved && <p className="video-hint">Save or resolve draft changes first.</p>}
-                  {checkpointMessage && (
-                    <p role={checkpointError ? "alert" : "status"}>{checkpointMessage}</p>
+                </>
+              ) : (
+                <>
+                  {latestRenderId ? (
+                    <section className="video-render-callout">
+                      <Film size={18} aria-hidden="true" />
+                      <div>
+                        <h2>Render ready</h2>
+                        <p>Open Review for this language.</p>
+                      </div>
+                      <Button variant="primary" onClick={() => onOpenRender(latestRenderId)}>
+                        Review render
+                      </Button>
+                    </section>
+                  ) : (
+                    <section className="video-render-callout is-empty">
+                      <Film size={18} aria-hidden="true" />
+                      <div>
+                        <h2>No rendered video yet</h2>
+                        <p>Save a version, then render.</p>
+                      </div>
+                    </section>
                   )}
-                </form>
-              </Panel>
+                  <Panel as="section" className="video-checkpoint-panel">
+                    <h2>Save a version</h2>
+                    <p className="video-hint">Freeze this language’s script and timeline.</p>
+                    <form
+                      className="video-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveCheckpoint();
+                      }}
+                    >
+                      <TextInput
+                        id="checkpoint-label"
+                        label="Version label"
+                        labelVisible
+                        value={label}
+                        onChange={(event) => setLabel(event.target.value)}
+                        required
+                        maxLength={500}
+                        disabled={checkpointBusy || checkpointError || transitioning}
+                        placeholder="Opening revised"
+                      />
+                      <Button
+                        variant="primary"
+                        type="submit"
+                        busy={checkpointBusy}
+                        disabled={unsaved || transitioning || !label.trim()}
+                      >
+                        {checkpointBusy
+                          ? "Saving version…"
+                          : checkpointError
+                            ? "Retry same version"
+                            : "Save version"}
+                      </Button>
+                      {unsaved && <p className="video-hint">Save or resolve draft changes first.</p>}
+                      {checkpointMessage && (
+                        <p role={checkpointError ? "alert" : "status"}>{checkpointMessage}</p>
+                      )}
+                    </form>
+                  </Panel>
+                </>
+              )}
               <Disclosure
                 summary={`Saved versions (${versions.results.length})`}
                 className="video-version-list"
@@ -490,7 +496,6 @@ export function DraftStudio({
                     <p className="video-hint">
                       Saved {new Date(version.createdAt).toLocaleString()}
                     </p>
-                    <p>Snapshot only. No rendered artifact or approval.</p>
                     <Button
                       size="sm"
                       disabled={unsaved || checkpointBusy || checkpointError || transitioning}
@@ -501,7 +506,7 @@ export function DraftStudio({
                         setParams(next);
                       }}
                     >
-                      View storyboard
+                      Open version
                     </Button>
                   </Disclosure>
                 ))}
@@ -519,24 +524,7 @@ export function DraftStudio({
   );
 }
 
-const WIDE_STUDIO_QUERY = "(min-width: 1121px)";
 
-function matchesWideStudio() {
-  return window.matchMedia?.(WIDE_STUDIO_QUERY)?.matches ?? true;
-}
-
-function useWideStudio() {
-  const [wide, setWide] = useState(matchesWideStudio);
-  useEffect(() => {
-    const mq = window.matchMedia?.(WIDE_STUDIO_QUERY);
-    if (!mq) return;
-    const onChange = () => setWide(mq.matches);
-    onChange();
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return wide;
-}
 
 function useReportBlocked(value: boolean, report: (value: boolean) => void) {
   useEffect(() => {
