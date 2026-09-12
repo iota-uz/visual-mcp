@@ -70,6 +70,44 @@
   padding: 0;
   border: 0;
 }
+
+.asset-status-tabs {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  background: var(--app-paper);
+}
+
+.asset-status-tabs button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--app-muted);
+  font: 650 var(--app-text-xs) / 1 var(--app-font-body);
+  cursor: pointer;
+}
+
+.asset-status-tabs button:hover {
+  color: var(--app-ink);
+}
+
+.asset-status-tabs button.active {
+  background: var(--app-white);
+  color: var(--app-ink);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.asset-status-tabs button:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 1px;
+}
+
 .asset-kind-tabs button {
   border: 0;
   padding: 5px 9px;
@@ -123,6 +161,10 @@
   box-shadow:
     0 0 0 2px var(--app-accent-soft),
     var(--app-shadow-sm);
+}
+
+.asset-card[data-archived="true"] {
+  background: color-mix(in srgb, var(--app-paper) 72%, var(--app-white));
 }
 
 .asset-select {
@@ -617,6 +659,15 @@
   color: var(--app-danger);
   background: color-mix(in srgb, var(--app-danger) 9%, transparent);
 }
+
+.asset-restore {
+  color: var(--app-accent-text);
+}
+
+.asset-restore:hover {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
 .asset-filename {
   overflow: hidden;
   color: var(--app-muted);
@@ -667,6 +718,10 @@
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 3px;
+}
+
+.asset-tags span.asset-tags-empty {
+  text-decoration: none;
 }
 .asset-tags button:focus-visible,
 .asset-card-action:focus-visible {

@@ -1,12 +1,13 @@
-import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "./ui/Button";
 
 interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
+  busyLabel?: string;
   tone?: "default" | "danger";
-  onConfirm: () => void;
+  onConfirm: () => Promise<unknown> | unknown;
   onCancel: () => void;
 }
 
@@ -22,6 +23,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  busyLabel,
   tone = "danger",
   onConfirm,
   onCancel,
@@ -29,6 +31,20 @@ export function ConfirmDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      await onConfirm();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -44,11 +60,11 @@ export function ConfirmDialog({
     const dialog = dialogRef.current;
     if (!dialog) return;
     const onBackdropPress = (event: MouseEvent) => {
-      if (event.target === dialog) onCancel();
+      if (event.target === dialog && !busy) onCancel();
     };
     dialog.addEventListener("click", onBackdropPress);
     return () => dialog.removeEventListener("click", onBackdropPress);
-  }, [onCancel]);
+  }, [busy, onCancel]);
 
   return (
     <dialog
@@ -57,22 +73,28 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
-        onCancel();
+        if (!busy) onCancel();
       }}
     >
       <div className="confirm-dialog-shell">
         <h2 id={titleId}>{title}</h2>
         <p>{description}</p>
+        {error && (
+          <p className="error-text" role="alert">
+            {error}
+          </p>
+        )}
         <div className="confirm-dialog-actions">
-          <Button variant="ghost" onClick={onCancel}>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
           <Button
             ref={confirmRef}
             variant={tone === "danger" ? "danger" : "primary"}
-            onClick={onConfirm}
+            onClick={confirm}
+            busy={busy}
           >
-            {confirmLabel}
+            {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
           </Button>
         </div>
       </div>

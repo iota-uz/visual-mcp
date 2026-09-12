@@ -33,6 +33,7 @@ const kindValidator = v.union(
 export const ASSET_TAG_LIMIT = 20;
 export const ASSET_TAG_MAX_LENGTH = 32;
 export const ASSET_MOVE_LIMIT = 100;
+const ASSET_LIST_SCAN_PAGE_LIMIT = 100;
 
 const assetMoveItemValidator = v.object({
   previousAssetRef: v.string(),
@@ -1021,6 +1022,7 @@ export const listInternal = internalQuery({
     workspaceSlug: v.optional(v.string()),
     query: v.optional(v.string()),
     kind: v.optional(kindValidator),
+    archived: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
@@ -1052,8 +1054,10 @@ export const listInternal = internalQuery({
             .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspace?._id))
             .order("desc")
             .paginate(args.paginationOpts);
+    const archived = args.archived ?? false;
     const visible = page.page.filter(
-      (row) => row.archivedAt === undefined && (!args.kind || row.kind === args.kind),
+      (row) =>
+        (row.archivedAt !== undefined) === archived && (!args.kind || row.kind === args.kind),
     );
     const result = [];
     for (const asset of visible) {
@@ -1102,6 +1106,7 @@ export const listMine = action({
     workspaceSlug: v.optional(v.string()),
     query: v.optional(v.string()),
     kind: v.optional(kindValidator),
+    archived: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
   returns: v.array(assetListItemValidator.extend({ preview_url: v.string() })),
@@ -1111,19 +1116,32 @@ export const listMine = action({
       subject: identity.subject,
       workspaceSlug: args.scope === "workspace" ? args.workspaceSlug : undefined,
     });
-    const page: { page: AssetListRow[] } = await ctx.runQuery(internal.assets.listInternal, {
-      userId: principal.userId,
-      scope: args.scope,
-      workspaceSlug: args.workspaceSlug,
-      query: args.query,
-      kind: args.kind,
-      paginationOpts: {
-        numItems: Math.min(args.limit ?? 100, 100),
-        cursor: null,
-      },
-    });
+    const limit = Math.min(Math.max(args.limit ?? 100, 1), 100);
+    const rows: AssetListRow[] = [];
+    let cursor: string | null = null;
+    let isDone = false;
+    let pagesScanned = 0;
+    while (!isDone && rows.length < limit && pagesScanned < ASSET_LIST_SCAN_PAGE_LIMIT) {
+      const page: {
+        page: AssetListRow[];
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.assets.listInternal, {
+        userId: principal.userId,
+        scope: args.scope,
+        workspaceSlug: args.workspaceSlug,
+        query: args.query,
+        kind: args.kind,
+        archived: args.archived,
+        paginationOpts: { numItems: 100, cursor },
+      });
+      rows.push(...page.page);
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+      pagesScanned += 1;
+    }
     return Promise.all(
-      page.page.map(async ({ object_key, ...row }) => ({
+      rows.slice(0, limit).map(async ({ object_key, ...row }) => ({
         ...row,
         preview_url: await presignObject(object_key, "GET", 900),
       })),
@@ -1255,29 +1273,31 @@ export const archiveByRef = internalMutation({
   },
 });
 
+async function restoreAssetByRef(
+  ctx: MutationCtx,
+  args: { assetRef: string; userId: Id<"users"> },
+) {
+  const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
+  const version = await latestAssetRevision(ctx, asset._id);
+  if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
+  if (asset.archivedAt !== undefined) {
+    await ctx.db.patch(asset._id, { archivedAt: undefined, updatedAt: Date.now() });
+  }
+  return {
+    assetRef: formatAssetRef({
+      scope: asset.scope === "workspace" ? "workspace" : "shared",
+      workspaceSlug,
+      slug: asset.slug,
+      revision: version.revision,
+    }),
+    mode: "restored" as const,
+  };
+}
+
 export const restoreByRef = internalMutation({
   args: { assetRef: v.string(), userId: v.id("users") },
   returns: v.object({ assetRef: v.string(), mode: v.literal("restored") }),
-  handler: async (ctx, args) => {
-    const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
-    const version = await latestAssetRevision(ctx, asset._id);
-    if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
-    if (asset.archivedAt !== undefined) {
-      await ctx.db.patch(asset._id, {
-        archivedAt: undefined,
-        updatedAt: Date.now(),
-      });
-    }
-    return {
-      assetRef: formatAssetRef({
-        scope: asset.scope === "workspace" ? "workspace" : "shared",
-        workspaceSlug,
-        slug: asset.slug,
-        revision: version.revision,
-      }),
-      mode: "restored" as const,
-    };
-  },
+  handler: async (ctx, args) => restoreAssetByRef(ctx, args),
 });
 
 type AssetMoveConflict = {
@@ -1693,6 +1713,17 @@ export const archiveMine = mutation({
     const userId = await resolveUserId(ctx, identity);
     if (!userId) throw new Error("Signed-in user record not found");
     return archiveAssetByRef(ctx, { assetRef: args.assetRef, userId });
+  },
+});
+
+export const restoreMine = mutation({
+  args: { assetRef: v.string() },
+  returns: v.object({ assetRef: v.string(), mode: v.literal("restored") }),
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const userId = await resolveUserId(ctx, identity);
+    if (!userId) throw new Error("Signed-in user record not found");
+    return restoreAssetByRef(ctx, { assetRef: args.assetRef, userId });
   },
 });
 

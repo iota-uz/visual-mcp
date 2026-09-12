@@ -1,5 +1,13 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Archive, Image as ImageIcon, Link2, Search, Tags, Upload } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Image as ImageIcon,
+  Link2,
+  Search,
+  Tags,
+  Upload,
+} from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
@@ -8,6 +16,7 @@ import { AssetMoveDrawer } from "../components/AssetMoveDrawer";
 import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { AssetPreviewDialog } from "../components/AssetPreviewDialog";
 import { AssetTagEditor } from "../components/AssetTagEditor";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EmptyState } from "../components/EmptyState";
 import { MediaUpload } from "../components/MediaUpload";
 import { PageHeader } from "../components/PageHeader";
@@ -61,6 +70,7 @@ const MIME_LABELS: Record<string, string> = {
 function AssetCard({
   asset,
   onArchive,
+  onRestore,
   onPreview,
   onEditTags,
   onTagSelect,
@@ -68,9 +78,11 @@ function AssetCard({
   onSelect,
   selected,
   selectionMode,
+  archived,
 }: {
   asset: AssetItem;
-  onArchive: () => void;
+  onArchive?: () => void;
+  onRestore?: () => void;
   onPreview: () => void;
   onEditTags: () => void;
   onTagSelect: (tag: string) => void;
@@ -78,9 +90,14 @@ function AssetCard({
   onSelect: () => void;
   selected: boolean;
   selectionMode: boolean;
+  archived: boolean;
 }) {
   return (
-    <li className="asset-card" data-selected={selected || undefined}>
+    <li
+      className="asset-card"
+      data-selected={selected || undefined}
+      data-archived={archived || undefined}
+    >
       <button
         type="button"
         className={`asset-preview asset-preview-${asset.kind}`}
@@ -109,24 +126,38 @@ function AssetCard({
           )}
           <strong>{asset.name}</strong>
           <div className="asset-card-actions">
-            <button
-              type="button"
-              className="asset-card-action"
-              onClick={onEditTags}
-              title="Edit tags"
-            >
-              <Tags size={14} aria-hidden="true" />
-              <span className="visually-hidden">Edit tags for {asset.name}</span>
-            </button>
-            <button
-              type="button"
-              className="asset-card-action asset-archive"
-              onClick={onArchive}
-              title="Archive asset"
-            >
-              <Archive size={14} aria-hidden="true" />
-              <span className="visually-hidden">Archive {asset.name}</span>
-            </button>
+            {archived ? (
+              <button
+                type="button"
+                className="asset-card-action asset-restore"
+                onClick={onRestore}
+                title="Restore asset"
+              >
+                <ArchiveRestore size={14} aria-hidden="true" />
+                <span className="visually-hidden">Restore {asset.name}</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="asset-card-action"
+                  onClick={onEditTags}
+                  title="Edit tags"
+                >
+                  <Tags size={14} aria-hidden="true" />
+                  <span className="visually-hidden">Edit tags for {asset.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="asset-card-action asset-archive"
+                  onClick={onArchive}
+                  title="Archive asset"
+                >
+                  <Archive size={14} aria-hidden="true" />
+                  <span className="visually-hidden">Archive {asset.name}</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
         <span className="asset-filename">{asset.original_filename}</span>
@@ -144,6 +175,8 @@ function AssetCard({
               ))}
               {asset.tags.length > 3 && <span>+{asset.tags.length - 3}</span>}
             </>
+          ) : archived ? (
+            <span className="asset-tags-empty">No tags</span>
           ) : (
             <button type="button" className="asset-tags-empty" onClick={onEditTags}>
               Add tags
@@ -170,12 +203,14 @@ export function AssetsPage() {
   const [assets, setAssets] = useState<AssetItem[] | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<AssetKind | "all">("all");
+  const [libraryView, setLibraryView] = useState<"active" | "archived">("active");
   const [uploading, setUploading] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importName, setImportName] = useState("");
   const [previewAsset, setPreviewAsset] = useState<AssetItem | null>(null);
   const [tagAsset, setTagAsset] = useState<AssetItem | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<AssetItem | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(() => new Set());
   const [moveOpen, setMoveOpen] = useState(false);
@@ -185,6 +220,7 @@ export function AssetsPage() {
   const finalizeUpload = useAction(api.assets.finalizeUploadMine);
   const importAsset = useAction(api.assets.importUrlMine);
   const archiveAsset = useMutation(api.assets.archiveMine);
+  const restoreAsset = useMutation(api.assets.restoreMine);
   const setAssetTags = useMutation(api.assets.setTagsMine);
   const renameWorkspace = useMutation(api.workspaces.renameMine);
   const { notify } = useToast();
@@ -196,10 +232,11 @@ export function AssetsPage() {
       workspaceSlug: wsSlug,
       query: debouncedQuery || undefined,
       kind: kind === "all" ? undefined : kind,
+      archived: libraryView === "archived",
       limit: 100,
     });
     setAssets(rows as AssetItem[]);
-  }, [debouncedQuery, kind, listAssets, scope, wsSlug]);
+  }, [debouncedQuery, kind, libraryView, listAssets, scope, wsSlug]);
 
   useEffect(() => {
     let active = true;
@@ -230,6 +267,14 @@ export function AssetsPage() {
     setSelectionMode(false);
     setSelectedAssetIds(new Set());
     setMoveOpen(false);
+  }
+
+  function changeLibraryView(view: "active" | "archived") {
+    leaveSelectionMode();
+    setPreviewAsset(null);
+    setTagAsset(null);
+    setArchiveTarget(null);
+    setLibraryView(view);
   }
 
   async function uploadFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -291,7 +336,8 @@ export function AssetsPage() {
   }
 
   function editImageHandler(asset: AssetItem): (() => void) | undefined {
-    if (!workspace || asset.kind !== "image" || !asset.revision_id) return undefined;
+    if (libraryView === "archived" || !workspace || asset.kind !== "image" || !asset.revision_id)
+      return undefined;
     const revisionId = asset.revision_id;
     return () => {
       setEditSource({ assetId: asset.asset_id, revisionId });
@@ -421,6 +467,25 @@ export function AssetsPage() {
             aria-label="Search assets"
           />
         </div>
+        <fieldset className="asset-status-tabs">
+          <legend className="visually-hidden">Asset status</legend>
+          <button
+            type="button"
+            aria-pressed={libraryView === "active"}
+            className={libraryView === "active" ? "active" : ""}
+            onClick={() => changeLibraryView("active")}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            aria-pressed={libraryView === "archived"}
+            className={libraryView === "archived" ? "active" : ""}
+            onClick={() => changeLibraryView("archived")}
+          >
+            Archived
+          </button>
+        </fieldset>
         <fieldset className="asset-kind-tabs">
           <legend className="visually-hidden">Filter by asset kind</legend>
           {tabs.map((tab) => (
@@ -435,7 +500,7 @@ export function AssetsPage() {
             </button>
           ))}
         </fieldset>
-        {workspace && assets && assets.length > 0 && !selectionMode && (
+        {libraryView === "active" && workspace && assets && assets.length > 0 && !selectionMode && (
           <Button size="sm" variant="secondary" onClick={() => setSelectionMode(true)}>
             Select
           </Button>
@@ -489,9 +554,13 @@ export function AssetsPage() {
       )}
       {assets?.length === 0 && (
         <EmptyState
-          icon={ImageIcon}
-          title="No assets here yet."
-          hint="Upload a file or import one from an HTTPS URL."
+          icon={libraryView === "archived" ? ArchiveRestore : ImageIcon}
+          title={libraryView === "archived" ? "No archived assets." : "No assets here yet."}
+          hint={
+            libraryView === "archived"
+              ? "Assets you archive will appear here and can be restored."
+              : "Upload a file or import one from an HTTPS URL."
+          }
         />
       )}
       {assets && assets.length > 0 && (
@@ -500,6 +569,7 @@ export function AssetsPage() {
             <AssetCard
               key={asset.asset_id}
               asset={asset}
+              archived={libraryView === "archived"}
               onPreview={() => setPreviewAsset(asset)}
               onEditTags={() => setTagAsset(asset)}
               onTagSelect={(tag) => setQuery(tag)}
@@ -514,13 +584,14 @@ export function AssetsPage() {
                 })
               }
               onEdit={editImageHandler(asset)}
-              onArchive={async () => {
-                await archiveAsset({ assetRef: asset.asset_ref });
+              onRestore={async () => {
+                await restoreAsset({ assetRef: asset.asset_ref });
                 setAssets(
                   (current) => current?.filter((item) => item.asset_id !== asset.asset_id) ?? [],
                 );
-                notify({ message: `Archived “${asset.name}”.` });
+                notify({ message: `Restored “${asset.name}”.` });
               }}
+              onArchive={() => setArchiveTarget(asset)}
             />
           ))}
         </ul>
@@ -557,6 +628,24 @@ export function AssetsPage() {
             );
             setTagAsset(null);
             notify({ message: `Tags for “${tagAsset.name}” saved.` });
+          }}
+        />
+      )}
+      {archiveTarget && (
+        <ConfirmDialog
+          title={`Archive “${archiveTarget.name}”?`}
+          description="It will disappear from Active assets but remain available in Archived, where it can be restored. Existing pinned canvas revisions stay unchanged."
+          confirmLabel="Archive asset"
+          busyLabel="Archiving…"
+          onCancel={() => setArchiveTarget(null)}
+          onConfirm={async () => {
+            await archiveAsset({ assetRef: archiveTarget.asset_ref });
+            setAssets(
+              (current) =>
+                current?.filter((item) => item.asset_id !== archiveTarget.asset_id) ?? [],
+            );
+            notify({ message: `Archived “${archiveTarget.name}”.` });
+            setArchiveTarget(null);
           }}
         />
       )}

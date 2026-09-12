@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { getFunctionName } from "convex/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AssetsPage } from "./Assets";
@@ -11,6 +12,8 @@ const {
   listAssetsMock,
   setTagsMock,
   moveAssetsMock,
+  archiveAssetMock,
+  restoreAssetMock,
 } = vi.hoisted(() => ({
   useActionMock: vi.fn(),
   useMutationMock: vi.fn(),
@@ -18,6 +21,8 @@ const {
   listAssetsMock: vi.fn(),
   setTagsMock: vi.fn(),
   moveAssetsMock: vi.fn(),
+  archiveAssetMock: vi.fn(),
+  restoreAssetMock: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
@@ -54,6 +59,8 @@ describe("AssetsPage", () => {
     listAssetsMock.mockReset();
     setTagsMock.mockReset();
     moveAssetsMock.mockReset();
+    archiveAssetMock.mockReset();
+    restoreAssetMock.mockReset();
     useActionMock.mockReturnValue(listAssetsMock);
     useMutationMock.mockReturnValue(vi.fn());
     useQueryMock.mockReturnValue(undefined);
@@ -166,6 +173,98 @@ describe("AssetsPage", () => {
     });
     expect(screen.queryByRole("dialog", { name: "Edit tags" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "launch" })).toBeInTheDocument();
+  });
+
+  test("confirms before archiving an active asset", async () => {
+    listAssetsMock.mockResolvedValue([
+      {
+        asset_id: "asset-1",
+        asset_ref: "asset://shared/logo@1",
+        scope: "shared",
+        workspace_slug: null,
+        slug: "logo",
+        name: "Iota logo",
+        description: null,
+        tags: ["brand"],
+        kind: "svg",
+        revision: 1,
+        mime_type: "image/svg+xml",
+        size_bytes: 2048,
+        content_hash: "sha256",
+        original_filename: "logo.svg",
+        updated_at: 1,
+        preview_url: "/logo.svg",
+      },
+    ]);
+    archiveAssetMock.mockResolvedValue({
+      assetRef: "asset://shared/logo@1",
+      mode: "archived",
+      reversible: true,
+    });
+    useMutationMock.mockImplementation((fn) =>
+      getFunctionName(fn) === "assets:archiveMine" ? archiveAssetMock : vi.fn(),
+    );
+    const user = userEvent.setup();
+    renderSharedAssets();
+
+    await user.click(await screen.findByRole("button", { name: "Archive Iota logo" }));
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Archive “Iota logo”?");
+    expect(screen.getByText(/remain available in Archived/)).toBeInTheDocument();
+    expect(archiveAssetMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Archive asset" }));
+    expect(archiveAssetMock).toHaveBeenCalledWith({ assetRef: "asset://shared/logo@1" });
+    expect(await screen.findByText("No assets here yet.")).toBeInTheDocument();
+  });
+
+  test("lists archived assets and restores one without exposing active-only actions", async () => {
+    listAssetsMock.mockImplementation(async (input: { archived?: boolean }) =>
+      input.archived
+        ? [
+            {
+              asset_id: "asset-1",
+              asset_ref: "asset://shared/granite-logo@1",
+              scope: "shared",
+              workspace_slug: null,
+              slug: "granite-logo",
+              name: "Granite logo",
+              description: null,
+              tags: [],
+              kind: "svg",
+              revision: 1,
+              mime_type: "image/svg+xml",
+              size_bytes: 6144,
+              content_hash: "granite-sha256",
+              original_filename: "granite-logo.svg",
+              updated_at: 1,
+              preview_url: "/granite-logo.svg",
+            },
+          ]
+        : [],
+    );
+    restoreAssetMock.mockResolvedValue({
+      assetRef: "asset://shared/granite-logo@1",
+      mode: "restored",
+    });
+    useMutationMock.mockImplementation((fn) =>
+      getFunctionName(fn) === "assets:restoreMine" ? restoreAssetMock : vi.fn(),
+    );
+    const user = userEvent.setup();
+    renderSharedAssets();
+
+    await user.click(await screen.findByRole("button", { name: "Archived" }));
+    expect(await screen.findByText("Granite logo")).toBeInTheDocument();
+    expect(listAssetsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: "shared", archived: true }),
+    );
+    expect(screen.queryByRole("button", { name: "Edit tags for Granite logo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive Granite logo" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Restore Granite logo" }));
+    expect(restoreAssetMock).toHaveBeenCalledWith({
+      assetRef: "asset://shared/granite-logo@1",
+    });
+    expect(await screen.findByText("No archived assets.")).toBeInTheDocument();
   });
 
   test("selects visible assets, previews a destination and moves them as one batch", async () => {

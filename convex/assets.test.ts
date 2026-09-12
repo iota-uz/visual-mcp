@@ -419,6 +419,17 @@ describe("Asset Library bindings", () => {
         })
       ).page,
     ).toHaveLength(0);
+    expect(
+      (
+        await t.query(internal.assets.listInternal, {
+          userId: seeded.userId,
+          scope: "workspace",
+          workspaceSlug: "archive-ws",
+          archived: true,
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
+    ).toMatchObject([{ asset_ref: ref, name: "Logo" }]);
     await expect(
       t.query(internal.assets.resolveRef, { ref, userId: seeded.userId }),
     ).rejects.toThrow("Asset not found");
@@ -448,6 +459,17 @@ describe("Asset Library bindings", () => {
         })
       ).page,
     ).toHaveLength(1);
+    expect(
+      (
+        await t.query(internal.assets.listInternal, {
+          userId: seeded.userId,
+          scope: "workspace",
+          workspaceSlug: "archive-ws",
+          archived: true,
+          paginationOpts: { numItems: 50, cursor: null },
+        })
+      ).page,
+    ).toHaveLength(0);
     expect(await t.query(internal.assets.resolveRef, { ref, userId: seeded.userId })).toMatchObject(
       { assetVersionId: asset.versionId, assetRef: ref },
     );
