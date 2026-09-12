@@ -10,6 +10,7 @@ import type { PinnedImage } from "../SharedImageStudio";
 import { Button } from "../ui/Button";
 import { RadioCards } from "../ui/RadioCards";
 import { Select, TextInput } from "../ui/TextInput";
+import { AssetWell } from "./shots/AssetWell";
 import { ShotCandidates } from "./shots/ShotCandidates";
 import { ShotStartImage } from "./shots/ShotStartImage";
 
@@ -160,7 +161,7 @@ export function ShotStudio({
                   key={id}
                   className={`video-beat${expanded ? " is-expanded" : ""}${current ? " is-current" : ""}`}
                 >
-                  <ShotFrame shot={item} />
+                  <ShotFrame workspaceId={workspaceId} shot={item} />
                   <div className="video-beat-body">
                     <div className="video-beat-index-row">
                       <span className="video-beat-handle" aria-hidden="true">
@@ -226,18 +227,23 @@ export function ShotStudio({
   );
 }
 
-function ShotFrame({ shot }: { shot: Shot }) {
+function ShotFrame({ workspaceId, shot }: { workspaceId: Id<"workspaces">; shot: Shot }) {
   const line = shot.subjectAction.trim() || shot.purpose.trim();
+  const asset = shot.selectedVideo ?? shot.startImage;
   return (
-    <div className="video-beat-frame" aria-hidden="true">
-      {line ? (
-        <span className="video-beat-frame-copy">
-          <span>{line}</span>
-        </span>
-      ) : (
-        <span className="video-beat-frame-empty" />
-      )}
-    </div>
+    <AssetWell
+      workspaceId={workspaceId}
+      asset={asset}
+      fallback={
+        line ? (
+          <span className="video-beat-frame-copy">
+            <span>{line}</span>
+          </span>
+        ) : (
+          <span className="video-beat-frame-empty" />
+        )
+      }
+    />
   );
 }
 

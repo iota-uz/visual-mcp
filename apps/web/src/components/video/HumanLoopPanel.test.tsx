@@ -36,7 +36,6 @@ beforeEach(() => {
   mocks.pending = ["proposal"];
 });
 test("human archive is explicit, preserves original CAS, and does not resume or approve", async () => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<HumanLoopPanel projectId={"project" as Id<"videoProjects">} language="ru" />);
   expect(screen.getByRole("button", { name: "Resume improvement" })).toBeDisabled();
   expect(screen.queryByLabelText("Reason for human pause or replanning")).not.toBeInTheDocument();

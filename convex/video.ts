@@ -431,7 +431,30 @@ async function summarizeProject(
     reviewUrl: `/v/${p._id}`,
     topic: brief.topic,
     languages: drafts.map((d) => d.language),
+    poster: await latestPoster(ctx, p._id),
   };
+}
+
+async function latestPoster(ctx: QueryCtx | MutationCtx, projectId: Id<"videoProjects">) {
+  const jobs = await ctx.db
+    .query("videoJobs")
+    .withIndex("by_projectId_and_state", (q) => q.eq("projectId", projectId).eq("state", "succeeded"))
+    .take(16);
+  const renders = jobs
+    .filter((job) => job.kind === "render" && job.result)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  for (const job of renders) {
+    try {
+      const parsed = JSON.parse(job.result ?? "") as {
+        poster?: { assetId?: string; revisionId?: string };
+      };
+      if (parsed.poster?.assetId && parsed.poster.revisionId)
+        return { assetId: parsed.poster.assetId, revisionId: parsed.poster.revisionId };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 const listMineDefinition = queryDefinition({
   args: {},

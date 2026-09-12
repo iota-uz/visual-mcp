@@ -44,14 +44,6 @@ export function HumanLoopPanel({
       reason,
       cancelRunning,
     };
-    if (
-      !pending.current &&
-      action === "abandon" &&
-      !window.confirm(
-        "Archive the pending proposal with this reason? Spent rounds and previous candidates are retained. This does not approve any video.",
-      )
-    )
-      return;
     pending.current = intent;
     setBusy(true);
     setMessage("");
@@ -104,10 +96,8 @@ export function HumanLoopPanel({
     <section className="video-human-loop" aria-label="Human improvement loop controls">
       <div className="video-section-heading">
         <div>
-          <h2>Improvement loop · {language.toUpperCase()}</h2>
-          <p className="video-hint">
-            The agent can iterate on candidates, but only you can approve an exact export.
-          </p>
+          <h2>Agent · {language.toUpperCase()}</h2>
+          <p className="video-hint">Only you can approve an export.</p>
         </div>
         <Badge
           tone={

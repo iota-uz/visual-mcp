@@ -1,14 +1,18 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { Script } from "../../../../../packages/video/src/contracts";
 import { ShotStudio } from "./ShotStudio";
 
+const previewAsset = vi.fn().mockResolvedValue({
+  url: "https://example.test/image",
+  mimeType: "image/png",
+});
 vi.mock("convex/react", () => ({
   useQuery: () => undefined,
   useMutation: () => vi.fn(),
-  useAction: () => vi.fn().mockResolvedValue({ url: "https://example.test/image" }),
+  useAction: () => previewAsset,
   usePaginatedQuery: () => ({ results: [], status: "Exhausted", loadMore: vi.fn() }),
 }));
 const document = Script.parse({
@@ -75,7 +79,7 @@ test("empty scene shows a first-shot invitation without a scene brief dump", () 
   expect(screen.queryByText("Voice over")).not.toBeInTheDocument();
 });
 
-test("board shows every shot before any editor opens", () => {
+test("board shows every shot before any editor opens", async () => {
   const planned = Script.parse({
     ...document,
     scenesById: {
@@ -89,6 +93,7 @@ test("board shows every shot before any editor opens", () => {
             subjectAction: "Product rotates",
             cameraMotion: "",
             constraints: [],
+            startImage: { assetId: "asset", revisionId: "rev" },
           },
           detail: {
             purpose: "Logo lockup",
@@ -101,7 +106,7 @@ test("board shows every shot before any editor opens", () => {
       },
     },
   });
-  render(
+  const { container } = render(
     <ShotStudio
       {...ids}
       document={planned}
@@ -117,6 +122,7 @@ test("board shows every shot before any editor opens", () => {
   expect(screen.getByRole("button", { name: /Logo lockup/ })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Shot purpose" })).not.toBeInTheDocument();
   expect(screen.getByText(/Static \(scene\)/)).toBeInTheDocument();
+  await waitFor(() => expect(container.querySelector(".video-beat-frame img")).toBeTruthy());
 });
 
 test("offers production methods as a keyboard-accessible radio group", async () => {

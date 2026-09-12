@@ -10,6 +10,7 @@ import { Button } from "../components/ui/Button";
 import { Drawer } from "../components/ui/Drawer";
 import { IconButton } from "../components/ui/IconButton";
 import { Panel } from "../components/ui/Panel";
+import { Disclosure } from "../components/ui/Disclosure";
 import { HumanLoopPanel } from "../components/video/HumanLoopPanel";
 import { ReelsArchive } from "../components/video/ReelsArchive";
 import { type Draft, DraftStudio, type StudioMode } from "../components/video/VideoDraftStudio";
@@ -203,16 +204,6 @@ export function VideoStudioPage() {
         closeLabel="Close production"
         side="right"
       >
-        <ErrorBoundary label="Original archive unavailable; native drafts remain available.">
-          <ReelsArchive key={project.projectId} projectId={project.projectId} />
-        </ErrorBoundary>
-        <ErrorBoundary label="Improvement loop unavailable; script and video review remain available.">
-          <HumanLoopPanel
-            key={`${project.projectId}:${language}`}
-            projectId={project.projectId}
-            language={language}
-          />
-        </ErrorBoundary>
         <VideoJobs
           workspaceId={project.workspaceId}
           projectId={project.projectId}
@@ -226,6 +217,18 @@ export function VideoStudioPage() {
             setParam({ version: null, render: jobId, mode: "review" });
           }}
         />
+        <ErrorBoundary label="Improvement loop unavailable; script and video review remain available.">
+          <Disclosure summary="Agent" className="video-production-agent">
+            <HumanLoopPanel
+              key={`${project.projectId}:${language}`}
+              projectId={project.projectId}
+              language={language}
+            />
+          </Disclosure>
+        </ErrorBoundary>
+        <ErrorBoundary label="Original archive unavailable; native drafts remain available.">
+          <ReelsArchive key={project.projectId} projectId={project.projectId} />
+        </ErrorBoundary>
       </Drawer>
     </div>
   );

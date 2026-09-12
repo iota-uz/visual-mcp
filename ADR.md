@@ -86,6 +86,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Shots показывают кадр, Production — jobs first, список видео — постер** — [запись](adr/product/studio-frames-jobs-posters.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Студия — взгляд, потом правка; версия в той же комнате** — [запись](adr/product/studio-glance-then-edit.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Story — доска битов, форма по запросу** — [запись](adr/product/story-mode-beat-board.md) · accepted · 2026-09-12 (запрос пользователя)

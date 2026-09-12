@@ -121,6 +121,36 @@ test("studio chrome exposes named workflow, language and production controls", (
   );
 });
 
+test("production lists jobs before the folded agent and archive", async () => {
+  const original = query.getMockImplementation();
+  if (!original) throw new Error("Expected the query test double to be configured");
+  query.mockImplementation((ref, args) => {
+    const name = getFunctionName(ref);
+    if (name === "videoJobs:listOperations")
+      return [
+        {
+          operationId: "operation",
+          kind: "render",
+          retryCount: 0,
+          latestAttempt: { jobId: "job", state: "succeeded", attemptNumber: 1 },
+          latestSuccessfulAttempt: { jobId: "job", state: "succeeded", versionId: "version" },
+          attempts: [],
+        },
+      ];
+    if (name === "videoMigration:getArchive")
+      return { nativeVersions: [], assetMap: [], sourceVersions: [] };
+    return original(ref, args);
+  });
+  const user = userEvent.setup();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Open production" }));
+  const jobs = screen.getByText("Video export");
+  const agent = screen.getByText("Agent");
+  const archive = screen.getByText("Imported project provenance");
+  expect(jobs.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(agent.compareDocumentPosition(archive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
 test("document undo is shared across Story, Shots and Timeline and remains available after mode switches", () => {
   mount();
   fireEvent.change(openOpeningBeat(), { target: { value: "Revised narration" } });

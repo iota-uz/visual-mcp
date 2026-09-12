@@ -155,10 +155,12 @@ function VideoProjectCardWithMutations({
 }: {
   project: {
     projectId: Parameters<typeof VideoProjectCard>[0]["project"]["projectId"];
+    workspaceId?: Parameters<typeof VideoProjectCard>[0]["project"]["workspaceId"];
     title: string;
     topic?: string;
     updatedAt: number;
     languages?: Array<"ru" | "uz">;
+    poster?: { assetId: string; revisionId: string } | null;
   };
 }) {
   const rename = useMutation(api.video.renameProject);

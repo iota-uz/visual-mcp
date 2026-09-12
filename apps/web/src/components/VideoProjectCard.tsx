@@ -8,13 +8,16 @@ import { ConfirmButton } from "./ConfirmButton";
 import { RenameForm } from "./RenameForm";
 import { useToast } from "./Toast";
 import { Menu } from "./ui/Menu";
+import { AssetWell } from "./video/shots/AssetWell";
 
 export interface VideoProjectRow {
   projectId: Id<"videoProjects">;
+  workspaceId?: Id<"workspaces">;
   title: string;
   topic?: string;
   updatedAt: number;
   languages?: Array<"ru" | "uz">;
+  poster?: { assetId: string; revisionId: string } | null;
 }
 
 export function VideoProjectCard({
@@ -33,9 +36,18 @@ export function VideoProjectCard({
 
   return (
     <li className="video-project-card card-hit">
-      <span className="video-project-card-frame" aria-hidden="true">
-        <Film size={28} />
-      </span>
+      {project.workspaceId && project.poster ? (
+        <AssetWell
+          workspaceId={project.workspaceId}
+          asset={project.poster}
+          className="video-project-card-frame"
+          fallback={<Film size={28} />}
+        />
+      ) : (
+        <span className="video-project-card-frame" aria-hidden="true">
+          <Film size={28} />
+        </span>
+      )}
       <div className="canvas-card-head">
         <div className="canvas-card-headings">
           {renaming && onRename ? (

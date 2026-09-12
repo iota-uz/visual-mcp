@@ -29,8 +29,9 @@ Child components should receive typed values and intent-level callbacks such as 
   uses the canonical camera vocabulary from `packages/video/src/camera.ts`. The scene
   rail (`SceneNavigator`) is for Shots, not Story.
 - `shots/` contains the start-image library and generated-candidate workflow. `ShotStudio` is a
-  beat board of shots for the selected scene; production fields open on the selected shot.
-  Shot camera inherits scene motion unless overridden.
+  beat board of shots for the selected scene; the 9:16 well shows the selected clip or start
+  image. Production fields open on the selected shot. Shot camera inherits scene motion unless
+  overridden.
 - `timeline/` separates pure edit calculations (`model.ts`), local editor history and playback
   hooks, transport, and the track canvas. `TimelineEditor` coordinates them and owns document
   mutations.

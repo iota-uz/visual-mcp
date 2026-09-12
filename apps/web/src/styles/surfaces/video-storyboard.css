@@ -87,6 +87,14 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-white) 16%, transparent);
 }
 
+.video-beat-frame img,
+.video-beat-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .video-beat-frame-copy {
   display: grid;
   gap: 6px;
