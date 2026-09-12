@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
-import type { SceneNode } from "../../../../../packages/video/src/registry";
+import {
+  CharacterSceneProps,
+  type SceneNode,
+} from "../../../../../packages/video/src/registry";
+import { CharacterScene } from "../../../../worker/src/video/character-scene";
 
 type AssetRef = { assetId: string; revisionId: string };
 type ResolvedAsset = { url: string; mimeType: string; name: string };
@@ -395,6 +399,15 @@ function ComponentLayer({
         </div>
       </div>
     );
+  if (clip.source.component.resourceId === "video/component/character-scene") {
+    const parsed = CharacterSceneProps.safeParse(props);
+    if (parsed.success)
+      return (
+        <div style={shellStyle} data-video-component="character-scene">
+          <CharacterScene props={parsed.data} frame={localFrame} />
+        </div>
+      );
+  }
   return (
     <div className="video-program-missing" style={shellStyle}>
       Generated graphic

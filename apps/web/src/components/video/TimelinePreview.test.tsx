@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../packages/video/src/contracts";
+import { builtInCharacterPacks } from "../../../../../packages/video/src/registry";
 import { TimelinePreview } from "./TimelinePreview";
 
 const resolve = vi.fn();
@@ -258,6 +259,83 @@ test("renders pinned images and authored layers inside a scene graph component",
   expect(screen.getByText("ОСАГО защищает ответственность")).toHaveStyle({ opacity: "0.5" });
   expect(screen.queryByText("Generated graphic")).not.toBeInTheDocument();
   expect(resolve).toHaveBeenCalledTimes(1);
+});
+
+test("renders native character scenes at the current timeline frame", () => {
+  const characterTimeline: TimelineDocument = {
+    fps: { numerator: 30, denominator: 1 },
+    durationFrames: 60,
+    trackOrder: ["visual"],
+    tracksById: {
+      visual: {
+        kind: "visual",
+        clipOrder: ["characters"],
+        clipsById: {
+          characters: {
+            startFrame: 0,
+            durationFrames: 60,
+            source: {
+              kind: "component",
+              component: { resourceId: "video/component/character-scene", revisionId: "2" },
+              props: {
+                background: "#170f0a",
+                seed: 42,
+                characterPacksById: {
+                  "farq-official": builtInCharacterPacks["farq-official"]!,
+                },
+                actorOrder: ["mascot"],
+                actorsById: {
+                  mascot: {
+                    characterPackId: "farq-official",
+                    x: 0.5,
+                    y: 0.65,
+                    scale: 1,
+                    facing: "right",
+                    initialEmotion: "happy",
+                  },
+                },
+                propOrder: [],
+                propsById: {},
+                actionOrder: ["enter"],
+                actionsById: {
+                  enter: {
+                    type: "enter",
+                    actorId: "mascot",
+                    startFrame: 0,
+                    durationFrames: 30,
+                    priority: 0,
+                    weight: 1,
+                    blendInFrames: 6,
+                    blendOutFrames: 6,
+                    from: "left",
+                  },
+                },
+                overlayOrder: [],
+                overlaysById: {},
+                caption: "Official mascot preview",
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={characterTimeline}
+      frame={20}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set()}
+      mutedTracks={new Set()}
+    />,
+  );
+
+  expect(screen.getByLabelText("Official farq.uz mascot")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "Official mascot preview" })).toBeInTheDocument();
+  expect(screen.queryByText("Generated graphic")).not.toBeInTheDocument();
 });
 
 test.each([

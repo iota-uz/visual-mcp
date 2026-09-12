@@ -59,6 +59,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **Timeline preview исполняет тот же native character renderer, что и worker** — [запись](adr/platform/timeline-character-preview-reuses-native-renderer.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Официальный маскот хранится как immutable SVG asset и компилируется в Character Pack** — [запись](adr/platform/official-character-pack-from-layered-svg.md) · accepted · 2026-09-12 (запрос пользователя; `asset://shared/farq-official-layered-mascot@1`)
 
 - **Персонажная анимация использует data-driven packs и процедурный runtime** — [запись](adr/platform/native-character-animation-engine-v0-2.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-character-animation-video-mvp)
