@@ -31,6 +31,7 @@ export function VideoPlayer({
   onRegion,
   annotationMode = false,
   onAnnotationModeChange,
+  status,
 }: {
   asset: VideoReviewAsset;
   onLoaded: (ready: boolean) => void;
@@ -41,6 +42,7 @@ export function VideoPlayer({
   onRegion?: (region: VideoRegion) => void;
   annotationMode?: boolean;
   onAnnotationModeChange?: (active: boolean) => void;
+  status?: string;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const playback = useRef({ hash: asset.sha256, time: 0, paused: true });
@@ -68,15 +70,6 @@ export function VideoPlayer({
   }, [seekMs, lastAnchorMs]);
   return (
     <section className="video-player" aria-label="Rendered video">
-      <div className="video-player-heading">
-        <div>
-          <strong>{asset.partial ? "Partial preview" : "Exact MP4"}</strong>
-          <span className="video-player-language">{asset.language.toUpperCase()}</span>
-        </div>
-        <span className="video-player-dimensions">
-          {asset.width} × {asset.height}
-        </span>
-      </div>
       <div className="video-player-stage">
         <div
           className="video-player-frame"
@@ -194,6 +187,13 @@ export function VideoPlayer({
       </div>
       <fieldset className="video-player-controls">
         <legend className="visually-hidden">Frame review controls</legend>
+        <p className="video-player-meta">
+          <span>
+            {asset.language.toUpperCase()} · {asset.width}×{asset.height}
+            {asset.partial ? " · Partial preview" : ""}
+          </span>
+          {status && <span>{status}</span>}
+        </p>
         <div className="video-frame-stepper">
           <Button
             size="sm"

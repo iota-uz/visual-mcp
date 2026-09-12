@@ -6,8 +6,8 @@
 }
 
 .video-draft-continuity:has(.video-studio-body-review) {
-  flex: 0 0 auto;
-  min-height: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .video-draft-transition {
@@ -104,7 +104,7 @@
   align-items: center;
   gap: var(--app-space-2);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--app-radius-xs);
   background: none;
   padding: 0;
   color: inherit;
@@ -296,10 +296,10 @@
 }
 
 .video-studio-page .canvas-command-name {
-  font-family: var(--app-font-display);
+  font-family: var(--app-font-body);
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .video-studio-page .video-workflow-switch {

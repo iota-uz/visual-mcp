@@ -199,19 +199,18 @@ export function VideoStudioPage() {
             onMode={(next) => setParam({ mode: next })}
             latestRenderId={activeRender as Id<"videoJobs"> | null}
             onOpenRender={(jobId) => setParam({ render: jobId, mode: "review", production: null })}
-          />
-        </div>
-      )}
-
-      {mode === "review" && activeRender && (
-        <div className="video-studio-review">
-          <VideoReview
-            key={activeRender}
-            jobId={activeRender as Id<"videoJobs">}
-            projectId={project.projectId}
-            workspaceId={project.workspaceId}
-            onOpenRender={(jobId) => setParam({ render: jobId, mode: "review" })}
-            onBlocked={setReviewBlocked}
+            review={
+              activeRender ? (
+                <VideoReview
+                  key={activeRender}
+                  jobId={activeRender as Id<"videoJobs">}
+                  projectId={project.projectId}
+                  workspaceId={project.workspaceId}
+                  onOpenRender={(jobId) => setParam({ render: jobId, mode: "review" })}
+                  onBlocked={setReviewBlocked}
+                />
+              ) : null
+            }
           />
         </div>
       )}

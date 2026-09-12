@@ -1,6 +1,6 @@
 import { useMutation, usePaginatedQuery, type useQuery } from "convex/react";
 import { CheckCircle2, Film, Redo2, Undo2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -33,6 +33,7 @@ export function DraftStudio({
   onMode,
   latestRenderId,
   onOpenRender,
+  review,
 }: {
   project: Project;
   draft: Draft;
@@ -42,6 +43,7 @@ export function DraftStudio({
   onMode: (mode: StudioMode) => void;
   latestRenderId: Id<"videoJobs"> | null;
   onOpenRender: (jobId: Id<"videoJobs">) => void;
+  review?: ReactNode;
 }) {
   const [params, setParams] = useSearchParams();
   const patchScript = useMutation(api.video.patchScript);
@@ -294,7 +296,9 @@ export function DraftStudio({
       </div>
 
       {mode === "review" ? (
-        !latestRenderId && (
+        latestRenderId ? (
+          review
+        ) : (
           <div className="video-preview-empty video-review-empty">
             <Film size={36} aria-hidden="true" />
             <h2>No rendered video yet</h2>

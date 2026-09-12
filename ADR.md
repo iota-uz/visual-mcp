@@ -66,9 +66,11 @@ or delete history. Full rules: .claude/rules/adr.md
 
 - **Timeline — единственный источник фактической длительности видео** — [запись](adr/product/timeline-is-actual-duration.md) · accepted · 2026-09-11 (запрос пользователя)
 
+- **Video Studio — тихий инструмент Visual Canvas, тёмная шахта 9:16 в Review** — [запись](adr/product/video-studio-quiet-instrument.md) · accepted · 2026-09-11 (запрос пользователя)
+
 - **Preview меняет размер за углы, а режимы студии разделяют историю правок** — [запись](adr/product/video-preview-resize-and-draft-history.md) · accepted · 2026-09-11 (запрос пользователя)
 
-- **Палитра студии возвращена к холодной — тёплая «монтажная» не зашла** — [запись](adr/product/studio-palette-revert.md) · accepted · 2026-09-11 (запрос пользователя)
+- **Палитра студии возвращена к холодной — тёплая «монтажная» не зашла** — [запись](adr/product/studio-palette-revert.md) · superseded · 2026-09-11 (запрос пользователя)
 
 - **Video Studio — язык «монтажной»: тёплая бумага, чернила, сигнальный красный, перфорация и штампы** — [запись](adr/product/cutting-room-design-language.md) · reversed · 2026-09-11 (запрос пользователя)
 - **Video Studio — коллекция воркспейса и иммерсивный редактор** — [запись](adr/product/video-studio-surfaces.md) · accepted · 2026-09-10 (запрос пользователя)

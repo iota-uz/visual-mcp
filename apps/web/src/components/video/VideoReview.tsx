@@ -69,43 +69,30 @@ export function VideoReview({
       active = false;
     };
   }, [jobId, getPreview]);
-  if (!metadata) return <p role="status">Loading exact render…</p>;
+  if (!metadata)
+    return (
+      <p className="video-review-empty" role="status">
+        Loading exact render…
+      </p>
+    );
   if (metadata.projectId !== projectId)
-    return <p role="alert">This render belongs to another project.</p>;
+    return (
+      <p className="video-review-empty" role="alert">
+        This render belongs to another project.
+      </p>
+    );
+  const durationLabel = `${(metadata.videoDurationMs / 1000).toFixed(1)}s`;
   return (
     <section className="video-review" aria-label="Review exact render">
-      <header className="video-review-heading">
-        <div>
-          <span className="video-review-kicker">
-            Final check · {metadata.language.toUpperCase()}
-          </span>
-          <h2 ref={heading} tabIndex={-1}>
-            Review this export
-          </h2>
-          <p>
-            Watch the exact export, check sound and captions, then approve or leave a timecoded
-            note.
-          </p>
-        </div>
-        <div className="video-review-status">
-          <Badge tone={metadata.stale ? "warning" : "success"}>
-            {metadata.stale ? "Older candidate" : "Current candidate"}
-          </Badge>
-          <span>{(metadata.videoDurationMs / 1000).toFixed(1)} seconds</span>
-        </div>
-      </header>
+      <h2 ref={heading} tabIndex={-1} className="visually-hidden">
+        Review exact render
+      </h2>
       {metadata.stale && (
         <p className="video-warning">
           The editable draft is newer. Any approval here applies only to this saved candidate, never
           to the newer draft.
         </p>
       )}
-      <RenderCandidates
-        workspaceId={workspaceId}
-        projectId={projectId}
-        activeJobId={jobId}
-        onOpenRender={onOpenRender}
-      />
       {error && <p role="alert">{error}</p>}
       <div className="video-review-workspace">
         <div className="video-review-screen">
@@ -113,6 +100,7 @@ export function VideoReview({
             <VideoPlayer
               key={`${jobId}-${metadata.sha256}`}
               asset={{ ...metadata, ...preview }}
+              status={metadata.stale ? "Older candidate" : "Current candidate"}
               onLoaded={(ready) => {
                 setLoaded(ready);
                 if (!ready) setConfirmed(false);
@@ -133,18 +121,29 @@ export function VideoReview({
             <div className="video-review-loading">
               <div>
                 <h3>Preview not loaded yet</h3>
-                <p>
-                  Fetch a fresh playable link for this exact MP4. Approval unlocks once the preview
-                  loads.
-                </p>
+                <p>Load a playable link for this exact MP4. Approval unlocks after it plays.</p>
                 <Button onClick={() => void refresh()}>Load preview</Button>
               </div>
             </div>
           )}
+          <RenderCandidates
+            workspaceId={workspaceId}
+            projectId={projectId}
+            activeJobId={jobId}
+            onOpenRender={onOpenRender}
+          />
         </div>
         <aside className="video-review-notes" aria-label="Approval and feedback">
           <div className="video-approval">
-            <h3>Approval</h3>
+            <h3>Approve</h3>
+            <p className="video-review-status">
+              <Badge tone={metadata.stale ? "warning" : "success"}>
+                {metadata.stale ? "Older candidate" : "Current candidate"}
+              </Badge>
+              <span>
+                {metadata.language.toUpperCase()} · {durationLabel}
+              </span>
+            </p>
             {metadata.approval ? (
               <Badge tone="success">You approved this exact MP4</Badge>
             ) : (
@@ -153,7 +152,7 @@ export function VideoReview({
                   checked={confirmed}
                   disabled={!loaded || !metadata.approvable || busy}
                   onChange={(event) => setConfirmed(event.target.checked)}
-                  label={`I reviewed this ${metadata.stale ? "older " : ""}${metadata.language.toUpperCase()} candidate and its exact MP4, including sound and captions.`}
+                  label={`I watched this ${metadata.stale ? "older " : ""}${metadata.language.toUpperCase()} MP4, including sound and captions.`}
                 />
                 <Button
                   variant="primary"
@@ -179,6 +178,9 @@ export function VideoReview({
                 >
                   {busy ? "Confirming…" : "Approve this exact MP4"}
                 </Button>
+                <p className="video-review-integrity">
+                  Approval binds this saved version and exact MP4.
+                </p>
                 {!metadata.approvable && (
                   <p className="video-hint">
                     Partial previews and analysis proxies cannot be approved.
@@ -200,39 +202,37 @@ export function VideoReview({
             onAnchor={setAnchor}
             onBlocked={onBlocked}
           />
+          <Disclosure
+            summary="Technical details and render provenance"
+            className="video-review-technical"
+          >
+            <p className="video-hint">
+              Version <code>{metadata.versionId}</code>
+              <br />
+              MP4 SHA-256 <code>{metadata.sha256}</code>
+            </p>
+            {metadata.engine ? (
+              <>
+                <p className="video-hint">
+                  Remotion {metadata.engine.remotionVersion} · FFmpeg{" "}
+                  {metadata.engine.ffmpegVersion} · worker build{" "}
+                  {metadata.engine.workerBuildSha ?? "not recorded"}
+                </p>
+                {metadata.engine.fonts.map((font) => (
+                  <p className="video-hint" key={font.family}>
+                    {font.family}: <code>{font.sha256}</code>
+                  </p>
+                ))}
+              </>
+            ) : (
+              <p className="video-hint">
+                Engine provenance was not recorded for this historical render; current deployment
+                versions do not describe it.
+              </p>
+            )}
+          </Disclosure>
         </aside>
       </div>
-      <p className="video-review-integrity">
-        Approval is bound to this saved version and exact MP4.
-      </p>
-      <Disclosure
-        summary="Technical details and render provenance"
-        className="video-review-technical"
-      >
-        <p className="video-hint">
-          Version <code>{metadata.versionId}</code>
-          <br />
-          MP4 SHA-256 <code>{metadata.sha256}</code>
-        </p>
-        {metadata.engine ? (
-          <>
-            <p className="video-hint">
-              Remotion {metadata.engine.remotionVersion} · FFmpeg {metadata.engine.ffmpegVersion} ·
-              worker build {metadata.engine.workerBuildSha ?? "not recorded"}
-            </p>
-            {metadata.engine.fonts.map((font) => (
-              <p className="video-hint" key={font.family}>
-                {font.family}: <code>{font.sha256}</code>
-              </p>
-            ))}
-          </>
-        ) : (
-          <p className="video-hint">
-            Engine provenance was not recorded for this historical render; current deployment
-            versions do not describe it.
-          </p>
-        )}
-      </Disclosure>
     </section>
   );
 }

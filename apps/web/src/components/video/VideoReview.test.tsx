@@ -84,13 +84,23 @@ function mount(onOpenRender = vi.fn()) {
     />,
   );
 }
+test("review is a screening room, not an essay with a kicker", async () => {
+  mount();
+  expect(await screen.findByLabelText("Video preview")).toBeInTheDocument();
+  expect(screen.queryByText("Review this export")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Final check/)).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Review exact render", hidden: true })).toHaveClass(
+    "visually-hidden",
+  );
+});
+
 test("successful current and older exports are navigable without implying approval", async () => {
   const onOpenRender = vi.fn();
   mount(onOpenRender);
   expect(await screen.findByText("Launch cut")).toBeInTheDocument();
   expect(screen.getByText("Current draft · Not approved")).toBeInTheDocument();
   expect(screen.getByText("Older draft · Not approved")).toBeInTheDocument();
-  expect(screen.getByText("Opening an export does not approve it.")).toBeInTheDocument();
+  expect(screen.getByText("Opens the file. Does not approve it.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /Earlier cut/ }));
   expect(onOpenRender).toHaveBeenCalledWith("older");
   expect(state.approve).not.toHaveBeenCalled();
@@ -102,7 +112,7 @@ test("human confirmation requires loaded media, resets on failure, and binds exa
   expect(approval).toBeDisabled();
   const video = await screen.findByLabelText("Video preview");
   fireEvent.loadedData(video);
-  const checkbox = screen.getByRole("checkbox", { name: /I reviewed this older UZ candidate/ });
+  const checkbox = screen.getByRole("checkbox", { name: /I watched this older UZ MP4/ });
   await userEvent.click(checkbox);
   expect(approval).toBeEnabled();
   fireEvent.error(video);

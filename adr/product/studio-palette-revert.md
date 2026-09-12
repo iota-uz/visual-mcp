@@ -1,7 +1,7 @@
 ---
 id: studio-palette-revert
 title: Палитра студии возвращена к холодной — тёплая «монтажная» не зашла
-status: accepted
+status: superseded
 date: 2026-09-11
 deciders: [unknown]
 area: product
@@ -13,7 +13,7 @@ applies_to:
 tags: [product, video-studio, design-language, css-only]
 refs: [cutting-room-design-language]
 supersedes: []
-superseded_by: []
+superseded_by: [video-studio-quiet-instrument]
 ---
 
 ## Контекст

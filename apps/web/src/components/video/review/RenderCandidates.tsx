@@ -39,8 +39,8 @@ export function RenderCandidates({
   return (
     <nav className="video-candidates" aria-label="Saved render candidates">
       <div className="video-candidates-heading">
-        <strong>Saved exports</strong>
-        <span>Opening an export does not approve it.</span>
+        <strong>Exports</strong>
+        <span className="video-candidates-hint">Opens the file. Does not approve it.</span>
       </div>
       <div className="video-candidate-list">
         {renders.map((render) => (
@@ -75,30 +75,36 @@ function RenderCandidate({
     api.video.getVersion,
     metadata ? { versionId: metadata.versionId } : "skip",
   );
+  const label = version?.label ?? "Saved version";
+  const duration = metadata ? `${(metadata.videoDurationMs / 1000).toFixed(1)}s` : "";
   return (
-    <Button
-      size="sm"
-      variant={active ? "secondary" : "ghost"}
+    <button
+      type="button"
       className="video-candidate"
       aria-current={active ? "true" : undefined}
-      title={version?.label ?? "Saved version"}
+      title={label}
       disabled={!metadata || active}
       onClick={() => onOpenRender(jobId)}
     >
       {metadata ? (
         <>
-          <span className="video-candidate-title">
+          <span className="video-candidate-slate" aria-hidden="true">
             <span>{metadata.language.toUpperCase()}</span>
-            <strong>{version?.label ?? "Saved version"}</strong>
+            <span>{duration}</span>
           </span>
-          <span className="video-candidate-state">
-            {metadata.stale ? "Older draft" : "Current draft"}
-            {metadata.approval ? " · Approved by you" : " · Not approved"}
+          <span className="video-candidate-copy">
+            <span className="video-candidate-title">
+              <strong>{label}</strong>
+            </span>
+            <span className="video-candidate-state">
+              {metadata.stale ? "Older draft" : "Current draft"}
+              {metadata.approval ? " · Approved by you" : " · Not approved"}
+            </span>
           </span>
         </>
       ) : (
         "Loading export…"
       )}
-    </Button>
+    </button>
   );
 }

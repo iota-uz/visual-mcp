@@ -26,12 +26,7 @@
   overflow: auto;
   padding: var(--app-space-6);
 }
-.video-studio-review {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 var(--app-space-6) var(--app-space-6);
-}
+
 .video-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 350px);
@@ -78,18 +73,7 @@
   margin: var(--app-space-4) 0 var(--app-space-6);
   font-size: var(--app-text-sm);
 }
-.video-studio-body-review {
-  display: block;
-  flex: 0 0 auto;
-  overflow: visible;
-  padding-bottom: 0;
-}
-.video-studio-body-review .video-editing-column {
-  display: block;
-}
-.video-studio-body-review .video-save-summary {
-  margin-bottom: 0;
-}
+
 .video-form,
 .video-scene-editor {
   display: grid;
@@ -339,7 +323,6 @@
   min-width: 0;
 }
 .video-jobs,
-.video-review,
 .video-feedback {
   min-width: 0;
   margin-top: var(--app-space-6);
@@ -790,144 +773,13 @@
   font-size: var(--app-text-sm);
 }
 
-.video-review {
-  display: grid;
-  gap: var(--app-space-4);
-  margin: 0;
-  padding-top: var(--app-space-4);
-  border: 0;
-}
-.video-review-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--app-space-4);
-}
-.video-review-heading h2 {
-  margin: 2px 0 var(--app-space-1);
-  font-family: var(--app-font-display);
-  font-size: var(--app-text-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.video-review-heading h2:focus {
-  outline: none;
-}
-.video-review-heading p {
-  max-width: 68ch;
-  margin: 0;
-  color: var(--app-muted);
-  font-size: var(--app-text-sm);
-}
-.video-review-kicker {
-  color: var(--app-accent-text);
-  font-family: var(--app-font-mono);
-  font-size: var(--app-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-.video-review-workspace {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(420px, 1fr) minmax(300px, 380px);
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--app-line);
-  border-radius: var(--app-radius-md);
-  background: var(--app-white);
-  box-shadow: var(--app-shadow-md);
-}
-
-/* The clapper: a striped slate header running across the screening room. */
-.video-review-workspace::before {
-  position: absolute;
-  z-index: 5;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 8px;
-  background: var(--app-stripes);
-  content: "";
-  pointer-events: none;
-}
-.video-review-screen {
-  display: grid;
-  min-width: 0;
-  padding: var(--app-space-4);
-}
-.video-review-notes {
-  min-width: 0;
-  overflow-y: auto;
-  padding: var(--app-space-4);
-  border-left: 1px solid var(--app-line);
-  background: var(--app-white);
-  color: var(--app-ink);
-}
-.video-review-notes .video-feedback {
-  margin-top: var(--app-space-6);
-  padding-top: var(--app-space-4);
-}
 .video-approval {
   margin: 0;
-}
-.video-approval h3,
-.video-feedback h3 {
-  margin: 0;
-  font-size: var(--app-text-lg);
-}
-.video-review .video-player-heading {
-  color: var(--app-ink);
-}
-.video-review .video-player-heading span {
-  color: var(--app-muted);
-  font-size: var(--app-text-xs);
-}
-.video-review .video-player-stage {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: var(--app-paper);
-}
-.video-review .video-player-frame {
-  width: auto;
-  max-width: 100%;
-  height: min(66vh, 720px);
-  max-height: 720px;
-  margin: auto;
-}
-.video-review .video-player-frame video {
-  object-fit: contain;
-}
-.video-review .video-player > .video-actions {
-  justify-content: space-between;
-  padding-top: var(--app-space-3);
-}
-.video-review .video-player > .video-actions a {
-  color: var(--app-accent-text);
-}
-.video-review-loading {
-  display: grid;
-  place-items: center;
-  min-height: 520px;
-}
-.video-review-integrity {
-  margin: 0;
-  color: var(--app-muted);
-  font-size: var(--app-text-xs);
 }
 @media (max-width: 1000px) {
   .video-studio-body,
   .video-workspace {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .video-review-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .video-review-notes {
-    overflow: visible;
-    border-top: 1px solid var(--app-line);
-    border-left: 0;
   }
   .video-review-column {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -937,8 +789,7 @@
   }
 }
 @media (max-width: 600px) {
-  .video-studio-body,
-  .video-studio-review {
+  .video-studio-body {
     padding-right: var(--app-space-3);
     padding-left: var(--app-space-3);
   }
@@ -947,7 +798,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .video-field-heading,
-  .video-review-heading,
   .video-timeline-toolbar,
   .video-timeline-settings,
   .video-clip-inspector-heading {
@@ -965,13 +815,6 @@
   }
   .video-timeline-settings .field-group {
     width: 100%;
-  }
-  .video-review-screen,
-  .video-review-notes {
-    padding: var(--app-space-3);
-  }
-  .video-review .video-player-frame {
-    height: min(62vh, 600px);
   }
   .video-preview-empty {
     min-height: 220px;
@@ -1042,38 +885,13 @@
   font-size: var(--app-text-xs);
 }
 
-/* Desktop press physics for studio buttons. */
-.video-studio-page .btn {
-  transition:
-    background var(--app-duration-fast) var(--app-ease-out),
-    border-color var(--app-duration-fast) var(--app-ease-out),
-    box-shadow var(--app-duration-fast) var(--app-ease-out),
-    color var(--app-duration-fast) var(--app-ease-out),
-    transform var(--app-duration-fast) var(--app-ease-out);
-}
-
 .video-studio-page .btn:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
 
-.video-studio-page .btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.video-studio-page .btn-secondary:not(:disabled):hover,
-.video-studio-page .btn-ghost:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
-.video-studio-page .btn-primary:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 6px 18px color-mix(in srgb, var(--app-accent) 28%, transparent),
-    0 1px 2px rgba(20, 44, 72, 0.12);
-}
-
-/* Shared entrance motion for studio panes. */
+/* Used by Story / Shots / Timeline pane entrances until those modes get
+   the quiet-instrument pass. Review does not animate in. */
 @keyframes vs-rise {
   from {
     opacity: 0;
@@ -1081,15 +899,6 @@
   }
   to {
     opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .video-studio-page .btn:active:not(:disabled),
-  .video-studio-page .btn-secondary:not(:disabled):hover,
-  .video-studio-page .btn-ghost:not(:disabled):hover,
-  .video-studio-page .btn-primary:not(:disabled):hover {
     transform: none;
   }
 }

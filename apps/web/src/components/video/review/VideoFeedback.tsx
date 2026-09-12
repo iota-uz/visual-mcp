@@ -168,7 +168,7 @@ function FeedbackEditor({
     <section className="video-feedback" aria-label="Feedback">
       <div className="video-feedback-composer">
         <div className="video-feedback-heading">
-          <h3>Leave a note</h3>
+          <h3>Note</h3>
           <Button
             size="sm"
             disabled={!history.canUndo}
@@ -338,7 +338,7 @@ function FeedbackEditor({
       </div>
       <div className="video-feedback-history">
         <div className="video-feedback-heading">
-          <h3>Review notes</h3>
+          <h3>Notes</h3>
           <span className="video-feedback-count">
             {comments.results.length ? `${comments.results.length} loaded` : "No notes yet"}
           </span>
