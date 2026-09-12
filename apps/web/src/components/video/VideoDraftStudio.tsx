@@ -413,10 +413,10 @@ export function DraftStudio({
             <div className="video-studio-inspector-content">
               {latestRenderId ? (
                 <section className="video-render-callout">
-                  <Film size={22} aria-hidden="true" />
+                  <Film size={18} aria-hidden="true" />
                   <div>
-                    <h2>Latest render ready</h2>
-                    <p>Watch this language’s exact MP4 and leave timecoded notes.</p>
+                    <h2>Render ready</h2>
+                    <p>Open Review for this language.</p>
                   </div>
                   <Button variant="primary" onClick={() => onOpenRender(latestRenderId)}>
                     Review render
@@ -424,17 +424,17 @@ export function DraftStudio({
                 </section>
               ) : (
                 <section className="video-render-callout is-empty">
-                  <Film size={22} aria-hidden="true" />
+                  <Film size={18} aria-hidden="true" />
                   <div>
                     <h2>No rendered video yet</h2>
-                    <p>Create an immutable version first. Saving the draft does not render it.</p>
+                    <p>Save a version, then render. Saving the draft does not render it.</p>
                   </div>
                 </section>
               )}
               <Panel as="section" className="video-checkpoint-panel">
                 <h2>Save a version</h2>
                 <p className="video-hint">
-                  Freeze this language’s script and timeline without approving it.
+                  Freeze this language’s script and timeline. This is not a render or an approval.
                 </p>
                 <form
                   className="video-form"

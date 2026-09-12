@@ -92,7 +92,7 @@ export function ShotStudio({
       <header className="video-shot-heading">
         <div className="video-section-title">
           <h2>Shot production</h2>
-          <span>Plan the material that will become this scene</span>
+          <span>Shots for the selected scene</span>
         </div>
         {scene && (
           <Button
