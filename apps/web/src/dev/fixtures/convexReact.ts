@@ -62,7 +62,7 @@ export function useQuery(reference: unknown, args?: unknown): unknown {
         "The boundary you are looking at is the app's, not a real outage.",
     );
   }
-  return fixtureFor(name, current);
+  return fixtureFor(name, current, args);
 }
 
 export function useMutation(reference: unknown) {
@@ -72,6 +72,22 @@ export function useMutation(reference: unknown) {
     // half-applied write would make the next render disagree with the
     // scenario the URL asked for.
     console.info("[fixtures] mutation ignored:", name, args);
+    if (name === "videoReview:preview") {
+      return {
+        videoUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+        posterUrl:
+          "data:image/svg+xml;utf8," +
+          encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 16"><rect width="9" height="16" fill="#061b36"/></svg>',
+          ),
+        captionsUrl: "",
+        expiresAt: Date.now() + 900_000,
+      };
+    }
+    if (name === "video:patchScript" || name === "video:patchTimeline") {
+      return { revisionId: `rev_${Date.now()}` };
+    }
+    if (name === "assets:listMine") return [];
     return null;
   };
 }
@@ -80,6 +96,33 @@ export function useMutation(reference: unknown) {
 // the hook keeps lazily loaded routes importable even when the current page
 // never invokes their action.
 export const useAction = useMutation;
+
+export function usePaginatedQuery(
+  reference: unknown,
+  args?: unknown,
+  _opts?: { initialNumItems?: number },
+) {
+  if (args === "skip") {
+    return { results: [], status: "LoadingFirstPage" as const, loadMore: () => {} };
+  }
+  const current = scenario();
+  if (current === "loading") {
+    return { results: [], status: "LoadingFirstPage" as const, loadMore: () => {} };
+  }
+  const name = getFunctionName(reference as never);
+  if (current === "error" && !SHELL_QUERIES.has(name)) {
+    throw new Error(
+      "Fixture backend: this query is configured to fail (?fixture=error). " +
+        "The boundary you are looking at is the app's, not a real outage.",
+    );
+  }
+  const data = fixtureFor(name, current, args);
+  return {
+    results: Array.isArray(data) ? data : [],
+    status: "Exhausted" as const,
+    loadMore: () => {},
+  };
+}
 
 export function useConvexAuth() {
   return { isLoading: false, isAuthenticated: true };

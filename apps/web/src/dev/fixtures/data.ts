@@ -166,8 +166,188 @@ const TOKENS = [
   },
 ];
 
+const VIDEO_SCENE = {
+  purpose: "Opening: the claim is filed on a phone in a kitchen at 7am",
+  narration: "A driver opens the app and files a claim before the morning commute.",
+  onScreenText: ["File a claim in two minutes"],
+  visual: {
+    description: "Handheld phone over a table, OSAGO app on screen, morning window light.",
+    shot: "close-up",
+    motion: "static",
+    keyframeOrder: [],
+    keyframesById: {},
+  },
+  shotOrder: ["hero", "detail"],
+  shotsById: {
+    hero: {
+      purpose: "Phone in hand, app home",
+      method: "remotion" as const,
+      subjectAction: "Thumb taps File a claim",
+      cameraMotion: "static",
+      constraints: [],
+    },
+    detail: {
+      purpose: "",
+      method: "higgsfield" as const,
+      subjectAction: "",
+      cameraMotion: "push-in",
+      constraints: [],
+    },
+  },
+  claims: [],
+};
+
+const VIDEO_SCRIPT = {
+  language: "ru" as const,
+  writingSystem: "cyrillic" as const,
+  title: "OSAGO morning claim",
+  premise:
+    "A long fixture premise so the Story field shows overflow, wrapping, and the 16px iPad input size without a real backend.",
+  sceneOrder: ["opening", "proof"],
+  scenesById: {
+    opening: VIDEO_SCENE,
+    proof: {
+      ...VIDEO_SCENE,
+      purpose: "Proof: settlement confirmation on the same screen",
+      narration: "The payout lands and the receipt stays on screen.",
+      shotOrder: [],
+      shotsById: {},
+      visual: {
+        ...VIDEO_SCENE.visual,
+        shot: "medium",
+        motion: "push-in",
+        description: "Same kitchen, confirmation card filling the phone.",
+      },
+    },
+  },
+};
+
+const VIDEO_TIMELINE = {
+  fps: { numerator: 30, denominator: 1 },
+  durationFrames: 900,
+  trackOrder: ["visual", "voice", "caption"],
+  tracksById: {
+    visual: {
+      kind: "visual" as const,
+      clipOrder: ["v1"],
+      clipsById: {
+        v1: {
+          startFrame: 0,
+          durationFrames: 450,
+          source: { kind: "text" as const, text: "OSAGO" },
+        },
+      },
+    },
+    voice: { kind: "voice" as const, clipOrder: [], clipsById: {} },
+    caption: {
+      kind: "caption" as const,
+      clipOrder: ["c1"],
+      clipsById: {
+        c1: {
+          startFrame: 30,
+          durationFrames: 180,
+          source: { kind: "text" as const, text: "File a claim in two minutes" },
+        },
+      },
+    },
+  },
+};
+
+const VIDEO_PROJECT = {
+  projectId: "vp_osago_morning",
+  workspaceId: "ws_osago",
+  title: "OSAGO morning claim — fixture with a long title for the command bar",
+  brief: { topic: "Motor claim", direction: "Show the real app, not a metaphor" },
+  revisionId: "p1",
+  format: { width: 360, height: 640, fps: { numerator: 30, denominator: 1 } },
+  drafts: [
+    {
+      draftId: "vd_ru",
+      language: "ru" as const,
+      scriptRevision: "s-ru",
+      timelineRevision: "t-ru",
+      currentVersionId: null,
+    },
+    {
+      draftId: "vd_uz",
+      language: "uz" as const,
+      scriptRevision: "s-uz",
+      timelineRevision: "t-uz",
+      currentVersionId: null,
+    },
+  ],
+};
+
+function videoDraft(draftId: string) {
+  const language = draftId.includes("uz") ? ("uz" as const) : ("ru" as const);
+  return {
+    draftId,
+    projectId: VIDEO_PROJECT.projectId,
+    language,
+    scriptRevision: `s-${language}`,
+    timelineRevision: `t-${language}`,
+    script: {
+      ...VIDEO_SCRIPT,
+      language,
+      writingSystem: language === "ru" ? "cyrillic" : "latin",
+      title: language === "ru" ? VIDEO_SCRIPT.title : "OSAGO ertalabki ariza",
+    },
+    timeline: VIDEO_TIMELINE,
+  };
+}
+
+const VIDEO_RENDER = {
+  jobId: "job_render_current",
+  projectId: VIDEO_PROJECT.projectId,
+  versionId: "vv_launch",
+  language: "ru" as const,
+  sha256: "a".repeat(64),
+  width: 360,
+  height: 640,
+  durationMs: 4000,
+  videoDurationMs: 4000,
+  containerDurationMs: 4100,
+  frameCount: 120,
+  fps: { numerator: 30, denominator: 1 },
+  partial: false,
+  stale: false,
+  approvable: true,
+  approval: null,
+  engine: null,
+};
+
+const VIDEO_OPERATIONS = [
+  {
+    operationId: "job_render_current",
+    kind: "render",
+    retryCount: 0,
+    latestAttempt: {
+      jobId: "job_render_current",
+      state: "succeeded",
+      attemptNumber: 1,
+      stage: "muxing",
+      updatedAt: Date.now() - 12 * 60_000,
+      versionId: "vv_launch",
+    },
+    latestSuccessfulAttempt: {
+      jobId: "job_render_current",
+      state: "succeeded",
+      versionId: "vv_launch",
+    },
+    attempts: [
+      {
+        jobId: "job_render_current",
+        state: "succeeded",
+        attemptNumber: 1,
+        stage: "muxing",
+        updatedAt: Date.now() - 12 * 60_000,
+      },
+    ],
+  },
+];
+
 /** What each query returns, by its Convex function name. */
-export function fixtureFor(name: string, scenario: Scenario): unknown {
+export function fixtureFor(name: string, scenario: Scenario, args?: unknown): unknown {
   const empty = scenario === "empty";
 
   switch (name) {
@@ -197,6 +377,100 @@ export function fixtureFor(name: string, scenario: Scenario): unknown {
       return empty ? [] : [];
     case "tokens:listMine":
       return empty ? [] : TOKENS;
+    case "video:getProject":
+      return empty ? null : VIDEO_PROJECT;
+    case "video:getDraft": {
+      const draftId =
+        args && typeof args === "object" && args !== null && "draftId" in args
+          ? String((args as { draftId: string }).draftId)
+          : "vd_ru";
+      return empty ? null : videoDraft(draftId);
+    }
+    case "video:latestRender":
+      return empty ? null : { jobId: VIDEO_RENDER.jobId };
+    case "video:getVersion":
+      return empty
+        ? null
+        : { label: "Launch cut", version: { language: "ru", projectId: VIDEO_PROJECT.projectId } };
+    case "video:listVersions":
+      return empty
+        ? []
+        : [
+            {
+              label: "Launch cut",
+              createdAt: now - 12 * MINUTE,
+              version: {
+                versionId: "vv_launch",
+                language: "ru",
+                projectId: VIDEO_PROJECT.projectId,
+              },
+            },
+          ];
+    case "video:listProjects":
+      return empty
+        ? []
+        : [
+            {
+              projectId: VIDEO_PROJECT.projectId,
+              title: VIDEO_PROJECT.title,
+              topic: VIDEO_PROJECT.brief.topic,
+              updatedAt: now - 12 * MINUTE,
+              languages: ["ru", "uz"],
+            },
+          ];
+    case "video:listMine":
+      return empty
+        ? []
+        : [
+            {
+              workspaceId: "ws_osago",
+              slug: "osago",
+              name: "OSAGO",
+              projects: [
+                {
+                  projectId: VIDEO_PROJECT.projectId,
+                  title: VIDEO_PROJECT.title,
+                  topic: VIDEO_PROJECT.brief.topic,
+                  updatedAt: now - 12 * MINUTE,
+                  languages: ["ru", "uz"],
+                },
+              ],
+            },
+          ];
+    case "videoJobs:listOperations":
+    case "videoJobs:listJobs":
+      return empty ? [] : VIDEO_OPERATIONS;
+    case "videoReview:renderMetadata":
+      return empty ? null : VIDEO_RENDER;
+    case "videoReview:getDraft":
+      return empty ? null : { revision: 0, body: { text: "" } };
+    case "videoReview:comments":
+    case "videoReview:replies":
+    case "videoReview:anchorHistory":
+      return [];
+    case "videoWorkflow:getLoop":
+      return empty
+        ? null
+        : {
+            loopId: "loop_fixture",
+            revisionId: "r1",
+            projectId: VIDEO_PROJECT.projectId,
+            language: "ru",
+            state: "paused",
+            iteration: 1,
+            iterationLimit: 3,
+            noProgress: 0,
+            noProgressLimit: 2,
+            baseline: "baseline",
+            selectedCandidate: null,
+            pendingProposalIds: [],
+            pendingProposal: null,
+            stopReason: null,
+            pausedByHuman: true,
+          };
+    case "videoMigration:getArchive":
+    case "videoMigration:listRecords":
+      return empty ? null : null;
     default:
       // Better a visible null than a silent undefined that reads as
       // "still loading" and hangs the surface on a skeleton forever.
