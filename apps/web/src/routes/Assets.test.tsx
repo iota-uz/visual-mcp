@@ -4,10 +4,11 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AssetsPage } from "./Assets";
 
-const { useActionMock, useMutationMock, listAssetsMock } = vi.hoisted(() => ({
+const { useActionMock, useMutationMock, listAssetsMock, setTagsMock } = vi.hoisted(() => ({
   useActionMock: vi.fn(),
   useMutationMock: vi.fn(),
   listAssetsMock: vi.fn(),
+  setTagsMock: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
@@ -31,6 +32,7 @@ describe("AssetsPage", () => {
     useActionMock.mockReset();
     useMutationMock.mockReset();
     listAssetsMock.mockReset();
+    setTagsMock.mockReset();
     useActionMock.mockReturnValue(listAssetsMock);
     useMutationMock.mockReturnValue(vi.fn());
   });
@@ -84,5 +86,50 @@ describe("AssetsPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Close preview of Iota logo" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  test("adds and removes tags on an existing asset", async () => {
+    listAssetsMock.mockResolvedValue([
+      {
+        asset_id: "asset-1",
+        asset_ref: "asset://workspace/osago/logo@1",
+        scope: "workspace",
+        workspace_slug: "osago",
+        slug: "logo",
+        name: "Iota logo",
+        description: null,
+        tags: ["brand"],
+        kind: "svg",
+        revision: 1,
+        mime_type: "image/svg+xml",
+        size_bytes: 2048,
+        content_hash: "sha256",
+        original_filename: "logo.svg",
+        updated_at: 1,
+        preview_url: "/logo.svg",
+      },
+    ]);
+    setTagsMock.mockResolvedValue({
+      assetRef: "asset://workspace/osago/logo@1",
+      revision: 1,
+      tags: ["launch"],
+    });
+    useMutationMock.mockReturnValue(setTagsMock);
+    const user = userEvent.setup();
+    renderAssets();
+
+    await user.click(await screen.findByRole("button", { name: "Edit tags for Iota logo" }));
+    expect(screen.getByRole("dialog", { name: "Edit tags" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove brand tag" }));
+    await user.type(screen.getByLabelText("Tags"), "Launch{Enter}");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(setTagsMock).toHaveBeenCalledWith({
+      assetRef: "asset://workspace/osago/logo@1",
+      tags: ["launch"],
+    });
+    expect(screen.queryByRole("dialog", { name: "Edit tags" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "launch" })).toBeInTheDocument();
   });
 });

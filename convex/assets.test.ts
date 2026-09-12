@@ -145,6 +145,82 @@ describe("Asset Library bindings", () => {
     expect(second.page[0]?.asset_id).not.toBe(first.page[0]?.asset_id);
   });
 
+  test("replaces normalized asset tags without creating a media revision and refreshes search", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        email: "tags@iota.uz",
+        name: "Tags",
+        lastSeenAt: 0,
+      }),
+    );
+    const committed = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "personal",
+      ownerUserId: userId,
+      slug: "campaign-cover",
+      name: "Campaign cover",
+      tags: [" Original "],
+      kind: "image",
+      objectKey: "assets/campaign-cover",
+      contentHash: "campaign-cover-hash",
+      mimeType: "image/png",
+      size: 42,
+      originalFilename: "cover.png",
+      sourceType: "upload",
+    });
+
+    const updated = await t.mutation(internal.assets.setTagsByRef, {
+      assetRef: "asset://personal/campaign-cover@1",
+      userId,
+      tags: [" Brand ", "Launch   2026", "brand", ""],
+    });
+    expect(updated).toEqual({
+      assetRef: "asset://personal/campaign-cover@1",
+      revision: 1,
+      tags: ["brand", "launch 2026"],
+    });
+    const stored = await t.run((ctx) => ctx.db.get(committed.assetId));
+    expect(stored).toMatchObject({
+      tags: ["brand", "launch 2026"],
+      searchText: "Campaign cover campaign-cover cover.png brand launch 2026",
+    });
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query("assetVersions")
+          .withIndex("by_asset_revision", (q) => q.eq("assetId", committed.assetId))
+          .collect(),
+      ),
+    ).toHaveLength(1);
+    expect(
+      (
+        await t.query(internal.assets.listInternal, {
+          userId,
+          scope: "personal",
+          query: "launch",
+          paginationOpts: { numItems: 10, cursor: null },
+        })
+      ).page,
+    ).toHaveLength(1);
+
+    await t.mutation(internal.assets.setTagsByRef, {
+      assetRef: updated.assetRef,
+      userId,
+      tags: [],
+    });
+    expect((await t.run((ctx) => ctx.db.get(committed.assetId)))?.tags).toEqual([]);
+    expect(
+      (
+        await t.query(internal.assets.listInternal, {
+          userId,
+          scope: "personal",
+          query: "launch",
+          paginationOpts: { numItems: 10, cursor: null },
+        })
+      ).page,
+    ).toHaveLength(0);
+  });
+
   test("pins an immutable asset revision into the durable canvas draft", async () => {
     const t = convexTest(schema, modules);
     const seeded = await t.run(async (ctx) => {

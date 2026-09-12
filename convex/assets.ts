@@ -30,6 +30,40 @@ const kindValidator = v.union(
   v.literal("data"),
 );
 
+export const ASSET_TAG_LIMIT = 20;
+export const ASSET_TAG_MAX_LENGTH = 32;
+
+function normalizeAssetTags(tags: string[]): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const rawTag of tags) {
+    const tag = rawTag.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!tag) continue;
+    if ([...tag].length > ASSET_TAG_MAX_LENGTH) {
+      throw new Error(`Asset tags must be at most ${ASSET_TAG_MAX_LENGTH} characters`);
+    }
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    normalized.push(tag);
+  }
+  if (normalized.length > ASSET_TAG_LIMIT) {
+    throw new Error(`Assets can have at most ${ASSET_TAG_LIMIT} tags`);
+  }
+  return normalized;
+}
+
+function assetSearchText(input: {
+  name: string;
+  slug: string;
+  description?: string;
+  originalFilename: string;
+  tags: string[];
+}): string {
+  return [input.name, input.slug, input.description, input.originalFilename, ...input.tags]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const assetListItemValidator = v.object({
   revision_id: v.id("assetVersions"),
   asset_id: v.id("assets"),
@@ -321,9 +355,10 @@ export const commitAssetVersion = internalMutation({
       const expected = await ctx.db.get(args.expectedHeadVersionId);
       if (!existing || !expected || expected.assetId !== existing._id)
         throw new Error("Revision CAS target mismatch");
+      const currentAsset = existing;
       const head = await ctx.db
         .query("assetVersions")
-        .withIndex("by_asset_revision", (q) => q.eq("assetId", existing!._id))
+        .withIndex("by_asset_revision", (q) => q.eq("assetId", currentAsset._id))
         .order("desc")
         .first();
       if (
@@ -333,13 +368,14 @@ export const commitAssetVersion = internalMutation({
       ) {
         if (objectLease) await ctx.db.delete(objectLease._id);
         return {
-          assetId: existing._id,
+          assetId: currentAsset._id,
           versionId: head._id,
           revision: head.revision,
           headAdvanced: true,
         };
       }
-      headAdvanced = head?._id === args.expectedHeadVersionId && existing.archivedAt === undefined;
+      headAdvanced =
+        head?._id === args.expectedHeadVersionId && currentAsset.archivedAt === undefined;
       if (!headAdvanced) {
         slug = args.candidateSlug;
         existing =
@@ -359,9 +395,14 @@ export const commitAssetVersion = internalMutation({
       }
     }
     const now = Date.now();
-    const searchText = [args.name, slug, args.description, args.originalFilename, ...args.tags]
-      .filter(Boolean)
-      .join(" ");
+    const tags = normalizeAssetTags(args.tags);
+    const searchText = assetSearchText({
+      name: args.name,
+      slug,
+      description: args.description,
+      originalFilename: args.originalFilename,
+      tags,
+    });
     const assetId =
       existing?._id ??
       (await ctx.db.insert("assets", {
@@ -371,7 +412,7 @@ export const commitAssetVersion = internalMutation({
         slug,
         name: args.name,
         description: args.description,
-        tags: args.tags,
+        tags,
         kind: args.kind,
         searchText,
         createdBy: args.ownerUserId,
@@ -381,7 +422,7 @@ export const commitAssetVersion = internalMutation({
       await ctx.db.patch(existing._id, {
         name: args.name,
         description: args.description,
-        tags: args.tags,
+        tags,
         kind: args.kind,
         searchText,
         archivedAt: undefined,
@@ -1136,6 +1177,48 @@ async function archiveAssetByRef(
   };
 }
 
+async function setAssetTagsByRef(
+  ctx: MutationCtx,
+  args: { assetRef: string; userId: Id<"users">; tags: string[] },
+) {
+  const { asset, workspaceSlug } = await findAssetForRef(ctx, args.assetRef, args.userId);
+  if (asset.archivedAt !== undefined) throw new Error(`Asset not found: ${args.assetRef}`);
+  const version = await latestAssetRevision(ctx, asset._id);
+  if (!version) throw new Error(`Asset revision not found: ${args.assetRef}`);
+  const tags = normalizeAssetTags(args.tags);
+  await ctx.db.patch(asset._id, {
+    tags,
+    searchText: assetSearchText({
+      name: asset.name,
+      slug: asset.slug,
+      description: asset.description,
+      originalFilename: version.originalFilename,
+      tags,
+    }),
+    updatedAt: Date.now(),
+  });
+  return {
+    assetRef: formatAssetRef({
+      scope: asset.scope,
+      workspaceSlug,
+      slug: asset.slug,
+      revision: version.revision,
+    }),
+    revision: version.revision,
+    tags,
+  };
+}
+
+export const setTagsByRef = internalMutation({
+  args: { assetRef: v.string(), userId: v.id("users"), tags: v.array(v.string()) },
+  returns: v.object({
+    assetRef: v.string(),
+    revision: v.number(),
+    tags: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => setAssetTagsByRef(ctx, args),
+});
+
 export const archiveByRef = internalMutation({
   args: { assetRef: v.string(), userId: v.id("users") },
   returns: v.object({
@@ -1363,5 +1446,20 @@ export const archiveMine = mutation({
     const userId = await resolveUserId(ctx, identity);
     if (!userId) throw new Error("Signed-in user record not found");
     return archiveAssetByRef(ctx, { assetRef: args.assetRef, userId });
+  },
+});
+
+export const setTagsMine = mutation({
+  args: { assetRef: v.string(), tags: v.array(v.string()) },
+  returns: v.object({
+    assetRef: v.string(),
+    revision: v.number(),
+    tags: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const identity = await requireIotaIdentity(ctx);
+    const userId = await resolveUserId(ctx, identity);
+    if (!userId) throw new Error("Signed-in user record not found");
+    return setAssetTagsByRef(ctx, { assetRef: args.assetRef, userId, tags: args.tags });
   },
 });

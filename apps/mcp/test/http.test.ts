@@ -103,6 +103,7 @@ describe("Railway MCP service", () => {
     expect(text).toContain("canvas_save");
     expect(text).toContain("canvas_file_search");
     expect(text).toContain("asset_list");
+    expect(text).toContain("asset_set_tags");
     expect(text).toContain("becomes reusable workspace assets automatically");
     expect(text).not.toContain("component_insert");
     expect(text).not.toContain("component_save");

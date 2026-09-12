@@ -35,6 +35,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## assets
 
+- **Теги изменяются на уровне ассета без новой медиа-ревизии** — [запись](adr/assets/mutable-asset-tags.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Буферизуемые ответы генерации обрабатываются в доверенном Node action** — [запись](adr/assets/trusted-provider-node-runtime.md) · accepted · 2026-09-10 (Convex limits, video delivery review)
 
 - **Видео и аудио используют общую приватную библиотеку assets** — [запись](adr/assets/video-audio-and-shared-storage.md) · accepted · 2026-09-10 (заменяет unified-assets-and-media-boundaries; история ниже сохранена)

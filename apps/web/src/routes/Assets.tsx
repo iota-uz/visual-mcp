@@ -1,11 +1,12 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Archive, Image as ImageIcon, Link2, Search, Upload } from "lucide-react";
+import { Archive, Image as ImageIcon, Link2, Search, Tags, Upload } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { AssetPreview, type PreviewableAssetKind } from "../components/AssetPreview";
 import { AssetPreviewDialog } from "../components/AssetPreviewDialog";
+import { AssetTagEditor } from "../components/AssetTagEditor";
 import { EmptyState } from "../components/EmptyState";
 import { MediaUpload } from "../components/MediaUpload";
 import { PageHeader } from "../components/PageHeader";
@@ -60,11 +61,15 @@ function AssetCard({
   asset,
   onArchive,
   onPreview,
+  onEditTags,
+  onTagSelect,
   onEdit,
 }: {
   asset: AssetItem;
   onArchive: () => void;
   onPreview: () => void;
+  onEditTags: () => void;
+  onTagSelect: (tag: string) => void;
   onEdit?: () => void;
 }) {
   return (
@@ -87,23 +92,48 @@ function AssetCard({
       <div className="asset-card-body">
         <div className="asset-card-title-row">
           <strong>{asset.name}</strong>
-          <button type="button" className="asset-archive" onClick={onArchive} title="Archive asset">
-            <Archive size={14} aria-hidden="true" />
-            <span className="visually-hidden">Archive {asset.name}</span>
-          </button>
+          <div className="asset-card-actions">
+            <button
+              type="button"
+              className="asset-card-action"
+              onClick={onEditTags}
+              title="Edit tags"
+            >
+              <Tags size={14} aria-hidden="true" />
+              <span className="visually-hidden">Edit tags for {asset.name}</span>
+            </button>
+            <button
+              type="button"
+              className="asset-card-action asset-archive"
+              onClick={onArchive}
+              title="Archive asset"
+            >
+              <Archive size={14} aria-hidden="true" />
+              <span className="visually-hidden">Archive {asset.name}</span>
+            </button>
+          </div>
         </div>
         <span className="asset-filename">{asset.original_filename}</span>
         <div className="asset-card-facts">
           <span>{MIME_LABELS[asset.mime_type] ?? asset.mime_type}</span>
           <span>{formatBytes(asset.size_bytes)}</span>
         </div>
-        {asset.tags.length > 0 && (
-          <div className="asset-tags">
-            {asset.tags.slice(0, 3).map((tag) => (
-              <span key={tag}>{tag}</span>
-            ))}
-          </div>
-        )}
+        <div className="asset-tags">
+          {asset.tags.length > 0 ? (
+            <>
+              {asset.tags.slice(0, 3).map((tag) => (
+                <button type="button" key={tag} onClick={() => onTagSelect(tag)}>
+                  {tag}
+                </button>
+              ))}
+              {asset.tags.length > 3 && <span>+{asset.tags.length - 3}</span>}
+            </>
+          ) : (
+            <button type="button" className="asset-tags-empty" onClick={onEditTags}>
+              Add tags
+            </button>
+          )}
+        </div>
         <CopyableValue value={asset.asset_ref} label="Asset ref" copyLabel="Copy asset ref" />
         {onEdit && (
           <Button size="sm" onClick={onEdit}>
@@ -129,12 +159,14 @@ export function AssetsPage() {
   const [importUrl, setImportUrl] = useState("");
   const [importName, setImportName] = useState("");
   const [previewAsset, setPreviewAsset] = useState<AssetItem | null>(null);
+  const [tagAsset, setTagAsset] = useState<AssetItem | null>(null);
   const debouncedQuery = useDebouncedValue(query, 180);
   const listAssets = useAction(api.assets.listMine);
   const prepareUpload = useAction(api.assets.prepareUploadMine);
   const finalizeUpload = useAction(api.assets.finalizeUploadMine);
   const importAsset = useAction(api.assets.importUrlMine);
   const archiveAsset = useMutation(api.assets.archiveMine);
+  const setAssetTags = useMutation(api.assets.setTagsMine);
   const renameWorkspace = useMutation(api.workspaces.renameMine);
   const { notify } = useToast();
   useDocumentTitle(wsSlug ? `${wsSlug} assets` : "Asset Library");
@@ -226,6 +258,15 @@ export function AssetsPage() {
     } finally {
       setUploading(false);
     }
+  }
+
+  function editImageHandler(asset: AssetItem): (() => void) | undefined {
+    if (!workspace || asset.kind !== "image" || !asset.revision_id) return undefined;
+    const revisionId = asset.revision_id;
+    return () => {
+      setEditSource({ assetId: asset.asset_id, revisionId });
+      setMediaPane("image");
+    };
   }
 
   const headerActions = (
@@ -387,14 +428,9 @@ export function AssetsPage() {
               key={asset.asset_id}
               asset={asset}
               onPreview={() => setPreviewAsset(asset)}
-              onEdit={
-                workspace && asset.kind === "image" && asset.revision_id
-                  ? () => {
-                      setEditSource({ assetId: asset.asset_id, revisionId: asset.revision_id! });
-                      setMediaPane("image");
-                    }
-                  : undefined
-              }
+              onEditTags={() => setTagAsset(asset)}
+              onTagSelect={(tag) => setQuery(tag)}
+              onEdit={editImageHandler(asset)}
               onArchive={async () => {
                 await archiveAsset({ assetRef: asset.asset_ref });
                 setAssets(
@@ -420,6 +456,25 @@ export function AssetsPage() {
             sizeBytes: previewAsset.size_bytes,
           }}
           onClose={() => setPreviewAsset(null)}
+        />
+      )}
+      {tagAsset && (
+        <AssetTagEditor
+          assetName={tagAsset.name}
+          initialTags={tagAsset.tags}
+          open
+          onClose={() => setTagAsset(null)}
+          onSave={async (tags) => {
+            const updated = await setAssetTags({ assetRef: tagAsset.asset_ref, tags });
+            setAssets(
+              (current) =>
+                current?.map((asset) =>
+                  asset.asset_id === tagAsset.asset_id ? { ...asset, tags: updated.tags } : asset,
+                ) ?? null,
+            );
+            setTagAsset(null);
+            notify({ message: `Tags for “${tagAsset.name}” saved.` });
+          }}
         />
       )}
     </div>

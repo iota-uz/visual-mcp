@@ -46,6 +46,11 @@ function fixture(mixedAssets = false) {
     }),
     actionContext: () => ({
       storage: {},
+      runMutation: async (_fn: unknown, input: Record<string, unknown>) => ({
+        assetRef: input.assetRef,
+        revision: 1,
+        tags: input.tags,
+      }),
       runQuery: async (_fn: unknown, input: Record<string, unknown>) =>
         input.slug
           ? {
@@ -318,6 +323,19 @@ test("installed SDK client validates populated asset list/get against published 
     expect(got.structuredContent).toMatchObject({
       revision_id: "revision-audio",
       mime_type: "audio/mpeg",
+    });
+    const tagged = await client.callTool({
+      name: "asset_set_tags",
+      arguments: {
+        asset_ref: "asset://workspace/farq/audio@1",
+        tags: ["voice", "approved"],
+      },
+    });
+    expect(tagged.structuredContent).toEqual({
+      status: "ok",
+      asset_ref: "asset://workspace/farq/audio@1",
+      revision: 1,
+      tags: ["voice", "approved"],
     });
   } finally {
     await client.close();

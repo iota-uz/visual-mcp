@@ -4363,6 +4363,43 @@ export function registerTools(
   );
 
   server.registerTool(
+    "asset_set_tags",
+    {
+      title: "Replace tags on a media asset",
+      description:
+        "Replaces the complete tag set on an existing Asset Library item without creating a " +
+        "new media revision. Tags are normalized for search; pass an empty array to remove all tags.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      inputSchema: z
+        .object({
+          asset_ref: z.string(),
+          tags: z.array(z.string()).max(20),
+        })
+        .strict(),
+      outputSchema: z.object({
+        status: z.literal("ok"),
+        asset_ref: z.string(),
+        revision: z.number().int().positive(),
+        tags: z.array(z.string()),
+      }),
+    },
+    async (input) =>
+      runTool(async () => {
+        const updated = await ctx.runMutation(internal.assets.setTagsByRef, {
+          assetRef: input.asset_ref,
+          userId: principal.userId,
+          tags: input.tags,
+        });
+        return result({
+          status: "ok" as const,
+          asset_ref: updated.assetRef,
+          revision: updated.revision,
+          tags: updated.tags,
+        });
+      }),
+  );
+
+  server.registerTool(
     "asset_delete",
     {
       title: "Archive an Asset Library item",
