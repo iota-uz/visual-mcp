@@ -91,13 +91,17 @@ test("character-scene accepts serialized character packs and publishes only revi
   assert.ok(
     componentResources.some(
       (resource) =>
-        resource.resourceId === "video/component/character-scene" && resource.revisionId === "2",
+        resource.resourceId === "video/component/character-scene" &&
+        resource.revisionId === "2",
     ),
   );
   assert.equal(
     ComponentSource.safeParse({
       kind: "component",
-      component: { resourceId: "video/component/character-scene", revisionId: "2" },
+      component: {
+        resourceId: "video/component/character-scene",
+        revisionId: "2",
+      },
       props,
     }).success,
     true,
@@ -105,7 +109,10 @@ test("character-scene accepts serialized character packs and publishes only revi
   assert.equal(
     ComponentSource.safeParse({
       kind: "component",
-      component: { resourceId: "video/component/character-scene", revisionId: "1" },
+      component: {
+        resourceId: "video/component/character-scene",
+        revisionId: "1",
+      },
       props,
     }).success,
     false,
@@ -122,7 +129,13 @@ test("character-scene rejects unknown references, timing and overlapping owned c
   assert.equal(CharacterSceneProps.safeParse(badViseme).success, false);
 
   const conflict = pilot();
-  conflict.actionOrder = ["farqEnter", "blinkOne", "blinkTwo", "farqTalk", "customerReact"];
+  conflict.actionOrder = [
+    "farqEnter",
+    "blinkOne",
+    "blinkTwo",
+    "farqTalk",
+    "customerReact",
+  ];
   conflict.actionsById.blinkOne = {
     type: "blink",
     actorId: "farq",
@@ -151,7 +164,10 @@ test("character-scene clip timing checks actions and overlays against its enclos
   const props = CharacterSceneProps.parse(pilot());
   const source = ComponentSource.parse({
     kind: "component",
-    component: { resourceId: "video/component/character-scene", revisionId: "2" },
+    component: {
+      resourceId: "video/component/character-scene",
+      revisionId: "2",
+    },
     props,
   });
   assert.deepEqual(componentTimingIssues(source, [], 120), []);
@@ -191,7 +207,24 @@ test("custom character IDs and different vector geometry use the same scene cont
   input.actorsById.customer.characterPackId = "robot";
   const parsed = CharacterSceneProps.parse(JSON.parse(JSON.stringify(input)));
   assert.equal(parsed.actorsById.customer?.characterPackId, "robot");
-  assert.equal(parsed.characterPacksById.robot?.layers[0]?.shapes[0]?.kind, "rect");
+  assert.equal(
+    parsed.characterPacksById.robot?.layers[0]?.shapes[0]?.kind,
+    "rect",
+  );
+});
+
+test("official farq character pins the immutable layered SVG source and rigged derivative", () => {
+  const pack = builtInCharacterPacks["farq-official"]!;
+  assert.equal(pack.label, "Official farq.uz mascot");
+  assert.deepEqual(pack.sourceAsset, {
+    assetRef: "asset://shared/farq-official-layered-mascot@1",
+    revisionId: "md7chc5vz33an9cd4jw8nm2bg98e9xfd",
+    contentHash:
+      "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
+    mimeType: "image/svg+xml",
+  });
+  assert.ok(pack.layers.some((layer) => layer.id === "officialPercent"));
+  assert.equal(pack.style.handColor, "#ffffff");
 });
 
 test("packs validate rig geometry and explicitly gate requested capabilities", () => {
@@ -213,13 +246,19 @@ test("pack artwork remains declarative and rejects executable or external conten
   const input = structuredClone(builtInCharacterPacks.customer!);
   const layer = input.layers[0]!;
   assert.equal(
-    CharacterPack.safeParse({ ...input, svg: "<svg onload='alert(1)'/>" }).success,
+    CharacterPack.safeParse({ ...input, svg: "<svg onload='alert(1)'/>" })
+      .success,
     false,
   );
   assert.equal(
     CharacterPack.safeParse({
       ...input,
-      layers: [{ ...layer, shapes: [{ kind: "image", href: "https://example.com/asset.svg" }] }],
+      layers: [
+        {
+          ...layer,
+          shapes: [{ kind: "image", href: "https://example.com/asset.svg" }],
+        },
+      ],
     }).success,
     false,
   );
@@ -227,7 +266,12 @@ test("pack artwork remains declarative and rejects executable or external conten
     CharacterPack.safeParse({
       ...input,
       layers: [
-        { ...layer, shapes: [{ kind: "path", d: "M0 0 <script>bad</script>", fill: "#ffffff" }] },
+        {
+          ...layer,
+          shapes: [
+            { kind: "path", d: "M0 0 <script>bad</script>", fill: "#ffffff" },
+          ],
+        },
       ],
     }).success,
     false,
@@ -290,7 +334,12 @@ test("spatial target and attachment references are validated before rendering", 
   props.propsById = {
     phone: {
       ...structuredClone(phoneCharacterProp),
-      attachment: { actorId: "farq", hand: "right", offset: { x: 0, y: 0 }, rotation: 0 },
+      attachment: {
+        actorId: "farq",
+        hand: "right",
+        offset: { x: 0, y: 0 },
+        rotation: 0,
+      },
     },
   };
   props.actionOrder = ["show"];

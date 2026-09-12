@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { CharacterPack, CharacterProp } from "@visual-canvas/video/registry";
+import type {
+  CharacterPack,
+  CharacterProp,
+} from "@visual-canvas/video/registry";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -61,7 +64,17 @@ function fixture(): CharacterPack {
       {
         id: "robotHead",
         node: "head",
-        shapes: [{ kind: "ellipse", x: 0, y: 0, rx: 60, ry: 50, fill: "#445566", strokeWidth: 0 }],
+        shapes: [
+          {
+            kind: "ellipse",
+            x: 0,
+            y: 0,
+            rx: 60,
+            ry: 50,
+            fill: "#445566",
+            strokeWidth: 0,
+          },
+        ],
       },
       {
         id: "antenna",
@@ -130,30 +143,70 @@ test("a previously unknown pack renders all declared artwork at evaluated nodes 
     createElement(CharacterPackView, { pack, rig: evaluated(pack), face }),
   );
   assert.match(markup, /aria-label="Custom &lt;Robot&gt;"/);
-  assert.match(markup, /data-layer="robotBody" transform="matrix\(2 0 0 2 250 500\)"/);
-  assert.match(markup, /data-layer="robotHead" transform="matrix\(2 0 0 2 250 320\)"/);
+  assert.match(
+    markup,
+    /data-layer="robotBody" transform="matrix\(2 0 0 2 250 500\)"/,
+  );
+  assert.match(
+    markup,
+    /data-layer="robotHead" transform="matrix\(2 0 0 2 250 320\)"/,
+  );
   assert.match(markup, /fill="#112233"/);
   assert.match(markup, /d="M0 -50 L0 -80"/);
   assert.match(markup, /data-arm="right" d="M50 -30 L80 5 L90 45"/);
-  assert.match(markup, /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/);
+  assert.match(
+    markup,
+    /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/,
+  );
   assert.match(markup, /scale\(1 0.6\)/);
   assert.match(markup, /cx="4" cy="-2"/);
+});
+
+test("a pack may style procedural gloves independently from its limbs", () => {
+  const pack = fixture();
+  pack.style.handColor = "#ffffff";
+  pack.style.handStroke = "#050505";
+  pack.style.handStrokeWidth = 4;
+  const markup = renderToStaticMarkup(
+    createElement(CharacterPackView, { pack, rig: evaluated(pack), face }),
+  );
+  assert.match(
+    markup,
+    /data-hand="right"><circle[^>]+fill="#ffffff" stroke="#050505" stroke-width="4"/,
+  );
 });
 
 test("continuous mouth envelope affects visemes while disabled capabilities suppress procedural motion", () => {
   const pack = fixture(),
     rig = evaluated(pack);
   const small = renderToStaticMarkup(
-    createElement(CharacterPackView, { pack, rig, face: { ...face, viseme: "o", mouthOpen: 0.2 } }),
+    createElement(CharacterPackView, {
+      pack,
+      rig,
+      face: { ...face, viseme: "o", mouthOpen: 0.2 },
+    }),
   );
   const wide = renderToStaticMarkup(
-    createElement(CharacterPackView, { pack, rig, face: { ...face, viseme: "o", mouthOpen: 1 } }),
+    createElement(CharacterPackView, {
+      pack,
+      rig,
+      face: { ...face, viseme: "o", mouthOpen: 1 },
+    }),
   );
   assert.notEqual(small, wide);
   assert.match(wide, /data-viseme="o"/);
-  pack.capabilities = { ...pack.capabilities, arms: false, gaze: false, talk: false };
+  pack.capabilities = {
+    ...pack.capabilities,
+    arms: false,
+    gaze: false,
+    talk: false,
+  };
   const disabled = renderToStaticMarkup(
-    createElement(CharacterPackView, { pack, rig, face: { ...face, viseme: "o", mouthOpen: 1 } }),
+    createElement(CharacterPackView, {
+      pack,
+      rig,
+      face: { ...face, viseme: "o", mouthOpen: 1 },
+    }),
   );
   assert.doesNotMatch(disabled, /data-arm=/);
   assert.doesNotMatch(disabled, /data-hand=/);
@@ -186,7 +239,9 @@ test("prop artwork follows the supplied grip-resolved affine matrix, including r
   };
   const matrix = resolvePropAttachment([0, 2, -2, 0, 300, 500], prop.grip);
   assert.deepEqual(transformPoint(matrix, prop.grip), { x: 300, y: 500 });
-  const markup = renderToStaticMarkup(createElement(CharacterPropView, { prop, matrix }));
+  const markup = renderToStaticMarkup(
+    createElement(CharacterPropView, { prop, matrix }),
+  );
   assert.match(markup, /transform="matrix\(0 2 -2 0 480 476\)"/);
   assert.match(markup, /width="80" height="120"/);
 });

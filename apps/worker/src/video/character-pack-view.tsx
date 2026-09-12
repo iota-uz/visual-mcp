@@ -1,4 +1,8 @@
-import type { CharacterPack, CharacterProp, CharacterShape } from "@visual-canvas/video/registry";
+import type {
+  CharacterPack,
+  CharacterProp,
+  CharacterShape,
+} from "@visual-canvas/video/registry";
 import type { EvaluatedRig, Matrix2D } from "./character-runtime.js";
 import { inverseMatrix, transformPoint } from "./character-runtime.js";
 
@@ -14,7 +18,8 @@ export type CharacterFaceState = {
   mouthOpen: number;
 };
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
 const matrixAttribute = (matrix: Matrix2D) => `matrix(${matrix.join(" ")})`;
 
 /** Typed artwork stays data: no pack-specific code, markup injection or URL loading. */
@@ -54,7 +59,13 @@ export function CharacterVectorShape({ shape }: { shape: CharacterShape }) {
   }
 }
 
-function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }) {
+function CharacterArms({
+  pack,
+  rig,
+}: {
+  pack: CharacterPack;
+  rig: EvaluatedRig;
+}) {
   if (!pack.capabilities.arms) return null;
   // Draw in body space to preserve stroke width under scale/squash while the IK
   // result remains in the same world space as every other evaluated node.
@@ -103,7 +114,9 @@ export function CharacterHandsView({
       {(["left", "right"] as const).map((side) => {
         const hand = rig[`${side}Hand`]!.origin;
         const target = pointing[side];
-        const distance = target ? Math.hypot(target.x - hand.x, target.y - hand.y) : 0;
+        const distance = target
+          ? Math.hypot(target.x - hand.x, target.y - hand.y)
+          : 0;
         const fingerLength = pack.style.handRadius * 2.4;
         const tip =
           target && distance > 0
@@ -130,9 +143,17 @@ export function CharacterHandsView({
             <circle
               transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
               r={pack.style.handRadius}
-              fill={pack.style.limbColor}
-              stroke={foreground ? pack.style.eyeColor : undefined}
-              strokeWidth={foreground ? Math.max(2, pack.style.handRadius * 0.25) : undefined}
+              fill={pack.style.handColor ?? pack.style.limbColor}
+              stroke={
+                pack.style.handStroke ??
+                (foreground ? pack.style.eyeColor : undefined)
+              }
+              strokeWidth={
+                pack.style.handStrokeWidth ??
+                (foreground
+                  ? Math.max(2, pack.style.handRadius * 0.25)
+                  : undefined)
+              }
             />
             {tip ? (
               <path
@@ -160,7 +181,14 @@ function CharacterFace({
   rig: EvaluatedRig;
   face: CharacterFaceState;
 }) {
-  const { eyeRadius: radius, eyeSpacing, eyeWhite, eyeColor, mouthColor, mouthWidth } = pack.style;
+  const {
+    eyeRadius: radius,
+    eyeSpacing,
+    eyeWhite,
+    eyeColor,
+    mouthColor,
+    mouthWidth,
+  } = pack.style;
   // Keep pupils inside their eye whites, even if an unusually shaped pack asks
   // for a gaze offset larger than its eye radius.
   const gazeLength = Math.hypot(face.gazeX, face.gazeY);
@@ -175,12 +203,18 @@ function CharacterFace({
   const round = viseme === "o" || viseme === "u";
   const open = mouthOpen > 0.01 && (round || viseme === "a" || viseme === "e");
   const mouthHalfWidth =
-    halfWidth * (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
+    halfWidth *
+    (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
   const mouthHeight =
-    mouthWidth * (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) * mouthOpen;
+    mouthWidth *
+    (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) *
+    mouthOpen;
   return (
     <>
-      <g transform={matrixAttribute(rig.eyes!.matrix)} data-character-part="eyes">
+      <g
+        transform={matrixAttribute(rig.eyes!.matrix)}
+        data-character-part="eyes"
+      >
         {([-1, 1] as const).map((side) => (
           <g key={side} transform={`translate(${(side * eyeSpacing) / 2} 0)`}>
             <g transform={`scale(1 ${eyeOpen})`}>
@@ -208,7 +242,11 @@ function CharacterFace({
         data-viseme={viseme}
       >
         {open ? (
-          <ellipse rx={mouthHalfWidth} ry={Math.max(0.5, mouthHeight)} fill={mouthColor} />
+          <ellipse
+            rx={mouthHalfWidth}
+            ry={Math.max(0.5, mouthHeight)}
+            fill={mouthColor}
+          />
         ) : (
           <path
             d={`M${-halfWidth} 0 Q0 ${clamp(face.mouthCurve, -1, 1) * mouthWidth * 0.55} ${halfWidth} 0`}
