@@ -96,7 +96,6 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   // /w/:slug is a canvas gallery; /w/:slug/assets is an asset library. The
   // rail has one item for each, and the path says which is showing.
   const onWorkspaces = pathname === "/" || /^\/w\/[^/]+$/.test(pathname);
-  const onWorkspaceAssets = /^\/w\/[^/]+\/assets$/.test(pathname);
   const onVideos =
     pathname === "/videos" ||
     /^\/w\/[^/]+\/videos$/.test(pathname) ||
@@ -140,12 +139,7 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
         </NavLink>
-        <NavLink
-          to="/assets"
-          className={({ isActive }) =>
-            sidebarLinkClass({ isActive: isActive || onWorkspaceAssets })
-          }
-        >
+        <NavLink to="/assets" className={sidebarLinkClass}>
           <Images size={16} aria-hidden="true" />
           <span>Shared assets</span>
         </NavLink>

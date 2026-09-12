@@ -58,21 +58,25 @@ describe("Sidebar", () => {
     expect(list).toContainElement(screen.getByRole("link", { name: "Insurance" }));
   });
 
-  /*
-   * /w/:slug is the canvas gallery, reached from Workspaces; /w/:slug/assets
-   * is the library, reached from Shared assets. Standing on either used to leave
-   * the whole rail unlit.
-   */
+  /* /w/:slug is the canvas gallery, while /w/:slug/assets is that workspace's
+   * own library. Shared assets must not also light up for the latter. */
   test.each([
     ["/", "Workspaces"],
     ["/w/insurance", "Workspaces"],
     ["/assets", "Shared assets"],
-    ["/w/insurance/assets", "Shared assets"],
+    ["/w/insurance/assets", "Insurance"],
     ["/videos", "Videos"],
     ["/w/insurance/videos", "Videos"],
     ["/v/project-1", "Videos"],
   ])("marks the rail item that owns %s", (path, active) => {
     renderAt(path);
     expect(screen.getByRole("link", { name: active })).toHaveClass("active");
+  });
+
+  test("does not mark shared assets active inside a workspace library", () => {
+    renderAt("/w/insurance/assets");
+
+    expect(screen.getByRole("link", { name: "Insurance" })).toHaveClass("active");
+    expect(screen.getByRole("link", { name: "Shared assets" })).not.toHaveClass("active");
   });
 });
