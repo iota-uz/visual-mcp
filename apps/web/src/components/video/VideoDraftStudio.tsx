@@ -399,9 +399,7 @@ export function DraftStudio({
           <details
             key={`${mode}-${inspectorDefaultOpen ? "open" : "closed"}`}
             className="video-studio-inspector"
-            ref={(el) => {
-              if (el) el.open = inspectorDefaultOpen;
-            }}
+            {...(inspectorDefaultOpen ? { open: true } : {})}
           >
             <summary>
               <span>Version and render</span>

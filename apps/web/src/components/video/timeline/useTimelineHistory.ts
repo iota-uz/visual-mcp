@@ -14,9 +14,16 @@ export function useTimelineHistory(
   const [, refresh] = useState(0);
 
   useEffect(() => {
-    if (JSON.stringify(document) === lastEmittedSignature.current)
+    const signature = JSON.stringify(document);
+    if (signature === lastEmittedSignature.current) {
       lastEmittedSignature.current = undefined;
-    else if (document !== latestDocument.current) {
+      latestDocument.current = document;
+      return;
+    }
+    if (
+      document !== latestDocument.current &&
+      signature !== JSON.stringify(latestDocument.current)
+    ) {
       history.current = { past: [], future: [] };
       refresh((value) => value + 1);
     }

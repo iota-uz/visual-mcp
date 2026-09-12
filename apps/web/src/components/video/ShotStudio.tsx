@@ -272,9 +272,11 @@ export function ShotStudio({
                     { value: "pull-out", label: "Pull out", description: "Reveal context" },
                   ]}
                 />
-                <label className="video-field">
+                <label className="video-field" htmlFor="shot-constraints">
                   Immutable constraints
                   <textarea
+                    id="shot-constraints"
+                    aria-label="Immutable constraints"
                     readOnly={locked}
                     value={shot.constraints.join("\n")}
                     onChange={(event) =>
