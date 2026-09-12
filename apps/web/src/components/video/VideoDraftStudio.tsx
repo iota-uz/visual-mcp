@@ -215,62 +215,77 @@ export function DraftStudio({
       <div className="video-studio-statusbar" role="status" data-save={saveState}>
         <div className="vs-save-state">
           <span className="vs-save-dot" data-state={saveState} aria-hidden="true" />
-          <Badge tone={unsaved ? "warning" : "success"}>
-            {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Draft saved"}
-          </Badge>
-          <span>{draft.language === "ru" ? "Russian" : "Uzbek"} draft</span>
-        </div>
-        <ol className="video-workflow-readiness" aria-label="Production readiness">
-          <li className={sceneBriefsReady > 0 ? "is-ready" : ""}>
-            <button
-              type="button"
-              aria-label="Open Story to review scene briefs"
-              onClick={() => {
-                if (firstIncompleteScene) {
-                  setSceneId(firstIncompleteScene);
-                  setShotId("");
-                }
-                onMode("story");
-              }}
-            >
-              <CheckCircle2 size={13} aria-hidden="true" />
-              {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
-            </button>
-          </li>
-          <li className={shotsPlanned > 0 ? "is-ready" : ""}>
-            <button
-              type="button"
-              aria-label="Open Shots to plan shots"
-              onClick={() => {
-                setShotId("");
-                onMode("shots");
-              }}
-            >
-              <CheckCircle2 size={13} aria-hidden="true" />
-              {shotsPlanned} planned shots
-            </button>
-          </li>
-          {latestRenderId ? (
-            <li className="is-ready">
-              <button
-                type="button"
-                aria-label="Review the latest render"
-                onClick={() => onOpenRender(latestRenderId)}
-              >
-                <CheckCircle2 size={13} aria-hidden="true" />
-                Render ready
-              </button>
-            </li>
+          {mode === "review" ? (
+            <span>
+              {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Saved"}
+              {" · "}
+              {draft.language === "ru" ? "RU" : "UZ"}
+            </span>
           ) : (
-            <li>
-              <CheckCircle2 size={13} aria-hidden="true" />
-              Render pending
-            </li>
+            <>
+              <Badge tone={unsaved ? "warning" : "success"}>
+                {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Draft saved"}
+              </Badge>
+              <span>{draft.language === "ru" ? "Russian" : "Uzbek"} draft</span>
+            </>
           )}
-        </ol>
-        <span className="vs-kbd-hint" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save · <kbd>{modKey}Z</kbd> undo
-        </span>
+        </div>
+        {mode !== "review" && (
+          <>
+            <ol className="video-workflow-readiness" aria-label="Production readiness">
+              <li className={sceneBriefsReady > 0 ? "is-ready" : ""}>
+                <button
+                  type="button"
+                  aria-label="Open Story to review scene briefs"
+                  onClick={() => {
+                    if (firstIncompleteScene) {
+                      setSceneId(firstIncompleteScene);
+                      setShotId("");
+                    }
+                    onMode("story");
+                  }}
+                >
+                  <CheckCircle2 size={13} aria-hidden="true" />
+                  {sceneBriefsReady}/{script.document.sceneOrder.length} scene briefs
+                </button>
+              </li>
+              <li className={shotsPlanned > 0 ? "is-ready" : ""}>
+                <button
+                  type="button"
+                  aria-label="Open Shots to plan shots"
+                  onClick={() => {
+                    setShotId("");
+                    onMode("shots");
+                  }}
+                >
+                  <CheckCircle2 size={13} aria-hidden="true" />
+                  {shotsPlanned} planned shots
+                </button>
+              </li>
+              {latestRenderId ? (
+                <li className="is-ready">
+                  <button
+                    type="button"
+                    aria-label="Review the latest render"
+                    onClick={() => onOpenRender(latestRenderId)}
+                  >
+                    <CheckCircle2 size={13} aria-hidden="true" />
+                    Render ready
+                  </button>
+                </li>
+              ) : (
+                <li>
+                  <CheckCircle2 size={13} aria-hidden="true" />
+                  Render pending
+                </li>
+              )}
+            </ol>
+            <span className="vs-kbd-hint" aria-hidden="true">
+              <kbd>1</kbd>–<kbd>4</kbd> switch · <kbd>{modKey}S</kbd> save · <kbd>{modKey}Z</kbd>{" "}
+              undo
+            </span>
+          </>
+        )}
         {mode !== "review" && (
           <fieldset className="video-icon-controls" aria-label="Draft edit history">
             <Button

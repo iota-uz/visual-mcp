@@ -140,6 +140,7 @@ test("Review hides draft history and its shortcut cannot silently undo a script 
   });
   fireEvent.click(screen.getByRole("button", { name: "Review" }));
   expect(screen.queryByRole("group", { name: "Draft edit history" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "Production readiness" })).not.toBeInTheDocument();
   fireEvent.keyDown(document.body, { key: "z", metaKey: true });
   fireEvent.click(screen.getByRole("button", { name: "Story" }));
   expect(screen.getByLabelText("Narration")).toHaveValue("Keep this draft edit");

@@ -106,6 +106,9 @@ test("review is a screening room, not an essay with a kicker", async () => {
   expect(screen.getByRole("heading", { name: "Review exact render", hidden: true })).toHaveClass(
     "visually-hidden",
   );
+  expect(screen.getByLabelText("Video preview")).not.toHaveAttribute("controls");
+  expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+  expect(screen.queryByText("What should change?")).not.toBeInTheDocument();
 });
 
 test("successful current and older exports are navigable without implying approval", async () => {
@@ -114,7 +117,6 @@ test("successful current and older exports are navigable without implying approv
   expect(await screen.findByText("Launch cut")).toBeInTheDocument();
   expect(screen.getByText("Current draft · Not approved")).toBeInTheDocument();
   expect(screen.getByText("Older draft · Not approved")).toBeInTheDocument();
-  expect(screen.getByText("Opens the file. Does not approve it.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /Earlier cut/ }));
   expect(onOpenRender).toHaveBeenCalledWith("older");
   expect(state.approve).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { BoxSelect, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { BoxSelect, ChevronLeft, ChevronRight, Pause, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 
@@ -52,7 +52,14 @@ export function VideoPlayer({
   const lastFrame = Math.max(0, asset.frameCount - 1);
   const lastAnchorMs = Math.ceil((lastFrame / fps) * 1000);
   const [frame, setFrame] = useState(0);
+  const [paused, setPaused] = useState(true);
   const drag = useRef<{ x: number; y: number } | null>(null);
+  function togglePlay() {
+    const node = video.current;
+    if (!node || error) return;
+    if (node.paused) void node.play?.().catch(() => {});
+    else node.pause();
+  }
   function seekToFrame(nextFrame: number) {
     const target = Math.max(0, Math.min(lastFrame, nextFrame));
     if (video.current) {
@@ -69,7 +76,18 @@ export function VideoPlayer({
     }
   }, [seekMs, lastAnchorMs]);
   return (
-    <section className="video-player" aria-label="Rendered video">
+    <section
+      className="video-player"
+      aria-label="Rendered video"
+      onKeyDown={(event) => {
+        if (event.key !== " " && event.key !== "k") return;
+        const target = event.target;
+        if (target instanceof HTMLElement && target.closest("textarea, input, select, button, a"))
+          return;
+        event.preventDefault();
+        togglePlay();
+      }}
+    >
       <div className="video-player-stage">
         <div
           className="video-player-frame"
@@ -79,11 +97,13 @@ export function VideoPlayer({
           <video
             key={`${asset.sha256}-${asset.videoUrl}-${attempt}`}
             ref={video}
-            controls
             playsInline
             preload="metadata"
             poster={asset.posterUrl}
             aria-label="Video preview"
+            onClick={() => {
+              if (!annotationMode) togglePlay();
+            }}
             onLoadedData={() => {
               setError(false);
               onLoaded(true);
@@ -103,9 +123,11 @@ export function VideoPlayer({
             }}
             onPlay={() => {
               playback.current.paused = false;
+              setPaused(false);
             }}
             onPause={() => {
               playback.current.paused = true;
+              setPaused(true);
             }}
             onError={() => {
               setError(true);
@@ -136,6 +158,11 @@ export function VideoPlayer({
             )}
             Your browser cannot play this video. Use the download link.
           </video>
+          {paused && !error && !annotationMode && (
+            <span className="video-player-paused" aria-hidden="true">
+              <Play size={40} />
+            </span>
+          )}
           {onRegion && annotationMode && (
             <button
               type="button"
@@ -186,11 +213,19 @@ export function VideoPlayer({
         </div>
       </div>
       <fieldset className="video-player-controls">
-        <legend className="visually-hidden">Frame review controls</legend>
+        <legend className="visually-hidden">Playback and frame review</legend>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={paused ? Play : Pause}
+          aria-label={paused ? "Play" : "Pause"}
+          disabled={error}
+          onClick={togglePlay}
+        />
         <p className="video-player-meta">
           <span>
-            {asset.language.toUpperCase()} · {asset.width}×{asset.height}
-            {asset.partial ? " · Partial preview" : ""}
+            {asset.language.toUpperCase()} · {(asset.videoDurationMs / 1000).toFixed(1)}s
+            {asset.partial ? " · Partial" : ""}
           </span>
           {status && <span>{status}</span>}
         </p>
@@ -202,9 +237,7 @@ export function VideoPlayer({
             aria-label="Previous frame"
             disabled={frame <= 0 || error}
             onClick={() => seekToFrame(frame - 1)}
-          >
-            Previous
-          </Button>
+          />
           <output aria-live="off">
             Frame {frame + 1} / {lastFrame + 1}
             <span>{(frame / fps).toFixed(3)} s</span>
@@ -216,9 +249,7 @@ export function VideoPlayer({
             aria-label="Next frame"
             disabled={frame >= lastFrame || error}
             onClick={() => seekToFrame(frame + 1)}
-          >
-            Next
-          </Button>
+          />
         </div>
         {onRegion && (
           <Button
@@ -235,10 +266,6 @@ export function VideoPlayer({
           Download {asset.partial ? "preview" : "MP4"}
         </a>
       </fieldset>
-      <p className="video-player-technical-summary">
-        Video {(asset.videoDurationMs / 1000).toFixed(3)} s · container{" "}
-        {(asset.containerDurationMs / 1000).toFixed(3)} s · {fps.toFixed(3)} fps
-      </p>
       {error && (
         <div role="alert">
           <p>The video could not load. Your feedback is unchanged.</p>

@@ -2,7 +2,6 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { Badge } from "../Badge";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import { Checkbox } from "../ui/TextInput";
@@ -81,7 +80,7 @@ export function VideoReview({
         This render belongs to another project.
       </p>
     );
-  const durationLabel = `${(metadata.videoDurationMs / 1000).toFixed(1)}s`;
+  const fps = metadata.fps.numerator / metadata.fps.denominator;
   return (
     <section className="video-review" aria-label="Review exact render">
       <h2 ref={heading} tabIndex={-1} className="visually-hidden">
@@ -136,16 +135,8 @@ export function VideoReview({
         <aside className="video-review-notes" aria-label="Approval and feedback">
           <div className="video-approval">
             <h3>Approve</h3>
-            <p className="video-review-status">
-              <Badge tone={metadata.stale ? "warning" : "success"}>
-                {metadata.stale ? "Older candidate" : "Current candidate"}
-              </Badge>
-              <span>
-                {metadata.language.toUpperCase()} · {durationLabel}
-              </span>
-            </p>
             {metadata.approval ? (
-              <Badge tone="success">You approved this exact MP4</Badge>
+              <p className="video-review-status">You approved this exact MP4</p>
             ) : (
               <>
                 <Checkbox
@@ -206,6 +197,12 @@ export function VideoReview({
             summary="Technical details and render provenance"
             className="video-review-technical"
           >
+            <p className="video-hint">
+              {metadata.width}×{metadata.height}
+              <br />
+              Video {(metadata.videoDurationMs / 1000).toFixed(3)} s · container{" "}
+              {(metadata.containerDurationMs / 1000).toFixed(3)} s · {fps.toFixed(3)} fps
+            </p>
             <p className="video-hint">
               Version <code>{metadata.versionId}</code>
               <br />

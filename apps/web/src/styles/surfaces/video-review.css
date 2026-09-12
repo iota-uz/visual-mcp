@@ -9,6 +9,11 @@
   padding: 0;
 }
 
+.video-studio-body-review .video-studio-statusbar {
+  min-height: 40px;
+  background: var(--app-white);
+}
+
 .video-studio-body-review .video-review {
   display: flex;
   flex: 1;
@@ -39,7 +44,7 @@
 
 .video-review-screen .video-player {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
   color: var(--app-white);
@@ -56,6 +61,7 @@
 }
 
 .video-review-screen .video-player-frame {
+  position: relative;
   width: auto;
   height: auto;
   max-width: 100%;
@@ -69,6 +75,24 @@
   height: 100%;
   object-fit: contain;
   background: #000;
+  cursor: pointer;
+}
+
+.video-review-screen .video-player-frame:has(.video-region-draw) video {
+  cursor: crosshair;
+}
+
+.video-player-paused {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--app-white);
+  pointer-events: none;
+}
+
+.video-player-paused svg {
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.55));
 }
 
 .video-player-controls {
@@ -145,14 +169,6 @@
   color: color-mix(in srgb, var(--app-white) 62%, transparent);
   font-size: 10px;
   font-weight: 500;
-}
-
-.video-player-technical-summary {
-  margin: 0;
-  padding: 0 var(--app-space-4) var(--app-space-3);
-  background: color-mix(in srgb, var(--app-well) 92%, var(--app-white));
-  color: color-mix(in srgb, var(--app-white) 55%, transparent);
-  font: 500 10px var(--app-font-mono);
 }
 
 .video-review-screen .video-hint {
@@ -359,13 +375,26 @@
 }
 
 .video-review-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--app-space-2);
   margin: 0;
+  color: var(--app-ink);
+  font-size: var(--app-text-sm);
+  font-weight: 650;
+}
+
+.video-review .badge {
+  font-family: var(--app-font-body);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  border: 1px solid var(--app-line);
+  background: var(--app-paper);
+  padding: 2px 8px;
+}
+
+.video-feedback-anchor {
   color: var(--app-muted);
-  font-size: var(--app-text-xs);
+  font: 500 var(--app-text-xs) var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .video-feedback {

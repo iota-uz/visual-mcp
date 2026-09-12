@@ -169,39 +169,20 @@ function FeedbackEditor({
       <div className="video-feedback-composer">
         <div className="video-feedback-heading">
           <h3>Note</h3>
-          <Button
-            size="sm"
-            disabled={!history.canUndo}
-            onClick={history.undo}
-            title="Undo feedback edit (⌘Z / Ctrl+Z)"
-          >
-            Undo note edit
-          </Button>
-          <Button
-            size="sm"
-            disabled={!history.canRedo}
-            onClick={history.redo}
-            title="Redo feedback edit (⌘⇧Z / Ctrl+Shift+Z)"
-          >
-            Redo note edit
-          </Button>
-          {editor.document.startMs !== undefined ? (
-            <Badge tone="info">At {(editor.document.startMs / 1000).toFixed(2)} s</Badge>
-          ) : (
-            <Badge>Whole video</Badge>
-          )}
+          <span className="video-feedback-anchor">
+            {editor.document.startMs !== undefined
+              ? `At ${(editor.document.startMs / 1000).toFixed(2)} s`
+              : "Whole video"}
+          </span>
         </div>
-        <label className="video-field">
-          What should change?
-          <textarea
-            aria-label="Your feedback"
-            placeholder="Describe the issue and the desired result…"
-            value={editor.document.text}
-            disabled={disabled || pending.current !== null}
-            maxLength={16000}
-            onChange={(event) => editor.edit({ ...editor.document, text: event.target.value })}
-          />
-        </label>
+        <textarea
+          aria-label="Your feedback"
+          placeholder="What should change?"
+          value={editor.document.text}
+          disabled={disabled || pending.current !== null}
+          maxLength={16000}
+          onChange={(event) => editor.edit({ ...editor.document, text: event.target.value })}
+        />
         {time !== undefined && (
           <div className="video-actions video-feedback-anchor-actions">
             <Button
@@ -211,17 +192,24 @@ function FeedbackEditor({
             >
               Use current frame · {(time / 1000).toFixed(2)} s
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={disabled}
-              onClick={() => {
-                const { startMs: _start, endMs: _end, region: _region, ...body } = editor.document;
-                editor.edit(body);
-              }}
-            >
-              Apply to whole video
-            </Button>
+            {editor.document.startMs !== undefined && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => {
+                  const {
+                    startMs: _start,
+                    endMs: _end,
+                    region: _region,
+                    ...body
+                  } = editor.document;
+                  editor.edit(body);
+                }}
+              >
+                Whole video
+              </Button>
+            )}
           </div>
         )}
         {capturedRegion && appliedCapture.current === capturedRegion.id && (
@@ -301,9 +289,11 @@ function FeedbackEditor({
             )}
           </Disclosure>
         )}
-        <p className="video-hint" role="status">
-          Feedback draft: {editor.state}
-        </p>
+        {editor.state === "saving" && (
+          <p className="video-hint" role="status">
+            Saving note…
+          </p>
+        )}
         {editor.error && (
           <div role="alert">
             <p>{editor.error}</p>
@@ -323,15 +313,14 @@ function FeedbackEditor({
             }
             onClick={() => void post()}
           >
-            {alreadyPosted
-              ? "Draft already posted — edit to create another note"
-              : "Post saved comment"}
+            {alreadyPosted ? "Posted — edit to add another" : "Post note"}
           </Button>
           <Button
+            variant="ghost"
             disabled={disabled || pending.current !== null}
             onClick={() => editor.edit({ text: "" })}
           >
-            Clear draft
+            Clear
           </Button>
         </div>
         {message && <p role="status">{message}</p>}

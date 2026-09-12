@@ -1,7 +1,6 @@
 import { useQuery } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
-import { Button } from "../../ui/Button";
 
 export function RenderCandidates({
   workspaceId,
@@ -42,7 +41,6 @@ export function RenderCandidates({
     <nav className="video-candidates" aria-label="Saved render candidates">
       <div className="video-candidates-heading">
         <strong>Exports</strong>
-        <span className="video-candidates-hint">Opens the file. Does not approve it.</span>
       </div>
       <div className="video-candidate-list">
         {renders.map((render) => (

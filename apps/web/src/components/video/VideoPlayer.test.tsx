@@ -61,7 +61,6 @@ test("AAC container padding cannot invent frames or out-of-video anchors", () =>
   fireEvent.timeUpdate(video, { target: { currentTime: 2.048 } });
   expect(screen.getByText(/Frame 60 \/ 60/)).toBeInTheDocument();
   expect(onTime).toHaveBeenLastCalledWith(1967);
-  expect(screen.getByText(/Video 2.000 s · container 2.048 s/)).toBeInTheDocument();
 });
 test("region drawing is an explicit mode and the exact-frame controls seek predictably", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
