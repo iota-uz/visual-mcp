@@ -414,7 +414,11 @@ function SceneReadiness({ scene }: { scene: ScriptDocument["scenesById"][string]
   const readiness = sceneReadiness(scene);
   return (
     <span className={`video-scene-readiness${readiness.ready ? " is-ready" : ""}`}>
-      {readiness.ready ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+      {readiness.ready ? (
+        <CheckCircle2 size={14} aria-hidden="true" />
+      ) : (
+        <Circle size={14} aria-hidden="true" />
+      )}
       {readiness.complete}/3 brief fields
     </span>
   );

@@ -104,7 +104,7 @@ export function HumanLoopPanel({
     <section className="video-human-loop" aria-label="Human improvement loop controls">
       <div className="video-section-heading">
         <div>
-          <h2>Agent improvement · {language.toUpperCase()}</h2>
+          <h2>Improvement loop · {language.toUpperCase()}</h2>
           <p className="video-hint">
             The agent can iterate on candidates, but only you can approve an exact export.
           </p>

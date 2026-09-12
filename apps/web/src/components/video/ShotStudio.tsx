@@ -186,9 +186,9 @@ export function ShotStudio({
                         <small>{productionMethod(item?.method)}</small>
                       </span>
                       {ready ? (
-                        <CheckCircle2 size={14} aria-label="Shot plan ready" />
+                        <CheckCircle2 size={14} aria-hidden="true" />
                       ) : (
-                        <Circle size={14} aria-label="Shot plan incomplete" />
+                        <Circle size={14} aria-hidden="true" />
                       )}
                     </button>
                   );
