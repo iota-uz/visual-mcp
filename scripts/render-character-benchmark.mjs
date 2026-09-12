@@ -48,7 +48,7 @@ const inputProps = {
             durationFrames: scenario.totalFrames,
             source: {
               kind: "component",
-              component: { resourceId: "video/component/character-scene", revisionId: "3" },
+              component: { resourceId: "video/component/character-scene", revisionId: "4" },
               props: scenario.props,
             },
           },
@@ -75,6 +75,7 @@ const composition = await selectComposition({
 });
 
 await renderMedia({
+  imageFormat: "png",
   composition,
   serveUrl,
   inputProps,

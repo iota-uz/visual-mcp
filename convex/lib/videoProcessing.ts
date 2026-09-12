@@ -43,18 +43,14 @@ export async function processMedia(
   ];
   const names =
     operation.kind === "compare"
-      ? [
-          "contactsheet",
-          ...operation.timesMs.flatMap((_, i) => [
-            `frame-a-${i}`,
-            `frame-b-${i}`,
-          ]),
-        ]
+      ? ["contactsheet", ...operation.timesMs.flatMap((_, i) => [`frame-a-${i}`, `frame-b-${i}`])]
       : operation.kind === "frames"
         ? ["contactsheet", ...operation.timesMs.map((_, i) => `frame-${i}`)]
         : operation.kind === "audio_mix"
           ? ["audio", "report"]
-          : [operation.kind === "proxy" ? "proxy" : "report"];
+          : operation.kind === "waveform"
+            ? ["waveform", "report"]
+            : [operation.kind === "proxy" ? "proxy" : "report"];
   const keys: Record<string, string> = {},
     outputs: Record<string, { url: string; method: "PUT" }> = {};
   for (const name of names) {
@@ -117,17 +113,11 @@ export async function processMedia(
   const failure = response.ok ? null : MediaProcessFailure.safeParse(payload);
   if (!response.ok && (!failure?.success || !failure.data.error.result))
     throw new ConvexError({
-      code: failure?.success
-        ? failure.data.error.code
-        : "WORKER_RESPONSE_INVALID",
+      code: failure?.success ? failure.data.error.code : "WORKER_RESPONSE_INVALID",
       effect: failure?.success ? failure.data.error.effect : "unknown",
     });
   const result = MediaProcessResult.parse(
-    response.ok
-      ? payload
-      : failure?.success
-        ? failure.data.error.result
-        : undefined,
+    response.ok ? payload : failure?.success ? failure.data.error.result : undefined,
   );
   if (
     result.jobId !== job._id ||
@@ -168,9 +158,7 @@ export async function processMedia(
   });
   if (!response.ok)
     throw new ConvexError({
-      code: failure?.success
-        ? failure.data.error.code
-        : "RESULT_PERSISTENCE_FAILED",
+      code: failure?.success ? failure.data.error.code : "RESULT_PERSISTENCE_FAILED",
       effect: failure?.success ? failure.data.error.effect : "partial",
     });
   const registered = [];
@@ -178,10 +166,7 @@ export async function processMedia(
     const objectKey = keys[output.name];
     if (!objectKey) throw new Error("Media output reservation missing");
     const head = await headObject(objectKey);
-    if (
-      !head.ok ||
-      Number(head.headers.get("content-length")) !== output.sizeBytes
-    )
+    if (!head.ok || Number(head.headers.get("content-length")) !== output.sizeBytes)
       throw new Error("Media output not persisted");
     const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
       scope: "workspace",

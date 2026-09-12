@@ -229,7 +229,7 @@ export const ComponentSource = z
     if (
       !definition ||
       source.component.revisionId !==
-        (source.component.resourceId === "video/component/character-scene" ? "3" : "1")
+        (source.component.resourceId === "video/component/character-scene" ? "4" : "1")
     ) {
       ctx.addIssue({
         code: "custom",
@@ -291,7 +291,7 @@ export const Effect = z
   });
 export const componentResources = Object.entries(definitions).map(([resourceId, definition]) => ({
   resourceId,
-  revisionId: resourceId === "video/component/character-scene" ? "3" : "1",
+  revisionId: resourceId === "video/component/character-scene" ? "4" : "1",
   kind: "component" as const,
   description: definition.description,
   schema: z.toJSONSchema(definition.schema),

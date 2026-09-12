@@ -1,8 +1,7 @@
 import type { CharacterSceneProps } from "@visual-canvas/video/registry";
 import React, { type ReactNode } from "react";
 
-const WIDTH = 1080;
-const HEIGHT = 1920;
+const size = (props: CharacterSceneProps) => props.stage;
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const smooth = (value: number) => {
@@ -26,13 +25,14 @@ function actorWorldBounds(
   const actor = props.actorsById[actorId];
   const pack = actor && props.characterPacksById[actor.characterPackId];
   if (!actor || !pack) return undefined;
+  const { width, height } = size(props);
   const halfWidth = (pack.viewBox.width * actor.scale) / 2;
   const halfHeight = (pack.viewBox.height * actor.scale) / 2;
   return {
-    left: actor.x * WIDTH - halfWidth,
-    right: actor.x * WIDTH + halfWidth,
-    top: actor.y * HEIGHT - halfHeight,
-    bottom: actor.y * HEIGHT + halfHeight,
+    left: actor.x * width - halfWidth,
+    right: actor.x * width + halfWidth,
+    top: actor.y * height - halfHeight,
+    bottom: actor.y * height + halfHeight,
   };
 }
 
@@ -49,6 +49,7 @@ function layoutTarget(
   props: CharacterSceneProps,
   focus?: { productWorldPoint?: { x: number; y: number } },
 ) {
+  const { width: WIDTH, height: HEIGHT } = size(props);
   const staging = props.staging;
   const actor = staging.focalActorId ? props.actorsById[staging.focalActorId] : undefined;
   const product = staging.productPropId ? props.propsById[staging.productPropId] : undefined;
@@ -136,10 +137,11 @@ function layoutTarget(
 export function presentationScreenToWorld(
   camera: PresentationCamera,
   point: { x: number; y: number },
+  stage: CharacterSceneProps["stage"],
 ) {
   return {
-    x: camera.targetX + (point.x - WIDTH / 2) / camera.scale,
-    y: camera.targetY + (point.y - HEIGHT / 2) / camera.scale,
+    x: camera.targetX + (point.x - stage.width / 2) / camera.scale,
+    y: camera.targetY + (point.y - stage.height / 2) / camera.scale,
   };
 }
 
@@ -148,7 +150,12 @@ export function evaluatePresentationCamera(
   props: CharacterSceneProps,
   frame: number,
   focus?: { productWorldPoint?: { x: number; y: number } },
+  resolveTarget?: (
+    target: CharacterSceneProps["cameraSequence"][number]["target"],
+    atFrame: number,
+  ) => { x: number; y: number } | undefined,
 ): PresentationCamera {
+  const { width: WIDTH, height: HEIGHT } = size(props);
   const camera = props.camera;
   const base = layoutTarget(props, focus);
   const raw = (frame - camera.startFrame) / camera.durationFrames;
@@ -179,6 +186,54 @@ export function evaluatePresentationCamera(
     targetY = HEIGHT / 2;
     scale = 1;
   }
+  for (const shot of props.cameraSequence) {
+    if (frame < shot.startFrame) break;
+    const shotEnd = shot.startFrame + shot.durationFrames;
+    const active = frame < shotEnd;
+    const sampleFrame = active ? frame : shotEnd - 1;
+    const local = clamp((sampleFrame - shot.startFrame) / Math.max(1, shot.durationFrames - 1));
+    const resolved = shot.target ? resolveTarget?.(shot.target, sampleFrame) : undefined;
+    const target =
+      shot.target?.kind === "actor" ? actorWorldBounds(props, shot.target.actorId) : undefined;
+    const authoredX =
+      shot.x === undefined
+        ? resolved
+          ? resolved.x / WIDTH
+          : target
+            ? (target.left + target.right) / 2 / WIDTH
+            : shot.type === "hold"
+              ? targetX / WIDTH
+              : 0.5
+        : shot.x;
+    const authoredY =
+      shot.y === undefined
+        ? resolved
+          ? resolved.y / HEIGHT
+          : target
+            ? (target.top + target.bottom) / 2 / HEIGHT
+            : shot.type === "hold"
+              ? targetY / HEIGHT
+              : 0.5
+        : shot.y;
+    const destinationScale =
+      shot.zoom ??
+      (shot.type === "push"
+        ? 1 + 0.6 * shot.intensity
+        : shot.type === "pull"
+          ? Math.max(0.5, 1 - 0.35 * shot.intensity)
+          : scale);
+    const p = shot.type === "cut" || shot.type === "hold" ? 1 : smooth(local);
+    if (shot.type !== "shake") {
+      targetX += (authoredX * WIDTH - targetX) * p;
+      targetY += (authoredY * HEIGHT - targetY) * p;
+      scale += (destinationScale - scale) * p;
+    } else if (active) {
+      const seed = shot.seed ?? props.seed;
+      targetX += Math.sin((sampleFrame + (seed % 97)) * 2.399) * WIDTH * 0.018 * shot.intensity;
+      targetY += Math.cos((sampleFrame + (seed % 89)) * 2.177) * HEIGHT * 0.012 * shot.intensity;
+    }
+    if (active) break;
+  }
   const tx = WIDTH / 2 - targetX * scale;
   const ty = HEIGHT / 2 - targetY * scale;
   return {
@@ -207,7 +262,14 @@ export function CameraWorld({
   );
 }
 
-function LayerShape({ layer }: { layer: Environment["layers"][number] }) {
+function LayerShape({
+  layer,
+  stage,
+}: {
+  layer: Environment["layers"][number];
+  stage: CharacterSceneProps["stage"];
+}) {
+  const { width: WIDTH, height: HEIGHT } = stage;
   const x = layer.x * WIDTH;
   const y = layer.y * HEIGHT;
   const width = layer.width * WIDTH;
@@ -233,7 +295,14 @@ function LayerShape({ layer }: { layer: Environment["layers"][number] }) {
   );
 }
 
-export function EnvironmentBase({ environment }: { environment: Environment }) {
+export function EnvironmentBase({
+  environment,
+  stage,
+}: {
+  environment: Environment;
+  stage: CharacterSceneProps["stage"];
+}) {
+  const { width: WIDTH, height: HEIGHT } = stage;
   return (
     <g data-presentation="environment-base">
       <rect width={WIDTH} height={HEIGHT} fill={environment.background} />
@@ -259,11 +328,14 @@ export function EnvironmentPlane({
   environment,
   plane,
   camera,
+  stage,
 }: {
   environment: Environment;
   plane: Plane;
   camera: PresentationCamera;
+  stage: CharacterSceneProps["stage"];
 }) {
+  const { width: WIDTH, height: HEIGHT } = stage;
   // Counter-translate inside CameraWorld: parallax=0 stays screen-still,
   // parallax=1 follows the subject/world camera displacement in full.
   const travelX = camera.targetX - WIDTH / 2;
@@ -278,7 +350,7 @@ export function EnvironmentPlane({
             opacity={layer.opacity}
             transform={`translate(${travelX * (1 - layer.parallax)} ${travelY * (1 - layer.parallax)})`}
           >
-            <LayerShape layer={layer} />
+            <LayerShape layer={layer} stage={stage} />
           </g>
         ))}
     </g>
@@ -314,7 +386,16 @@ function overlayLines(text: string, maxLines = 3) {
 }
 
 /** Screen-space advertising typography; place outside CameraWorld. */
-export function AdvertisingOverlay({ overlay, frame }: { overlay: Overlay; frame: number }) {
+export function AdvertisingOverlay({
+  overlay,
+  frame,
+  stage,
+}: {
+  overlay: Overlay;
+  frame: number;
+  stage: CharacterSceneProps["stage"];
+}) {
+  const { width: WIDTH, height: HEIGHT } = stage;
   if (frame < overlay.startFrame || frame >= overlay.endFrame) return null;
   const enter = smooth((frame - overlay.startFrame) / 10);
   const exit = smooth((overlay.endFrame - frame) / 8);

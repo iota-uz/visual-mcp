@@ -74,6 +74,16 @@ export const MediaOperation = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
+      kind: z.literal("waveform"),
+      startMs: z.number().int().nonnegative().max(599999).default(0),
+      durationMs: z.number().int().positive().max(600000),
+      width: z.number().int().min(320).max(1920),
+      height: z.number().int().min(64).max(512),
+      channel: z.enum(["mixed", "left", "right"]).default("mixed"),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal("proxy"),
       maxWidth: z.number().int().min(64).max(1080),
       fps: z.number().min(0.1).max(30),
@@ -173,7 +183,9 @@ export const MediaProcessRequest = z
           ? ["contactsheet", ...value.operation.timesMs.map((_, i) => `frame-${i}`)]
           : value.operation.kind === "audio_mix"
             ? ["audio", "report"]
-            : [value.operation.kind === "proxy" ? "proxy" : "report"];
+            : value.operation.kind === "waveform"
+              ? ["waveform", "report"]
+              : [value.operation.kind === "proxy" ? "proxy" : "report"];
     if (
       Object.keys(value.outputs).length !== required.length ||
       required.some((name) => !value.outputs[name])
@@ -195,7 +207,7 @@ export const MediaProcessResult = z
   .object({
     jobId: z.string(),
     fence: z.number().int().positive(),
-    kind: z.enum(["frames", "compare", "proxy", "qa", "audio_mix"]),
+    kind: z.enum(["frames", "compare", "proxy", "qa", "audio_mix", "waveform"]),
     source: AssetRef,
     sourceSha256: Hash,
     sources: z
@@ -221,7 +233,7 @@ export const MediaProcessResult = z
     checks: z.array(Check),
     sampling: z
       .object({
-        mode: z.enum(["exact_requested_frames", "proxy", "full_decode", "audio_mix"]),
+        mode: z.enum(["exact_requested_frames", "proxy", "full_decode", "audio_mix", "waveform"]),
         fps: z.number().positive().optional(),
         range: z.object({ startMs: z.number(), endMs: z.number() }).strict(),
         limitation: z.string(),

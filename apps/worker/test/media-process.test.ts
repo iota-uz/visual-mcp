@@ -54,7 +54,17 @@ test("typed frames/proxy/QA create actual pinned-byte artifacts offline", async 
     "-f",
     "lavfi",
     "-i",
-    "sine=frequency=440:sample_rate=48000:duration=2",
+    "sine=frequency=440:sample_rate=48000:duration=1",
+    "-f",
+    "lavfi",
+    "-i",
+    "anullsrc=channel_layout=mono:sample_rate=48000:duration=1",
+    "-filter_complex",
+    "[1:a][2:a]concat=n=2:v=0:a=1[a]",
+    "-map",
+    "0:v:0",
+    "-map",
+    "[a]",
     "-c:v",
     "libx264",
     "-threads",
@@ -175,6 +185,71 @@ test("typed frames/proxy/QA create actual pinned-byte artifacts offline", async 
     const report = JSON.parse(saved.get("/report")!.toString());
     assert.ok(Number.isFinite(report.measurements.peakDb));
     assert.equal(report.outcome, "inconclusive");
+    const waveform = await handleMediaProcess({
+      ...common,
+      operation: {
+        kind: "waveform",
+        startMs: 250,
+        durationMs: 1000,
+        width: 640,
+        height: 160,
+        channel: "mixed",
+      },
+      outputs: {
+        waveform: { url: `${base}/waveform`, method: "PUT" },
+        report: { url: `${base}/waveform-report`, method: "PUT" },
+      },
+    });
+    assert.equal(waveform.kind, "waveform");
+    assert.deepEqual(waveform.sampling.range, { startMs: 250, endMs: 1250 });
+    assert.equal(waveform.outputs.find((output) => output.name === "waveform")?.width, 640);
+    assert.ok(
+      saved
+        .get("/waveform")!
+        .subarray(0, 8)
+        .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+    );
+    const waveformReport = JSON.parse(saved.get("/waveform-report")!.toString());
+    assert.equal(waveformReport.channel, "mixed");
+    assert.deepEqual(waveformReport.coverage, { startMs: 250, endMs: 1250 });
+    assert.equal(waveformReport.rendering.decoder, "ffmpeg");
+    const silenceWaveform = await handleMediaProcess({
+      ...common,
+      operation: {
+        kind: "waveform",
+        startMs: 1000,
+        durationMs: 750,
+        width: 640,
+        height: 160,
+        channel: "mixed",
+      },
+      outputs: {
+        waveform: { url: `${base}/silence-waveform`, method: "PUT" },
+        report: { url: `${base}/silence-waveform-report`, method: "PUT" },
+      },
+    });
+    assert.notEqual(
+      silenceWaveform.outputs.find((output) => output.name === "waveform")?.sha256,
+      waveform.outputs.find((output) => output.name === "waveform")?.sha256,
+    );
+    await assert.rejects(
+      handleMediaProcess({
+        ...common,
+        operation: {
+          kind: "waveform",
+          startMs: 1500,
+          durationMs: 1000,
+          width: 640,
+          height: 160,
+          channel: "mixed",
+        },
+        outputs: {
+          waveform: { url: `${base}/unused-waveform`, method: "PUT" },
+          report: { url: `${base}/unused-waveform-report`, method: "PUT" },
+        },
+      }),
+      (error) => error instanceof MediaProcessError && error.code === "WAVEFORM_RANGE_OUT_OF_RANGE",
+    );
     const mix = await handleMediaProcess({
       ...common,
       operation: {

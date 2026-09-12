@@ -127,6 +127,12 @@ const face: CharacterFaceState = {
   eyeOpen: 0.6,
   browTilt: 0.2,
   mouthCurve: 0.4,
+  expressionMouthOpen: 0,
+  browPinch: 0,
+  cheekLift: 0,
+  eyeScaleY: 1,
+  mouthWidthScale: 1,
+  mouthCurveScale: 1,
   viseme: "rest",
   mouthOpen: 0,
 };
@@ -150,7 +156,10 @@ test("a previously unknown pack renders all declared artwork at evaluated nodes 
   assert.match(markup, /fill="#112233"/);
   assert.match(markup, /d="M0 -50 L0 -80"/);
   assert.match(markup, /data-arm="right" d="M50 -30 L80 5 L90 45"/);
-  assert.match(markup, /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/);
+  assert.match(
+    markup,
+    /data-hand="right" opacity="1"><circle transform="matrix\(2 0 0 2 430 590\)"/,
+  );
   assert.match(markup, /scale\(1 0.6\)/);
   assert.match(markup, /cx="4" cy="-2"/);
 });
@@ -165,7 +174,7 @@ test("a pack may style procedural gloves independently from its limbs", () => {
   );
   assert.match(
     markup,
-    /data-hand="right"><circle[^>]+fill="#ffffff" stroke="#050505" stroke-width="4"/,
+    /data-hand="right" opacity="1"><circle[^>]+fill="#ffffff" stroke="#050505" stroke-width="4"/,
   );
 });
 

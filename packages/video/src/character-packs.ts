@@ -5,14 +5,62 @@ const expressions = {
   happy: { browTilt: 0.2, mouthCurve: 0.9, eyeOpen: 0.9 },
   shocked: { browTilt: 0.8, mouthCurve: 0, eyeOpen: 1.3 },
   thinking: { browTilt: -0.35, mouthCurve: -0.1, eyeOpen: 0.85 },
+  sad: { browTilt: -0.7, mouthCurve: -0.8, eyeOpen: 0.7 },
+  worried: { browTilt: 0.65, mouthCurve: -0.45, eyeOpen: 1.1 },
+  angry: { browTilt: -0.9, mouthCurve: -0.55, eyeOpen: 0.72 },
+  confused: { browTilt: -0.45, mouthCurve: -0.2, eyeOpen: 1.05 },
+  skeptical: { browTilt: -0.75, mouthCurve: -0.12, eyeOpen: 0.62 },
+  excited: { browTilt: 0.55, mouthCurve: 1, eyeOpen: 1.22 },
+  confident: { browTilt: -0.1, mouthCurve: 0.62, eyeOpen: 0.86 },
+  proud: { browTilt: 0.12, mouthCurve: 0.7, eyeOpen: 0.78 },
+  relieved: { browTilt: 0.35, mouthCurve: 0.48, eyeOpen: 0.55 },
+  determined: { browTilt: -0.65, mouthCurve: 0.22, eyeOpen: 0.82 },
 };
 const capabilities = {
   arms: true,
   gaze: true,
   blink: true,
   talk: true,
-  emotions: ["neutral", "happy", "shocked", "thinking"],
-  gestures: ["point", "explain", "shrug", "think"],
+  emotions: [
+    "neutral",
+    "happy",
+    "shocked",
+    "thinking",
+    "sad",
+    "worried",
+    "angry",
+    "confused",
+    "skeptical",
+    "excited",
+    "confident",
+    "proud",
+    "relieved",
+    "determined",
+  ],
+  gestures: [
+    "point",
+    "explain",
+    "shrug",
+    "think",
+    "wave",
+    "nod",
+    "shake",
+    "agree",
+    "disagree",
+    "celebrate",
+    "applaud",
+    "greet",
+    "present",
+    "beckon",
+    "dismiss",
+    "surprised",
+    "facepalm",
+    "hands-on-hips",
+    "thumbs-up",
+    "thumbs-down",
+    "count",
+    "emphasize",
+  ],
 };
 const motion = {
   breathingAmplitude: 2,
@@ -27,8 +75,7 @@ const motion = {
 const officialSource = {
   assetRef: "asset://shared/farq-official-layered-mascot@1",
   revisionId: "md7chc5vz33an9cd4jw8nm2bg98e9xfd",
-  contentHash:
-    "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
+  contentHash: "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
   mimeType: "image/svg+xml" as const,
 };
 const officialScale = 0.28,
@@ -50,8 +97,7 @@ function officialPath(d: string, node = { x: 0, y: 0 }) {
       const value = Number(token),
         isX = coordinate++ % 2 === 0,
         transformed =
-          (value - (isX ? officialCenter.x : officialCenter.y)) *
-            officialScale -
+          (value - (isX ? officialCenter.x : officialCenter.y)) * officialScale -
           (isX ? node.x : node.y);
       return Number(transformed.toFixed(3)).toString();
     })
@@ -101,9 +147,7 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
       {
         id: "shadow",
         node: "root",
-        shapes: [
-          { kind: "ellipse", x: 0, y: 133, rx: 115, ry: 20, fill: "#00000040" },
-        ],
+        shapes: [{ kind: "ellipse", x: 0, y: 133, rx: 115, ry: 20, fill: "#00000040" }],
       },
       {
         id: "mark",
@@ -576,9 +620,7 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
       {
         id: "shadow",
         node: "root",
-        shapes: [
-          { kind: "ellipse", x: 0, y: 148, rx: 100, ry: 18, fill: "#00000040" },
-        ],
+        shapes: [{ kind: "ellipse", x: 0, y: 148, rx: 100, ry: 18, fill: "#00000040" }],
       },
       {
         id: "shirt",
@@ -663,6 +705,103 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
       blinkIntervalFrames: 145,
       swayDegrees: 0.7,
       headTurnDegrees: 12,
+    },
+  }),
+  "customer-energetic": CharacterPack.parse({
+    version: 1,
+    id: "customer-energetic",
+    label: "Energetic customer",
+    viewBox: { width: 330, height: 390 },
+    rig: {
+      root: { x: 0, y: 0 },
+      body: { x: 0, y: 28 },
+      head: { x: 4, y: -72 },
+      eyes: { x: 4, y: -83 },
+      mouth: { x: 4, y: -39 },
+      leftShoulder: { x: -52, y: 16 },
+      leftElbow: { x: -92, y: 64 },
+      leftHand: { x: -104, y: 118 },
+      rightShoulder: { x: 52, y: 16 },
+      rightElbow: { x: 92, y: 64 },
+      rightHand: { x: 104, y: 118 },
+    },
+    capabilities,
+    layers: [
+      {
+        id: "shadow",
+        node: "root",
+        shapes: [{ kind: "ellipse", x: 0, y: 145, rx: 86, ry: 15, fill: "#00000038" }],
+      },
+      {
+        id: "jacket",
+        node: "body",
+        shapes: [
+          {
+            kind: "path",
+            d: "M-62 -30 Q-82 18 -58 104 L58 104 Q82 18 62 -30 L24 -48 L0 -10 L-24 -48 Z",
+            fill: "#7c3aed",
+            stroke: "#2e1065",
+            strokeWidth: 7,
+          },
+        ],
+      },
+      {
+        id: "shirt",
+        node: "body",
+        shapes: [{ kind: "path", d: "M-24 -45 L0 -10 L24 -45 L16 70 L-16 70 Z", fill: "#fef3c7" }],
+      },
+      {
+        id: "legs",
+        node: "root",
+        shapes: [
+          { kind: "rect", x: -42, y: 112, width: 28, height: 42, radius: 9, fill: "#1e293b" },
+          { kind: "rect", x: 14, y: 112, width: 28, height: 42, radius: 9, fill: "#1e293b" },
+        ],
+      },
+      {
+        id: "face",
+        node: "head",
+        shapes: [
+          {
+            kind: "ellipse",
+            x: 0,
+            y: 0,
+            rx: 70,
+            ry: 78,
+            fill: "#8d5524",
+            stroke: "#24120b",
+            strokeWidth: 8,
+          },
+          {
+            kind: "path",
+            d: "M-70 -15 Q-68 -94 8 -88 Q75 -82 70 -5 Q42 -38 5 -32 Q-36 -28 -70 -15 Z",
+            fill: "#17100d",
+          },
+          { kind: "ellipse", x: -66, y: 2, rx: 9, ry: 18, fill: "#8d5524" },
+          { kind: "ellipse", x: 66, y: 2, rx: 9, ry: 18, fill: "#8d5524" },
+        ],
+      },
+    ],
+    style: {
+      limbColor: "#8d5524",
+      limbWidth: 18,
+      handRadius: 11,
+      eyeColor: "#17100d",
+      eyeWhite: "#ffffff",
+      eyeRadius: 20,
+      eyeSpacing: 54,
+      mouthColor: "#24120b",
+      mouthWidth: 42,
+    },
+    expressions,
+    motion: {
+      ...motion,
+      breathingAmplitude: 2.4,
+      breathingPeriodFrames: 76,
+      blinkIntervalFrames: 118,
+      swayDegrees: 1.8,
+      gazeLimit: 11,
+      headTurnDegrees: 15,
     },
   }),
 };

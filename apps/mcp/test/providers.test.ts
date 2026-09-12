@@ -175,6 +175,36 @@ test("media operations retain pinned additional inputs and actual measurement ki
     request: { kind: "media", operation: { kind: "frames", timesMs: [0, 1000] } },
   });
 });
+test("get_waveform submits a bounded pinned-asset decode operation", async () => {
+  const f = fixture();
+  const result = await f.rpc("/mcp", "tools/call", {
+    name: "get_waveform",
+    arguments: {
+      workspace_id: "workspace",
+      idempotency_key: "waveform-key",
+      asset: { assetId: "asset", revisionId: "revision" },
+      operation: {
+        kind: "waveform",
+        startMs: 500,
+        durationMs: 2500,
+        width: 960,
+        height: 192,
+        channel: "mixed",
+      },
+    },
+  });
+  expect(result.result.structuredContent).toMatchObject({
+    ok: true,
+    data: { operation: { tool: "media" } },
+  });
+  expect(f.call.mock.calls[0]?.[1].input).toMatchObject({
+    request: {
+      kind: "media",
+      asset: { assetId: "asset", revisionId: "revision" },
+      operation: { kind: "waveform", startMs: 500, durationMs: 2500, channel: "mixed" },
+    },
+  });
+});
 test("gateway preserves nested backend JSON pointers and partial effects", async () => {
   const backend = videoBackend(
     {

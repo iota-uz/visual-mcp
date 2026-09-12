@@ -12,8 +12,46 @@ export const VideoTimebase = z
     denominator: z.number().int().min(1).max(1001),
   })
   .strict();
-export const CharacterEmotion = z.enum(["neutral", "happy", "shocked", "thinking"]);
-export const CharacterGesture = z.enum(["point", "explain", "shrug", "think"]);
+export const CharacterEmotion = z.enum([
+  "neutral",
+  "happy",
+  "shocked",
+  "thinking",
+  "sad",
+  "worried",
+  "angry",
+  "confused",
+  "skeptical",
+  "excited",
+  "confident",
+  "proud",
+  "relieved",
+  "determined",
+]);
+export const CharacterGesture = z.enum([
+  "point",
+  "explain",
+  "shrug",
+  "think",
+  "wave",
+  "nod",
+  "shake",
+  "agree",
+  "disagree",
+  "celebrate",
+  "applaud",
+  "greet",
+  "present",
+  "beckon",
+  "dismiss",
+  "surprised",
+  "facepalm",
+  "hands-on-hips",
+  "thumbs-up",
+  "thumbs-down",
+  "count",
+  "emphasize",
+]);
 export const CharacterChannel = z.enum([
   "transform",
   "body",
@@ -31,7 +69,7 @@ export const RigPoint = z
     y: z.number().min(-2000).max(2000),
   })
   .strict();
-const RigNode = z.enum([
+export const RigNode = z.enum([
   "root",
   "body",
   "head",
@@ -44,6 +82,42 @@ const RigNode = z.enum([
   "rightElbow",
   "rightHand",
 ]);
+export const CharacterAnimationProperty = z.enum([
+  "x",
+  "y",
+  "rotation",
+  "scaleX",
+  "scaleY",
+  "opacity",
+]);
+export const CharacterAnimationKeyframe = z
+  .object({
+    frame: Frame,
+    value: z.number().finite().min(-10000).max(10000),
+    easing: z.enum(["linear", "smooth", "step"]).default("smooth"),
+  })
+  .strict();
+export const CharacterAnimationTrack = z
+  .object({
+    node: RigNode,
+    property: CharacterAnimationProperty,
+    mode: z.enum(["override", "additive"]).default("override"),
+    keyframes: z.array(CharacterAnimationKeyframe).min(1).max(64),
+  })
+  .strict()
+  .superRefine((track, ctx) => {
+    for (let index = 1; index < track.keyframes.length; index++)
+      if (track.keyframes[index]!.frame <= track.keyframes[index - 1]!.frame)
+        ctx.addIssue({
+          code: "custom",
+          path: ["keyframes", index, "frame"],
+          message: "Keyframe frames must strictly increase",
+        });
+  });
+export type RigNode = z.infer<typeof RigNode>;
+export type CharacterAnimationProperty = z.infer<typeof CharacterAnimationProperty>;
+export type CharacterAnimationKeyframe = z.infer<typeof CharacterAnimationKeyframe>;
+export type CharacterAnimationTrack = z.infer<typeof CharacterAnimationTrack>;
 
 /** Artwork is declarative vector data; no markup, scripts, URLs or executable expressions. */
 export const CharacterShape = z.discriminatedUnion("kind", [
@@ -129,8 +203,8 @@ export const CharacterPack = z
         gaze: z.boolean(),
         blink: z.boolean(),
         talk: z.boolean(),
-        emotions: z.array(CharacterEmotion).min(1).max(4),
-        gestures: z.array(CharacterGesture).max(4),
+        emotions: z.array(CharacterEmotion).min(1).max(14),
+        gestures: z.array(CharacterGesture).max(22),
       })
       .strict(),
     layers: z
@@ -255,6 +329,42 @@ export const CharacterAction = z.discriminatedUnion("type", [
       from: z.enum(["left", "right"]),
     })
     .strict(),
+  z.object({ type: z.literal("exit"), ...ActionBase, to: z.enum(["left", "right"]) }).strict(),
+  z
+    .object({
+      type: z.literal("move"),
+      ...ActionBase,
+      to: z.object({ x: Unit, y: Unit }).strict(),
+      style: z.enum(["move", "bounce"]).default("move"),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("animate"),
+      ...ActionBase,
+      tracks: z.array(CharacterAnimationTrack).min(1).max(32),
+    })
+    .strict()
+    .superRefine((action, ctx) => {
+      const owners = new Set<string>();
+      for (const [index, track] of action.tracks.entries()) {
+        const owner = `${track.node}.${track.property}`;
+        if (owners.has(owner))
+          ctx.addIssue({
+            code: "custom",
+            path: ["tracks", index],
+            message: "Animate tracks must uniquely own node/property",
+          });
+        owners.add(owner);
+        for (const [keyframeIndex, keyframe] of track.keyframes.entries())
+          if (keyframe.frame >= action.durationFrames)
+            ctx.addIssue({
+              code: "custom",
+              path: ["tracks", index, "keyframes", keyframeIndex, "frame"],
+              message: "Keyframe must be local to and inside the action",
+            });
+      }
+    }),
   z.object({ type: z.literal("look"), ...ActionBase, target: CharacterTarget }).strict(),
   z.object({ type: z.literal("blink"), ...ActionBase }).strict(),
   z
@@ -341,7 +451,24 @@ export function characterActionChannels(action: CharacterAction): CharacterChann
   let channels: CharacterChannel[];
   switch (action.type) {
     case "enter":
+    case "exit":
+    case "move":
       channels = ["transform"];
+      break;
+    case "animate":
+      channels = [
+        ...new Set(
+          action.tracks.map((track) => {
+            if (track.node === "root") return "transform";
+            if (track.node.startsWith("left")) return "leftArm";
+            if (track.node.startsWith("right")) return "rightArm";
+            if (track.node === "eyes") return "eyes";
+            if (track.node === "mouth") return "mouth";
+            if (track.node === "head") return "head";
+            return "body";
+          }),
+        ),
+      ] as CharacterChannel[];
       break;
     case "look":
       channels = ["gaze", "head"];
@@ -434,8 +561,43 @@ const EnvironmentLayer = z
     parallax: Unit,
   })
   .strict();
+export const CharacterStage = z.discriminatedUnion("aspect", [
+  z.object({ aspect: z.literal("9:16"), width: z.literal(1080), height: z.literal(1920) }).strict(),
+  z.object({ aspect: z.literal("16:9"), width: z.literal(1920), height: z.literal(1080) }).strict(),
+  z.object({ aspect: z.literal("1:1"), width: z.literal(1080), height: z.literal(1080) }).strict(),
+]);
+export const CharacterCameraShot = z
+  .object({
+    id: Key,
+    startFrame: Frame,
+    durationFrames: DurationFrames,
+    type: z.enum(["cut", "frame", "pan", "push", "pull", "follow", "shake", "hold"]),
+    target: CharacterTarget.optional(),
+    x: Unit.optional(),
+    y: Unit.optional(),
+    zoom: z.number().min(0.25).max(4).optional(),
+    intensity: Unit.default(0.5),
+    seed: z.number().int().min(0).max(0xffffffff).optional(),
+  })
+  .strict();
+export const CharacterEffect = z
+  .object({
+    id: Key,
+    type: z.enum(["particles", "smoke", "impact", "speed-lines", "highlight"]),
+    startFrame: Frame,
+    durationFrames: DurationFrames,
+    target: CharacterTarget.optional(),
+    x: Unit.optional(),
+    y: Unit.optional(),
+    color: Color.optional(),
+    intensity: Unit.default(0.5),
+    count: z.number().int().min(1).max(128).default(16),
+    seed: z.number().int().min(0).max(0xffffffff).optional(),
+  })
+  .strict();
 export const CharacterSceneProps = z
   .object({
+    stage: CharacterStage,
     timebase: VideoTimebase,
     seed: z.number().int().min(0).max(0xffffffff),
     staging: z
@@ -454,6 +616,8 @@ export const CharacterSceneProps = z
         intensity: Unit.default(0.5),
       })
       .strict(),
+    cameraSequence: z.array(CharacterCameraShot).max(64).default([]),
+    effects: z.array(CharacterEffect).max(64).default([]),
     environment: z
       .object({
         background: Color,
@@ -504,6 +668,23 @@ export const CharacterSceneProps = z
     ordered(props.overlayOrder, props.overlaysById, "overlayOrder");
     if (Object.keys(props.characterPacksById).length > 8)
       issue(["characterPacksById"], "At most 8 character packs per scene");
+    const uniqueIds = (values: { id: string }[], path: string) => {
+      if (new Set(values.map((value) => value.id)).size !== values.length)
+        issue([path], "IDs must be unique");
+    };
+    uniqueIds(props.cameraSequence, "cameraSequence");
+    uniqueIds(props.effects, "effects");
+    for (const [index, shot] of props.cameraSequence.entries()) {
+      if (index && shot.startFrame < props.cameraSequence[index - 1]!.startFrame)
+        issue(["cameraSequence"], "Camera shots must be time ordered");
+      if (
+        index &&
+        shot.startFrame <
+          props.cameraSequence[index - 1]!.startFrame +
+            props.cameraSequence[index - 1]!.durationFrames
+      )
+        issue(["cameraSequence", index], "Camera shots must not overlap");
+    }
     for (const [id, pack] of Object.entries(props.characterPacksById))
       if (id !== pack.id) issue(["characterPacksById", id, "id"], "Pack ID must match its map key");
     for (const [id, actor] of Object.entries(props.actorsById)) {
@@ -540,6 +721,10 @@ export const CharacterSceneProps = z
       if (target.kind === "overlay" && !Object.hasOwn(props.overlaysById, target.overlayId))
         issue(path, "Target must reference a scene overlay");
     };
+    for (const [index, shot] of props.cameraSequence.entries())
+      if (shot.target) targetValid(shot.target, "", ["cameraSequence", index, "target"]);
+    for (const [index, effect] of props.effects.entries())
+      if (effect.target) targetValid(effect.target, "", ["effects", index, "target"]);
     for (const [id, prop] of Object.entries(props.propsById)) {
       if (!prop.attachment) continue;
       const actor = props.actorsById[prop.attachment.actorId];
@@ -647,7 +832,12 @@ export const CharacterSceneProps = z
         issue([...path, "mask"], "showProp must own the attaching arm");
       if (action.weight === 0) continue;
       for (const owner of [
-        ...owners.map((channel) => `${action.actorId}:${channel}:${action.priority}`),
+        ...(action.type === "animate"
+          ? action.tracks.map(
+              (track) =>
+                `${action.actorId}:node:${track.node}.${track.property}:${action.priority}`,
+            )
+          : owners.map((channel) => `${action.actorId}:${channel}:${action.priority}`)),
         ...(action.type === "showProp" ? [`prop:${action.propId}`] : []),
       ]) {
         const windows = occupied.get(owner) ?? [];

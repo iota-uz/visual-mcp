@@ -7,8 +7,12 @@ import {
   phoneCharacterProp,
 } from "../../../../../packages/video/src/registry";
 
-type CharacterGestureName = "point" | "explain" | "shrug" | "think";
-type CharacterReactionName = "happy" | "shocked" | "thinking";
+type CharacterGestureName = Extract<CharacterAction, { type: "gesture" }>["preset"];
+type CharacterReactionName = Extract<CharacterAction, { type: "react" }>["preset"];
+const gestureNames = builtInCharacterPacks["farq-official"]!.capabilities.gestures;
+const reactionNames = builtInCharacterPacks["farq-official"]!.capabilities.emotions.filter(
+  (emotion): emotion is CharacterReactionName => emotion !== "neutral",
+);
 
 export const LAB_FPS = 30;
 
@@ -46,7 +50,15 @@ export type ScenarioId =
   | "idle-look-talk"
   | "enter-explain"
   | "show-prop-point"
-  | "react-settle";
+  | "react-settle"
+  | "gesture-matrix"
+  | "emotion-matrix"
+  | "camera-matrix"
+  | "effect-matrix"
+  | "stage-landscape"
+  | "stage-square"
+  | "new-customer"
+  | "compound-procedural";
 
 export type ScenarioPhase = {
   frame: number;
@@ -199,6 +211,54 @@ export const scenarioCatalog: ReadonlyArray<
     group: "Transitions",
     description: "Strong reaction with a visible blend back to idle.",
   },
+  {
+    id: "gesture-matrix",
+    label: "All gestures",
+    group: "Gesture",
+    description: "Sequential visual inventory of every reusable gesture preset.",
+  },
+  {
+    id: "emotion-matrix",
+    label: "All emotions",
+    group: "Reaction",
+    description: "Sequential visual inventory of every non-neutral emotion.",
+  },
+  {
+    id: "camera-matrix",
+    label: "All camera moves",
+    group: "Advertising",
+    description: "Cut, frame, pan, push, pull, follow, shake and hold in one sequence.",
+  },
+  {
+    id: "effect-matrix",
+    label: "All effects",
+    group: "Advertising",
+    description: "Particles, smoke, impact, speed-lines and highlight as seeded renderer data.",
+  },
+  {
+    id: "stage-landscape",
+    label: "Stage · 16:9",
+    group: "Foundation",
+    description: "Real landscape scene geometry.",
+  },
+  {
+    id: "stage-square",
+    label: "Stage · 1:1",
+    group: "Foundation",
+    description: "Real square scene geometry.",
+  },
+  {
+    id: "new-customer",
+    label: "Energetic customer",
+    group: "Foundation",
+    description: "The second generic customer pack using the same renderer.",
+  },
+  {
+    id: "compound-procedural",
+    label: "Compound + procedural",
+    group: "Transitions",
+    description: "Reusable compound performance with a baked numeric animate action.",
+  },
 ];
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -223,6 +283,7 @@ function actionBase(startFrame: number, tuning: LabTuning) {
 
 function baseScene() {
   return CharacterSceneProps.parse({
+    stage: { aspect: "9:16", width: 1080, height: 1920 },
     timebase: { numerator: 30, denominator: 1 },
     seed: 20260912,
     staging: { layout: "single-product" as const, focalActorId: "farq" },
@@ -456,6 +517,149 @@ export function buildCharacterScenario(
       { frame: 204, label: "close", tone: "action" },
     );
     return finalize(id, 240, phases, scene);
+  }
+
+  if (id === "gesture-matrix") {
+    gestureNames.forEach((preset, index) => {
+      const at = 12 + index * 34;
+      addAction(scene, `gesture${index}`, {
+        type: "gesture",
+        ...actionBase(at, { ...tuning, durationFrames: 30, blendInFrames: 4, blendOutFrames: 4 }),
+        preset,
+        hand: preset === "think" || preset === "facepalm" ? "right" : "both",
+        intensity: tuning.intensity,
+      });
+      phases.push({ frame: at, label: preset, tone: "action" });
+    });
+    return finalize(id, 12 + gestureNames.length * 34 + 20, phases, scene);
+  }
+  if (id === "emotion-matrix") {
+    reactionNames.forEach((preset, index) => {
+      const at = 12 + index * 38;
+      addAction(scene, `emotion${index}`, {
+        type: "react",
+        ...actionBase(at, { ...tuning, durationFrames: 34, blendInFrames: 5, blendOutFrames: 5 }),
+        preset,
+        intensity: tuning.intensity,
+      });
+      phases.push({ frame: at, label: preset, tone: "action" });
+    });
+    return finalize(id, 12 + reactionNames.length * 38 + 20, phases, scene);
+  }
+  if (id === "camera-matrix") {
+    const types = ["cut", "frame", "pan", "push", "pull", "follow", "shake", "hold"] as const;
+    scene.cameraSequence = types.map((type, index) => ({
+      id: `camera${index}`,
+      type,
+      startFrame: index * 36,
+      durationFrames: 36,
+      target: type === "follow" ? { kind: "actor" as const, actorId: "farq" } : undefined,
+      x: index % 2 ? 0.62 : 0.38,
+      y: 0.55,
+      zoom: type === "push" ? 1.35 : type === "pull" ? 0.8 : 1,
+      intensity: 0.7,
+      seed: 17,
+    }));
+    types.forEach((type, index) => {
+      phases.push({ frame: index * 36, label: type, tone: "action" });
+    });
+    return finalize(id, types.length * 36, phases, scene);
+  }
+  if (id === "effect-matrix") {
+    const types = ["particles", "smoke", "impact", "speed-lines", "highlight"] as const;
+    scene.effects = types.map((type, index) => ({
+      id: `effect${index}`,
+      type,
+      startFrame: index * 42,
+      durationFrames: 38,
+      x: 0.5,
+      y: 0.38,
+      color: ["#ffca3a", "#e2e8f0", "#ff595e", "#60a5fa", "#a78bfa"][index],
+      intensity: 0.9,
+      count: 18,
+      seed: 100 + index,
+    }));
+    types.forEach((type, index) => {
+      phases.push({ frame: index * 42, label: type, tone: "action" });
+    });
+    return finalize(id, types.length * 42, phases, scene);
+  }
+  if (id === "stage-landscape" || id === "stage-square") {
+    scene.stage =
+      id === "stage-landscape"
+        ? { aspect: "16:9", width: 1920, height: 1080 }
+        : { aspect: "1:1", width: 1080, height: 1080 };
+    addAction(scene, "wave", {
+      type: "gesture",
+      ...actionBase(start, tuning),
+      preset: "wave",
+      hand: "right",
+      intensity: tuning.intensity,
+    });
+    return finalize(id, end + 30, phases, scene);
+  }
+  if (id === "new-customer") {
+    const pack = builtInCharacterPacks["customer-energetic"]!;
+    scene.characterPacksById = { [pack.id]: clone(pack) };
+    scene.actorsById.farq!.characterPackId = pack.id;
+    scene.actorsById.farq!.scale = 1.35;
+    addAction(scene, "celebrate", {
+      type: "gesture",
+      ...actionBase(start, tuning),
+      preset: "celebrate",
+      hand: "both",
+      intensity: tuning.intensity,
+    });
+    return finalize(id, end + 30, phases, scene);
+  }
+  if (id === "compound-procedural") {
+    addAction(scene, "greet", {
+      type: "gesture",
+      ...actionBase(12, { ...tuning, durationFrames: 42 }),
+      preset: "greet",
+      hand: "right",
+      intensity: tuning.intensity,
+    });
+    addAction(scene, "look", {
+      type: "look",
+      ...actionBase(58, { ...tuning, durationFrames: 36 }),
+      target: { kind: "point", x: 0.78, y: 0.28 },
+    });
+    addAction(scene, "procedural", {
+      type: "animate",
+      ...actionBase(98, { ...tuning, durationFrames: 64 }),
+      tracks: [
+        {
+          node: "head",
+          property: "rotation",
+          mode: "additive",
+          keyframes: [
+            { frame: 0, value: 0, easing: "smooth" },
+            { frame: 16, value: 9, easing: "smooth" },
+            { frame: 32, value: -7, easing: "smooth" },
+            { frame: 48, value: 5, easing: "smooth" },
+            { frame: 63, value: 0, easing: "smooth" },
+          ],
+        },
+        {
+          node: "body",
+          property: "scaleY",
+          mode: "additive",
+          keyframes: [
+            { frame: 0, value: 0, easing: "smooth" },
+            { frame: 20, value: 0.07, easing: "smooth" },
+            { frame: 42, value: -0.04, easing: "smooth" },
+            { frame: 63, value: 0, easing: "smooth" },
+          ],
+        },
+      ],
+    });
+    phases.push(
+      { frame: 12, label: "compound greet", tone: "action" },
+      { frame: 58, label: "compound look", tone: "transition" },
+      { frame: 98, label: "baked procedural tracks", tone: "action" },
+    );
+    return finalize(id, 186, phases, scene);
   }
 
   if (id === "idle") return finalize(id, tuning.durationFrames + 30, phases, scene);

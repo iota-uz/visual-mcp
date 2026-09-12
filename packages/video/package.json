@@ -18,7 +18,15 @@
     "./character": "./dist/character.js",
     "./character-acting": "./dist/character-acting.js",
     "./character-cues": "./dist/character-cues.js",
-    "./character-staging": "./dist/character-staging.js"
+    "./character-staging": "./dist/character-staging.js",
+    "./character-choreography": "./dist/character-choreography.js",
+    "./character-procedural": "./dist/character-procedural.js",
+    "./character-action-library": "./dist/character-action-library.js",
+    "./character-migrations": "./dist/character-migrations.js",
+    "./character-dialogue": "./dist/character-dialogue.js",
+    "./character-audio-plan": "./dist/character-audio-plan.js",
+    "./character-catalog": "./dist/character-catalog.js",
+    "./character-quality": "./dist/character-quality.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -26,11 +34,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "typescript": "^5.8.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "tsx": "^4.19.0"
   }
 }

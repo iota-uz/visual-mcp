@@ -7,6 +7,23 @@ import type { MutationCtx } from "../_generated/server";
  * archive, if any, is unlinked rather than erased.
  */
 export async function purgeVideoProject(ctx: MutationCtx, projectId: Id<"videoProjects">) {
+  const project = await ctx.db.get(projectId);
+  if (project) {
+    // Workspace-promoted definitions remain reusable; only project-local data is owned here.
+    for (;;) {
+      const actions = await ctx.db
+        .query("characterActions")
+        .withIndex("by_workspaceId_and_scope_and_projectId", (q) =>
+          q
+            .eq("workspaceId", project.workspaceId)
+            .eq("scope", "project")
+            .eq("projectId", projectId),
+        )
+        .take(16);
+      if (!actions.length) break;
+      for (const action of actions) await ctx.db.delete(action._id);
+    }
+  }
   for (;;) {
     const comments = await ctx.db
       .query("videoComments")

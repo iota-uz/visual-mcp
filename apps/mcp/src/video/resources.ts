@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { JobRequest } from "@visual-canvas/video/jobs";
 import { componentResources, effectResources } from "@visual-canvas/video/registry";
 import { z } from "zod";
+import { characterResources } from "./character-resources.js";
 import { openCursor, sealCursor } from "./cursor.js";
 import type { Definition, DomainResource, VideoBackend } from "./registry.js";
 import { VideoDomainError } from "./registry.js";
@@ -161,6 +162,22 @@ export function registerDomainResources(
   call: VideoBackend,
   resources: DomainResource[],
 ) {
+  for (const resource of characterResources) {
+    resources.push(resource);
+    server.registerResource(
+      resource.name,
+      resource.uri,
+      { title: resource.name, description: resource.description, mimeType: resource.mimeType },
+      async () => {
+        const result = await resource.read();
+        return {
+          contents: result.contents.map((item) =>
+            z.object({ uri: z.string(), mimeType: z.string(), text: z.string() }).parse(item),
+          ),
+        };
+      },
+    );
+  }
   for (const item of [...componentResources, ...effectResources]) {
     const uri = `video://${item.kind === "component" ? "components" : "presets"}/${encodeURIComponent(item.resourceId)}/${item.revisionId}`;
     const resource: DomainResource = {

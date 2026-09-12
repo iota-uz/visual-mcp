@@ -138,13 +138,12 @@
 }
 .cal-stage-wrap {
   position: relative;
-  width: min(100%, 470px);
+  width: 100%;
   margin: 0 auto 14px;
 }
 .cal-stage {
   position: relative;
   width: 100%;
-  aspect-ratio: 9 / 16;
   overflow: hidden;
   background: #120d0a;
   border: 1px solid #ffffff36;

@@ -12,6 +12,7 @@ import type * as agentGateway from "../agentGateway.js";
 import type * as assets from "../assets.js";
 import type * as auth from "../auth.js";
 import type * as canvases from "../canvases.js";
+import type * as characterLibrary from "../characterLibrary.js";
 import type * as comments from "../comments.js";
 import type * as components_ from "../components.js";
 import type * as crons from "../crons.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   assets: typeof assets;
   auth: typeof auth;
   canvases: typeof canvases;
+  characterLibrary: typeof characterLibrary;
   comments: typeof comments;
   components: typeof components_;
   crons: typeof crons;

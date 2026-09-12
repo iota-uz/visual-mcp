@@ -12,6 +12,13 @@ export type CharacterFaceState = {
   eyeOpen: number;
   browTilt: number;
   mouthCurve: number;
+  /** Semantic expression channels, blended independently from speech visemes. */
+  expressionMouthOpen: number;
+  browPinch: number;
+  cheekLift: number;
+  eyeScaleY: number;
+  mouthWidthScale: number;
+  mouthCurveScale: number;
   viseme: "rest" | "a" | "e" | "o" | "u" | "m";
   /** Continuous speech envelope, independent of the discrete mouth shape. */
   mouthOpen: number;
@@ -63,7 +70,15 @@ export function CharacterVectorShape({ shape }: { shape: CharacterShape }) {
   }
 }
 
-function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }) {
+function CharacterArms({
+  pack,
+  rig,
+  nodeOpacity = {},
+}: {
+  pack: CharacterPack;
+  rig: EvaluatedRig;
+  nodeOpacity?: Record<string, number>;
+}) {
   if (!pack.capabilities.arms) return null;
   // Draw in body space to preserve stroke width under scale/squash while the IK
   // result remains in the same world space as every other evaluated node.
@@ -85,6 +100,10 @@ function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }
             strokeWidth={pack.style.limbWidth}
             strokeLinecap="round"
             strokeLinejoin="round"
+            opacity={Math.min(
+              nodeOpacity[`${side}Shoulder`] ?? 1,
+              nodeOpacity[`${side}Elbow`] ?? 1,
+            )}
           />
         );
       })}
@@ -99,12 +118,14 @@ export function CharacterHandsView({
   pointing = {},
   foregroundArms = {},
   opacity = 1,
+  nodeOpacity = {},
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
   pointing?: Partial<Record<"left" | "right", CharacterPointingState>>;
   foregroundArms?: Partial<Record<"left" | "right", boolean>>;
   opacity?: number;
+  nodeOpacity?: Record<string, number>;
 }) {
   if (!pack.capabilities.arms) return null;
   const artworkHands = pack.style.handRenderer === "artwork";
@@ -126,7 +147,7 @@ export function CharacterHandsView({
             : null;
         const foreground = foregroundArms[side] === true;
         return (
-          <g key={side} data-hand={side}>
+          <g key={side} data-hand={side} opacity={nodeOpacity[`${side}Hand`] ?? 1}>
             {tip || foreground ? (
               <path
                 data-character-point-arm={tip ? side : undefined}
@@ -189,10 +210,12 @@ function CharacterFace({
   pack,
   rig,
   face,
+  nodeOpacity = {},
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
   face: CharacterFaceState;
+  nodeOpacity?: Record<string, number>;
 }) {
   const { eyeRadius: radius, eyeSpacing, eyeWhite, eyeColor, mouthColor, mouthWidth } = pack.style;
   const eyeAspectRatio = pack.style.eyeAspectRatio ?? 1;
@@ -203,17 +226,22 @@ function CharacterFace({
   const gazeScale = pack.capabilities.gaze
     ? Math.min(1, (radius * 0.5) / Math.max(1e-9, gazeLength))
     : 0;
-  const eyeOpen = clamp(face.eyeOpen, 0.02, 2);
+  const eyeOpen = clamp(face.eyeOpen * face.eyeScaleY, 0.02, 2);
   const browTilt = clamp(face.browTilt, -1, 1) * radius * 0.55;
-  const halfWidth = mouthWidth / 2;
+  const browPinch = clamp(face.browPinch, -1, 1) * radius * 0.7;
+  const expressiveMouthWidth = mouthWidth * clamp(face.mouthWidthScale, 0.4, 1.6);
+  const halfWidth = expressiveMouthWidth / 2;
   const viseme = pack.capabilities.talk ? face.viseme : "rest";
   const spokenMouthOpen = pack.capabilities.talk ? clamp(face.mouthOpen, 0, 1) : 0;
   const mouthOpen =
-    viseme === "rest" ? Math.max(pack.style.mouthRestOpen ?? 0, spokenMouthOpen) : spokenMouthOpen;
+    viseme === "rest"
+      ? Math.max(pack.style.mouthRestOpen ?? 0, face.expressionMouthOpen, spokenMouthOpen)
+      : spokenMouthOpen;
   const round = viseme === "o" || viseme === "u";
   const open =
     mouthOpen > 0.01 &&
     ((viseme === "rest" && Boolean(pack.style.mouthRestOpen)) ||
+      face.expressionMouthOpen > 0.01 ||
       round ||
       viseme === "a" ||
       viseme === "e");
@@ -223,7 +251,11 @@ function CharacterFace({
     mouthWidth * (viseme === "e" ? 0.16 : viseme === "u" ? 0.25 : 0.36) * mouthOpen;
   return (
     <>
-      <g transform={matrixAttribute(rig.eyes!.matrix)} data-character-part="eyes">
+      <g
+        transform={matrixAttribute(rig.eyes!.matrix)}
+        data-character-part="eyes"
+        opacity={nodeOpacity.eyes ?? 1}
+      >
         {([-1, 1] as const).map((side) => (
           <g key={side} transform={`translate(${(side * eyeSpacing) / 2} 0)`}>
             <g transform={`scale(1 ${eyeOpen})`}>
@@ -248,7 +280,7 @@ function CharacterFace({
               ) : null}
             </g>
             <path
-              d={`M${-(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 + side * browTilt} Q0 ${-radius * eyeAspectRatio - radius * 1.25} ${(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 - side * browTilt}`}
+              d={`M${-(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 + side * browTilt} Q0 ${-radius * eyeAspectRatio - radius * 1.25 + browPinch} ${(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 - side * browTilt}`}
               fill="none"
               stroke={eyeColor}
               strokeWidth={pack.style.browStrokeWidth ?? Math.max(1, radius * 0.16)}
@@ -257,10 +289,29 @@ function CharacterFace({
           </g>
         ))}
       </g>
+      {face.cheekLift > 0.01 ? (
+        <g
+          transform={matrixAttribute(rig.mouth!.matrix)}
+          data-character-part="cheeks"
+          opacity={clamp(face.cheekLift, 0, 1) * (nodeOpacity.mouth ?? 1)}
+          fill="none"
+          stroke={mouthColor}
+          strokeWidth={Math.max(1.5, radius * 0.2)}
+          strokeLinecap="round"
+        >
+          <path
+            d={`M${-halfWidth - radius * 0.65} ${-radius * 0.1} Q${-halfWidth - radius * 0.35} ${-radius * 0.38} ${-halfWidth - radius * 0.05} ${-radius * 0.1}`}
+          />
+          <path
+            d={`M${halfWidth + radius * 0.05} ${-radius * 0.1} Q${halfWidth + radius * 0.35} ${-radius * 0.38} ${halfWidth + radius * 0.65} ${-radius * 0.1}`}
+          />
+        </g>
+      ) : null}
       <g
         transform={matrixAttribute(rig.mouth!.matrix)}
         data-character-part="mouth"
         data-viseme={viseme}
+        opacity={nodeOpacity.mouth ?? 1}
       >
         {open ? (
           <>
@@ -274,10 +325,10 @@ function CharacterFace({
           </>
         ) : (
           <path
-            d={`M${-halfWidth} 0 Q0 ${clamp(face.mouthCurve, -1, 1) * mouthWidth * 0.55} ${halfWidth} 0`}
+            d={`M${-halfWidth} 0 Q0 ${clamp(face.mouthCurve * face.mouthCurveScale, -1.5, 1.5) * expressiveMouthWidth * 0.55} ${halfWidth} 0`}
             fill="none"
             stroke={mouthColor}
-            strokeWidth={Math.max(1.5, mouthWidth * 0.11)}
+            strokeWidth={Math.max(1.5, expressiveMouthWidth * 0.11)}
             strokeLinecap="round"
           />
         )}
@@ -295,6 +346,7 @@ export function CharacterPackView({
   renderHands = true,
   pointing,
   foregroundArms,
+  nodeOpacity = {},
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
@@ -303,11 +355,14 @@ export function CharacterPackView({
   renderHands?: boolean;
   pointing?: Partial<Record<"left" | "right", CharacterPointingState>>;
   foregroundArms?: Partial<Record<"left" | "right", boolean>>;
+  nodeOpacity?: Record<string, number>;
 }) {
   return (
     // biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: SVG groups require an explicit role for their accessible labels.
     <g role="img" aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
-      <CharacterArms pack={pack} rig={rig} />
+      <g opacity={nodeOpacity.body ?? 1}>
+        <CharacterArms pack={pack} rig={rig} nodeOpacity={nodeOpacity} />
+      </g>
       {pack.layers
         .filter(
           (layer) =>
@@ -319,6 +374,7 @@ export function CharacterPackView({
             key={layer.id}
             data-layer={layer.id}
             transform={matrixAttribute(rig[layer.node]!.matrix)}
+            opacity={nodeOpacity[layer.node] ?? 1}
           >
             {layer.shapes.map((shape, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: Pack shape order is immutable within a checkpoint.
@@ -326,13 +382,16 @@ export function CharacterPackView({
             ))}
           </g>
         ))}
-      <CharacterFace pack={pack} rig={rig} face={face} />
+      <g opacity={nodeOpacity.head ?? 1}>
+        <CharacterFace pack={pack} rig={rig} face={face} nodeOpacity={nodeOpacity} />
+      </g>
       {renderHands ? (
         <CharacterHandsView
           pack={pack}
           rig={rig}
           pointing={pointing}
           foregroundArms={foregroundArms}
+          nodeOpacity={nodeOpacity}
         />
       ) : null}
     </g>

@@ -165,8 +165,25 @@ export function CharacterAnimationLab({
         </aside>
 
         <section className="cal-stage-column">
-          <div className="cal-stage-wrap">
-            <div className="cal-stage" data-testid="character-stage">
+          <div
+            className="cal-stage-wrap"
+            style={{
+              maxWidth:
+                scenario.props.stage.aspect === "9:16"
+                  ? 470
+                  : scenario.props.stage.aspect === "1:1"
+                    ? 680
+                    : 900,
+            }}
+          >
+            <div
+              className="cal-stage"
+              data-testid="character-stage"
+              data-stage-aspect={scenario.props.stage.aspect}
+              style={{
+                aspectRatio: `${scenario.props.stage.width} / ${scenario.props.stage.height}`,
+              }}
+            >
               <CharacterScene props={scenario.props} frame={frame} />
               {onionSkin && (
                 <>
@@ -301,7 +318,7 @@ export function CharacterAnimationLab({
           </label>
           <div className="cal-diagnostics">
             <span>Scene contract</span>
-            <strong>character-scene@3</strong>
+            <strong>character-scene@4</strong>
             <span>Renderer</span>
             <strong>Production SVG</strong>
             <span>Seed</span>

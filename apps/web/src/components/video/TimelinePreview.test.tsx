@@ -276,8 +276,9 @@ test("renders native character scenes at the current timeline frame", () => {
             durationFrames: 60,
             source: {
               kind: "component",
-              component: { resourceId: "video/component/character-scene", revisionId: "3" },
+              component: { resourceId: "video/component/character-scene", revisionId: "4" },
               props: {
+                stage: { aspect: "9:16", width: 1080, height: 1920 },
                 timebase: { numerator: 30, denominator: 1 },
                 seed: 42,
                 staging: { layout: "reaction-closeup", focalActorId: "mascot" },
@@ -288,6 +289,8 @@ test("renders native character scenes at the current timeline frame", () => {
                   holdFrames: 0,
                   intensity: 0.5,
                 },
+                cameraSequence: [],
+                effects: [],
                 environment: {
                   background: "#170f0a",
                   horizonY: 0.65,

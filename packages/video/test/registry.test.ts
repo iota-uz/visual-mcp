@@ -12,6 +12,7 @@ import {
 
 function pilot() {
   return {
+    stage: { aspect: "9:16", width: 1080, height: 1920 },
     timebase: { numerator: 30, denominator: 1 },
     seed: 42,
     staging: { layout: "two-shot", focalActorId: "farq" },
@@ -94,13 +95,13 @@ function pilot() {
   };
 }
 
-test("character-scene accepts serialized character packs and publishes only revision 3", () => {
+test("character-scene accepts serialized character packs and publishes only revision 4", () => {
   const props = CharacterSceneProps.parse(pilot());
   assert.equal(props.actionsById.farqTalk?.type, "talk");
   assert.ok(
     componentResources.some(
       (resource) =>
-        resource.resourceId === "video/component/character-scene" && resource.revisionId === "3",
+        resource.resourceId === "video/component/character-scene" && resource.revisionId === "4",
     ),
   );
   assert.equal(
@@ -108,7 +109,7 @@ test("character-scene accepts serialized character packs and publishes only revi
       kind: "component",
       component: {
         resourceId: "video/component/character-scene",
-        revisionId: "3",
+        revisionId: "4",
       },
       props,
     }).success,
@@ -168,7 +169,7 @@ test("character-scene clip timing checks actions and overlays against its enclos
     kind: "component",
     component: {
       resourceId: "video/component/character-scene",
-      revisionId: "3",
+      revisionId: "4",
     },
     props,
   });
@@ -372,4 +373,72 @@ test("spatial target and attachment references are validated before rendering", 
     target: { kind: "overlay", overlayId: "missing" },
   };
   assert.equal(CharacterSceneProps.safeParse(props).success, false);
+});
+
+test("revision 4 validates animate ownership, stage geometry, camera sequencing and seeded effects", () => {
+  const scene = pilot();
+  scene.actionOrder = ["animateA", "animateB"];
+  scene.actionsById = {
+    animateA: {
+      type: "animate",
+      actorId: "farq",
+      startFrame: 0,
+      durationFrames: 30,
+      tracks: [
+        {
+          node: "head",
+          property: "rotation",
+          keyframes: [
+            { frame: 0, value: 0 },
+            { frame: 29, value: 12 },
+          ],
+        },
+      ],
+    },
+    animateB: {
+      type: "animate",
+      actorId: "farq",
+      startFrame: 10,
+      durationFrames: 20,
+      tracks: [
+        {
+          node: "head",
+          property: "rotation",
+          keyframes: [
+            { frame: 0, value: 12 },
+            { frame: 19, value: 0 },
+          ],
+        },
+      ],
+    },
+  } as typeof scene.actionsById;
+  assert.equal(CharacterSceneProps.safeParse(scene).success, false);
+  scene.actionsById.animateB!.priority = 1;
+  scene.cameraSequence = [
+    {
+      id: "push",
+      type: "push",
+      startFrame: 0,
+      durationFrames: 30,
+      target: { kind: "actor", actorId: "farq" },
+      intensity: 0.6,
+      zoom: 1.4,
+    },
+  ];
+  scene.effects = [
+    {
+      id: "spark",
+      type: "particles",
+      startFrame: 5,
+      durationFrames: 20,
+      x: 0.5,
+      y: 0.5,
+      intensity: 0.8,
+      count: 12,
+      seed: 4,
+    },
+  ];
+  assert.equal(CharacterSceneProps.safeParse(scene).success, true);
+  const invalidStage = { ...scene, stage: { aspect: "16:9", width: 1080, height: 1920 } };
+  assert.equal(CharacterSceneProps.safeParse(invalidStage).success, false);
 });

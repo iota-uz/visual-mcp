@@ -7,11 +7,93 @@ import {
 } from "@visual-canvas/video/registry";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { evaluateCharacterQualityEvidence } from "../src/video/character-quality.js";
 import { resolvePersistentPropAttachments } from "../src/video/character-runtime.js";
-import { CharacterScene, evaluateCharacterActors } from "../src/video/character-scene.js";
+import {
+  CharacterScene,
+  emotionPoseSignature,
+  evaluateCharacterActors,
+} from "../src/video/character-scene.js";
+
+test("core emotion pose signatures are finite and pairwise unique", () => {
+  const emotions = ["angry", "neutral", "shocked", "sad", "happy"] as const;
+  const signatures = emotions.map((emotion) => emotionPoseSignature(emotion));
+  assert.equal(
+    new Set(signatures.map((signature) => JSON.stringify(signature))).size,
+    emotions.length,
+  );
+  for (const signature of signatures)
+    assert.equal(Object.values(signature).every(Number.isFinite), true);
+});
+
+test("core emotions produce distinct numeric faces and readable render structures", () => {
+  const input = structuredClone(fixture());
+  input.actorOrder = ["mascot"];
+  delete input.actorsById.customer;
+  input.actionOrder = [];
+  input.actionsById = {};
+  input.propOrder = [];
+  input.propsById = {};
+  input.staging = { layout: "reaction-closeup", focalActorId: "mascot" };
+  input.overlayOrder = [];
+  input.overlaysById = {};
+  const samples = ["angry", "neutral", "shocked", "sad", "happy"].map((emotion) => {
+    input.actorsById.mascot!.initialEmotion = emotion;
+    const props = CharacterSceneProps.parse(input);
+    const state = evaluateCharacterActors(props, 0).mascot!;
+    const markup = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 0 }));
+    assert.equal(
+      [
+        ...Object.values(state.face).filter((value): value is number => typeof value === "number"),
+        ...Object.values(state.pose),
+      ].every(Number.isFinite),
+      true,
+    );
+    return { emotion, state, markup };
+  });
+  assert.equal(
+    new Set(
+      samples.map(({ state }) =>
+        JSON.stringify([
+          state.face.eyeOpen,
+          state.face.mouthCurve,
+          state.face.expressionMouthOpen,
+          state.face.browPinch,
+          state.face.cheekLift,
+          state.face.eyeScaleY,
+          state.face.mouthWidthScale,
+          state.face.mouthCurveScale,
+          state.pose["head.rotation"],
+        ]),
+      ),
+    ).size,
+    samples.length,
+  );
+  assert.match(
+    samples.find(({ emotion }) => emotion === "shocked")!.markup,
+    /data-viseme="rest"[^>]*><ellipse/,
+  );
+  assert.match(
+    samples.find(({ emotion }) => emotion === "happy")!.markup,
+    /data-character-part="cheeks"/,
+  );
+  assert.doesNotMatch(
+    samples.find(({ emotion }) => emotion === "neutral")!.markup,
+    /data-character-part="cheeks"/,
+  );
+  const angry = samples.find(({ emotion }) => emotion === "angry")!.state.face;
+  const neutral = samples.find(({ emotion }) => emotion === "neutral")!.state.face;
+  const happy = samples.find(({ emotion }) => emotion === "happy")!.state.face;
+  assert.equal(angry.eyeScaleY, 0.48);
+  assert.equal(neutral.eyeScaleY, 1);
+  assert.equal(happy.eyeScaleY, 0.58);
+  assert.ok(happy.mouthWidthScale > neutral.mouthWidthScale * 2);
+  assert.ok(Math.abs(angry.mouthCurve * angry.mouthCurveScale) > 0.85);
+});
 
 function fixture() {
   return CharacterSceneProps.parse({
+    stage: { aspect: "9:16", width: 1080, height: 1920 },
     timebase: { numerator: 30, denominator: 1 },
     seed: 18273,
     staging: { layout: "two-shot", focalActorId: "mascot", productPropId: "phone" },
@@ -642,4 +724,416 @@ test("an above-face point keeps the solved glove outside the authored eye envelo
   const eyeEnvelope =
     (pack.style.eyeSpacing / 2 + pack.style.eyeRadius) * props.actorsById.mascot!.scale;
   assert.ok(hand.x <= eye.x - eyeEnvelope, `${hand.x} intrudes into eye envelope at ${eye.x}`);
+});
+
+test("animate evaluates numeric node tracks and symbolic move/exit at arbitrary frames", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["move", "custom", "exit"];
+  input.actionsById = {
+    move: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 10,
+      durationFrames: 20,
+      to: { x: 0.6, y: 0.7 },
+      style: "move",
+    },
+    custom: {
+      type: "animate",
+      actorId: "customer",
+      startFrame: 35,
+      durationFrames: 20,
+      tracks: [
+        {
+          node: "head",
+          property: "rotation",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 0 },
+            { frame: 10, value: 18 },
+            { frame: 19, value: 0 },
+          ],
+        },
+      ],
+    },
+    exit: { type: "exit", actorId: "customer", startFrame: 70, durationFrames: 20, to: "right" },
+  };
+  const props = CharacterSceneProps.parse(input);
+  assert.ok(evaluateCharacterActors(props, 29).customer!.pose["root.x"]! > props.stage.width * 0.5);
+  assert.ok(evaluateCharacterActors(props, 45).customer!.rig.head!.local.rotation > 10);
+  assert.equal(evaluateCharacterActors(props, 90).customer!.opacity, 0);
+});
+
+test("landscape and square stages change real renderer geometry and seeded effects render visibly", () => {
+  const input = structuredClone(fixture());
+  input.stage = { aspect: "16:9", width: 1920, height: 1080 };
+  input.effects = [
+    {
+      id: "impact",
+      type: "impact",
+      startFrame: 0,
+      durationFrames: 30,
+      x: 0.5,
+      y: 0.5,
+      count: 8,
+      intensity: 1,
+    },
+  ];
+  const html = renderToStaticMarkup(
+    createElement(CharacterScene, { props: CharacterSceneProps.parse(input), frame: 12 }),
+  );
+  assert.match(html, /viewBox="0 0 1920 1080"/);
+  assert.match(html, /data-character-effects="true"/);
+  assert.match(html, /<line/);
+});
+
+test("quality evidence adapter samples the actual actor and camera evaluators deterministically", () => {
+  const props = fixture();
+  const first = evaluateCharacterQualityEvidence(props, [60, 30, 60]);
+  const second = evaluateCharacterQualityEvidence(props, [30, 60]);
+  assert.deepEqual(first, second);
+  assert.equal(first.boundsBasis, "conservative_pack_aabb");
+  assert.deepEqual(
+    first.samples.map((sample) => sample.frame),
+    [30, 60],
+  );
+  assert.equal(first.samples[1]!.cameraMatrix.every(Number.isFinite), true);
+});
+
+test("quality evidence includes numeric root scale and held initially-hidden prop positions", () => {
+  const input = structuredClone(fixture());
+  input.actorOrder = ["customer"];
+  delete input.actorsById.mascot;
+  input.staging = { layout: "two-shot", focalActorId: "customer", productPropId: "phone" };
+  input.actorsById.customer!.x = 0.9;
+  input.actionOrder = ["scale"];
+  input.actionsById = {
+    scale: {
+      type: "animate",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 20,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+      tracks: [
+        {
+          node: "root",
+          property: "scaleX",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 2, easing: "linear" },
+            { frame: 19, value: 2, easing: "linear" },
+          ],
+        },
+      ],
+    },
+  };
+  input.propOrder = ["phone"];
+  input.propsById.phone!.initiallyVisible = false;
+  input.propsById.phone!.attachment = {
+    actorId: "customer",
+    hand: "right",
+    offset: { x: 0, y: 0 },
+    rotation: 0,
+  };
+  const props = CharacterSceneProps.parse(input),
+    sample = evaluateCharacterQualityEvidence(props, [10]).samples[0]!;
+  assert.ok(sample.actorsById.customer!.bounds.right > props.stage.width);
+  assert.equal(sample.propsById.phone!.opacity, 1);
+  assert.ok(sample.propsById.phone!.bounds.left > props.stage.width * 0.8);
+});
+
+test("sequential moves inherit only the latest terminal position and bounce returns to rest", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["first", "second"];
+  input.actionsById = {
+    first: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 10,
+      durationFrames: 20,
+      to: { x: 0.6, y: 0.7 },
+      style: "move",
+    },
+    second: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 40,
+      durationFrames: 21,
+      to: { x: 0.8, y: 0.7 },
+      style: "bounce",
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  assert.equal(
+    evaluateCharacterActors(props, 35).customer!.rig.root!.origin.x,
+    props.stage.width * 0.6,
+  );
+  const middle = evaluateCharacterActors(props, 50).customer!.rig.root!.origin;
+  assert.ok(middle.x > props.stage.width * 0.6 && middle.x < props.stage.width * 0.8);
+  assert.ok(middle.y < props.stage.height * 0.7);
+  const end = evaluateCharacterActors(props, 60).customer!.rig.root!.origin;
+  assert.equal(end.x, props.stage.width * 0.8);
+  assert.ok(Math.abs(end.y - props.stage.height * 0.7) < 1e-9);
+});
+
+test("animate honors root scale and per-node opacity instead of silently dropping properties", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["custom"];
+  input.actionsById = {
+    custom: {
+      type: "animate",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 20,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+      tracks: [
+        {
+          node: "root",
+          property: "scaleX",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 1, easing: "linear" },
+            { frame: 10, value: 1.5, easing: "linear" },
+          ],
+        },
+        {
+          node: "head",
+          property: "opacity",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 1, easing: "linear" },
+            { frame: 10, value: 0.2, easing: "linear" },
+          ],
+        },
+      ],
+    },
+  };
+  const props = CharacterSceneProps.parse(input),
+    state = evaluateCharacterActors(props, 10).customer!;
+  assert.ok(Math.abs(state.rig.root!.matrix[0]) > props.actorsById.customer!.scale * 1.49);
+  assert.ok(Math.abs(state.nodeOpacity.head! - 0.2) < 1e-9);
+  const html = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 10 }));
+  assert.match(html, /data-layer="face"[^>]+opacity="0\.199/);
+});
+
+test("effects follow evaluated actor anchors while overlay-target effects remain screen-space", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["move"];
+  input.actionsById = {
+    move: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 21,
+      to: { x: 0.8, y: 0.5 },
+      style: "move",
+    },
+  };
+  input.overlayOrder = ["offer"];
+  input.overlaysById = {
+    offer: { text: "Offer", x: 0.2, y: 0.15, startFrame: 0, endFrame: 30, style: "callout" },
+  };
+  input.effects = [
+    {
+      id: "actorFx",
+      type: "highlight",
+      startFrame: 0,
+      durationFrames: 21,
+      target: { kind: "actor", actorId: "customer" },
+      intensity: 1,
+      count: 8,
+    },
+    {
+      id: "overlayFx",
+      type: "highlight",
+      startFrame: 0,
+      durationFrames: 21,
+      target: { kind: "overlay", overlayId: "offer" },
+      intensity: 1,
+      count: 8,
+    },
+  ];
+  const props = CharacterSceneProps.parse(input),
+    html = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 10 }));
+  const actorX = evaluateCharacterActors(props, 10).customer!.rig.root!.origin.x;
+  assert.match(html, new RegExp(`cx="${actorX}"`));
+  assert.ok(
+    html.indexOf(`cx="${props.stage.width * 0.2}"`) >
+      html.indexOf('data-presentation="camera-world"'),
+  );
+});
+
+test("inactive scale and opacity tracks retain identity before and after their action", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["later"];
+  input.actionsById = {
+    later: {
+      type: "animate",
+      actorId: "customer",
+      startFrame: 100,
+      durationFrames: 20,
+      tracks: [
+        {
+          node: "root",
+          property: "scaleX",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 1.4, easing: "linear" },
+            { frame: 19, value: 1.4, easing: "linear" },
+          ],
+        },
+        {
+          node: "head",
+          property: "opacity",
+          mode: "override",
+          keyframes: [
+            { frame: 0, value: 0.3, easing: "linear" },
+            { frame: 19, value: 0.3, easing: "linear" },
+          ],
+        },
+      ],
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  for (const frame of [0, 99, 120]) {
+    const state = evaluateCharacterActors(props, frame).customer!;
+    assert.equal(state.nodeOpacity.head, 1);
+    assert.ok(
+      Math.abs(Math.abs(state.rig.root!.matrix[0]) - props.actorsById.customer!.scale) < 0.02,
+    );
+  }
+  assert.ok(evaluateCharacterActors(props, 110).customer!.nodeOpacity.head! < 1);
+});
+
+test("locomotion honors weight, blend timing, exit weight and active priority", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["low", "high", "exit"];
+  input.actionsById = {
+    low: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 21,
+      to: { x: 0.6, y: 0.7 },
+      style: "move",
+      weight: 0.01,
+      blendInFrames: 10,
+      blendOutFrames: 5,
+      priority: 0,
+    },
+    high: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 21,
+      to: { x: 0.9, y: 0.7 },
+      style: "move",
+      weight: 0.5,
+      blendInFrames: 10,
+      blendOutFrames: 8,
+      priority: 1,
+    },
+    exit: {
+      type: "exit",
+      actorId: "customer",
+      startFrame: 30,
+      durationFrames: 11,
+      to: "right",
+      weight: 0.01,
+      blendInFrames: 3,
+      blendOutFrames: 3,
+      priority: 0,
+    },
+  };
+  const props = CharacterSceneProps.parse(input),
+    base = props.actorsById.customer!.x * props.stage.width;
+  const slowEarly = evaluateCharacterActors(props, 1).customer!.rig.root!.origin.x;
+  const fastInput = structuredClone(input);
+  fastInput.actionsById.high!.blendInFrames = 0;
+  const fastEarly = evaluateCharacterActors(CharacterSceneProps.parse(fastInput), 1).customer!.rig
+    .root!.origin.x;
+  assert.ok(fastEarly > slowEarly);
+  const middle = evaluateCharacterActors(props, 10).customer!.rig.root!.origin.x;
+  assert.ok(middle > base && middle < props.stage.width * 0.9);
+  assert.ok(evaluateCharacterActors(props, 40).customer!.opacity > 0.98);
+  const terminal = evaluateCharacterActors(props, 25).customer!.rig.root!.origin.x;
+  assert.ok(Math.abs(terminal - (base + (props.stage.width * 0.9 - base) * 0.5)) < 1e-6);
+});
+
+test("locomotion priority suppresses a lower track only during the higher track's active window", () => {
+  const input = structuredClone(fixture());
+  input.actionOrder = ["low", "high"];
+  input.actionsById = {
+    low: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 0,
+      durationFrames: 100,
+      to: { x: 0.8, y: 0.7 },
+      style: "move",
+      weight: 1,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+      priority: 0,
+    },
+    high: {
+      type: "move",
+      actorId: "customer",
+      startFrame: 50,
+      durationFrames: 20,
+      to: { x: 0.2, y: 0.7 },
+      style: "move",
+      weight: 1,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+      priority: 1,
+    },
+  };
+  const props = CharacterSceneProps.parse(input);
+  const lowOnlyInput = structuredClone(input);
+  lowOnlyInput.actionOrder = ["low"];
+  delete lowOnlyInput.actionsById.high;
+  const lowOnly = CharacterSceneProps.parse(lowOnlyInput);
+  const x = (scene: typeof props, frame: number) =>
+    evaluateCharacterActors(scene, frame).customer!.rig.root!.origin.x;
+
+  assert.equal(x(props, 0), x(lowOnly, 0));
+  assert.equal(x(props, 49), x(lowOnly, 49));
+  assert.equal(x(props, 50), x(lowOnly, 50));
+  assert.ok(Math.abs(x(props, 69) - props.stage.width * 0.2) < 1e-6);
+  assert.equal(x(props, 70), x(lowOnly, 70));
+});
+
+test("scene rejects scrambled action order and locomotion remains bounded across a long sequence", () => {
+  const input = structuredClone(fixture());
+  input.actionsById = {};
+  const chronological: string[] = [];
+  for (let index = 0; index < 36; index += 1) {
+    const id = `move-${index}`;
+    chronological.push(id);
+    input.actionsById[id] = {
+      type: "move",
+      actorId: "customer",
+      startFrame: index * 10,
+      durationFrames: 10,
+      to: { x: 0.2 + index * 0.01, y: 0.7 },
+      style: "move",
+      weight: 1,
+      blendInFrames: 0,
+      blendOutFrames: 0,
+      priority: 0,
+    };
+  }
+  input.actionOrder = [...chronological].reverse();
+  assert.throws(() => CharacterSceneProps.parse(input), /non-decreasing startFrame/);
+  input.actionOrder = chronological;
+  const props = CharacterSceneProps.parse(input);
+  const started = performance.now();
+  const finalX = evaluateCharacterActors(props, 360).customer!.rig.root!.origin.x;
+  const elapsed = performance.now() - started;
+
+  assert.ok(Math.abs(finalX - props.stage.width * 0.55) < 1e-6);
+  assert.ok(elapsed < 1_000, `36-action locomotion evaluation took ${elapsed.toFixed(1)}ms`);
 });

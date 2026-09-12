@@ -138,16 +138,19 @@ export async function executeMediaProcess(input: unknown): Promise<MediaProcessR
   const probe = await probeMedia(path, signal);
   const video = probe.streams.find((item) => item.codec_type === "video");
   const audio = probe.streams.find((item) => item.codec_type === "audio");
-  const durationMs = Number(video?.duration ?? probe.format.duration) * 1000;
+  const op = request.operation;
+  const durationMs =
+    Number((op.kind === "waveform" ? audio?.duration : video?.duration) ?? probe.format.duration) *
+    1000;
   if (
-    !video ||
-    !video.width ||
-    !video.height ||
     !Number.isFinite(durationMs) ||
     durationMs <= 0 ||
-    durationMs > 600_000
+    durationMs > 600_000 ||
+    (op.kind === "waveform" ? !audio : !video?.width || !video.height)
   )
     throw new MediaProcessError("UNSUPPORTED_MEDIA", "not_applied");
+  const videoWidth = video?.width ?? 0;
+  const videoHeight = video?.height ?? 0;
   async function artifact(
     name: string,
     path: string,
@@ -157,10 +160,72 @@ export async function executeMediaProcess(input: unknown): Promise<MediaProcessR
     outputs.push({ name, ...(await fileIdentity(path)), mimeType, ...metadata });
     paths.set(name, path);
   }
-  const op = request.operation;
-  if (op.kind === "frames" || op.kind === "compare") {
+  if (op.kind === "waveform") {
+    if (op.startMs >= durationMs || op.startMs + op.durationMs > durationMs + 1)
+      throw new MediaProcessError("WAVEFORM_RANGE_OUT_OF_RANGE", "not_applied");
+    const channels = audio?.channels ?? 0;
+    if ((op.channel === "left" || op.channel === "right") && channels < 2)
+      throw new MediaProcessError("WAVEFORM_CHANNEL_UNAVAILABLE", "not_applied");
+    const destination = join(scratch, "waveform.png");
+    const report = join(scratch, "waveform-report.json");
+    const channelFilter =
+      op.channel === "left"
+        ? "pan=mono|c0=c0"
+        : op.channel === "right"
+          ? "pan=mono|c0=c1"
+          : "aformat=channel_layouts=mono";
+    await ffmpeg([
+      "-v",
+      "error",
+      "-ss",
+      String(op.startMs / 1000),
+      "-t",
+      String(op.durationMs / 1000),
+      "-i",
+      path,
+      "-vn",
+      "-filter_complex",
+      `${channelFilter},atrim=duration=${op.durationMs / 1000},asetpts=PTS-STARTPTS,showwavespic=s=${op.width}x${op.height}:colors=4f9cf9:scale=sqrt`,
+      "-frames:v",
+      "1",
+      "-threads",
+      "1",
+      "-y",
+      destination,
+    ]);
+    await writeFile(
+      report,
+      JSON.stringify({
+        source: source.asset,
+        sourceSha256: source.sha256,
+        coverage: { startMs: op.startMs, endMs: op.startMs + op.durationMs },
+        channel: op.channel,
+        sourceAudio: {
+          codec: audio?.codec_name ?? null,
+          channels,
+          sampleRate: audio?.sample_rate ? Number(audio.sample_rate) : null,
+          durationMs,
+        },
+        rendering: {
+          width: op.width,
+          height: op.height,
+          amplitudeScale: "sqrt",
+          decoder: "ffmpeg",
+        },
+        limitation:
+          "Decoded amplitude overview for the declared time/channel scope; it is not speech alignment, transcription, loudness, or semantic analysis.",
+      }),
+    );
+    await artifact("waveform", destination, "image/png", {
+      width: op.width,
+      height: op.height,
+      durationMs: op.durationMs,
+    });
+    await artifact("report", report, "application/json", { durationMs: op.durationMs });
+    checks.push({ name: "audio_decode", outcome: "pass" });
+  } else if (op.kind === "frames" || op.kind === "compare") {
     const cells: Buffer[] = [];
-    const contexts = [{ path, durationMs, width: video.width }];
+    const contexts = [{ path, durationMs, width: videoWidth }];
     if (op.kind === "compare") {
       const otherPath = join(scratch, "source-b");
       await downloadSource(request.inputs[1]!, otherPath, signal);
@@ -259,7 +324,7 @@ export async function executeMediaProcess(input: unknown): Promise<MediaProcessR
     const audioBits = audio ? 48000 : 0;
     if (targetBits - audioBits < 16000)
       throw new MediaProcessError("PROXY_SIZE_UNSATISFIABLE", "not_applied");
-    const width = Math.max(2, Math.floor(Math.min(op.maxWidth, video.width) / 2) * 2);
+    const width = Math.max(2, Math.floor(Math.min(op.maxWidth, videoWidth) / 2) * 2);
     await ffmpeg([
       "-v",
       "error",
@@ -330,8 +395,8 @@ export async function executeMediaProcess(input: unknown): Promise<MediaProcessR
     checks.push({
       name: "dimensions",
       outcome:
-        (op.expectedWidth === undefined || video.width === op.expectedWidth) &&
-        (op.expectedHeight === undefined || video.height === op.expectedHeight)
+        (op.expectedWidth === undefined || videoWidth === op.expectedWidth) &&
+        (op.expectedHeight === undefined || videoHeight === op.expectedHeight)
           ? "pass"
           : "fail",
     });
@@ -506,17 +571,24 @@ export async function executeMediaProcess(input: unknown): Promise<MediaProcessR
       mode:
         op.kind === "frames" || op.kind === "compare"
           ? "exact_requested_frames"
-          : op.kind === "proxy"
-            ? "proxy"
-            : "full_decode",
+          : op.kind === "waveform"
+            ? "waveform"
+            : op.kind === "proxy"
+              ? "proxy"
+              : "full_decode",
       ...(op.kind === "proxy" ? { fps: op.fps } : {}),
-      range: { startMs: 0, endMs: durationMs },
+      range:
+        op.kind === "waveform"
+          ? { startMs: op.startMs, endMs: op.startMs + op.durationMs }
+          : { startMs: 0, endMs: durationMs },
       limitation:
         op.kind === "frames" || op.kind === "compare"
           ? "Contact sheet omits intervening motion and audio; actual extracted frame timestamps are recorded."
-          : op.kind === "proxy"
-            ? "Lossy analysis proxy, not original quality; source timing starts at zero."
-            : "Full media decode and explicit technical checks; missing checks remain not_evaluated.",
+          : op.kind === "waveform"
+            ? "Decoded amplitude overview for the declared time/channel scope; not speech alignment, loudness, or semantic analysis."
+            : op.kind === "proxy"
+              ? "Lossy analysis proxy, not original quality; source timing starts at zero."
+              : "Full media decode and explicit technical checks; missing checks remain not_evaluated.",
     },
   });
   const persisted: string[] = [];

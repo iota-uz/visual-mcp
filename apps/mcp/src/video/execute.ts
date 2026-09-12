@@ -223,7 +223,22 @@ async function checkScope(run: Active, name: string, input: Record<string, unkno
       throw new VideoDomainError("SCOPE_MISMATCH", "Report belongs to another execute workspace.");
     return;
   }
-  if (["video_rubric_resolve", "voice_list", "resource_get", "resource_find"].includes(name))
+  if (
+    [
+      "video_rubric_resolve",
+      "voice_list",
+      "resource_get",
+      "resource_find",
+      "character_scene_validate",
+      "character_choreography_compile",
+      "character_procedural_bake",
+      "character_scene_migrate",
+      "character_dialogue_compile",
+      "character_audio_compile",
+      "character_quality_check",
+      "character_render_profile",
+    ].includes(name)
+  )
     workspace = run.input.workspace_id;
   let project = input.project_id;
   if (input.comment_id && name.startsWith("video_comment_"))

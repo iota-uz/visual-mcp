@@ -1,0 +1,929 @@
+{
+  "seed": 18273,
+  "characterPacksById": {
+    "customer": {
+      "version": 1,
+      "id": "customer",
+      "label": "Customer",
+      "viewBox": { "width": 360, "height": 420 },
+      "rig": {
+        "root": { "x": 0, "y": 0 },
+        "body": { "x": 0, "y": 20 },
+        "head": { "x": 0, "y": -82 },
+        "eyes": { "x": 0, "y": -92 },
+        "mouth": { "x": 0, "y": -45 },
+        "leftShoulder": { "x": -57, "y": 6 },
+        "leftElbow": { "x": -108, "y": 55 },
+        "leftHand": { "x": -124, "y": 112 },
+        "rightShoulder": { "x": 57, "y": 6 },
+        "rightElbow": { "x": 108, "y": 55 },
+        "rightHand": { "x": 124, "y": 112 }
+      },
+      "capabilities": {
+        "arms": true,
+        "gaze": true,
+        "blink": true,
+        "talk": true,
+        "emotions": ["neutral", "happy", "shocked", "thinking"],
+        "gestures": ["point", "explain", "shrug", "think"]
+      },
+      "layers": [
+        {
+          "id": "shadow",
+          "node": "root",
+          "shapes": [
+            {
+              "kind": "ellipse",
+              "x": 0,
+              "y": 148,
+              "rx": 100,
+              "ry": 18,
+              "fill": "#00000040",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "shirt",
+          "node": "body",
+          "shapes": [
+            {
+              "kind": "rect",
+              "x": -68,
+              "y": -35,
+              "width": 136,
+              "height": 130,
+              "radius": 32,
+              "fill": "#347a90",
+              "stroke": "#173b48",
+              "strokeWidth": 7
+            }
+          ]
+        },
+        {
+          "id": "legs",
+          "node": "root",
+          "shapes": [
+            {
+              "kind": "rect",
+              "x": -48,
+              "y": 103,
+              "width": 32,
+              "height": 44,
+              "radius": 10,
+              "fill": "#173b48",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "rect",
+              "x": 16,
+              "y": 103,
+              "width": 32,
+              "height": 44,
+              "radius": 10,
+              "fill": "#173b48",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "face",
+          "node": "head",
+          "shapes": [
+            {
+              "kind": "rect",
+              "x": -80,
+              "y": -78,
+              "width": 160,
+              "height": 166,
+              "radius": 52,
+              "fill": "#f2d7b6",
+              "stroke": "#211108",
+              "strokeWidth": 8
+            },
+            {
+              "kind": "path",
+              "d": "M-82 -40 Q-86 -112 10 -90 Q88 -88 82 -32 L55 -53 Q5 -30 -24 -57 L-65 -25 Z",
+              "fill": "#38251e",
+              "strokeWidth": 0
+            }
+          ]
+        }
+      ],
+      "style": {
+        "limbColor": "#f2d7b6",
+        "limbWidth": 20,
+        "handRadius": 12,
+        "eyeColor": "#211108",
+        "eyeWhite": "#ffffff",
+        "eyeRadius": 22,
+        "eyeSpacing": 62,
+        "mouthColor": "#211108",
+        "mouthWidth": 46
+      },
+      "expressions": {
+        "neutral": { "browTilt": 0, "mouthCurve": 0.15, "eyeOpen": 1 },
+        "happy": { "browTilt": 0.2, "mouthCurve": 0.9, "eyeOpen": 0.9 },
+        "shocked": { "browTilt": 0.8, "mouthCurve": 0, "eyeOpen": 1.3 },
+        "thinking": { "browTilt": -0.35, "mouthCurve": -0.1, "eyeOpen": 0.85 }
+      },
+      "motion": {
+        "breathingAmplitude": 1.4,
+        "breathingPeriodFrames": 110,
+        "blinkIntervalFrames": 145,
+        "swayDegrees": 0.7,
+        "gazeLimit": 9,
+        "headTurnDegrees": 12,
+        "elbowBend": "outward"
+      }
+    },
+    "farq-official": {
+      "version": 1,
+      "id": "farq-official",
+      "label": "Official farq.uz mascot",
+      "sourceAsset": {
+        "assetRef": "asset://shared/farq-official-layered-mascot@1",
+        "revisionId": "md7chc5vz33an9cd4jw8nm2bg98e9xfd",
+        "contentHash": "e946fed567d9ea44495d218e9cca31249883109031b566a443a7cf8b63e7e4ec",
+        "mimeType": "image/svg+xml"
+      },
+      "orientation": { "canonicalFacing": "right", "mirror": "fixed" },
+      "viewBox": { "width": 360, "height": 360 },
+      "rig": {
+        "root": { "x": 0, "y": 0 },
+        "body": { "x": 0, "y": 10 },
+        "head": { "x": -34, "y": -78 },
+        "eyes": { "x": -34, "y": -82 },
+        "mouth": { "x": -40, "y": -57 },
+        "leftShoulder": { "x": -58, "y": -32 },
+        "leftElbow": { "x": -88, "y": -5 },
+        "leftHand": { "x": -112, "y": -22 },
+        "rightShoulder": { "x": 58, "y": -32 },
+        "rightElbow": { "x": 88, "y": -5 },
+        "rightHand": { "x": 112, "y": 18 }
+      },
+      "capabilities": {
+        "arms": true,
+        "gaze": true,
+        "blink": true,
+        "talk": true,
+        "emotions": ["neutral", "happy", "shocked", "thinking"],
+        "gestures": ["point", "explain", "shrug", "think"]
+      },
+      "layers": [
+        {
+          "id": "officialShadow",
+          "node": "root",
+          "shapes": [
+            {
+              "kind": "ellipse",
+              "x": 12.040000000000001,
+              "y": 131.60000000000002,
+              "rx": 116.76,
+              "ry": 9.8,
+              "fill": "#c9c5c394",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "officialLegs",
+          "node": "root",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M -37.24 76.44 L -18.2 68.88 C -19.04 79.24 -17.64 89.88 -16.52 99.4 C -15.96 103.6 -18.2 106.12 -23.24 106.12 C -28 106.12 -31.64 102.2 -34.16 98.84 C -36.12 95.76 -36.4 86.52 -37.24 76.44 Z",
+              "fill": "#080808",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 39.76 85.12 L 60.76 83.72 C 61.6 89.88 64.12 95.76 66.64 101.36 C 62.72 103.32 57.96 106.12 54.6 109.76 C 50.68 110.04 48.44 108.36 47.32 105.28 C 44.52 98.84 41.72 91.84 39.76 85.12 Z",
+              "fill": "#080808",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "officialHead",
+          "node": "head",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M 0.68 -55.56 C 31.76 -55.84 55 -35.96 60.04 -9.36 C 65.36 18.92 49.96 44.4 25.32 54.48 C 2.64 63.72 -25.36 58.4 -42.72 41.04 C -58.68 25.08 -62.32 1.28 -54.48 -20 C -45.52 -44.64 -23.96 -55.28 0.68 -55.56 Z",
+              "fill": "#07969e",
+              "stroke": "#050505",
+              "strokeWidth": 4
+            },
+            {
+              "kind": "path",
+              "d": "M -3.52 -53.04 C 0.68 -63.12 5.16 -72.08 11.6 -75.72 C 16.36 -78.52 21.68 -77.96 27.56 -77.12 L 42.12 -75.16 C 49.96 -74.04 55.84 -69.84 61.72 -63.4 C 66.48 -58.08 69 -53.6 68.16 -48.84 C 67.32 -42.96 63.12 -33.16 58.08 -25.04 Z",
+              "fill": "#080808",
+              "stroke": "#050505",
+              "strokeWidth": 4
+            },
+            {
+              "kind": "path",
+              "d": "M 8.24 -72.08 C 12.72 -74.04 18.04 -73.48 23.64 -72.64 C 36.52 -70.68 50.8 -66.2 62.84 -55.84 C 65.92 -53.04 67.32 -50.52 67.04 -48",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 5
+            },
+            {
+              "kind": "path",
+              "d": "M 8.24 -70.96 C 12.72 -72.92 18.04 -72.36 23.36 -71.52 C 36.24 -69.56 50.24 -65.36 62.28 -55 C 65.36 -52.48 66.76 -49.96 66.48 -47.72",
+              "fill": "#00000000",
+              "stroke": "#079ea6",
+              "strokeWidth": 2.25
+            },
+            {
+              "kind": "path",
+              "d": "M -0.16 -59.2 C 16.64 -55.56 40.16 -48 60.32 -35.68",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 3
+            },
+            {
+              "kind": "path",
+              "d": "M 21.12 -64.24 L 24.48 -59.76 L 21.4 -54.72 L 17.76 -59.48 Z",
+              "fill": "#ff5918",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 43.24 -56.12 L 46.32 -51.36 L 43.24 -46.6 L 39.6 -51.36 Z",
+              "fill": "#ff5918",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 62.28 -47.44 L 65.36 -42.96 L 62.56 -38.2 L 59.2 -42.68 Z",
+              "fill": "#ff5918",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 8.24 -67.88 C 6.56 -63.4 6.56 -60.6 9.92 -58.92 C 13 -57.52 15.8 -60.04 16.92 -63.96 M 12.16 -68.44 C 11.04 -64.24 11.04 -61.72 13.28 -60.32",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 2.5
+            },
+            {
+              "kind": "path",
+              "d": "M 30.08 -61.72 C 28.12 -56.4 28.12 -53.6 31.76 -51.92 C 35.12 -50.52 37.92 -53.6 39.04 -58.08 M 34.28 -61.72 C 32.88 -56.96 33.16 -54.44 35.4 -53.32",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 2.5
+            },
+            {
+              "kind": "path",
+              "d": "M 49.96 -54.16 C 48 -48.28 48.28 -45.76 51.64 -44.08 C 55.28 -42.68 57.8 -46.04 59.2 -50.52 M 54.16 -53.88 C 52.76 -49.12 53.04 -46.88 55.28 -45.76",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 2.5
+            },
+            {
+              "kind": "ellipse",
+              "x": -39.64,
+              "y": 14.719999999999992,
+              "rx": 7.280000000000001,
+              "ry": 4.760000000000001,
+              "fill": "#ff5b18",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "ellipse",
+              "x": 28.96,
+              "y": 26.479999999999997,
+              "rx": 7.5600000000000005,
+              "ry": 5.040000000000001,
+              "fill": "#ff5b18",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "officialLeftGlove",
+          "node": "leftHand",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M -8.68 -35.12 C -10.08 -40.72 -9.24 -46.32 -6.44 -49.96 C -3.08 -54.44 2.24 -55 6.16 -53.04 C 10.36 -51.08 11.76 -47.16 10.92 -41.84 C 10.08 -37.08 9.52 -33.16 10.92 -29.8 C 12.88 -25.32 15.68 -20.84 15.4 -14.96 C 19.32 -13 22.12 -7.4 21 -2.08 C 20.16 6.04 15.12 13.32 8.4 16.4 C 1.68 19.2 -5.6 15.84 -7.84 11.36 C -15.96 11.64 -22.12 6.6 -25.2 -0.68 C -29.12 -9.08 -28.84 -18.04 -26.04 -24.76 C -22.96 -31.76 -16.24 -35.68 -8.68 -35.12 Z",
+              "fill": "#080808",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M -4.76 -34.28 C -5.88 -37.92 -6.16 -41.56 -4.76 -45.2 C -3.64 -48.56 -0.84 -50.24 2.24 -50.24 C 5.88 -50.24 8.12 -47.44 7.56 -43.8 C 6.72 -39.04 6.16 -35.4 7 -31.48 C 7.56 -27.56 10.36 -24.76 11.2 -20 C 12.6 -15.24 11.48 -10.76 9.8 -6.84 C 11.76 -7.68 13.44 -9.64 14 -11.6 C 16.8 -9.08 18.2 -5.72 17.08 -0.96 C 15.4 6.88 9.8 13.04 3.36 13.88 C 0.28 13.88 -2.24 13.04 -3.64 10.8 C 0.56 9.96 4.2 7.16 5.88 4.08 C 4.2 4.92 2.8 5.76 1.68 6.04 C 5.04 2.68 5.88 -0.68 3.64 -4.32 L 4.76 -6.56 C 6.16 -6 7 -4.6 7.84 -4.04 C 7.56 -6.56 6.72 -7.96 5.6 -9.08 C 6.44 -11.88 5.6 -14.96 3.92 -16.92 C 7 -22.8 4.76 -28.4 0.56 -31.76 C -1.4 -33.16 -3.08 -33.72 -4.76 -34.28 Z",
+              "fill": "#ffffff",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M -12.32 -31.48 C -6.72 -32.6 -1.4 -30.08 0.84 -26.72 C 2.52 -24.2 2.52 -21.96 1.4 -19.44 C -3.08 -21.68 -7.84 -22.24 -11.76 -20.28 C -12.32 -20 -12.88 -19.72 -12.88 -18.88 C -7.56 -19.44 -3.64 -19.16 -0.56 -16.92 C 2.8 -14.4 3.64 -10.48 1.4 -6.84 C -2.8 -8.52 -7 -9.08 -10.64 -7.12 C -11.2 -6.84 -11.48 -6.28 -11.48 -5.72 C -7 -6.56 -3.08 -6.28 -0.56 -4.6 C 2.8 -2.08 2.24 1.56 0.56 4.08 C -1.96 7.44 -6.72 8.56 -11.48 7.44 C -17.64 6.04 -21.28 0.44 -22.96 -5.16 C -24.92 -11.32 -24.64 -17.48 -22.68 -22.8 C -21 -27.56 -17.08 -30.64 -12.32 -31.48 Z",
+              "fill": "#ffffff",
+              "strokeWidth": 0
+            }
+          ]
+        },
+        {
+          "id": "officialRightGlove",
+          "node": "rightHand",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M -24.08 -10.16 C -21.56 -16.32 -15.96 -19.96 -10.36 -19.12 C -4.2 -18.28 0 -13.52 -0.56 -7.92 C 3.64 -8.2 7 -5.68 7.84 -2.04 C 8.68 1.6 7 4.68 4.2 6.64 C 8.12 8.04 10.08 11.68 8.96 15.6 C 7.56 20.64 2.52 23.44 -2.52 24 C -10.36 24.56 -16.8 20.36 -20.72 14.76 C -24.64 9.16 -26.32 -2.04 -24.08 -10.16 Z",
+              "fill": "#ffffff",
+              "stroke": "#050505",
+              "strokeWidth": 3.4
+            },
+            {
+              "kind": "path",
+              "d": "M -17.92 -12.12 C -21.84 -13.8 -24.92 -12.12 -26.88 -9.6",
+              "fill": "#00000000",
+              "stroke": "#050505",
+              "strokeWidth": 2.25
+            },
+            {
+              "kind": "path",
+              "d": "M -0.56 -7.92 C -2.24 -3.16 -4.48 -0.64 -7.56 1.32",
+              "fill": "#00000000",
+              "stroke": "#050505",
+              "strokeWidth": 2.25
+            },
+            {
+              "kind": "path",
+              "d": "M 4.2 6.64 C 2.24 10.28 0 12.52 -2.8 13.64",
+              "fill": "#00000000",
+              "stroke": "#050505",
+              "strokeWidth": 2.25
+            }
+          ]
+        },
+        {
+          "id": "officialPercent",
+          "node": "body",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M 53.48 -10.84 C 78.68 -11.96 97.16 5.12 101.36 28.08 C 105.84 53.84 89.6 76.8 66.36 82.4 C 41.44 88.56 16.52 74.84 8.4 52.16 C -0.56 26.96 12.04 1.2 34.16 -7.2 C 40.32 -9.44 46.76 -10.56 53.48 -10.84 Z",
+              "fill": "#07969e",
+              "stroke": "#050505",
+              "strokeWidth": 4
+            },
+            {
+              "kind": "path",
+              "d": "M 53.76 20.24 C 62.44 20.24 69.72 26.96 70.84 35.08 C 71.96 44.32 65.52 52.16 57.12 53.84 C 48.44 55.52 40.88 50.2 38.92 41.52 C 36.68 32.28 42.56 23.04 50.96 20.8 C 51.8 20.52 52.92 20.24 53.76 20.24 Z",
+              "fill": "#ffffff",
+              "stroke": "#050505",
+              "strokeWidth": 4
+            },
+            {
+              "kind": "path",
+              "d": "M -54.6 74.56 C -64.12 74.84 -69.72 72.32 -72.8 65.6 C -75.88 58.88 -73.92 51.32 -68.6 44.32 L 51.8 -114.72 C 57.96 -122.84 64.68 -123.96 74.48 -123.68 L 87.92 -123.4 C 98 -123.12 103.32 -118.36 104.72 -110.52 C 105.84 -105.48 103.6 -99.88 99.4 -94.28 L -20.44 63.92 C -26.6 72.04 -33.04 74.56 -42.56 74.84 Z",
+              "fill": "#07969e",
+              "stroke": "#050505",
+              "strokeWidth": 4
+            }
+          ]
+        },
+        {
+          "id": "officialShoes",
+          "node": "root",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M -36.4 93.8 C -40.88 93.24 -44.52 94.92 -46.2 97.44 C -49 98 -50.12 99.12 -51.24 100.24 C -58.52 99.96 -66.36 103.6 -71.96 108.08 C -77.56 112.56 -80.36 118.44 -80.08 124.32 C -80.36 129.92 -75.88 133.56 -68.04 134.96 C -53.2 137.76 -28.28 136.08 -15.96 132.16 C -9.24 130.48 -6.16 127.96 -6.16 123.2 C -6.72 115.36 -7.84 106.96 -10.36 101.64 C -11.76 98.56 -14 96.88 -16.52 96.32 L -21 99.4 C -26.32 98.28 -31.64 96.04 -36.4 93.8 Z",
+              "fill": "#080808",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M -76.72 122.64 C -76.44 117.88 -72.52 112.84 -69.44 110.32 C -60.76 110.6 -53.76 117.6 -51.24 124.88 C -36.96 124.88 -20.16 122.08 -10.36 117.32 L -9.8 122.08 C -8.96 125.72 -12.88 127.68 -18.2 129.08 C -32.48 133 -55.44 133.84 -68.04 131.04 C -73.64 129.92 -77.28 127.68 -76.72 122.64 Z",
+              "fill": "#ffffff",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M -69.44 110.6 C -63.56 105.84 -57.12 103.04 -49.84 103.32 C -47.88 101.36 -46.48 100.52 -43.96 100.24 C -41.16 96.32 -36.68 96.32 -32.48 98.28 C -28.84 100.24 -26.88 103.04 -25.48 105.84 C -21.28 106.96 -15.96 105 -15.68 100.52 C -12.6 103.32 -11.48 110.04 -10.36 117.6 C -20.16 122.36 -36.96 125.16 -51.52 125.16 C -54.04 117.6 -60.76 110.88 -69.44 110.6 Z",
+              "fill": "#ff5918",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M -55.44 105.28 C -50.12 105.56 -45.36 109.2 -42.56 113.4",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 3.4
+            },
+            {
+              "kind": "path",
+              "d": "M -47.04 101.92 C -42.28 101.92 -37.8 105.28 -35 108.36",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 3.4
+            },
+            {
+              "kind": "path",
+              "d": "M 45.64 102.76 C 42.84 105 41.72 109.2 41.16 114.52 L 40.32 123.2 C 39.76 128.52 42.28 131.88 47.88 134.12 C 60.76 139.44 82.32 142.24 95.76 137.48 C 102.48 135.8 106.4 132.72 106.68 127.4 C 106.96 121.8 102.2 115.08 97.44 111.44 C 92.68 107.8 87.64 106.12 82.6 105 C 80.92 102.76 79.52 102.48 78.68 101.92 C 74.48 97.16 70 96.04 65.24 97.44 L 58.8 101.08 C 54.04 100.24 49.28 100.8 45.64 102.76 Z",
+              "fill": "#080808",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 44.24 120.4 C 51.52 124.6 64.12 128.24 74.76 128.24 C 79.8 119.28 88.48 112.56 98.28 116.48 C 100.52 117.88 102.2 120.4 103.04 123.2 C 104.16 126.28 103.6 128.24 101.92 129.92 C 95.2 137.48 71.4 137.76 56.56 132.72 C 49.84 130.76 43.68 128.24 43.96 124.32 Z",
+              "fill": "#ffffff",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 47.04 106.12 C 48.44 109.2 50.4 110.04 54.6 109.76 C 58.24 103.6 62.72 100.52 68.04 100.52 C 71.68 99.96 74.76 102.2 76.72 104.16 C 79.24 104.72 80.08 106.4 81.2 108.08 C 87.64 108.64 94.08 112.28 98.28 116.76 C 88.48 112.84 79.8 119.56 74.76 128.52 C 64.12 128.52 51.52 124.88 44.24 120.68 C 44.52 114.24 45.08 109.76 47.04 106.12 Z",
+              "fill": "#ff5918",
+              "strokeWidth": 0
+            },
+            {
+              "kind": "path",
+              "d": "M 62.72 111.72 C 66.64 107.8 72.24 105.84 77.56 105.84",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 3.4
+            },
+            {
+              "kind": "path",
+              "d": "M 68.6 117.04 C 72.24 112.84 78.96 110.04 84.56 110.04",
+              "fill": "#00000000",
+              "stroke": "#ffffff",
+              "strokeWidth": 3.4
+            }
+          ]
+        },
+        {
+          "id": "officialAccents",
+          "node": "head",
+          "shapes": [
+            {
+              "kind": "path",
+              "d": "M -88.64 -5.16 L -101.8 -15.24",
+              "fill": "#00000000",
+              "stroke": "#ff5b18",
+              "strokeWidth": 7
+            },
+            {
+              "kind": "path",
+              "d": "M -76.04 -14.4 L -82.76 -32.04",
+              "fill": "#00000000",
+              "stroke": "#ff5b18",
+              "strokeWidth": 7
+            }
+          ]
+        }
+      ],
+      "style": {
+        "limbColor": "#080808",
+        "limbWidth": 19,
+        "handRadius": 18,
+        "handColor": "#ffffff",
+        "handStroke": "#050505",
+        "handStrokeWidth": 4,
+        "handRenderer": "artwork",
+        "eyeColor": "#050505",
+        "eyeWhite": "#ffffff",
+        "eyeRadius": 14,
+        "eyeSpacing": 50,
+        "eyeAspectRatio": 1.35,
+        "pupilScale": 0.64,
+        "eyeHighlightColor": "#ffffff",
+        "eyeHighlightRadius": 2.8,
+        "eyeHighlightX": -2.5,
+        "eyeHighlightY": -4,
+        "browWidth": 23,
+        "browStrokeWidth": 4.2,
+        "mouthColor": "#050505",
+        "mouthWidth": 32,
+        "mouthRestOpen": 0.8,
+        "tongueColor": "#ff5b18"
+      },
+      "expressions": {
+        "neutral": { "browTilt": 0, "mouthCurve": 0.15, "eyeOpen": 1 },
+        "happy": { "browTilt": 0.2, "mouthCurve": 0.9, "eyeOpen": 0.9 },
+        "shocked": { "browTilt": 0.8, "mouthCurve": 0, "eyeOpen": 1.3 },
+        "thinking": { "browTilt": -0.35, "mouthCurve": -0.1, "eyeOpen": 0.85 }
+      },
+      "motion": {
+        "breathingAmplitude": 1.5,
+        "breathingPeriodFrames": 90,
+        "blinkIntervalFrames": 125,
+        "swayDegrees": 0.8,
+        "gazeLimit": 7,
+        "headTurnDegrees": 6,
+        "elbowBend": "outward"
+      }
+    }
+  },
+  "actorOrder": ["customer", "mascot"],
+  "actorsById": {
+    "customer": {
+      "characterPackId": "customer",
+      "x": 0.25,
+      "y": 0.7,
+      "scale": 1.35,
+      "facing": "right",
+      "initialEmotion": "happy"
+    },
+    "mascot": {
+      "characterPackId": "farq-official",
+      "x": 0.73,
+      "y": 0.66,
+      "scale": 1.25,
+      "facing": "right",
+      "initialEmotion": "happy"
+    }
+  },
+  "propOrder": ["phone"],
+  "propsById": {
+    "phone": {
+      "label": "Phone",
+      "width": 66,
+      "height": 108,
+      "shapes": [
+        {
+          "kind": "rect",
+          "x": 0,
+          "y": 0,
+          "width": 66,
+          "height": 108,
+          "radius": 12,
+          "fill": "#211108",
+          "stroke": "#fff8ee",
+          "strokeWidth": 5
+        },
+        {
+          "kind": "rect",
+          "x": 8,
+          "y": 13,
+          "width": 50,
+          "height": 78,
+          "radius": 6,
+          "fill": "#fff8ee",
+          "strokeWidth": 0
+        },
+        {
+          "kind": "rect",
+          "x": 17,
+          "y": 24,
+          "width": 32,
+          "height": 8,
+          "radius": 4,
+          "fill": "#ff7a1a",
+          "strokeWidth": 0
+        },
+        {
+          "kind": "ellipse",
+          "x": 33,
+          "y": 51,
+          "rx": 13,
+          "ry": 13,
+          "fill": "#ff7a1a",
+          "strokeWidth": 0
+        },
+        {
+          "kind": "path",
+          "d": "M26 51 L31 56 L41 45",
+          "fill": "#00000000",
+          "stroke": "#211108",
+          "strokeWidth": 4
+        },
+        {
+          "kind": "ellipse",
+          "x": 33,
+          "y": 99,
+          "rx": 4,
+          "ry": 4,
+          "fill": "#fff8ee",
+          "strokeWidth": 0
+        }
+      ],
+      "x": 0.5,
+      "y": 0.5,
+      "scale": 1,
+      "rotation": 0,
+      "initiallyVisible": false,
+      "grip": { "x": 0, "y": 74 }
+    }
+  },
+  "actionOrder": [
+    "mascotEnter",
+    "customerLook",
+    "mascotLookCustomer",
+    "mascotShowPhone",
+    "customerBlink",
+    "customerLookPrice",
+    "priceShock",
+    "mascotBlink",
+    "mascotTalk",
+    "mascotExplain",
+    "mascotCamera",
+    "customerThink",
+    "customerThinkGesture",
+    "customerThinkLook",
+    "mascotPoint",
+    "mascotLookCta",
+    "customerPointCta",
+    "customerLookCta"
+  ],
+  "actionsById": {
+    "customerBlink": {
+      "type": "blink",
+      "actorId": "customer",
+      "startFrame": 92,
+      "durationFrames": 8,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 0,
+      "blendOutFrames": 0
+    },
+    "customerLook": {
+      "type": "look",
+      "actorId": "customer",
+      "startFrame": 75,
+      "durationFrames": 105,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "actor", "actorId": "mascot" }
+    },
+    "customerLookCta": {
+      "type": "look",
+      "actorId": "customer",
+      "startFrame": 335,
+      "durationFrames": 80,
+      "priority": 20,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "overlay", "overlayId": "cta" }
+    },
+    "customerLookPrice": {
+      "type": "look",
+      "actorId": "customer",
+      "startFrame": 145,
+      "durationFrames": 35,
+      "priority": 10,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "overlay", "overlayId": "newPrice" }
+    },
+    "customerPointCta": {
+      "type": "point",
+      "actorId": "customer",
+      "startFrame": 335,
+      "durationFrames": 80,
+      "priority": 20,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "overlay", "overlayId": "cta" },
+      "hand": "right"
+    },
+    "customerThink": {
+      "type": "react",
+      "actorId": "customer",
+      "startFrame": 260,
+      "durationFrames": 60,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "preset": "thinking",
+      "intensity": 0.75
+    },
+    "customerThinkGesture": {
+      "type": "gesture",
+      "actorId": "customer",
+      "startFrame": 260,
+      "durationFrames": 60,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "preset": "think",
+      "hand": "right",
+      "intensity": 0.85
+    },
+    "customerThinkLook": {
+      "type": "look",
+      "actorId": "customer",
+      "startFrame": 260,
+      "durationFrames": 60,
+      "priority": 15,
+      "weight": 1,
+      "blendInFrames": 5,
+      "blendOutFrames": 5,
+      "target": { "kind": "point", "x": 0.16, "y": 0.38 }
+    },
+    "mascotBlink": {
+      "type": "blink",
+      "actorId": "mascot",
+      "startFrame": 225,
+      "durationFrames": 8,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 0,
+      "blendOutFrames": 0
+    },
+    "mascotCamera": {
+      "type": "look",
+      "actorId": "mascot",
+      "startFrame": 240,
+      "durationFrames": 90,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "camera" }
+    },
+    "mascotEnter": {
+      "type": "enter",
+      "actorId": "mascot",
+      "startFrame": 15,
+      "durationFrames": 60,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "from": "right"
+    },
+    "mascotExplain": {
+      "type": "gesture",
+      "actorId": "mascot",
+      "startFrame": 240,
+      "durationFrames": 90,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "preset": "explain",
+      "hand": "both",
+      "intensity": 0.8
+    },
+    "mascotLookCta": {
+      "type": "look",
+      "actorId": "mascot",
+      "startFrame": 335,
+      "durationFrames": 80,
+      "priority": 20,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "overlay", "overlayId": "cta" }
+    },
+    "mascotLookCustomer": {
+      "type": "look",
+      "actorId": "mascot",
+      "startFrame": 80,
+      "durationFrames": 75,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "actor", "actorId": "customer" }
+    },
+    "mascotPoint": {
+      "type": "point",
+      "actorId": "mascot",
+      "startFrame": 335,
+      "durationFrames": 80,
+      "priority": 20,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "target": { "kind": "overlay", "overlayId": "cta" },
+      "hand": "left"
+    },
+    "mascotShowPhone": {
+      "type": "showProp",
+      "actorId": "mascot",
+      "startFrame": 85,
+      "durationFrames": 145,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "propId": "phone",
+      "hand": "right",
+      "target": { "kind": "point", "x": 0.54, "y": 0.53 },
+      "interaction": "reveal"
+    },
+    "mascotTalk": {
+      "type": "talk",
+      "actorId": "mascot",
+      "startFrame": 240,
+      "durationFrames": 90,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "emotion": "happy",
+      "visemes": [
+        { "frame": 0, "shape": "m" },
+        { "frame": 5, "shape": "a" },
+        { "frame": 13, "shape": "e" },
+        { "frame": 22, "shape": "o" },
+        { "frame": 31, "shape": "m" },
+        { "frame": 38, "shape": "u" },
+        { "frame": 48, "shape": "a" },
+        { "frame": 58, "shape": "e" },
+        { "frame": 68, "shape": "o" },
+        { "frame": 78, "shape": "a" },
+        { "frame": 87, "shape": "m" }
+      ]
+    },
+    "priceShock": {
+      "type": "react",
+      "actorId": "customer",
+      "startFrame": 155,
+      "durationFrames": 70,
+      "priority": 0,
+      "weight": 1,
+      "blendInFrames": 6,
+      "blendOutFrames": 6,
+      "preset": "shocked",
+      "intensity": 1
+    }
+  },
+  "overlayOrder": ["hook", "oldPrice", "newPrice", "explain", "cta"],
+  "overlaysById": {
+    "cta": {
+      "text": "Сравни цены до покупки",
+      "x": 0.5,
+      "y": 0.17,
+      "startFrame": 330,
+      "endFrame": 420,
+      "style": "cta"
+    },
+    "explain": {
+      "text": "Farq сравнивает цены до покупки",
+      "x": 0.5,
+      "y": 0.13,
+      "startFrame": 235,
+      "endFrame": 335,
+      "style": "caption"
+    },
+    "hook": {
+      "text": "Один телефон. Две цены.",
+      "x": 0.5,
+      "y": 0.12,
+      "startFrame": 0,
+      "endFrame": 78,
+      "style": "caption"
+    },
+    "newPrice": {
+      "text": "999 000 сум",
+      "x": 0.5,
+      "y": 0.32,
+      "startFrame": 125,
+      "endFrame": 235,
+      "style": "price-new"
+    },
+    "oldPrice": {
+      "text": "1 299 000 сум",
+      "x": 0.5,
+      "y": 0.22,
+      "startFrame": 95,
+      "endFrame": 155,
+      "style": "price-old"
+    }
+  },
+  "caption": "Farq official character pack — native engine v0.2",
+  "timebase": { "numerator": 30, "denominator": 1 },
+  "staging": { "layout": "two-shot", "focalActorId": "mascot", "productPropId": "phone" },
+  "camera": {
+    "movement": "locked",
+    "startFrame": 0,
+    "durationFrames": 420,
+    "holdFrames": 0,
+    "intensity": 0
+  },
+  "environment": {
+    "background": "#170f0a",
+    "horizonY": 0.7,
+    "ground": "#2b1710",
+    "accent": "#ff7a1a",
+    "layers": [
+      {
+        "id": "warm-orb",
+        "plane": "background",
+        "shape": "orb",
+        "x": 0.8240740740740741,
+        "y": 0.12239583333333333,
+        "width": 0.37962962962962965,
+        "height": 0.21354166666666666,
+        "color": "#ff7a1a",
+        "opacity": 0.12,
+        "parallax": 0
+      }
+    ]
+  }
+}

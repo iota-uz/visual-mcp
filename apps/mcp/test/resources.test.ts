@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { CharacterActionDefinition } from "@visual-canvas/video/character-action-library";
+import { bakeProceduralAction } from "@visual-canvas/video/character-procedural";
 import { expect, test, vi } from "vitest";
 import { callVideoTool } from "../src/video/registry.js";
 
@@ -179,9 +181,13 @@ test("resource hash mismatch and arbitrary URL never silently fetch a replacemen
 });
 test("verified component and effect resources expose actual pinned schema source", async () => {
   const rpc = fixture();
-  for (const kind of ["component", "preset"]) {
-    const found = await rpc("tools/call", { name: "resource_find", arguments: { kind } });
+  for (const [kind, query, uriPattern] of [
+    ["component", "animated-bars", /^video:\/\/components\/video%2Fcomponent%2Fanimated-bars\//],
+    ["preset", "video/effect/fade", /^video:\/\/presets\/video%2Feffect%2Ffade\//],
+  ] as const) {
+    const found = await rpc("tools/call", { name: "resource_find", arguments: { kind, query } });
     expect(found.result.structuredContent.data.items.length).toBeGreaterThan(0);
+    expect(found.result.structuredContent.data.items[0].uri).toMatch(uriPattern);
     const read = await rpc("tools/call", {
       name: "resource_get",
       arguments: { uri: found.result.structuredContent.data.items[0].uri, max_bytes: 131072 },
@@ -193,5 +199,37 @@ test("verified component and effect resources expose actual pinned schema source
       trust: "reviewed_repository_code",
       schema: { type: "object" },
     });
+  }
+});
+
+test("character authoring guide examples remain executable against their published contracts", async () => {
+  const rpc = fixture();
+  const read = await rpc("tools/call", {
+    name: "resource_get",
+    arguments: { uri: "video://guides/character-engine/4", max_bytes: 131072 },
+  });
+  expect(read.result.isError).not.toBe(true);
+  const guide = JSON.parse(read.result.structuredContent.data.content);
+  const definition = CharacterActionDefinition.parse({
+    ...guide.compoundDefinitionExample,
+    revisionId: "a".repeat(64),
+  });
+  expect(definition.content.kind).toBe("sequence");
+  expect(() =>
+    bakeProceduralAction({
+      source: guide.proceduralExample,
+      actorId: "Farq",
+      startFrame: 0,
+      durationFrames: 30,
+      timebase: { numerator: 30, denominator: 1 },
+      seed: 7,
+    }),
+  ).not.toThrow();
+
+  const schemas = await rpc("resources/read", { uri: "video://guides/character-schemas/4" });
+  const published = JSON.parse(schemas.result.contents[0].text);
+  for (const name of ["scene", "pack", "action", "definition", "dialogue", "audio"]) {
+    expect(published[name].$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+    expect(published[name].type ?? published[name].oneOf).toBeTruthy();
   }
 });

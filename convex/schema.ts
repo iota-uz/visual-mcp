@@ -271,6 +271,22 @@ export default defineSchema({
     "key",
   ]),
 
+  characterActions: defineTable({
+    workspaceId: v.id("workspaces"),
+    scope: v.union(v.literal("project"), v.literal("shared")),
+    projectId: v.optional(v.id("videoProjects")),
+    actionId: v.string(),
+    revisionId: v.string(),
+    definition: v.string(),
+  })
+    .index("by_workspaceId_and_scope_and_projectId", ["workspaceId", "scope", "projectId"])
+    .index("by_workspaceId_and_scope_and_projectId_and_revisionId", [
+      "workspaceId",
+      "scope",
+      "projectId",
+      "revisionId",
+    ]),
+
   users: defineTable({
     email: v.string(),
     name: v.string(),

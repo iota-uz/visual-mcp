@@ -10,6 +10,7 @@ import {
   Timeline,
 } from "@visual-canvas/video";
 import { z } from "zod";
+import { characterDefinitions } from "./character.js";
 import { learningDefinitions } from "./learning.js";
 import { providerDefinitions } from "./providers.js";
 import { resourceDefinitions } from "./resources.js";
@@ -430,6 +431,7 @@ export const videoRegistry: Definition[] = [
   ...reviewDefinitions,
   ...resourceDefinitions,
   ...providerDefinitions,
+  ...characterDefinitions,
   ...learningDefinitions,
   ...workflowDefinitions,
   {

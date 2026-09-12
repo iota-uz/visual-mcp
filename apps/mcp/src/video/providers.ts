@@ -128,7 +128,7 @@ export const providerDefinitions: Definition[] = [
       };
     },
   },
-  ...(["frames", "proxy", "qa", "audio_mix", "compare"] as const).map(
+  ...(["frames", "proxy", "qa", "audio_mix", "compare", "waveform"] as const).map(
     (kind): Definition => ({
       name: {
         frames: "video_frames",
@@ -136,6 +136,7 @@ export const providerDefinitions: Definition[] = [
         qa: "video_qa",
         audio_mix: "audio_mix",
         compare: "video_compare",
+        waveform: "get_waveform",
       }[kind],
       description: {
         frames:
@@ -147,6 +148,8 @@ export const providerDefinitions: Definition[] = [
           "Create a real side-by-side contact sheet from exactly two pinned media inputs at requested times. asset is A, additional_assets must contain B. Results retain both source hashes, sourceIndex and actual timestamps; this is a visual comparison artifact, not a semantic winner or approval.",
         audio_mix:
           "Mix pinned audio tracks with timeline offsets, trims, fades, scheduled voice-window ducking and measured mastering. asset is inputIndex 0; additional_assets map to indices 1 onward. Returns job receipt for WAV and measurement report; does not mutate a timeline.",
+        waveform:
+          "Decode a bounded time range from one pinned audio or video asset and render its actual amplitude waveform. Returns a PNG plus a report with exact time/channel scope. This is not speech alignment, transcription, loudness or semantic analysis.",
       }[kind],
       readOnly: false,
       input: z

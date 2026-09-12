@@ -217,6 +217,20 @@ export async function purgeWorkspace(
     .collect();
   for (const project of videos) await purgeVideoProject(ctx, project._id);
 
+  // Project purge deliberately retains promoted definitions for reuse. Once the
+  // workspace itself is deleted, both shared definitions and any defensive
+  // project-scoped leftovers are owned by the workspace and must be removed.
+  for (;;) {
+    const actions = await ctx.db
+      .query("characterActions")
+      .withIndex("by_workspaceId_and_scope_and_projectId", (q) =>
+        q.eq("workspaceId", workspace._id),
+      )
+      .take(32);
+    if (actions.length === 0) break;
+    for (const action of actions) await ctx.db.delete(action._id);
+  }
+
   const components = await ctx.db
     .query("components")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))

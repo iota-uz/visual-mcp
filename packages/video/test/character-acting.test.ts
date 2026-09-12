@@ -108,6 +108,7 @@ test("compiled actions integrate into a complete strict character scene", () => 
     ],
   });
   const scene = CharacterSceneProps.parse({
+    stage: { aspect: "9:16", width: 1080, height: 1920 },
     timebase: compiled.timebase,
     seed: 7,
     staging: { layout: "single-product", focalActorId: "mascot" },

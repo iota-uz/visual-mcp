@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { CharacterAnimationLab } from "./CharacterAnimationLab";
 
 describe("CharacterAnimationLab", () => {
+  it("sizes the preview and safe-frame container from the real scene aspect", () => {
+    render(<CharacterAnimationLab scenarioId="stage-landscape" autoPlay={false} />);
+    const stage = screen.getByTestId("character-stage");
+    expect(stage).toHaveAttribute("data-stage-aspect", "16:9");
+    expect(stage).toHaveStyle({ aspectRatio: "1920 / 1080" });
+  });
   it("renders the exact production SVG scene and exposes frame controls", () => {
     render(<CharacterAnimationLab scenarioId="point" autoPlay={false} />);
     expect(screen.getByRole("img", { name: "Farq character animation lab" })).toBeInTheDocument();

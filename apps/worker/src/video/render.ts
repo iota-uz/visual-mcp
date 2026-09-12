@@ -12,6 +12,11 @@ import {
 } from "@visual-canvas/video/media";
 import { chromium } from "playwright";
 import { acquireMediaCapacity } from "./capacity.js";
+import {
+  characterRenderCacheKey,
+  readCharacterRenderCache,
+  writeCharacterRenderCache,
+} from "./character-render-cache.js";
 import type { RenderProps } from "./composition.js";
 import { downloadSource, fileIdentity, makePoster, probeMedia, uploadArtifact } from "./media.js";
 import { buildIdentity, renderEngine } from "./provenance.js";
@@ -75,6 +80,8 @@ export async function handleVideoRender(
           TMPDIR: process.env.TMPDIR,
           VIDEO_RENDER_TMP_ROOT: process.env.VIDEO_RENDER_TMP_ROOT,
           VIDEO_RENDER_SCRATCHDIR: ownedScratch,
+          VIDEO_RENDER_CACHE_DIR:
+            process.env.VIDEO_RENDER_CACHE_DIR ?? join(tmpdir(), "visual-character-render-cache"),
           VIDEO_FONT_DIR: process.env.VIDEO_FONT_DIR,
           VIDEO_WORKER_BUILD_SHA:
             buildIdentity(
@@ -364,44 +371,96 @@ async function renderInDirectory(
       }
     }
   const props: RenderProps = { format: request.format, timeline: request.timeline, files };
-  const entryPoint = fileURLToPath(new URL("./entry.js", import.meta.url));
-  const serveUrl = await bundle({
-    entryPoint,
-    outDir: join(scratch, "bundle"),
-    publicDir,
-    enableCaching: false,
-  });
-  signal.throwIfAborted();
-  const browserExecutable = process.env.VIDEO_BROWSER_EXECUTABLE ?? chromium.executablePath();
-  const composition = await selectComposition({
-    serveUrl,
-    id: "VideoStudio",
-    inputProps: props,
-    browserExecutable,
-    logLevel: "error",
-  });
-  const { cancel, cancelSignal } = makeCancelSignal();
-  const stop = () => cancel();
-  signal.addEventListener("abort", stop, { once: true });
+  const fonts = [
+    { family: "DejaVu Sans", path: join(publicDir, "DejaVuSans.ttf") },
+    { family: "DejaVu Serif", path: join(publicDir, "DejaVuSerif.ttf") },
+    { family: "DejaVu Sans Mono", path: join(publicDir, "DejaVuSansMono.ttf") },
+  ];
+  const engine = await renderEngine(fonts, signal);
+  const nativeCharacter = Object.values(request.timeline.tracksById).some((track) =>
+    Object.values(track.clipsById).some(
+      (clip) =>
+        clip.source.kind === "component" &&
+        clip.source.component.resourceId === "video/component/character-scene" &&
+        clip.source.component.revisionId === "4",
+    ),
+  );
+  const cacheRoot = process.env.VIDEO_RENDER_CACHE_DIR;
+  const cacheable = Boolean(nativeCharacter && cacheRoot && engine.workerBuildSha);
   const range = renderRange(request);
+  const cacheKey = cacheable
+    ? characterRenderCacheKey({
+        timeline: request.timeline,
+        format: request.format,
+        range,
+        inputs: request.inputs.map(({ asset, sha256, mimeType, sizeBytes }) => ({
+          asset,
+          sha256,
+          mimeType,
+          sizeBytes,
+        })),
+        engine,
+      })
+    : undefined;
   const videoPath = join(scratch, "render.mp4");
-  try {
-    await renderMedia({
-      composition,
-      serveUrl,
-      inputProps: props,
-      outputLocation: videoPath,
-      browserExecutable,
-      codec: "h264",
-      pixelFormat: "yuv420p",
-      crf: 18,
-      concurrency: 1,
-      logLevel: "error",
-      cancelSignal,
-      frameRange: [range.start, range.end - 1],
+  const cacheOptions = {
+    ttlMs: 7 * 24 * 60 * 60 * 1000,
+    maxEntryBytes: 500_000_000,
+    maxTotalBytes: 2_000_000_000,
+    maxEntries: 12,
+  };
+  const cacheHit = Boolean(
+    cacheKey &&
+      cacheRoot &&
+      (await readCharacterRenderCache(cacheRoot, cacheKey, videoPath, cacheOptions).catch(
+        () => false,
+      )),
+  );
+  if (!cacheHit) {
+    const entryPoint = fileURLToPath(new URL("./entry.js", import.meta.url));
+    const serveUrl = await bundle({
+      entryPoint,
+      outDir: join(scratch, "bundle"),
+      publicDir,
+      enableCaching: false,
     });
-  } finally {
-    signal.removeEventListener("abort", stop);
+    signal.throwIfAborted();
+    const browserExecutable = process.env.VIDEO_BROWSER_EXECUTABLE ?? chromium.executablePath();
+    const composition = await selectComposition({
+      serveUrl,
+      id: "VideoStudio",
+      inputProps: props,
+      browserExecutable,
+      logLevel: "error",
+    });
+    const { cancel, cancelSignal } = makeCancelSignal();
+    const stop = () => cancel();
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      await renderMedia({
+        composition,
+        serveUrl,
+        inputProps: props,
+        outputLocation: videoPath,
+        browserExecutable,
+        codec: "h264",
+        // Pin lossless intermediate frames: JPEG intermediates varied across
+        // identical native-scene renders in the acceptance determinism test.
+        imageFormat: "png",
+        pixelFormat: "yuv420p",
+        crf: 18,
+        concurrency: 1,
+        logLevel: "error",
+        cancelSignal,
+        frameRange: [range.start, range.end - 1],
+      });
+    } finally {
+      signal.removeEventListener("abort", stop);
+    }
+    if (cacheKey && cacheRoot)
+      await writeCharacterRenderCache(cacheRoot, cacheKey, videoPath, cacheOptions).catch(
+        () => false,
+      );
   }
   const metadata = await probeMedia(videoPath, signal);
   const video = metadata.streams.find((stream) => stream.codec_type === "video");
@@ -425,14 +484,7 @@ async function renderInDirectory(
   const captionsPath = join(scratch, "captions.vtt");
   await writeFile(captionsPath, captionsVtt(request));
   const result = VideoRenderResult.parse({
-    engine: await renderEngine(
-      [
-        { family: "DejaVu Sans", path: join(publicDir, "DejaVuSans.ttf") },
-        { family: "DejaVu Serif", path: join(publicDir, "DejaVuSerif.ttf") },
-        { family: "DejaVu Sans Mono", path: join(publicDir, "DejaVuSansMono.ttf") },
-      ],
-      signal,
-    ),
+    engine,
     jobId: request.jobId,
     fence: request.fence,
     video: {

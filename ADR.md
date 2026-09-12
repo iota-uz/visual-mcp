@@ -59,6 +59,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## platform
 
+- **Персонажный движок v4 компилирует диалоги, композицию действий и ограниченные процедурные треки** — [запись](adr/platform/character-engine-semantic-authoring-v4.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Рекламная персонажная сцена объединяет acting, постановку и явный timebase** — [запись](adr/platform/character-advertising-performance.md) · accepted · 2026-09-12 (запрос пользователя; supersedes native-character-animation-engine-v0-2)
 
 - **Асимметричные Character Packs фиксируют направление и сохраняют авторские детали** — [запись](adr/platform/brand-faithful-asymmetric-character-packs.md) · accepted · 2026-09-12 (запрос пользователя; `asset://shared/farq-official-layered-mascot@1`)

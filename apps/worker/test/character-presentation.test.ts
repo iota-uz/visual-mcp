@@ -16,6 +16,9 @@ import {
 
 function fixture(layout: CharacterSceneProps["staging"]["layout"] = "two-shot") {
   return {
+    stage: { aspect: "9:16", width: 1080, height: 1920 },
+    cameraSequence: [],
+    effects: [],
     timebase: { numerator: 30, denominator: 1 },
     seed: 17,
     staging: {
@@ -113,11 +116,98 @@ test("camera motion eases deterministically into a stable hold and uses authored
 });
 
 test("inverse camera mapping keeps screen overlay targets aligned", () => {
-  const camera = evaluatePresentationCamera(fixture(), 60);
+  const props = fixture();
+  const camera = evaluatePresentationCamera(props, 60);
   const screen = { x: 810, y: 420 };
-  const world = presentationScreenToWorld(camera, screen);
+  const world = presentationScreenToWorld(camera, screen, props.stage);
   assert.ok(Math.abs((world.x - camera.targetX) * camera.scale + 540 - screen.x) < 1e-9);
   assert.ok(Math.abs((world.y - camera.targetY) * camera.scale + 960 - screen.y) < 1e-9);
+});
+
+test("sequenced non-cut shots continue from the preceding shot endpoint", () => {
+  const props = fixture();
+  props.cameraSequence = [
+    {
+      id: "first",
+      startFrame: 10,
+      durationFrames: 10,
+      type: "pan",
+      x: 0.25,
+      y: 0.5,
+      intensity: 1,
+    },
+    {
+      id: "second",
+      startFrame: 20,
+      durationFrames: 10,
+      type: "pan",
+      x: 0.75,
+      y: 0.5,
+      intensity: 1,
+    },
+  ];
+
+  const firstEndpoint = evaluatePresentationCamera(props, 19);
+  const secondStart = evaluatePresentationCamera(props, 20);
+  assert.equal(secondStart.targetX, firstEndpoint.targetX);
+  assert.equal(secondStart.targetY, firstEndpoint.targetY);
+  assert.equal(secondStart.scale, firstEndpoint.scale);
+  assert.ok(evaluatePresentationCamera(props, 29).targetX > secondStart.targetX);
+});
+
+test("an unparameterized hold preserves the preceding shot endpoint", () => {
+  const props = fixture();
+  props.cameraSequence = [
+    {
+      id: "pan",
+      startFrame: 10,
+      durationFrames: 10,
+      type: "pan",
+      x: 0.25,
+      y: 0.35,
+      zoom: 1.2,
+      intensity: 1,
+    },
+    {
+      id: "hold",
+      startFrame: 20,
+      durationFrames: 10,
+      type: "hold",
+      intensity: 1,
+    },
+  ];
+
+  const endpoint = evaluatePresentationCamera(props, 19);
+  for (const frame of [20, 24, 29]) {
+    const held = evaluatePresentationCamera(props, frame);
+    assert.equal(held.targetX, endpoint.targetX);
+    assert.equal(held.targetY, endpoint.targetY);
+    assert.equal(held.scale, endpoint.scale);
+  }
+});
+
+test("camera actor targets use the supplied frame-exact runtime resolver", () => {
+  const props = fixture();
+  props.cameraSequence = [
+    {
+      id: "follow",
+      startFrame: 10,
+      durationFrames: 20,
+      type: "follow",
+      target: { kind: "actor", actorId: "customer" },
+      intensity: 1,
+    },
+  ];
+  const calls: number[] = [];
+  const camera = evaluatePresentationCamera(props, 29, undefined, (target, atFrame) => {
+    assert.deepEqual(target, { kind: "actor", actorId: "customer" });
+    calls.push(atFrame);
+    return { x: 900, y: 700 };
+  });
+
+  assert.deepEqual(calls, [29]);
+  assert.equal(camera.targetX, 900);
+  assert.equal(camera.targetY, 700);
 });
 
 test("single-product camera keeps staged actor bounds visible while following an attached product", () => {
@@ -165,6 +255,7 @@ test("environment planes are bounded, filtered and retain authored depth", () =>
       environment: props.environment,
       plane: "background",
       camera,
+      stage: props.stage,
     }),
   );
   assert.match(background, /environment-background/);
@@ -189,6 +280,7 @@ test("advertising typography renders price hierarchy, savings and restrained ent
   const price = renderToStaticMarkup(
     createElement(AdvertisingOverlay, {
       frame: 12,
+      stage: { aspect: "9:16", width: 1080, height: 1920 },
       overlay: {
         text: "899 000",
         x: 0.5,
@@ -209,6 +301,7 @@ test("advertising typography renders price hierarchy, savings and restrained ent
   const savings = renderToStaticMarkup(
     createElement(AdvertisingOverlay, {
       frame: 30,
+      stage: { aspect: "9:16", width: 1080, height: 1920 },
       overlay: {
         text: "200 000 saved",
         emphasis: "Save",
@@ -227,6 +320,7 @@ test("advertising typography renders price hierarchy, savings and restrained ent
   const longCallout = renderToStaticMarkup(
     createElement(AdvertisingOverlay, {
       frame: 30,
+      stage: { aspect: "9:16", width: 1080, height: 1920 },
       overlay: {
         text: "A deliberately long authored advertising callout that must stay within its card",
         x: 0.5,

@@ -4,13 +4,53 @@ import { buildCharacterScenario, clampLabFrame, formatLabTime, scenarioCatalog }
 
 describe("character animation lab scenarios", () => {
   it("constructs every catalog scenario with the production scene contract", () => {
-    expect(scenarioCatalog).toHaveLength(22);
+    expect(scenarioCatalog).toHaveLength(30);
     for (const item of scenarioCatalog) {
       const scenario = buildCharacterScenario(item.id);
       expect(CharacterSceneProps.safeParse(scenario.props).success, item.id).toBe(true);
       expect(scenario.totalFrames).toBeGreaterThan(0);
       expect(scenario.phases[0]).toEqual(expect.objectContaining({ frame: 0 }));
     }
+  });
+
+  it("visually inventories every revision 4 gesture, emotion, camera, effect and stage", () => {
+    const gestures = buildCharacterScenario("gesture-matrix").props;
+    expect(
+      new Set(
+        Object.values(gestures.actionsById)
+          .filter((action) => action.type === "gesture")
+          .map((action) => (action.type === "gesture" ? action.preset : "")),
+      ),
+    ).toEqual(new Set(gestures.characterPacksById["farq-official"]!.capabilities.gestures));
+    const emotions = buildCharacterScenario("emotion-matrix").props;
+    expect(
+      new Set(
+        Object.values(emotions.actionsById)
+          .filter((action) => action.type === "react")
+          .map((action) => (action.type === "react" ? action.preset : "")),
+      ),
+    ).toEqual(
+      new Set(
+        emotions.characterPacksById["farq-official"]!.capabilities.emotions.filter(
+          (emotion) => emotion !== "neutral",
+        ),
+      ),
+    );
+    expect(
+      buildCharacterScenario("camera-matrix").props.cameraSequence.map((shot) => shot.type),
+    ).toEqual(["cut", "frame", "pan", "push", "pull", "follow", "shake", "hold"]);
+    expect(
+      buildCharacterScenario("effect-matrix").props.effects.map((effect) => effect.type),
+    ).toEqual(["particles", "smoke", "impact", "speed-lines", "highlight"]);
+    expect(buildCharacterScenario("stage-landscape").props.stage.aspect).toBe("16:9");
+    expect(buildCharacterScenario("stage-square").props.stage.aspect).toBe("1:1");
+    expect(buildCharacterScenario("idle").props.stage.aspect).toBe("9:16");
+    expect(
+      buildCharacterScenario("new-customer").props.characterPacksById["customer-energetic"],
+    ).toBeDefined();
+    expect(buildCharacterScenario("compound-procedural").props.actionsById.procedural?.type).toBe(
+      "animate",
+    );
   });
 
   it("keeps golden diagnostics isolated to acting, camera and character pack", () => {
