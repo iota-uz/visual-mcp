@@ -205,7 +205,7 @@ export function VideoJobs({
 }
 
 function JobVersion({ versionId, kind }: { versionId: Id<"videoVersions"> | null; kind: string }) {
-  const version = useQuery(api.video.getVersion, versionId ? { versionId } : "skip");
+  const version = useQuery(api.video.getVersionSummary, versionId ? { versionId } : "skip");
   return (
     <span>
       {version

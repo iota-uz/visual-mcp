@@ -39,6 +39,7 @@ export type CharacterActorState = {
   face: CharacterFaceState;
   pose: NumericPose;
   rig: EvaluatedRig;
+  pointing: Partial<Record<"left" | "right", Vec2>>;
 };
 const VIEW_WIDTH = 1080,
   VIEW_HEIGHT = 1920;
@@ -379,6 +380,8 @@ function evaluateActor(
   });
   const toLocal = inverseMatrix(actorMatrix),
     tracks: AnimationTrack[] = [];
+  const pointing: Partial<Record<"left" | "right", Vec2>> = {};
+  const pointingPriority: Partial<Record<"left" | "right", number>> = {};
   const armRequests: {
     id: string;
     action: CharacterAction;
@@ -456,15 +459,24 @@ function evaluateActor(
           },
         });
     } else if (action.type === "point") {
+      const point = targetPoint(action.target, props, positions, propsAt);
       armRequests.push({
         id,
         action,
         side: action.hand,
         target: {
           space: "world",
-          point: targetPoint(action.target, props, positions, propsAt),
+          point,
         },
       });
+      if (
+        actionActive(action, frame) &&
+        actionWeight(action, frame) > 0 &&
+        action.priority >= (pointingPriority[action.hand] ?? Number.NEGATIVE_INFINITY)
+      ) {
+        pointing[action.hand] = point;
+        pointingPriority[action.hand] = action.priority;
+      }
     } else if (action.type === "showProp") {
       armRequests.push({
         id,
@@ -544,6 +556,7 @@ function evaluateActor(
     emotion,
     pose,
     rig,
+    pointing,
     face: {
       gazeX: pose["eyes.x"]!,
       gazeY: pose["eyes.y"]!,
@@ -694,7 +707,13 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
       state = states[id],
       pack = actor && props.characterPacksById[actor.characterPackId];
     return state && pack ? (
-      <CharacterHandsView key={id} pack={pack} rig={state.rig} opacity={state.opacity} />
+      <CharacterHandsView
+        key={id}
+        pack={pack}
+        rig={state.rig}
+        pointing={state.pointing}
+        opacity={state.opacity}
+      />
     ) : null;
   });
   return (

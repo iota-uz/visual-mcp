@@ -70,6 +70,15 @@ beforeEach(() => {
   );
 });
 
+test("job cards request metadata-only version summaries", async () => {
+  render(<VideoJobs workspaceId={"workspace" as never} projectId={"project" as never} />);
+  await userEvent.click(screen.getByText("Video export"));
+  expect(query.mock.calls.some(([ref]) => getFunctionName(ref) === "video:getVersionSummary")).toBe(
+    true,
+  );
+  expect(query.mock.calls.some(([ref]) => getFunctionName(ref) === "video:getVersion")).toBe(false);
+});
+
 test("failed retry stays grouped under the highlighted successful draft", async () => {
   const open = vi.fn();
   render(

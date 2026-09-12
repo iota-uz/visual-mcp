@@ -142,6 +142,20 @@ test("human approval is exact and historical, never approval of the newer draft"
   expect(historical.approval?.sha256).toBe(s.sha256);
   expect(historical.versionId).toBe(s.versionId);
 });
+test("saved render review survives an unsupported historical timeline manifest", async () => {
+  const s = await setup();
+  await s.t.run(async (ctx) => {
+    const version = await ctx.db.get(s.versionId);
+    if (!version) throw new Error("missing fixture version");
+    const manifest = JSON.parse(version.manifest);
+    manifest.timeline = { unsupportedComponent: "character-scene@1" };
+    await ctx.db.patch(s.versionId, { manifest: JSON.stringify(manifest) });
+  });
+
+  await expect(
+    s.as.query(api.videoReview.renderMetadata, { jobId: s.jobId }),
+  ).resolves.toMatchObject({ frameCount: 60, videoDurationMs: 2000 });
+});
 test("partial cannot be approved and out-of-range feedback cannot be posted", async () => {
   const s = await setup(true);
   await expect(

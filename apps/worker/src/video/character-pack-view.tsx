@@ -87,24 +87,49 @@ function CharacterArms({ pack, rig }: { pack: CharacterPack; rig: EvaluatedRig }
 export function CharacterHandsView({
   pack,
   rig,
+  pointing = {},
   opacity = 1,
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
+  pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
   opacity?: number;
 }) {
   if (!pack.capabilities.arms) return null;
   return (
     <g data-character-part="hands" opacity={opacity}>
-      {(["left", "right"] as const).map((side) => (
-        <circle
-          key={side}
-          data-hand={side}
-          transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
-          r={pack.style.handRadius}
-          fill={pack.style.limbColor}
-        />
-      ))}
+      {(["left", "right"] as const).map((side) => {
+        const hand = rig[`${side}Hand`]!.origin;
+        const target = pointing[side];
+        const distance = target ? Math.hypot(target.x - hand.x, target.y - hand.y) : 0;
+        const fingerLength = pack.style.handRadius * 2.4;
+        const tip =
+          target && distance > 0
+            ? {
+                x: hand.x + ((target.x - hand.x) / distance) * fingerLength,
+                y: hand.y + ((target.y - hand.y) / distance) * fingerLength,
+              }
+            : null;
+        return (
+          <g key={side} data-hand={side}>
+            <circle
+              transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
+              r={pack.style.handRadius}
+              fill={pack.style.limbColor}
+            />
+            {tip ? (
+              <path
+                data-character-point-finger={side}
+                d={`M${hand.x} ${hand.y} L${tip.x} ${tip.y}`}
+                fill="none"
+                stroke={pack.style.limbColor}
+                strokeWidth={Math.max(5, pack.style.handRadius * 0.7)}
+                strokeLinecap="round"
+              />
+            ) : null}
+          </g>
+        );
+      })}
     </g>
   );
 }
@@ -188,12 +213,14 @@ export function CharacterPackView({
   face,
   opacity = 1,
   renderHands = true,
+  pointing,
 }: {
   pack: CharacterPack;
   rig: EvaluatedRig;
   face: CharacterFaceState;
   opacity?: number;
   renderHands?: boolean;
+  pointing?: Partial<Record<"left" | "right", { x: number; y: number }>>;
 }) {
   return (
     <g aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
@@ -211,7 +238,7 @@ export function CharacterPackView({
         </g>
       ))}
       <CharacterFace pack={pack} rig={rig} face={face} />
-      {renderHands ? <CharacterHandsView pack={pack} rig={rig} /> : null}
+      {renderHands ? <CharacterHandsView pack={pack} rig={rig} pointing={pointing} /> : null}
     </g>
   );
 }

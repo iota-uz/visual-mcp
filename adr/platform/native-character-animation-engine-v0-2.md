@@ -13,6 +13,9 @@ applies_to:
   - packages/video/test/registry.test.ts
   - packages/video/test/contracts.test.ts
   - convex/video.ts
+  - convex/videoReview.ts
+  - apps/web/src/components/video/VideoJobs.tsx
+  - apps/worker/src/video/render.ts
   - apps/worker/src/video/character-runtime.ts
   - apps/worker/src/video/character-pack-view.tsx
   - apps/worker/src/video/character-scene.tsx
@@ -58,6 +61,16 @@ Breaking component revisions допускают атомарный repair patch:
 применяется к сохранённому raw document, а строгая schema проверяет уже итог.
 Это позволяет заменить больше не поддерживаемый `@1` на `@2` без временного
 compatibility renderer; частично исправленный документ по-прежнему не сохраняется.
+
+Метаданные сохранённых render jobs читаются независимо от текущей component
+schema: уже созданный MP4 остаётся доступен для review, даже если его immutable
+checkpoint использует снятую с поддержки revision. Production list получает
+только version summary и не разбирает manifest. Это не возвращает старый
+renderer и не позволяет повторно рендерить неподдерживаемый документ.
+
+Техническая проверка `audio_presence` фиксирует измеренный факт и ожидание:
+для намеренно немого timeline отсутствие audio stream является pass с явной
+причиной, а обязательный audio stream по-прежнему проверяется как требование.
 
 ## Обоснование
 

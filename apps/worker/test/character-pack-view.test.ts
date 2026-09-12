@@ -135,7 +135,7 @@ test("a previously unknown pack renders all declared artwork at evaluated nodes 
   assert.match(markup, /fill="#112233"/);
   assert.match(markup, /d="M0 -50 L0 -80"/);
   assert.match(markup, /data-arm="right" d="M50 -30 L80 5 L90 45"/);
-  assert.match(markup, /data-hand="right" transform="matrix\(2 0 0 2 430 590\)"/);
+  assert.match(markup, /data-hand="right"><circle transform="matrix\(2 0 0 2 430 590\)"/);
   assert.match(markup, /scale\(1 0.6\)/);
   assert.match(markup, /cx="4" cy="-2"/);
 });

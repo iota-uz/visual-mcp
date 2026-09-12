@@ -867,6 +867,25 @@ const getVersionDefinition = queryDefinition({
     };
   },
 });
+const getVersionSummaryDefinition = queryDefinition({
+  args: { versionId: v.id("videoVersions") },
+  handler: async (ctx, args) => {
+    await user(ctx);
+    const row = await ctx.db.get(args.versionId);
+    if (!row) return fail("NOT_FOUND_OR_FORBIDDEN", "Version unavailable");
+    await project(ctx, row.projectId);
+    return {
+      version: {
+        projectId: row.projectId,
+        language: row.language,
+        versionId: row._id,
+      },
+      label: row.label,
+      manifestSha256: row.manifestSha256,
+      createdAt: row.createdAt,
+    };
+  },
+});
 export const createProject = mutation(createProjectDefinition);
 export const getProject = query(getProjectDefinition);
 export const listProjects = query(listProjectsDefinition);
@@ -880,6 +899,7 @@ export const patchTimeline = mutation(patchTimelineDefinition);
 export const checkpoint = mutation(checkpointDefinition);
 export const listVersions = query(listVersionsDefinition);
 export const getVersion = query(getVersionDefinition);
+export const getVersionSummary = query(getVersionSummaryDefinition);
 export const agentCreateProject = agentMutation(createProjectDefinition);
 export const agentGetProject = agentQuery(getProjectDefinition);
 export const agentGetOperation = agentQuery(getOperationDefinition);

@@ -405,6 +405,7 @@ async function renderInDirectory(
   }
   const metadata = await probeMedia(videoPath, signal);
   const video = metadata.streams.find((stream) => stream.codec_type === "video");
+  const hasAudio = metadata.streams.some((stream) => stream.codec_type === "audio");
   const durationMs = Math.round(Number(metadata.format.duration) * 1000);
   const actualFps = video?.avg_frame_rate?.split("/").map(Number);
   if (
@@ -416,7 +417,7 @@ async function renderInDirectory(
     Math.abs(durationMs - (range.frames / fps) * 1000) > 120 ||
     !actualFps ||
     Math.abs(actualFps[0]! / actualFps[1]! - fps) > 0.0001 ||
-    (expectedAudio && !metadata.streams.some((stream) => stream.codec_type === "audio"))
+    (expectedAudio && !hasAudio)
   )
     throw new Error("Rendered metadata differs from inputs");
   const posterPath = join(scratch, "poster.png");
@@ -453,7 +454,13 @@ async function renderInDirectory(
     checks: [
       { name: "dimensions_frames_duration_fps", outcome: "pass" },
       { name: "source_integrity", outcome: "pass" },
-      { name: "audio_presence", outcome: "pass" },
+      {
+        name: "audio_presence",
+        outcome: "pass",
+        reason: hasAudio
+          ? "Audio stream measured in the rendered MP4"
+          : "No audio stream measured; the pinned timeline does not request audio",
+      },
       {
         name: "font_mapping",
         outcome: "pass",
