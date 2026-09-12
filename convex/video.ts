@@ -622,6 +622,7 @@ async function patch(
       }
   const timeline =
     kind === "timeline" ? Timeline.parse(next) : Timeline.parse(JSON.parse(d.timeline));
+  const previousTimeline = Timeline.safeParse(JSON.parse(d.timeline));
   if (script.language !== d.language) fail("VALIDATION_ERROR", "Draft language is immutable");
   const format = Format.parse(JSON.parse(p.format));
   if (canonical(timeline.fps) !== canonical(format.fps))
@@ -662,10 +663,16 @@ async function patch(
         kind,
         beforeScript: Script.parse(JSON.parse(d.script)),
         script,
-        beforeTimeline: Timeline.parse(JSON.parse(d.timeline)),
+        beforeTimeline: previousTimeline.success ? previousTimeline.data : timeline,
         timeline,
       })
     : { affectedSceneIds: [], staleDependents: [] as Dependency[] };
+  if (changed && !previousTimeline.success)
+    dependencies.staleDependents.push({
+      kind: "draft_dependents",
+      draftId: d._id,
+      reason: "additional_dependencies_require_review",
+    });
   if (changed && d.currentVersionId) {
     const reason = kind === "script" ? ("script_changed" as const) : ("timeline_changed" as const);
     dependencies.staleDependents.unshift({

@@ -88,6 +88,68 @@ test("explicit duration migration rewrites the legacy planning field", async () 
   expect(project.format).not.toHaveProperty("targetDurationMs");
 });
 
+test("timeline patch atomically repairs a saved document whose component revision is unsupported", async () => {
+  const { t, as, workspaceId } = await setup();
+  const created = await as.mutation(ref("createProject"), {
+    ...input,
+    workspaceId,
+    idempotencyKey: "repair-create",
+    languages: ["ru"],
+  });
+  const draftId = created.drafts[0].draftId;
+  const legacy = {
+    fps: input.format.fps,
+    durationFrames: 60,
+    trackOrder: ["visual"],
+    tracksById: {
+      visual: {
+        kind: "visual",
+        clipOrder: ["pilot"],
+        clipsById: {
+          pilot: {
+            startFrame: 0,
+            durationFrames: 60,
+            source: {
+              kind: "component",
+              component: { resourceId: "video/component/character-scene", revisionId: "1" },
+              props: { legacy: true },
+            },
+          },
+        },
+      },
+    },
+  };
+  await t.run((ctx) =>
+    ctx.db.patch("videoDrafts", draftId, {
+      timeline: JSON.stringify(legacy),
+      timelineRevision: "legacy-timeline-revision",
+    }),
+  );
+  const repaired = await as.mutation(ref("patchTimeline"), {
+    draftId,
+    idempotencyKey: "repair-timeline",
+    expectedRevision: "legacy-timeline-revision",
+    operations: [
+      {
+        op: "replace",
+        path: "/tracksById/visual/clipsById/pilot/source",
+        value: { kind: "text", text: "Repaired" },
+      },
+    ],
+  });
+  expect(repaired.changed).toBe(true);
+  expect(repaired.staleDependents).toContainEqual({
+    kind: "draft_dependents",
+    draftId,
+    reason: "additional_dependencies_require_review",
+  });
+  const draft = await as.query(makeFunctionReference<"query">("video:getDraft"), { draftId });
+  expect(draft.timeline.tracksById.visual.clipsById.pilot.source).toEqual({
+    kind: "text",
+    text: "Repaired",
+  });
+});
+
 test("patch identifies only changed scenes and exact current dependent clips/checkpoint/render jobs", async () => {
   const { as, workspaceId } = await setup();
   const p = await as.mutation(ref("createProject"), {
