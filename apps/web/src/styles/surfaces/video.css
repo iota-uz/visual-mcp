@@ -794,10 +794,12 @@
 }
 
 /* Studio fields: hover tint before the primitive focus ring takes over. */
-.video-studio-page .field input:hover,
-.video-studio-page .field-select:hover,
-.video-studio-page .video-field textarea:hover {
-  border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+@media (hover: hover) and (pointer: fine) {
+  .video-studio-page .field input:hover,
+  .video-studio-page .field-select:hover,
+  .video-studio-page .video-field textarea:hover {
+    border-color: color-mix(in srgb, var(--app-accent) 38%, var(--app-white));
+  }
 }
 
 .video-studio-page .video-field textarea {

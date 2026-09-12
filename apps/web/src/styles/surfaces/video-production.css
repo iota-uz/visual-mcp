@@ -19,6 +19,14 @@
   margin: 0;
 }
 
+.video-human-loop .badge,
+.video-jobs .badge {
+  font-family: var(--app-font-body);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .video-loop-guidance {
   margin: 0;
   padding: var(--app-space-3);

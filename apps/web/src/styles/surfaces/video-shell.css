@@ -106,15 +106,17 @@
   border: 0;
   border-radius: var(--app-radius-xs);
   background: none;
-  padding: 0;
+  padding: 6px 8px;
   color: inherit;
   font: inherit;
   cursor: pointer;
   transition: color var(--app-duration-fast) var(--app-ease-out);
 }
 
-.video-workflow-readiness button:hover {
-  color: var(--app-accent-text);
+@media (hover: hover) and (pointer: fine) {
+  .video-workflow-readiness button:hover {
+    color: var(--app-accent-text);
+  }
 }
 
 .video-workflow-readiness button:focus-visible {
@@ -349,15 +351,21 @@
     transform var(--app-duration-fast) var(--app-ease-out);
 }
 
-.video-studio-page .video-workflow-switch:hover .btn::after,
 .video-studio-page .video-workflow-switch:focus-within .btn::after {
   opacity: 0.9;
   transform: none;
 }
 
-.video-studio-page .video-workflow-switch .btn:not(:disabled):hover {
-  background: color-mix(in srgb, var(--app-white) 75%, transparent);
-  color: var(--app-ink);
+@media (hover: hover) and (pointer: fine) {
+  .video-studio-page .video-workflow-switch:hover .btn::after {
+    opacity: 0.9;
+    transform: none;
+  }
+
+  .video-studio-page .video-workflow-switch .btn:not(:disabled):hover {
+    background: color-mix(in srgb, var(--app-white) 75%, transparent);
+    color: var(--app-ink);
+  }
 }
 
 .video-studio-page .video-workflow-switch .btn:focus-visible {
@@ -405,8 +413,10 @@
     box-shadow var(--app-duration-fast) var(--app-ease-out);
 }
 
-.video-studio-page .canvas-command-details:not(:disabled):hover {
-  border-color: var(--app-ink-soft);
+@media (hover: hover) and (pointer: fine) {
+  .video-studio-page .canvas-command-details:not(:disabled):hover {
+    border-color: var(--app-ink-soft);
+  }
 }
 
 /* Status strip: sticky save state, readiness pills, shortcut hints. */
@@ -527,8 +537,10 @@
   transition: background var(--app-duration-fast) var(--app-ease-out);
 }
 
-.video-studio-inspector > summary:hover {
-  background: var(--app-paper);
+@media (hover: hover) and (pointer: fine) {
+  .video-studio-inspector > summary:hover {
+    background: var(--app-paper);
+  }
 }
 
 .video-draft-transition {
@@ -552,6 +564,14 @@
   .video-studio-workspace,
   .video-studio-workspace:has(.video-studio-inspector:not([open])) {
     grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .video-studio-navigator,
+  .video-studio-workspace > .video-editing-column {
+    min-height: 0;
+    overflow: auto;
   }
 
   .video-studio-workspace-timeline,
@@ -562,9 +582,17 @@
   .video-studio-inspector,
   .video-studio-inspector:not([open]) {
     grid-column: 1 / -1;
-    overflow: visible;
     border-top: 1px solid var(--app-line);
     border-left: 0;
+  }
+
+  .video-studio-inspector:not([open]) {
+    overflow: visible;
+  }
+
+  .video-studio-inspector[open] {
+    max-height: min(40vh, 360px);
+    overflow: auto;
   }
 
   .video-studio-inspector:not([open]) > summary {
@@ -574,8 +602,20 @@
   }
 }
 
+@media (max-width: 1120px) and (max-height: 850px) {
+  .video-studio-inspector[open] {
+    max-height: min(28vh, 220px);
+  }
+}
+
 @media (max-width: 1024px) {
+  .video-studio-page {
+    padding-top: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   .video-studio-page .canvas-command-bar {
+    position: relative;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "lead actions"
@@ -584,11 +624,6 @@
     min-height: var(--app-canvas-bar-h);
     padding: var(--app-space-2) max(var(--app-space-3), env(safe-area-inset-right)) 0
       max(var(--app-space-3), env(safe-area-inset-left));
-  }
-
-  .video-studio-page {
-    padding-top: calc(var(--app-canvas-bar-h) + 44px);
-    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .video-studio-page .canvas-command-lead {
@@ -638,15 +673,29 @@
   }
 
   .video-studio-statusbar {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--app-space-2) var(--app-space-3);
     padding-inline: max(var(--app-space-3), env(safe-area-inset-left))
       max(var(--app-space-3), env(safe-area-inset-right));
   }
 
   .video-workflow-readiness {
-    width: 100%;
-    padding-bottom: var(--app-space-1);
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    padding-bottom: 0;
+  }
+
+  .video-workflow-readiness li,
+  .video-workflow-readiness li.is-ready {
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .video-studio-statusbar .video-actions {
+    margin-inline-start: auto;
   }
 }
 

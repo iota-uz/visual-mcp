@@ -48,6 +48,11 @@
   min-height: max(32px, var(--app-hit-min));
 }
 
+.video-studio-page .video-workflow-switch .btn,
+.video-studio-page .canvas-command-actions nav .btn {
+  min-height: max(32px, var(--app-hit-min));
+}
+
 .video-studio-page .drawer-title {
   font-family: var(--app-font-body);
   font-size: var(--app-text-sm);
@@ -88,6 +93,17 @@
 
 .video-player-controls .btn {
   min-width: max(32px, var(--app-hit-min));
+  min-height: max(32px, var(--app-hit-min));
+}
+
+.video-studio-page .radio-cards-options {
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+
+.video-studio-page .radio-card:not(:disabled):hover,
+.video-studio-page .radio-card:not(:disabled):active,
+.video-studio-page .radio-card:has(input:checked) .radio-card-icon {
+  transform: none;
 }
 
 .video-scene-card,
@@ -175,6 +191,38 @@
 
   .video-studio-page .disclosure > summary:hover {
     color: var(--app-muted);
+  }
+
+  .video-studio-page .video-studio-inspector > summary:hover {
+    background: transparent;
+  }
+
+  .video-studio-page .video-workflow-switch .btn:not(:disabled):hover {
+    background: transparent;
+    color: var(--app-muted);
+  }
+
+  .video-studio-page .video-workflow-switch [aria-current="step"]:not(:disabled):hover,
+  .video-studio-page .video-workflow-switch .btn-secondary:not(:disabled):hover {
+    background: var(--app-white);
+    color: var(--app-accent-text);
+  }
+
+  .video-studio-page .field input:hover,
+  .video-studio-page .field-select:hover,
+  .video-studio-page .video-field textarea:hover {
+    border-color: var(--app-line);
+  }
+
+  .video-studio-page .radio-card:hover {
+    border-color: var(--app-line);
+    box-shadow: none;
+    background: var(--app-white);
+  }
+
+  .video-studio-page .radio-card:has(input:checked):hover {
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
   }
 }
 

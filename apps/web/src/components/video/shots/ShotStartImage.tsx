@@ -38,7 +38,7 @@ export function ShotStartImage({
     if (!workspaceSlug) return;
     let active = true;
     void list({ scope: "workspace", workspaceSlug, kind: "image", limit: 20 }).then((rows) => {
-      if (active) setLibrary(rows);
+      if (active) setLibrary(Array.isArray(rows) ? rows : []);
     });
     return () => {
       active = false;

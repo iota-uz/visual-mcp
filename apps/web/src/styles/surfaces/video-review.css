@@ -58,18 +58,24 @@
   border: 0;
   border-radius: 0;
   background: var(--app-well);
+  container-type: size;
 }
 
 .video-review-screen .video-player-frame {
   position: relative;
-  width: auto;
-  height: auto;
+  width: min(100cqw, calc(100cqh * 9 / 16));
+  height: min(100cqh, calc(100cqw * 16 / 9));
   max-width: 100%;
   max-height: 100%;
   margin: 0;
+  aspect-ratio: 9 / 16;
+  background: #000;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-white) 14%, transparent);
 }
 
 .video-review-screen .video-player-frame video {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -125,11 +131,13 @@
   background: transparent;
 }
 
-.video-review-screen .video-player-controls .btn:not(:disabled):hover {
-  background: color-mix(in srgb, var(--app-white) 10%, transparent);
-  color: var(--app-white);
-  transform: none;
-  box-shadow: none;
+@media (hover: hover) and (pointer: fine) {
+  .video-review-screen .video-player-controls .btn:not(:disabled):hover {
+    background: color-mix(in srgb, var(--app-white) 10%, transparent);
+    color: var(--app-white);
+    transform: none;
+    box-shadow: none;
+  }
 }
 
 .video-review-screen .video-player-controls .btn-secondary {
@@ -294,8 +302,10 @@
   border-color: var(--app-ink);
 }
 
-.video-candidate:not(:disabled):hover {
-  border-color: var(--app-ink-soft);
+@media (hover: hover) and (pointer: fine) {
+  .video-candidate:not(:disabled):hover {
+    border-color: var(--app-ink-soft);
+  }
 }
 
 .video-candidate:focus-visible {

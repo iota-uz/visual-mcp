@@ -127,3 +127,23 @@ test("unknown latest attempt has history but no retry control", async () => {
   expect(screen.queryByRole("button", { name: "Render again" })).not.toBeInTheDocument();
   expect(regenerate).not.toHaveBeenCalled();
 });
+
+test("attempt without stage or updatedAt still renders", async () => {
+  query.mockImplementation((ref) =>
+    getFunctionName(ref) === "videoJobs:listOperations"
+      ? [
+          {
+            operationId: "operation",
+            kind: "render",
+            retryCount: 0,
+            latestAttempt: attempt({ stage: undefined, updatedAt: undefined, error: null }),
+            latestSuccessfulAttempt: null,
+            attempts: [attempt({ stage: undefined, updatedAt: undefined, error: null })],
+          },
+        ]
+      : null,
+  );
+  render(<VideoJobs workspaceId={"workspace" as never} projectId={"project" as never} />);
+  await userEvent.click(screen.getByText("Video export"));
+  expect(screen.getByText("Attempt recorded")).toBeInTheDocument();
+});

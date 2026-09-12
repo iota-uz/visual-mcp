@@ -5,7 +5,6 @@ import { useSearchParams } from "react-router-dom";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { Script, Timeline } from "../../../../../packages/video/src/contracts";
-import { Badge } from "../Badge";
 import { ConfirmButton } from "../ConfirmButton";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
@@ -56,6 +55,7 @@ export function DraftStudio({
   const [sceneId, setSceneId] = useState(draft.script.sceneOrder[0] ?? "");
   const [shotId, setShotId] = useState("");
   const [pendingSceneDelete, setPendingSceneDelete] = useState<string | null>(null);
+  const inspectorDefaultOpen = useWideStudio() && mode !== "timeline";
   const navigatorRef = useRef<HTMLElement | null>(null);
   const pendingCheckpoint = useRef<Parameters<typeof checkpoint>[0] | null>(null);
   const script = useRevisionEditor(
@@ -215,20 +215,11 @@ export function DraftStudio({
       <div className="video-studio-statusbar" role="status" data-save={saveState}>
         <div className="vs-save-state">
           <span className="vs-save-dot" data-state={saveState} aria-hidden="true" />
-          {mode === "review" ? (
-            <span>
-              {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Saved"}
-              {" · "}
-              {draft.language === "ru" ? "RU" : "UZ"}
-            </span>
-          ) : (
-            <>
-              <Badge tone={unsaved ? "warning" : "success"}>
-                {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Draft saved"}
-              </Badge>
-              <span>{draft.language === "ru" ? "Russian" : "Uzbek"} draft</span>
-            </>
-          )}
+          <span>
+            {saveState === "saving" ? "Saving…" : unsaved ? "Unsaved changes" : "Saved"}
+            {" · "}
+            {draft.language === "ru" ? "RU" : "UZ"}
+          </span>
         </div>
         {mode !== "review" && (
           <>
@@ -405,7 +396,13 @@ export function DraftStudio({
             )}
           </main>
 
-          <details key={mode} className="video-studio-inspector" open={mode !== "timeline"}>
+          <details
+            key={`${mode}-${inspectorDefaultOpen ? "open" : "closed"}`}
+            className="video-studio-inspector"
+            ref={(el) => {
+              if (el) el.open = inspectorDefaultOpen;
+            }}
+          >
             <summary>
               <span>Version and render</span>
               <span aria-hidden="true">›</span>
@@ -511,6 +508,25 @@ export function DraftStudio({
       )}
     </div>
   );
+}
+
+const WIDE_STUDIO_QUERY = "(min-width: 1121px)";
+
+function matchesWideStudio() {
+  return window.matchMedia?.(WIDE_STUDIO_QUERY)?.matches ?? true;
+}
+
+function useWideStudio() {
+  const [wide, setWide] = useState(matchesWideStudio);
+  useEffect(() => {
+    const mq = window.matchMedia?.(WIDE_STUDIO_QUERY);
+    if (!mq) return;
+    const onChange = () => setWide(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
 function useReportBlocked(value: boolean, report: (value: boolean) => void) {

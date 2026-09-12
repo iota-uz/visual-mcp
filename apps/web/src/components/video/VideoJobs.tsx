@@ -152,8 +152,12 @@ export function VideoJobs({
                       </Badge>
                     </div>
                     <p className="video-hint">
-                      {attempt.stage.replaceAll("_", " ")} ·{" "}
-                      {new Date(attempt.updatedAt).toLocaleString()}
+                      {[
+                        attempt.stage ? attempt.stage.replaceAll("_", " ") : null,
+                        attempt.updatedAt ? new Date(attempt.updatedAt).toLocaleString() : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Attempt recorded"}
                     </p>
                     {attempt.error && (
                       <p role="alert">
