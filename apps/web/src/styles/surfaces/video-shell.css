@@ -608,6 +608,21 @@
   }
 }
 
+@media (max-width: 1120px) and (min-width: 900px) and (max-height: 850px) {
+  .video-studio-workspace-timeline > .video-editing-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: var(--app-space-3);
+  }
+
+  .video-studio-workspace-timeline .video-timeline {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
 @media (max-width: 1024px) {
   .video-studio-page {
     padding-top: 0;

@@ -47,6 +47,44 @@ beforeEach(() => {
   resolve.mockResolvedValue({ url: "/frame.png", mimeType: "image/png", name: "Keyframe" });
 });
 
+test("short landscape keeps a smaller default monitor so transport can share the viewport", () => {
+  vi.stubGlobal("innerHeight", 768);
+  vi.stubGlobal("innerWidth", 1024);
+  const { container } = render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={timeline}
+      frame={0}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set()}
+      mutedTracks={new Set()}
+    />,
+  );
+  expect(container.querySelector(".video-program-stage-shell")).toHaveStyle({
+    width: "min(100%, 146.25px)",
+  });
+});
+
+test("desktop keeps the larger monitor default", () => {
+  vi.stubGlobal("innerHeight", 900);
+  vi.stubGlobal("innerWidth", 1440);
+  const { container } = render(
+    <TimelinePreview
+      workspaceId={"workspace" as Id<"workspaces">}
+      document={timeline}
+      frame={0}
+      playing={false}
+      format={{ width: 1080, height: 1920 }}
+      hiddenTracks={new Set()}
+      mutedTracks={new Set()}
+    />,
+  );
+  expect(container.querySelector(".video-program-stage-shell")).toHaveStyle({
+    width: "min(100%, 293.625px)",
+  });
+});
+
 test("resolves pinned media and composes the active caption at the playhead", async () => {
   render(
     <TimelinePreview

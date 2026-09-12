@@ -18,6 +18,16 @@ type ResizeCorner = (typeof resizeCorners)[number];
 
 function previewHeightLimits() {
   const viewportHeight = typeof window === "undefined" ? 900 : window.innerHeight;
+  const viewportWidth = typeof window === "undefined" ? 1440 : window.innerWidth;
+  const shortLandscape = viewportWidth <= 1120 && viewportHeight <= 850;
+  if (shortLandscape) {
+    const available = Math.max(180, viewportHeight - 420);
+    return {
+      min: 160,
+      defaultValue: Math.round(Math.min(260, available)),
+      max: Math.round(Math.min(320, Math.max(available, 200))),
+    };
+  }
   return {
     min: 280,
     defaultValue: Math.round(Math.max(380, Math.min(720, viewportHeight * 0.58))),

@@ -435,3 +435,70 @@
     margin-left: 0;
   }
 }
+
+/* 1024×768 landscape: keep a 9:16 monitor and pin transport next to it
+   so playhead/tracks are not below the fold. 1440 and tall portrait skip this. */
+@media (max-width: 1120px) and (min-width: 900px) and (max-height: 850px) {
+  .video-timeline {
+    display: grid;
+    grid-template-columns: minmax(176px, 30%) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(96px, 1fr) auto auto;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .video-timeline-toolbar {
+    grid-column: 1 / -1;
+    padding-block: var(--app-space-2);
+  }
+
+  .video-program-monitor {
+    grid-column: 1;
+    grid-row: 2 / -1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    border-bottom: 0;
+    border-right: 1px solid var(--app-line);
+  }
+
+  .video-program-heading {
+    padding: var(--app-space-2) var(--app-space-3) 0;
+  }
+
+  .video-program-stage-wrap {
+    flex: 1;
+    min-height: 0;
+    padding: var(--app-space-2) var(--app-space-3) var(--app-space-3);
+  }
+
+  .video-program-stage-shell {
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .video-transport {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .video-timeline-viewport {
+    grid-column: 2;
+    grid-row: 3;
+    min-height: 96px;
+    overflow: auto;
+  }
+
+  .video-timeline-settings {
+    grid-column: 2;
+    grid-row: 4;
+  }
+
+  .video-clip-inspector {
+    grid-column: 2;
+    grid-row: 5;
+    max-height: 28vh;
+    overflow: auto;
+  }
+}
