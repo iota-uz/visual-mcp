@@ -287,7 +287,7 @@ export function DraftStudio({
           </>
         )}
         {mode !== "review" && (
-          <fieldset className="video-icon-controls" aria-label="Draft edit history">
+          <fieldset className="video-actions" aria-label="Draft edit history">
             <Button
               size="sm"
               icon={Undo2}

@@ -101,6 +101,21 @@ function mount(path = "/v/project") {
   );
 }
 
+test("studio chrome exposes named workflow, language and production controls", () => {
+  mount();
+  expect(screen.getByRole("navigation", { name: "Studio workflow" })).toBeInTheDocument();
+  for (const name of ["Story", "Shots", "Timeline", "Review"]) {
+    expect(screen.getByRole("button", { name })).toBeEnabled();
+  }
+  expect(screen.getByRole("navigation", { name: "Draft language" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Русский" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "O‘zbekcha" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Open production" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+});
+
 test("document undo is shared across Story, Shots and Timeline and remains available after mode switches", () => {
   mount();
   const narration = screen.getByLabelText("Narration");

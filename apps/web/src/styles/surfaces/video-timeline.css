@@ -435,19 +435,3 @@
     margin-left: 0;
   }
 }
-@media (pointer: coarse) {
-  .video-icon-controls button,
-  .video-track-controls button {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .video-clip-trim-handle {
-    width: 18px;
-    opacity: 0.8;
-  }
-  .video-program-resize-corner {
-    width: 44px;
-    height: 44px;
-    opacity: 0.72;
-  }
-}

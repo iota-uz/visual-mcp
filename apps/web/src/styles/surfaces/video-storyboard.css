@@ -287,12 +287,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (pointer: coarse) {
-  .video-scene-card {
-    min-height: 44px;
-  }
-}
-
 @media (max-width: 760px) {
   .video-scene-list {
     display: flex;

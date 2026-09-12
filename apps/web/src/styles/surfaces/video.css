@@ -760,11 +760,6 @@
   }
 }
 @media (pointer: coarse) {
-  .video-actions .btn,
-  .video-feedback .btn,
-  .video-approval .btn {
-    min-height: 44px;
-  }
   .video-field textarea {
     font-size: var(--app-input-font-size);
   }

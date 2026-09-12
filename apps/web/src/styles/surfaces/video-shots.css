@@ -350,13 +350,6 @@
   background: var(--app-ink);
 }
 
-@media (pointer: coarse) {
-  .video-shot-navigator > button,
-  .video-keyframe-thumb {
-    min-height: 44px;
-  }
-}
-
 @media (max-width: 760px) {
   .video-shot-heading,
   .video-shot-scene-context,

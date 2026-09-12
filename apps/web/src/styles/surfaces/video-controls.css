@@ -1,0 +1,225 @@
+/* Video Studio control contract. Desktop pointer + iPad-class touch share
+   one system: hit-min floor, no hover-lift, visible focus, pressed feedback
+   that does not depend on hover. */
+
+.video-studio-page button,
+.video-studio-page .btn,
+.video-studio-page summary,
+.video-studio-page a {
+  touch-action: manipulation;
+}
+
+.video-studio-page .btn:not(:disabled):hover,
+.video-studio-page .btn-primary:not(:disabled):hover,
+.video-studio-page .btn:not(:disabled):active,
+.video-studio-page .btn-primary:not(:disabled):active {
+  transform: none;
+}
+
+.video-studio-page .btn-primary:not(:disabled):hover,
+.video-studio-page .btn-primary:not(:disabled):active {
+  background: var(--app-accent-text);
+  border-color: var(--app-accent-text);
+  box-shadow: none;
+}
+
+.video-studio-page .btn-ghost:not(:disabled):active,
+.video-studio-page .btn-secondary:not(:disabled):active {
+  background: var(--app-paper);
+}
+
+.video-studio-page .btn-danger:not(:disabled):active {
+  border-color: var(--app-danger);
+}
+
+.video-studio-page summary:focus-visible,
+.video-studio-page .canvas-command-details:focus-visible,
+.video-studio-page .video-studio-inspector > summary:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.video-studio-page .disclosure > summary {
+  min-height: var(--app-hit-min);
+}
+
+.video-studio-page .canvas-command-details {
+  min-width: max(32px, var(--app-hit-min));
+  min-height: max(32px, var(--app-hit-min));
+}
+
+.video-studio-page .drawer-title {
+  font-family: var(--app-font-body);
+  font-size: var(--app-text-sm);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--app-ink);
+}
+
+.video-studio-page .drawer-close:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.video-studio-page textarea {
+  font-size: max(var(--app-text-sm), var(--app-input-font-size));
+}
+
+.video-workflow-readiness button {
+  min-height: var(--app-hit-min);
+}
+
+.video-timeline .video-icon-controls button,
+.video-timeline .video-zoom-controls button,
+.video-timeline .video-transport-buttons button {
+  width: max(30px, var(--app-hit-min));
+  height: max(28px, var(--app-hit-min));
+  min-width: var(--app-hit-min);
+  min-height: var(--app-hit-min);
+}
+
+.video-track-controls button {
+  width: max(24px, var(--app-hit-min));
+  height: max(24px, var(--app-hit-min));
+  min-width: var(--app-hit-min);
+  min-height: var(--app-hit-min);
+}
+
+.video-player-controls .btn {
+  min-width: max(32px, var(--app-hit-min));
+}
+
+.video-scene-card,
+.video-shot-navigator > button,
+.video-candidate,
+.video-keyframe-thumb {
+  min-height: var(--app-hit-min);
+}
+
+.video-timeline .video-icon-controls button:active:not(:disabled),
+.video-timeline .video-zoom-controls button:active:not(:disabled),
+.video-timeline .video-transport-buttons button:active:not(:disabled),
+.video-timeline .video-track-controls button:active:not(:disabled) {
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.video-scene-card:active,
+.video-shot-navigator > button:active,
+.video-keyframe-thumb:active:not(:disabled),
+.video-candidate:active:not(:disabled) {
+  background: var(--app-paper);
+}
+
+.video-workflow-readiness button:active {
+  color: var(--app-ink);
+}
+
+/* iPad paints :hover after a tap and leaves it stuck. Resting styles win
+   unless a real press (:active) or a fine pointer is hovering. */
+@media (hover: none) {
+  .video-studio-page .btn-primary:not(:disabled):hover {
+    background: var(--app-accent);
+    border-color: var(--app-accent);
+    color: var(--app-white);
+  }
+
+  .video-studio-page .btn-secondary:not(:disabled):hover {
+    border-color: var(--app-line);
+    color: var(--app-ink);
+  }
+
+  .video-studio-page .btn-ghost:not(:disabled):hover {
+    background: transparent;
+    color: var(--app-muted);
+  }
+
+  .video-studio-page .btn-danger:not(:disabled):hover {
+    border-color: var(--app-danger-soft);
+  }
+
+  .video-studio-page .btn-warning:not(:disabled):hover {
+    border-color: var(--app-warning-soft);
+  }
+
+  .video-scene-card:hover,
+  .video-shot-navigator > button:hover,
+  .video-keyframe-thumb:hover,
+  .video-shot-compare > article:hover,
+  .video-candidate:hover:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .video-timeline .video-icon-controls button:hover:not(:disabled),
+  .video-timeline .video-zoom-controls button:hover:not(:disabled),
+  .video-timeline .video-transport-buttons button:hover:not(:disabled),
+  .video-timeline .video-track-controls button:hover:not([aria-pressed="true"]) {
+    background: transparent;
+    color: var(--app-muted);
+  }
+
+  .video-workflow-readiness button:hover {
+    color: inherit;
+  }
+
+  .video-studio-page .canvas-command-details:not(:disabled):hover {
+    border-color: var(--app-line);
+  }
+
+  .video-studio-page .drawer-close:hover {
+    border-color: var(--app-line);
+    color: var(--app-ink-soft);
+  }
+
+  .video-studio-page .disclosure > summary:hover {
+    color: var(--app-muted);
+  }
+}
+
+@media (pointer: coarse) {
+  .video-program-resize-corner {
+    width: max(44px, var(--app-hit-min));
+    height: max(44px, var(--app-hit-min));
+    opacity: 0.72;
+  }
+
+  .video-clip-trim-handle {
+    width: 18px;
+    opacity: 0.8;
+  }
+
+  .video-timeline-toolbar-actions,
+  .video-player-controls,
+  .video-clip-actions,
+  .video-feedback-anchor-actions {
+    gap: var(--app-space-3);
+  }
+
+  .video-timeline-empty button {
+    min-height: var(--app-hit-min);
+    padding-inline: var(--app-space-4);
+  }
+}
+
+.video-review-screen .video-player-controls .btn:not(:disabled):active {
+  background: color-mix(in srgb, var(--app-white) 16%, transparent);
+  color: var(--app-white);
+}
+
+@media (hover: none) {
+  .video-review-screen .video-player-controls .btn-ghost:not(:disabled):hover,
+  .video-review-screen .video-player-controls .btn-secondary:not(:disabled):hover {
+    background: transparent;
+    color: var(--app-white);
+    border-color: color-mix(in srgb, var(--app-white) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-studio-page .btn,
+  .video-studio-page button {
+    transition: none;
+  }
+}

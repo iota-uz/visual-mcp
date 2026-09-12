@@ -567,15 +567,6 @@
   }
 }
 
-@media (pointer: coarse) {
-  .video-review-screen .video-player-controls .btn,
-  .video-review-notes .video-feedback .btn,
-  .video-review-notes .video-approval .btn,
-  .video-candidate {
-    min-height: 44px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .video-region-draw {
     scroll-behavior: auto;

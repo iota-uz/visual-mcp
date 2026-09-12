@@ -271,7 +271,7 @@
 /* Studio command bar: floating chrome with a segmented workspace switch.
  * Height and blur are desktop-only; the narrow stacked bar below owns its
  * own geometry. */
-@media (min-width: 761px) {
+@media (min-width: 1025px) {
   .video-studio-page .canvas-command-bar {
     height: 58px;
     background: var(--app-surface-floating);
@@ -574,7 +574,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   .video-studio-page .canvas-command-bar {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -582,26 +582,22 @@
       "workflow workflow";
     height: auto;
     min-height: var(--app-canvas-bar-h);
-    padding: var(--app-space-2) var(--app-space-3) 0;
+    padding: var(--app-space-2) max(var(--app-space-3), env(safe-area-inset-right)) 0
+      max(var(--app-space-3), env(safe-area-inset-left));
   }
 
   .video-studio-page {
-    padding-top: calc(var(--app-canvas-bar-h) + 40px);
+    padding-top: calc(var(--app-canvas-bar-h) + 44px);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .video-studio-page .canvas-command-lead {
     grid-area: lead;
   }
 
-  .video-studio-page .canvas-command-name {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .video-studio-page .canvas-command-actions {
     grid-area: actions;
+    min-width: 0;
   }
 
   .video-studio-page .video-workflow-switch {
@@ -609,12 +605,13 @@
     justify-content: flex-start;
     width: 100%;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
     border-bottom: 0;
   }
 
   .video-studio-page .video-workflow-switch .btn {
     flex: 0 0 auto;
-    min-height: 36px;
+    min-height: max(36px, var(--app-hit-min));
   }
 
   .video-studio-page .video-workflow-switch .btn::after {
@@ -627,10 +624,12 @@
 
   .video-studio-page .canvas-command-actions nav {
     display: flex;
+    min-width: 0;
+    overflow-x: auto;
   }
 
   .video-studio-page .canvas-command-actions nav .btn {
-    min-height: 36px;
+    min-height: max(36px, var(--app-hit-min));
     padding-inline: var(--app-space-2);
   }
 
@@ -641,14 +640,17 @@
   .video-studio-statusbar {
     align-items: flex-start;
     flex-direction: column;
-    padding-inline: var(--app-space-3);
+    padding-inline: max(var(--app-space-3), env(safe-area-inset-left))
+      max(var(--app-space-3), env(safe-area-inset-right));
   }
 
   .video-workflow-readiness {
     width: 100%;
     padding-bottom: var(--app-space-1);
   }
+}
 
+@media (max-width: 760px) {
   .video-studio-workspace,
   .video-studio-workspace:has(.video-studio-inspector:not([open])) {
     display: flex;
