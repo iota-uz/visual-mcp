@@ -19,8 +19,13 @@
  * open render/exec oracle.
  */
 
-import { VideoRenderFailure, VideoRenderRequest } from "@visual-canvas/video/media";
+import {
+  VideoRenderFailure,
+  VideoRenderRequest,
+  VideoRenderStreamEvent,
+} from "@visual-canvas/video/media";
 import { Hono, type MiddlewareHandler } from "hono";
+import { stream } from "hono/streaming";
 import { handleAssetImport } from "./asset-import.js";
 import { handleCompileCss } from "./compile-css.js";
 import { handleExec } from "./exec.js";
@@ -160,6 +165,37 @@ app.post("/video/render", async (c) => {
       },
       400,
     );
+  if (c.req.header("accept")?.includes("application/x-ndjson")) {
+    c.header("content-type", "application/x-ndjson");
+    return stream(c, async (output) => {
+      let writes = Promise.resolve();
+      const send = async (event: unknown) => {
+        const line = `${JSON.stringify(VideoRenderStreamEvent.parse(event))}\n`;
+        writes = writes.then(async () => {
+          await output.write(line);
+        });
+        await writes;
+      };
+      try {
+        const result = await handleVideoRender(parsed.data, c.req.raw.signal, (progress) =>
+          send({ type: "progress", progress }),
+        );
+        await send({ type: "result", result });
+      } catch (error) {
+        const failure =
+          error instanceof VideoWorkerError
+            ? videoWorkerFailureBody(error)
+            : {
+                error: {
+                  code: "RENDER_FAILED",
+                  message: "Video render failed",
+                  effect: "unknown" as const,
+                },
+              };
+        await send({ type: "error", error: failure.error });
+      }
+    });
+  }
   try {
     return c.json(await handleVideoRender(parsed.data, c.req.raw.signal));
   } catch (error) {

@@ -520,7 +520,10 @@ export const CharacterProp = z
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .describe(
+    "Character-local vector prop. width, height, shapes and grip use the character pack's local artwork units; x and y are normalized stage coordinates only while the prop is unattached. showProp/reveal and pickUp attach it to the selected actor hand.",
+  );
 const Overlay = z
   .object({
     text: z.string().trim().min(1).max(500),

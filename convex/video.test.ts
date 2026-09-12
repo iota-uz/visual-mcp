@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { makeFunctionReference } from "convex/server";
+import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import schema from "./schema";
@@ -148,6 +149,76 @@ test("timeline patch atomically repairs a saved document whose component revisio
     kind: "text",
     text: "Repaired",
   });
+});
+
+test("timeline scene and shot reference failures return actionable fix_input fields", async () => {
+  const { as, workspaceId } = await setup();
+  const created = await as.mutation(ref("createProject"), {
+    ...input,
+    workspaceId,
+    idempotencyKey: "reference-recovery-create",
+    languages: ["ru"],
+  });
+  const draft = created.drafts[0];
+  const scene = {
+    purpose: "Scene",
+    narration: "Scene",
+    onScreenText: [],
+    visual: { description: "Scene", shot: "static", motion: "static" },
+    shotOrder: [],
+    shotsById: {},
+    claims: [],
+  };
+  await as.mutation(ref("patchScript"), {
+    draftId: draft.draftId,
+    expectedRevision: draft.scriptRevision,
+    idempotencyKey: "reference-recovery-script",
+    operations: [
+      { op: "replace", path: "/sceneOrder", value: ["intro"] },
+      { op: "replace", path: "/scenesById", value: { intro: scene } },
+    ],
+  });
+
+  try {
+    await as.mutation(ref("patchTimeline"), {
+      draftId: draft.draftId,
+      expectedRevision: draft.timelineRevision,
+      idempotencyKey: "reference-recovery-timeline",
+      operations: [
+        { op: "replace", path: "/trackOrder", value: ["visual"] },
+        {
+          op: "replace",
+          path: "/tracksById",
+          value: {
+            visual: {
+              kind: "visual",
+              clipOrder: ["hero"],
+              clipsById: {
+                hero: {
+                  sceneId: "intro",
+                  shotId: "missing",
+                  startFrame: 0,
+                  durationFrames: 30,
+                  source: { kind: "text", text: "Hero" },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    throw new Error("Expected reference validation failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConvexError);
+    expect((error as unknown as { data: unknown }).data).toMatchObject({
+      code: "VALIDATION_ERROR",
+      effect: "not_applied",
+      recovery: {
+        kind: "fix_input",
+        fields: [{ path: "/tracksById/visual/clipsById/hero/shotId" }],
+      },
+    });
+  }
 });
 
 test("patch identifies only changed scenes and exact current dependent clips/checkpoint/render jobs", async () => {

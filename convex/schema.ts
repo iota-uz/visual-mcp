@@ -178,6 +178,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     stage: v.string(),
+    progress: v.optional(v.number()),
     result: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     errorReasonCode: v.optional(v.string()),

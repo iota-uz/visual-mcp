@@ -109,6 +109,20 @@ export function VideoJobs({
                 The outcome is unknown. This operation cannot be regenerated from here.
               </p>
             )}
+            {operation.latestAttempt.state === "running" &&
+              operation.latestAttempt.progress !== null && (
+                <div role="status">
+                  <p className="video-hint">
+                    {operation.latestAttempt.stage.replaceAll("_", " ")} ·{" "}
+                    {Math.round(operation.latestAttempt.progress * 100)}%
+                  </p>
+                  <progress
+                    value={operation.latestAttempt.progress}
+                    max={1}
+                    aria-label="Render progress"
+                  />
+                </div>
+              )}
             <div className="video-actions">
               {activeStates.has(operation.latestAttempt.state) && (
                 <Button

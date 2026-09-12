@@ -19,6 +19,7 @@ const guide = {
     "Author seconds via character_choreography_compile; at/after/with place actions, hold extends only placement anchor.",
     "Use voice_list then voice_generate only with explicit paid permission. Poll exact job_get; load pinned audio + provider alignment. Never invent timestamps.",
     "character_dialogue_compile creates mouth, gaze and listening actions; character_audio_compile produces actual timeline audio and ducking plan.",
+    "Props are character-local artwork, not scene-sized overlays: width/height/shapes/grip use the owning character pack's local units. x/y place only an unattached prop on stage. showProp reveal/pickUp attaches the prop to actorId + hand; use overlaysById for screen-space graphics.",
     "Use character_procedural_bake only for restricted math curves. Reuse compound actions with character_action_register/get and exact content hash. Promotion to workspace library is explicit.",
     "character_scene_validate before video_timeline_patch (read revision CAS). video_checkpoint pins source; video_render creates actual media. Existing media_process frame/contact_sheet operations inspect it.",
     "Review exact video, patch only affected scene/action, rerender. Schema success, critic pass and human approval are distinct.",
@@ -53,6 +54,8 @@ const guide = {
     alignment:
       "Character timing heuristic, not phoneme recognition. Supplied hashes pin inputs; audiovisual quality requires listening.",
     renderer: "Pure data-driven 2D SVG; no anatomical walk cycles, cloth, physics or 3D backend.",
+    props:
+      "showProp is a hand interaction. Keep prop geometry near the character pack viewBox scale; scene-coordinate graphics belong in overlaysById or environment layers.",
   },
 };
 const jsonResource = (

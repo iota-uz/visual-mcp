@@ -288,6 +288,7 @@ function publicJob(j: Doc<"videoJobs">) {
     projectId: j.projectId ?? null,
     versionId: j.versionId ?? null,
     stage: j.stage,
+    progress: j.progress ?? null,
     fence: j.fence,
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
@@ -697,7 +698,46 @@ export const markDispatch = internalMutation({
     if (!args.providerRequestId) await assertVideoProductionAllowed(ctx, j);
     await ctx.db.patch(args.jobId, {
       stage: "dispatched",
+      progress: 0,
       ...(args.providerRequestId ? { providerRequestId: args.providerRequestId } : {}),
+      updatedAt: Date.now(),
+    });
+  },
+});
+const renderProgressStages = [
+  "preparing_inputs",
+  "rendering_frames",
+  "verifying_output",
+  "uploading_outputs",
+] as const;
+export const markRenderProgress = internalMutation({
+  args: {
+    ...fenceArgs,
+    stage: v.union(
+      v.literal("preparing_inputs"),
+      v.literal("rendering_frames"),
+      v.literal("verifying_output"),
+      v.literal("uploading_outputs"),
+    ),
+    progress: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const j = await fenced(ctx, args);
+    if (j.kind !== "render") error("VALIDATION_ERROR", "Only render jobs report frame progress");
+    if (!Number.isFinite(args.progress) || args.progress < 0 || args.progress > 1)
+      error("VALIDATION_ERROR", "Render progress must be between zero and one");
+    const currentStage = renderProgressStages.indexOf(
+      j.stage as (typeof renderProgressStages)[number],
+    );
+    const nextStage = renderProgressStages.indexOf(args.stage);
+    if (
+      currentStage > nextStage ||
+      (currentStage === nextStage && (j.progress ?? 0) > args.progress)
+    )
+      return;
+    await ctx.db.patch(j._id, {
+      stage: args.stage,
+      progress: args.progress,
       updatedAt: Date.now(),
     });
   },
@@ -805,6 +845,7 @@ export async function completeVideoJob(
   await ctx.db.patch(j._id, {
     state: executionFailed ? "failed" : "succeeded",
     stage: "persisted",
+    progress: 1,
     result: canonical(args.result),
     ...(executionFailed
       ? { errorCode: "CODE_EXECUTION_FAILED", errorEffect: "unknown" as const }

@@ -2,7 +2,9 @@ import { executeVideoRender, VideoWorkerError } from "./render.js";
 
 process.once("message", async (request: unknown) => {
   try {
-    const result = await executeVideoRender(request);
+    const result = await executeVideoRender(request, undefined, (progress) => {
+      process.send?.({ progress });
+    });
     process.send?.({ result });
   } catch (error) {
     const safe =

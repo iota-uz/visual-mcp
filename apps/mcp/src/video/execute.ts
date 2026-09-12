@@ -90,6 +90,7 @@ const jobSchema = receiptSchema.extend({
     .strict()
     .nullable(),
   stage: z.string(),
+  progress: z.number().min(0).max(1).nullable(),
   created_at: z.string(),
   updated_at: z.string(),
   result: JobResult.nullable(),
@@ -154,6 +155,7 @@ async function jobResult(raw: unknown, call: VideoBackend) {
     stale: j.stale ?? false,
     context: j.context ?? null,
     stage: j.stage,
+    progress: j.progress ?? null,
     created_at: new Date(z.number().parse(j.createdAt)).toISOString(),
     updated_at: new Date(z.number().parse(j.updatedAt)).toISOString(),
     result: j.result,
@@ -617,6 +619,7 @@ const definitions: Definition[] = [
             project_id: id.nullable(),
             version_id: id.nullable(),
             stage: z.string(),
+            progress: z.number().min(0).max(1).nullable(),
             stale: z.boolean(),
             updated_at: z.string(),
           }),
@@ -648,6 +651,7 @@ const definitions: Definition[] = [
             project_id: row.projectId ?? null,
             version_id: row.versionId ?? null,
             stage: row.stage,
+            progress: row.progress ?? null,
             stale: row.stale ?? false,
             updated_at: new Date(z.number().parse(row.updatedAt)).toISOString(),
           };

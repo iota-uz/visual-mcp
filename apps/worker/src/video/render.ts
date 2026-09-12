@@ -7,6 +7,7 @@ import { bundle } from "@remotion/bundler";
 import { makeCancelSignal, renderMedia, selectComposition } from "@remotion/renderer";
 import {
   type VideoFailureReasonCode,
+  type VideoRenderProgress,
   VideoRenderRequest,
   VideoRenderResult,
 } from "@visual-canvas/video/media";
@@ -42,6 +43,7 @@ export class VideoWorkerError extends Error {
 export async function handleVideoRender(
   input: unknown,
   callerSignal?: AbortSignal,
+  onProgress?: (progress: VideoRenderProgress) => void | Promise<void>,
 ): Promise<VideoRenderResult> {
   const request = VideoRenderRequest.parse(input);
   if (callerSignal?.aborted)
@@ -152,6 +154,7 @@ export async function handleVideoRender(
       child.on("message", (message: unknown) => {
         if (!message || typeof message !== "object") return;
         const wire = message as {
+          progress?: VideoRenderProgress;
           result?: unknown;
           error?: {
             code: string;
@@ -162,7 +165,9 @@ export async function handleVideoRender(
             persisted?: string[];
           };
         };
-        if (wire.error)
+        if (wire.progress) {
+          void onProgress?.(wire.progress);
+        } else if (wire.error)
           finish(
             new VideoWorkerError(
               wire.error.code,
@@ -201,6 +206,7 @@ export async function handleVideoRender(
 export async function executeVideoRender(
   input: unknown,
   callerSignal?: AbortSignal,
+  onProgress?: (progress: VideoRenderProgress) => void | Promise<void>,
 ): Promise<VideoRenderResult> {
   const request = VideoRenderRequest.parse(input);
   if (callerSignal?.aborted)
@@ -264,7 +270,7 @@ export async function executeVideoRender(
     await mkdir(scratchRoot, { recursive: true });
     scratch =
       process.env.VIDEO_RENDER_SCRATCHDIR ?? (await mkdtemp(join(scratchRoot, "video-render-")));
-    return await renderInDirectory(request, scratch, controller.signal);
+    return await renderInDirectory(request, scratch, controller.signal, onProgress);
   } catch (error) {
     if (error instanceof VideoWorkerError) throw error;
     if (controller.signal.aborted)
@@ -297,7 +303,17 @@ async function renderInDirectory(
   request: VideoRenderRequest,
   scratch: string,
   signal: AbortSignal,
+  onProgress?: (progress: VideoRenderProgress) => void | Promise<void>,
 ) {
+  let reportedStage: VideoRenderProgress["stage"] | undefined;
+  let reportedBucket = -1;
+  const report = async (value: VideoRenderProgress) => {
+    const bucket = Math.floor(value.progress * 20);
+    if (reportedStage === value.stage && reportedBucket === bucket) return;
+    reportedStage = value.stage;
+    reportedBucket = bucket;
+    await onProgress?.({ ...value, progress: bucket / 20 });
+  };
   const publicDir = join(scratch, "public");
   await mkdir(publicDir);
   const fontDir = process.env.VIDEO_FONT_DIR ?? "/usr/share/fonts/truetype/dejavu";
@@ -306,6 +322,7 @@ async function renderInDirectory(
   const files: RenderProps["files"] = {};
   const sourceDurations = new Map<string, number>();
   const sourceKinds = new Map<string, string[]>();
+  await report({ stage: "preparing_inputs", progress: 0 });
   for (const [index, input] of request.inputs.entries()) {
     const key = `${input.asset.assetId}:${input.asset.revisionId}`;
     if (files[key]) throw new Error("Duplicate input asset");
@@ -315,15 +332,20 @@ async function renderInDirectory(
     files[key] = { path, mimeType: input.mimeType };
     if (!renderSourceNeedsProbe(input.mimeType)) {
       sourceKinds.set(key, []);
-      continue;
+    } else {
+      const metadata = await probeMedia(join(publicDir, path), signal);
+      sourceDurations.set(key, Number(metadata.format.duration));
+      sourceKinds.set(
+        key,
+        metadata.streams.map((stream) => stream.codec_type),
+      );
     }
-    const metadata = await probeMedia(join(publicDir, path), signal);
-    sourceDurations.set(key, Number(metadata.format.duration));
-    sourceKinds.set(
-      key,
-      metadata.streams.map((stream) => stream.codec_type),
-    );
+    await report({
+      stage: "preparing_inputs",
+      progress: (index + 1) / Math.max(1, request.inputs.length),
+    });
   }
+  if (!request.inputs.length) await report({ stage: "preparing_inputs", progress: 1 });
   const fps = request.format.fps.numerator / request.format.fps.denominator;
   let expectedAudio = false;
   for (const track of Object.values(request.timeline.tracksById))
@@ -416,6 +438,7 @@ async function renderInDirectory(
         () => false,
       )),
   );
+  await report({ stage: "rendering_frames", progress: cacheHit ? 1 : 0 });
   if (!cacheHit) {
     const entryPoint = fileURLToPath(new URL("./entry.js", import.meta.url));
     const serveUrl = await bundle({
@@ -453,6 +476,9 @@ async function renderInDirectory(
         logLevel: "error",
         cancelSignal,
         frameRange: [range.start, range.end - 1],
+        onProgress: ({ progress }) => {
+          void report({ stage: "rendering_frames", progress });
+        },
       });
     } finally {
       signal.removeEventListener("abort", stop);
@@ -462,6 +488,7 @@ async function renderInDirectory(
         () => false,
       );
   }
+  await report({ stage: "verifying_output", progress: 0 });
   const metadata = await probeMedia(videoPath, signal);
   const video = metadata.streams.find((stream) => stream.codec_type === "video");
   const hasAudio = metadata.streams.some((stream) => stream.codec_type === "audio");
@@ -531,8 +558,10 @@ async function renderInDirectory(
       },
     ],
   });
+  await report({ stage: "verifying_output", progress: 1 });
   const persisted: string[] = [];
   try {
+    await report({ stage: "uploading_outputs", progress: 0 });
     for (const [name, path, mime] of [
       ["video", videoPath, "video/mp4"],
       ["poster", posterPath, "image/png"],
@@ -540,6 +569,7 @@ async function renderInDirectory(
     ] as const) {
       await uploadArtifact(request.outputs[name].url, path, mime, signal);
       persisted.push(name);
+      await report({ stage: "uploading_outputs", progress: persisted.length / 3 });
     }
   } catch {
     throw new VideoWorkerError(

@@ -161,3 +161,37 @@ test("maximum line IDs produce bounded timeline/mix IDs and explicit collisions 
   collision.music[0]!.id = "voice-0-speech-0";
   assert.throws(() => compileCharacterAudioPlan(collision), /track ID conflict/);
 });
+
+test("long provider alignment is compacted before audio plan validation", () => {
+  const value = plan();
+  const text = "абомеу ".repeat(50).trim();
+  const characters = [...text];
+  value.dialogue.lineOrder = ["hello"];
+  value.dialogue.linesById = {
+    hello: {
+      ...value.dialogue.linesById.hello!,
+      text,
+      voice: {
+        ...value.dialogue.linesById.hello!.voice,
+        durationFrames: 600,
+        alignment: {
+          ...value.dialogue.linesById.hello!.voice.alignment,
+          artifact: {
+            original: {
+              characters,
+              character_start_times_seconds: characters.map((_, index) => index * 0.04),
+              character_end_times_seconds: characters.map((_, index) => (index + 1) * 0.04),
+            },
+            normalized: null,
+            language: "uz" as const,
+          },
+        },
+      },
+    },
+  };
+
+  const result = compileCharacterAudioPlan(value);
+  const talk = result.dialogue.actionsById["dialogue-0-talk"];
+  assert.equal(talk?.type, "talk");
+  if (talk?.type === "talk") assert.equal(talk.visemes.length, 128);
+});

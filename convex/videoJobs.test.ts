@@ -90,6 +90,51 @@ test("fences, journal identity and cancel-before-start", async () => {
   await as.mutation(m("cancel"), { jobId: cancelled.jobId });
   expect(await t.mutation(m("claim"), { jobId: cancelled.jobId })).toBeNull();
 });
+test("render progress is durable, monotonic and fenced", async () => {
+  const { t, as, userId, workspaceId } = await setup();
+  const jobId = await t.run((ctx) =>
+    ctx.db.insert("videoJobs", {
+      workspaceId,
+      principalId: userId,
+      idempotencyKey: "render-progress",
+      operationId: "render-progress-operation",
+      attemptNumber: 1,
+      inputHash: "hash",
+      request: JSON.stringify({ kind: "render", versionId: "version", mode: "draft" }),
+      kind: "render",
+      state: "running",
+      fence: 2,
+      createdAt: 1,
+      updatedAt: 1,
+      stage: "dispatched",
+      progress: 0,
+    }),
+  );
+  await t.mutation(m("markRenderProgress"), {
+    jobId,
+    fence: 2,
+    stage: "rendering_frames",
+    progress: 0.45,
+  });
+  await t.mutation(m("markRenderProgress"), {
+    jobId,
+    fence: 2,
+    stage: "rendering_frames",
+    progress: 0.2,
+  });
+  expect(await as.query(q("getJob"), { jobId })).toMatchObject({
+    stage: "rendering_frames",
+    progress: 0.45,
+  });
+  await expect(
+    t.mutation(m("markRenderProgress"), {
+      jobId,
+      fence: 1,
+      stage: "verifying_output",
+      progress: 0,
+    }),
+  ).rejects.toThrow("STALE_FENCE");
+});
 test("provider jobs require explicit paid request and known model", async () => {
   const { as, workspaceId } = await setup();
   await expect(

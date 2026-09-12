@@ -123,7 +123,25 @@ export const VideoRenderFailure = z
       .strict(),
   })
   .strict();
+export const VideoRenderProgress = z
+  .object({
+    stage: z.enum([
+      "preparing_inputs",
+      "rendering_frames",
+      "verifying_output",
+      "uploading_outputs",
+    ]),
+    progress: z.number().min(0).max(1),
+  })
+  .strict();
+export const VideoRenderStreamEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("progress"), progress: VideoRenderProgress }).strict(),
+  z.object({ type: z.literal("result"), result: VideoRenderResult }).strict(),
+  z.object({ type: z.literal("error"), error: VideoRenderFailure.shape.error }).strict(),
+]);
 export type VideoRenderRequest = z.infer<typeof VideoRenderRequest>;
 export type VideoRenderResult = z.infer<typeof VideoRenderResult>;
 export type VideoRenderFailure = z.infer<typeof VideoRenderFailure>;
 export type VideoFailureReasonCode = z.infer<typeof VideoFailureReasonCode>;
+export type VideoRenderProgress = z.infer<typeof VideoRenderProgress>;
+export type VideoRenderStreamEvent = z.infer<typeof VideoRenderStreamEvent>;

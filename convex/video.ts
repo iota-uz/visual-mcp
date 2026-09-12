@@ -60,6 +60,14 @@ const language = v.union(v.literal("ru"), v.literal("uz"));
 const fail = (code: string, message: string): never => {
   throw new ConvexError({ code, message, effect: "not_applied" });
 };
+const invalidReference = (message: string, path: string, reason: string): never => {
+  throw new ConvexError({
+    code: "VALIDATION_ERROR",
+    message,
+    effect: "not_applied",
+    recovery: { kind: "fix_input", fields: [{ path, reason }] },
+  });
+};
 async function user(ctx: QueryCtx | MutationCtx) {
   if ("videoPrincipalId" in ctx) {
     const id = ctx.videoPrincipalId as Id<"users">;
@@ -438,7 +446,9 @@ async function summarizeProject(
 async function latestPoster(ctx: QueryCtx | MutationCtx, projectId: Id<"videoProjects">) {
   const jobs = await ctx.db
     .query("videoJobs")
-    .withIndex("by_projectId_and_state", (q) => q.eq("projectId", projectId).eq("state", "succeeded"))
+    .withIndex("by_projectId_and_state", (q) =>
+      q.eq("projectId", projectId).eq("state", "succeeded"),
+    )
     .take(16);
   const renders = jobs
     .filter((job) => job.kind === "render" && job.result)
@@ -650,15 +660,23 @@ async function patch(
   const format = Format.parse(JSON.parse(p.format));
   if (canonical(timeline.fps) !== canonical(format.fps))
     fail("VALIDATION_ERROR", "Timeline FPS must match project");
-  for (const track of Object.values(timeline.tracksById))
-    for (const clip of Object.values(track.clipsById)) {
+  for (const [trackId, track] of Object.entries(timeline.tracksById))
+    for (const [clipId, clip] of Object.entries(track.clipsById)) {
       if (clip.sceneId && !script.scenesById[clip.sceneId])
-        fail("VALIDATION_ERROR", "Timeline references a missing scene");
+        invalidReference(
+          "Timeline references a missing scene",
+          `/tracksById/${trackId}/clipsById/${clipId}/sceneId`,
+          "Use a sceneId from the current script or remove the reference",
+        );
       if (
         clip.shotId &&
         (!clip.sceneId || !script.scenesById[clip.sceneId]?.shotsById[clip.shotId])
       )
-        fail("VALIDATION_ERROR", "Timeline shotId requires an existing shot in its sceneId");
+        invalidReference(
+          "Timeline shotId requires an existing shot in its sceneId",
+          `/tracksById/${trackId}/clipsById/${clipId}/shotId`,
+          "Use a shotId that exists in the referenced sceneId or remove the shot reference",
+        );
     }
   await references(ctx, p.workspaceId, next);
   const changed = canonical(next) !== d[kind];

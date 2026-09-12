@@ -100,7 +100,14 @@ function JobDetails({ jobId }: { jobId: Id<"videoJobs"> }) {
           {job.state}
         </Badge>
       </header>
-      <p role="status">Stage: {job.stage}. Updates automatically.</p>
+      <p role="status">
+        Stage: {job.stage}
+        {job.progress !== null ? ` · ${Math.round(job.progress * 100)}%` : ""}. Updates
+        automatically.
+      </p>
+      {job.progress !== null && job.state === "running" && (
+        <progress value={job.progress} max={1} aria-label="Render progress" />
+      )}
       {job.versionId && (
         <p>
           Exact version: <code>{job.versionId}</code>
