@@ -25,7 +25,7 @@ type AssetKind = PreviewableAssetKind;
 interface AssetItem {
   asset_id: Id<"assets">;
   asset_ref: string;
-  scope: "personal" | "workspace";
+  scope: "shared" | "workspace";
   workspace_slug: string | null;
   slug: string;
   name: string;
@@ -166,7 +166,7 @@ export function AssetsPage() {
   const workspace = useQuery(api.workspaces.getBySlug, wsSlug ? { slug: wsSlug } : "skip");
   const [editSource, setEditSource] = useState<PinnedImage | undefined>();
   const [mediaPane, setMediaPane] = useState<"image" | "upload" | null>(null);
-  const scope = wsSlug ? ("workspace" as const) : ("personal" as const);
+  const scope = wsSlug ? ("workspace" as const) : ("shared" as const);
   const [assets, setAssets] = useState<AssetItem[] | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<AssetKind | "all">("all");
@@ -188,7 +188,7 @@ export function AssetsPage() {
   const setAssetTags = useMutation(api.assets.setTagsMine);
   const renameWorkspace = useMutation(api.workspaces.renameMine);
   const { notify } = useToast();
-  useDocumentTitle(wsSlug ? `${wsSlug} assets` : "Asset Library");
+  useDocumentTitle(wsSlug ? `${wsSlug} assets` : "Shared Asset Library");
 
   const reload = useCallback(async () => {
     const rows = await listAssets({
@@ -350,8 +350,8 @@ export function AssetsPage() {
         />
       ) : (
         <PageHeader
-          title="Asset Library"
-          subtitle="Reusable media available across your workspaces."
+          title="Shared Asset Library"
+          subtitle="Organization-wide media available to every Canvas user and workspace."
           actions={headerActions}
         />
       )}

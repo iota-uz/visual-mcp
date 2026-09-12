@@ -36,6 +36,16 @@ function renderAssets() {
   );
 }
 
+function renderSharedAssets() {
+  return render(
+    <MemoryRouter initialEntries={["/assets"]}>
+      <Routes>
+        <Route path="/assets" element={<AssetsPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
 describe("AssetsPage", () => {
   beforeEach(() => {
     useActionMock.mockReset();
@@ -60,6 +70,19 @@ describe("AssetsPage", () => {
     expect(screen.getByRole("button", { name: "all" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/Reusable media for/)).toHaveTextContent("Reusable media for osago.");
     expect(screen.getByRole("link", { name: "Workspaces" })).toHaveAttribute("href", "/");
+  });
+
+  test("loads the organization-wide Shared library without a workspace filter", async () => {
+    listAssetsMock.mockResolvedValue([]);
+    renderSharedAssets();
+
+    expect(
+      await screen.findByRole("heading", { name: "Shared Asset Library" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Organization-wide media/)).toBeInTheDocument();
+    expect(listAssetsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "shared", workspaceSlug: undefined }),
+    );
   });
 
   test("opens and closes a fullscreen preview from an asset card", async () => {

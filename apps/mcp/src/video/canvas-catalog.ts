@@ -47,19 +47,11 @@ export function attachCanvasCatalog(
         if (input[key]) await ref(input[key]);
       for (const key of ["workspace", "source_workspace", "destination_workspace"])
         if (input[key]) await slug(input[key]);
-      if (input.scope === "personal" || input.destination_scope === "personal")
-        throw new VideoDomainError(
-          "SCOPE_MISMATCH",
-          "Personal-library operations require a direct tool outside a workspace-scoped execute run.",
-        );
+      if (input.scope === "shared" || input.destination_scope === "shared") checked = true;
       if (input.asset_ref) {
         const asset = parseAssetRef(z.string().parse(input.asset_ref));
-        if (asset.scope !== "workspace")
-          throw new VideoDomainError(
-            "SCOPE_MISMATCH",
-            "Personal assets require direct inspection or import into the selected workspace.",
-          );
-        await slug(asset.workspaceSlug);
+        if (asset.scope === "workspace") await slug(asset.workspaceSlug);
+        else checked = true;
       }
       if (Array.isArray(input.asset_refs)) {
         for (const value of input.asset_refs) {

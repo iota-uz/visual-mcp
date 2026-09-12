@@ -238,10 +238,7 @@ async function references(
     if (
       !asset ||
       asset.archivedAt !== undefined ||
-      !(
-        asset.workspaceId === workspaceId ||
-        (asset.scope === "personal" && asset.ownerUserId === (await user(ctx)))
-      ) ||
+      !(asset.workspaceId === workspaceId || asset.scope === "shared") ||
       !version ||
       version.assetId !== asset._id
     )

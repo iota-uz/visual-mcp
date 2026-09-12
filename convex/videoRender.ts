@@ -91,7 +91,7 @@ export async function completeRender(
       mutationRef("assets:commitAssetVersion"),
       {
         scope: "workspace",
-        ownerUserId: data.job.principalId,
+        createdBy: data.job.principalId,
         workspaceId: data.job.workspaceId,
         slug: `render-${args.jobId}-${result.fence}-technical-report`,
         name: "Technical render report",
@@ -193,10 +193,7 @@ export const inputs = internalQuery({
         asset.archivedAt !== undefined ||
         !revision ||
         revision.assetId !== a ||
-        !(
-          asset.workspaceId === job.workspaceId ||
-          (asset.scope === "personal" && asset.ownerUserId === job.principalId)
-        )
+        !(asset.workspaceId === job.workspaceId || asset.scope === "shared")
       )
         throw new Error("Pinned asset unavailable");
       sources.push({
@@ -421,7 +418,7 @@ export const run = internalAction({
           mutationRef("assets:commitAssetVersion"),
           {
             scope: "workspace",
-            ownerUserId: data.job.principalId,
+            createdBy: data.job.principalId,
             workspaceId: data.job.workspaceId,
             slug: `render-${args.jobId}-${fence}-${name}`,
             name: `${data.version.label} ${name}`,

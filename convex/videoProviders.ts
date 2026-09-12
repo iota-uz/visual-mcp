@@ -17,10 +17,7 @@ export const editTarget = internalQuery({
       asset.archivedAt !== undefined ||
       !version ||
       version.assetId !== asset._id ||
-      !(
-        asset.workspaceId === job.workspaceId ||
-        (asset.scope === "personal" && asset.ownerUserId === job.principalId)
-      )
+      !(asset.workspaceId === job.workspaceId || asset.scope === "shared")
     )
       throw new ConvexError({
         code: "NOT_FOUND_OR_FORBIDDEN",
@@ -45,10 +42,7 @@ export const source = internalQuery({
       asset.archivedAt !== undefined ||
       !revision ||
       revision.assetId !== asset._id ||
-      !(
-        asset.workspaceId === job.workspaceId ||
-        (asset.scope === "personal" && asset.ownerUserId === job.principalId)
-      )
+      !(asset.workspaceId === job.workspaceId || asset.scope === "shared")
     )
       throw new Error("Source unavailable");
     return revision;

@@ -17,13 +17,13 @@ import { callWorker, getWorkerConfig } from "./lib/worker.js";
 import { internal } from "./refs.js";
 
 function assetRef(input: {
-  scope: "personal" | "workspace";
+  scope: "shared" | "workspace";
   workspaceSlug?: string;
   slug: string;
   revision: number;
 }): string {
-  return input.scope === "personal"
-    ? `asset://personal/${input.slug}@${input.revision}`
+  return input.scope === "shared"
+    ? `asset://shared/${input.slug}@${input.revision}`
     : `asset://workspace/${input.workspaceSlug}/${input.slug}@${input.revision}`;
 }
 
@@ -141,8 +141,8 @@ export async function persistAsset(
   ctx: AgentContext,
   input: {
     uploadId?: Id<"assetUploads">;
-    scope: "personal" | "workspace";
-    ownerUserId: Id<"users">;
+    scope: "shared" | "workspace";
+    createdBy: Id<"users">;
     workspaceId?: Id<"workspaces">;
     workspaceSlug?: string;
     slug: string;
@@ -167,7 +167,7 @@ export async function persistAsset(
     committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
       uploadId: input.uploadId,
       scope: input.scope,
-      ownerUserId: input.ownerUserId,
+      createdBy: input.createdBy,
       workspaceId: input.workspaceId,
       workspaceSlug: input.workspaceSlug,
       slug: input.slug,

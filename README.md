@@ -55,7 +55,7 @@ media and existing files. Details: `canvas://guides/authoring`.
 | `canvas_delete` | Archives a workspace/canvas by default or purges it explicitly. Individual files/artifacts have no archive state and require `path` plus `purge:true`. |
 | `canvas_run` | Executes resource-limited JS/TS against canvas files; `/output` becomes artifacts. |
 | `canvas_upload_url` | Batch (up to 50) out-of-band upload manifest; finalize all returned storage IDs in one `canvas_save`. Supported media saved under `/assets` automatically becomes reusable workspace assets. |
-| `asset_list` / `asset_get` | Cursor-paginates reusable personal/workspace media; `asset_get` can return image content directly to the model. |
+| `asset_list` / `asset_get` | Cursor-paginates organization-wide shared media or an isolated workspace library; `asset_get` can return image content directly to the model. |
 | `asset_upload_url` / `asset_finalize` | Batch (up to 50) direct-to-S3 upload and per-item resumable finalize results. |
 | `asset_import` | Copies an HTTPS media source into private object storage with SSRF and MIME checks. |
 | `asset_attach` | Pins one immutable asset revision at an `/assets/…` canvas path. |
@@ -63,7 +63,7 @@ media and existing files. Details: `canvas://guides/authoring`.
 | `asset_delete` | Archives an asset while preserving immutable versions and existing canvas bindings; it never hard-purges shared bytes. |
 | `asset_restore` | Restores an archived asset to its original library without uploading bytes or changing immutable versions and bindings. |
 
-Supported media saved under `/assets` is workspace-reusable by default: `canvas_save` creates an immutable workspace asset revision, pins it at the requested canvas path, and returns its `asset_ref`. `/src` source and `/output` artifacts remain canvas-local. Use `asset_upload_url` only when adding media directly to a personal/workspace library without a canvas, and use `asset_ref` to pin existing library media without uploading bytes again. Upload manifests always declare their HTTP method.
+Supported media saved under a canvas `/assets` path remains isolated in that canvas's workspace: `canvas_save` creates an immutable workspace asset revision, pins it at the requested canvas path, and returns its `asset_ref`. The top-level `/assets` UI is the separate organization-wide Shared Asset Library. `/src` source and `/output` artifacts remain canvas-local. Use `asset_upload_url` with `scope=shared` or an explicit workspace library when adding media without a canvas, and use `asset_ref` to pin existing media without uploading bytes again. Upload manifests always declare their HTTP method.
 
 ### CanvasFile v3 Pages, prototype, and CanvasDoc v2 worlds
 

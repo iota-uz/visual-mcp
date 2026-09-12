@@ -312,8 +312,7 @@ export default defineSchema({
   }).index("by_slug", ["slug"]),
 
   assets: defineTable({
-    scope: v.union(v.literal("personal"), v.literal("workspace")),
-    ownerUserId: v.optional(v.id("users")),
+    scope: v.union(v.literal("shared"), v.literal("workspace")),
     workspaceId: v.optional(v.id("workspaces")),
     slug: v.string(),
     name: v.string(),
@@ -337,14 +336,14 @@ export default defineSchema({
     updatedAt: v.number(),
     archivedAt: v.optional(v.number()),
   })
-    .index("by_owner_updated", ["ownerUserId", "updatedAt"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
-    .index("by_owner_slug", ["ownerUserId", "slug"])
     .index("by_workspace_slug", ["workspaceId", "slug"])
+    .index("by_scope_updated", ["scope", "updatedAt"])
+    .index("by_scope_slug", ["scope", "slug"])
     .index("by_origin_canvas_and_path", ["originCanvasId", "originPath"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["scope", "ownerUserId", "workspaceId", "kind"],
+      filterFields: ["scope", "workspaceId", "kind"],
     }),
 
   assetVersions: defineTable({
@@ -412,8 +411,7 @@ export default defineSchema({
   }).index("by_objectKey", ["objectKey"]),
 
   assetUploads: defineTable({
-    scope: v.union(v.literal("personal"), v.literal("workspace")),
-    ownerUserId: v.optional(v.id("users")),
+    scope: v.union(v.literal("shared"), v.literal("workspace")),
     workspaceId: v.optional(v.id("workspaces")),
     objectKey: v.string(),
     filename: v.string(),

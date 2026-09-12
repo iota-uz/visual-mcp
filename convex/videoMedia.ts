@@ -29,10 +29,7 @@ export const assetRow = internalQuery({
       asset.archivedAt !== undefined ||
       !revision ||
       revision.assetId !== asset._id ||
-      !(
-        asset.workspaceId === args.workspaceId ||
-        (asset.scope === "personal" && asset.ownerUserId === args.principalId)
-      )
+      !(asset.workspaceId === args.workspaceId || asset.scope === "shared")
     )
       throw new ConvexError({
         code: "NOT_FOUND_OR_FORBIDDEN",
@@ -48,7 +45,7 @@ export const assetRow = internalQuery({
       sha256: revision.contentHash,
       sizeBytes: revision.size,
       ref: formatAssetRef({
-        scope: asset.scope,
+        scope: asset.scope === "workspace" ? "workspace" : "shared",
         workspaceSlug: asset.scope === "workspace" ? workspace.slug : undefined,
         slug: asset.slug,
         revision: revision.revision,
@@ -371,7 +368,7 @@ export const verify = internalAction({
         throw new Error("Media integrity mismatch");
       const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
         scope: "workspace",
-        ownerUserId: row.principalId,
+        createdBy: row.principalId,
         workspaceId: row.workspaceId,
         slug: `media-${row._id}`,
         name: row.filename,

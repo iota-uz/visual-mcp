@@ -47,27 +47,27 @@ describe("Sidebar", () => {
   });
 
   /*
-   * The shortcuts are children of Assets, not a second workspace list, and
+   * The shortcuts are workspace asset libraries, not a second workspace list, and
    * the group heading is the only thing that says so. It must not become
    * part of each link's name — "Insurance" is what that link is called.
    */
   test("labels the shortcut list without renaming the links in it", () => {
     renderAt("/");
 
-    const list = screen.getByRole("list", { name: "Asset libraries" });
+    const list = screen.getByRole("list", { name: "Workspace asset libraries" });
     expect(list).toContainElement(screen.getByRole("link", { name: "Insurance" }));
   });
 
   /*
    * /w/:slug is the canvas gallery, reached from Workspaces; /w/:slug/assets
-   * is the library, reached from Assets. Standing on either used to leave
+   * is the library, reached from Shared assets. Standing on either used to leave
    * the whole rail unlit.
    */
   test.each([
     ["/", "Workspaces"],
     ["/w/insurance", "Workspaces"],
-    ["/assets", "Assets"],
-    ["/w/insurance/assets", "Assets"],
+    ["/assets", "Shared assets"],
+    ["/w/insurance/assets", "Shared assets"],
     ["/videos", "Videos"],
     ["/w/insurance/videos", "Videos"],
     ["/v/project-1", "Videos"],

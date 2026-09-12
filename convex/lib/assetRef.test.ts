@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { formatAssetRef, parseAssetRef } from "./assetRef";
 
 describe("asset refs", () => {
-  it("round-trips personal and workspace revisions", () => {
-    expect(parseAssetRef("asset://personal/eai-logo@2")).toEqual({
-      scope: "personal",
+  it("round-trips shared and workspace revisions", () => {
+    expect(parseAssetRef("asset://shared/eai-logo@2")).toEqual({
+      scope: "shared",
       slug: "eai-logo",
       revision: 2,
     });

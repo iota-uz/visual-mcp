@@ -1,17 +1,17 @@
 export type ParsedAssetRef =
-  | { scope: "personal"; slug: string; revision?: number }
+  | { scope: "shared"; slug: string; revision?: number }
   | { scope: "workspace"; workspaceSlug: string; slug: string; revision?: number };
 
 const SEGMENT = /^[a-z0-9][a-z0-9-]*$/;
 
 export function parseAssetRef(ref: string): ParsedAssetRef {
-  const personal = /^asset:\/\/personal\/([^/@]+)(?:@(\d+))?$/.exec(ref);
-  if (personal) {
-    if (!SEGMENT.test(personal[1] as string)) throw new Error(`Invalid asset ref: ${ref}`);
+  const shared = /^asset:\/\/shared\/([^/@]+)(?:@(\d+))?$/.exec(ref);
+  if (shared) {
+    if (!SEGMENT.test(shared[1] as string)) throw new Error(`Invalid asset ref: ${ref}`);
     return {
-      scope: "personal",
-      slug: personal[1] as string,
-      revision: personal[2] ? Number(personal[2]) : undefined,
+      scope: "shared",
+      slug: shared[1] as string,
+      revision: shared[2] ? Number(shared[2]) : undefined,
     };
   }
   const workspace = /^asset:\/\/workspace\/([^/]+)\/([^/@]+)(?:@(\d+))?$/.exec(ref);
@@ -30,12 +30,12 @@ export function parseAssetRef(ref: string): ParsedAssetRef {
 }
 
 export function formatAssetRef(input: {
-  scope: "personal" | "workspace";
+  scope: "shared" | "workspace";
   workspaceSlug?: string;
   slug: string;
   revision: number;
 }): string {
-  return input.scope === "personal"
-    ? `asset://personal/${input.slug}@${input.revision}`
+  return input.scope === "shared"
+    ? `asset://shared/${input.slug}@${input.revision}`
     : `asset://workspace/${input.workspaceSlug}/${input.slug}@${input.revision}`;
 }

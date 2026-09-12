@@ -185,7 +185,7 @@ export async function processMedia(
       throw new Error("Media output not persisted");
     const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
       scope: "workspace",
-      ownerUserId: job.principalId,
+      createdBy: job.principalId,
       workspaceId: job.workspaceId,
       slug: `media-${job._id}-${job.fence}-${operation.kind}-${output.name}`,
       name: `${operation.kind} ${output.name}`,

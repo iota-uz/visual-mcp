@@ -190,10 +190,7 @@ async function submitJob(
     if (
       !asset ||
       asset.archivedAt !== undefined ||
-      !(
-        asset.workspaceId === args.workspaceId ||
-        (asset.scope === "personal" && asset.ownerUserId === principalId)
-      ) ||
+      !(asset.workspaceId === args.workspaceId || asset.scope === "shared") ||
       !version ||
       version.assetId !== a
     )

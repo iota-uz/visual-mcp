@@ -20,7 +20,7 @@ import { MediaMetadataValidator } from "./lib/videoAssetMetadata";
 import { emitVideoMetric } from "./lib/videoObservability";
 import { callWorker, getWorkerConfig } from "./lib/worker";
 
-const scopeValidator = v.union(v.literal("personal"), v.literal("workspace"));
+const scopeValidator = v.union(v.literal("shared"), v.literal("workspace"));
 const kindValidator = v.union(
   v.literal("image"),
   v.literal("svg"),
@@ -137,7 +137,7 @@ type AssetListRow = {
   revision_id: Id<"assetVersions">;
   asset_id: Id<"assets">;
   asset_ref: string;
-  scope: "personal" | "workspace";
+  scope: "shared" | "workspace";
   workspace_slug: string | null;
   slug: string;
   name: string;
@@ -161,13 +161,13 @@ type AssetLookupCtx = QueryCtx | MutationCtx;
 async function findAssetForRef(
   ctx: AssetLookupCtx,
   ref: string,
-  userId: Id<"users">,
+  _userId: Id<"users">,
 ): Promise<{ asset: Doc<"assets">; workspaceSlug?: string }> {
   const parsed = parseAssetRef(ref);
-  if (parsed.scope === "personal") {
+  if (parsed.scope === "shared") {
     const asset = await ctx.db
       .query("assets")
-      .withIndex("by_owner_slug", (q) => q.eq("ownerUserId", userId).eq("slug", parsed.slug))
+      .withIndex("by_scope_slug", (q) => q.eq("scope", "shared").eq("slug", parsed.slug))
       .unique();
     if (!asset) throw new Error(`Asset not found: ${ref}`);
     return { asset };
@@ -230,7 +230,7 @@ export const resolvePrincipal = internalQuery({
 export const createUpload = internalMutation({
   args: {
     scope: scopeValidator,
-    ownerUserId: v.id("users"),
+    createdBy: v.id("users"),
     workspaceId: v.optional(v.id("workspaces")),
     objectKey: v.string(),
     filename: v.string(),
@@ -242,12 +242,11 @@ export const createUpload = internalMutation({
   returns: v.id("assetUploads"),
   handler: async (ctx, args) => {
     if (args.scope === "workspace" && !args.workspaceId) throw new Error("Workspace is required");
-    if (args.scope === "personal" && args.workspaceId)
-      throw new Error("Personal assets cannot have a workspace");
+    if (args.scope === "shared" && args.workspaceId)
+      throw new Error("Shared assets cannot have a workspace");
     return ctx.db.insert("assetUploads", {
       ...args,
-      ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
-      createdBy: args.ownerUserId,
+      createdBy: args.createdBy,
     });
   },
 });
@@ -255,7 +254,7 @@ export const createUpload = internalMutation({
 export const createUploads = internalMutation({
   args: {
     scope: scopeValidator,
-    ownerUserId: v.id("users"),
+    createdBy: v.id("users"),
     workspaceId: v.optional(v.id("workspaces")),
     uploads: v.array(
       v.object({
@@ -273,17 +272,16 @@ export const createUploads = internalMutation({
     if (args.uploads.length < 1 || args.uploads.length > 50)
       throw new Error("asset_upload_url accepts 1 to 50 files per batch");
     if (args.scope === "workspace" && !args.workspaceId) throw new Error("Workspace is required");
-    if (args.scope === "personal" && args.workspaceId)
-      throw new Error("Personal assets cannot have a workspace");
+    if (args.scope === "shared" && args.workspaceId)
+      throw new Error("Shared assets cannot have a workspace");
     const ids = [];
     for (const upload of args.uploads) {
       ids.push(
         await ctx.db.insert("assetUploads", {
           ...upload,
           scope: args.scope,
-          ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
           workspaceId: args.workspaceId,
-          createdBy: args.ownerUserId,
+          createdBy: args.createdBy,
         }),
       );
     }
@@ -301,7 +299,6 @@ export const getUpload = internalQuery({
     v.null(),
     v.object({
       scope: scopeValidator,
-      ownerUserId: v.optional(v.id("users")),
       workspaceId: v.optional(v.id("workspaces")),
       objectKey: v.string(),
       filename: v.string(),
@@ -314,8 +311,7 @@ export const getUpload = internalQuery({
     const upload = await ctx.db.get(args.uploadId);
     if (!upload || upload.createdBy !== args.userId || upload.expiresAt <= args.now) return null;
     return {
-      scope: upload.scope,
-      ownerUserId: upload.ownerUserId,
+      scope: upload.scope === "workspace" ? ("workspace" as const) : ("shared" as const),
       workspaceId: upload.workspaceId,
       objectKey: upload.objectKey,
       filename: upload.filename,
@@ -344,7 +340,7 @@ export const commitAssetVersion = internalMutation({
     ),
     uploadId: v.optional(v.id("assetUploads")),
     scope: scopeValidator,
-    ownerUserId: v.id("users"),
+    createdBy: v.id("users"),
     workspaceId: v.optional(v.id("workspaces")),
     workspaceSlug: v.optional(v.string()),
     slug: v.string(),
@@ -370,12 +366,10 @@ export const commitAssetVersion = internalMutation({
   handler: async (ctx, args) => {
     const objectLease = await requireAssetObjectLease(ctx, args.objectKey, args.objectLeaseId);
     let existing =
-      args.scope === "personal"
+      args.scope === "shared"
         ? await ctx.db
             .query("assets")
-            .withIndex("by_owner_slug", (q) =>
-              q.eq("ownerUserId", args.ownerUserId).eq("slug", args.slug),
-            )
+            .withIndex("by_scope_slug", (q) => q.eq("scope", "shared").eq("slug", args.slug))
             .unique()
         : await ctx.db
             .query("assets")
@@ -415,12 +409,10 @@ export const commitAssetVersion = internalMutation({
       if (!headAdvanced) {
         slug = args.candidateSlug;
         existing =
-          args.scope === "personal"
+          args.scope === "shared"
             ? await ctx.db
                 .query("assets")
-                .withIndex("by_owner_slug", (q) =>
-                  q.eq("ownerUserId", args.ownerUserId).eq("slug", slug),
-                )
+                .withIndex("by_scope_slug", (q) => q.eq("scope", "shared").eq("slug", slug))
                 .unique()
             : await ctx.db
                 .query("assets")
@@ -443,7 +435,6 @@ export const commitAssetVersion = internalMutation({
       existing?._id ??
       (await ctx.db.insert("assets", {
         scope: args.scope,
-        ownerUserId: args.scope === "personal" ? args.ownerUserId : undefined,
         workspaceId: args.scope === "workspace" ? args.workspaceId : undefined,
         slug,
         name: args.name,
@@ -451,7 +442,7 @@ export const commitAssetVersion = internalMutation({
         tags,
         kind: args.kind,
         searchText,
-        createdBy: args.ownerUserId,
+        createdBy: args.createdBy,
         updatedAt: now,
       }));
     if (existing) {
@@ -506,7 +497,7 @@ export const commitAssetVersion = internalMutation({
       originalFilename: args.originalFilename,
       sourceType: args.sourceType,
       sourceUrl: args.sourceUrl,
-      createdBy: args.ownerUserId,
+      createdBy: args.createdBy,
     });
     if (objectLease) await ctx.db.delete(objectLease._id);
     await ctx.db.patch(assetId, { updatedAt: now });
@@ -723,8 +714,8 @@ export async function persistAsset(
   ctx: ActionCtx,
   input: {
     uploadId?: Id<"assetUploads">;
-    scope: "personal" | "workspace";
-    ownerUserId: Id<"users">;
+    scope: "shared" | "workspace";
+    createdBy: Id<"users">;
     workspaceId?: Id<"workspaces">;
     workspaceSlug?: string;
     slug: string;
@@ -766,7 +757,7 @@ export async function persistAsset(
     committed = await ctx.runMutation(internal.assets.commitAssetVersion, {
       uploadId: input.uploadId,
       scope: input.scope,
-      ownerUserId: input.ownerUserId,
+      createdBy: input.createdBy,
       workspaceId: input.workspaceId,
       workspaceSlug: input.workspaceSlug,
       slug: input.slug,
@@ -842,7 +833,7 @@ export const prepareUploadMine = action({
     const expiresAt = Date.now() + 60 * 60 * 1000;
     const uploadId: Id<"assetUploads"> = await ctx.runMutation(internal.assets.createUpload, {
       scope: args.scope,
-      ownerUserId: principal.userId,
+      createdBy: principal.userId,
       workspaceId: principal.workspaceId ?? undefined,
       objectKey: key,
       filename: args.filename,
@@ -913,7 +904,7 @@ export const finalizeUploadMine = action({
     const saved = await persistAsset(ctx, {
       uploadId: args.uploadId,
       scope: upload.scope,
-      ownerUserId: principal.userId,
+      createdBy: principal.userId,
       workspaceId: upload.workspaceId,
       workspaceSlug: workspace?.slug,
       slug: slugify(args.slug ?? args.name),
@@ -999,7 +990,7 @@ export const importUrlMine = action({
     const filename = new URL(imported.finalUrl).pathname.split("/").pop() || "asset";
     const saved = await persistAsset(ctx, {
       scope: args.scope,
-      ownerUserId: principal.userId,
+      createdBy: principal.userId,
       workspaceId: principal.workspaceId ?? undefined,
       workspaceSlug: principal.workspaceSlug ?? undefined,
       slug: slugify(args.slug ?? args.name),
@@ -1046,17 +1037,14 @@ export const listInternal = internalQuery({
           .query("assets")
           .withSearchIndex("search_text", (q) => {
             let search = q.search("searchText", args.query as string).eq("scope", args.scope);
-            search =
-              args.scope === "personal"
-                ? search.eq("ownerUserId", args.userId)
-                : search.eq("workspaceId", workspace?._id);
+            search = args.scope === "shared" ? search : search.eq("workspaceId", workspace?._id);
             return args.kind ? search.eq("kind", args.kind) : search;
           })
           .paginate(args.paginationOpts)
-      : args.scope === "personal"
+      : args.scope === "shared"
         ? await ctx.db
             .query("assets")
-            .withIndex("by_owner_updated", (q) => q.eq("ownerUserId", args.userId))
+            .withIndex("by_scope_updated", (q) => q.eq("scope", "shared"))
             .order("desc")
             .paginate(args.paginationOpts)
         : await ctx.db
@@ -1079,12 +1067,12 @@ export const listInternal = internalQuery({
         asset_id: asset._id,
         revision_id: version._id,
         asset_ref: formatAssetRef({
-          scope: asset.scope,
+          scope: asset.scope === "workspace" ? "workspace" : "shared",
           workspaceSlug: workspace?.slug,
           slug: asset.slug,
           revision: version.revision,
         }),
-        scope: asset.scope,
+        scope: asset.scope === "workspace" ? ("workspace" as const) : ("shared" as const),
         workspace_slug: workspace?.slug ?? null,
         slug: asset.slug,
         name: asset.name,
@@ -1181,7 +1169,7 @@ export const resolveRef = internalQuery({
       contentHash: version.contentHash,
       objectKey: version.objectKey,
       assetRef: formatAssetRef({
-        scope: asset.scope,
+        scope: asset.scope === "workspace" ? "workspace" : "shared",
         workspaceSlug,
         slug: asset.slug,
         revision: version.revision,
@@ -1203,7 +1191,7 @@ async function archiveAssetByRef(
   });
   return {
     assetRef: formatAssetRef({
-      scope: asset.scope,
+      scope: asset.scope === "workspace" ? "workspace" : "shared",
       workspaceSlug,
       slug: asset.slug,
       revision: version.revision,
@@ -1235,7 +1223,7 @@ async function setAssetTagsByRef(
   });
   return {
     assetRef: formatAssetRef({
-      scope: asset.scope,
+      scope: asset.scope === "workspace" ? "workspace" : "shared",
       workspaceSlug,
       slug: asset.slug,
       revision: version.revision,
@@ -1282,7 +1270,7 @@ export const restoreByRef = internalMutation({
     }
     return {
       assetRef: formatAssetRef({
-        scope: asset.scope,
+        scope: asset.scope === "workspace" ? "workspace" : "shared",
         workspaceSlug,
         slug: asset.slug,
         revision: version.revision,
@@ -1515,7 +1503,6 @@ async function moveAssetsByRefs(
   for (const item of inspection.prepared) {
     await ctx.db.patch(item.asset._id, {
       scope: "workspace",
-      ownerUserId: undefined,
       workspaceId: inspection.destinationWorkspace._id,
       updatedAt: movedAt,
     });

@@ -59,7 +59,7 @@ export const run = internalAction({
     });
     const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
       scope: "workspace",
-      ownerUserId: job.principalId,
+      createdBy: job.principalId,
       workspaceId: job.workspaceId,
       slug: `critique-${job._id}-${artifact.objectKey.split("/")[2]}`,
       name: "Video critique",

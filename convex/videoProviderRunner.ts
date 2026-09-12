@@ -223,7 +223,7 @@ export const run = internalAction({
           throw new ProviderFailure("RESULT_PERSISTENCE_FAILED", "partial");
         const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
           scope: "workspace",
-          ownerUserId: job.principalId,
+          createdBy: job.principalId,
           workspaceId: job.workspaceId,
           slug: `generated-${args.jobId}-${fence}-${artifact.role}`,
           name: `Generated ${artifact.role}`,

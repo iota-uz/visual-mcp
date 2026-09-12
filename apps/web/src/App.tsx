@@ -147,7 +147,7 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           }
         >
           <Images size={16} aria-hidden="true" />
-          <span>Assets</span>
+          <span>Shared assets</span>
         </NavLink>
         <NavLink to="/videos" className={() => sidebarLinkClass({ isActive: onVideos })}>
           <Film size={16} aria-hidden="true" />
@@ -160,7 +160,7 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
                 goes in this heading and never into each link's accessible
                 name, which is the workspace's own. */}
             <p id="sidebar-asset-libraries" className="app-sidebar-subhead">
-              Asset libraries
+              Workspace asset libraries
             </p>
             <ul className="app-sidebar-workspaces" aria-labelledby="sidebar-asset-libraries">
               {/* Workspace-scoped asset-library shortcuts. Keep the explicit

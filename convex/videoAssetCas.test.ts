@@ -39,7 +39,7 @@ test("generated revision CAS preserves concurrent head and stores candidate", as
   const commit = makeFunctionReference<"mutation">("assets:commitAssetVersion");
   const base = {
     scope: "workspace",
-    ownerUserId: ids.ownerUserId,
+    createdBy: ids.ownerUserId,
     workspaceId: ids.workspaceId,
     slug: "original",
     name: "Original",

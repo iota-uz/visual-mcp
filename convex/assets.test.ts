@@ -53,8 +53,8 @@ describe("Asset Library bindings", () => {
     ).resolves.toBe(true);
     await expect(
       t.mutation(internal.assets.commitAssetVersion, {
-        scope: "personal",
-        ownerUserId: userId,
+        scope: "shared",
+        createdBy: userId,
         slug: "blocked",
         name: "Blocked",
         tags: [],
@@ -77,8 +77,8 @@ describe("Asset Library bindings", () => {
       leaseId: "commit-lease",
     });
     await t.mutation(internal.assets.commitAssetVersion, {
-      scope: "personal",
-      ownerUserId: userId,
+      scope: "shared",
+      createdBy: userId,
       slug: "retained",
       name: "Retained",
       tags: [],
@@ -115,8 +115,8 @@ describe("Asset Library bindings", () => {
     }));
     for (const slug of ["one", "two", "three"]) {
       await t.mutation(internal.assets.commitAssetVersion, {
-        scope: "personal",
-        ownerUserId: userId,
+        scope: "shared",
+        createdBy: userId,
         slug,
         name: slug,
         tags: [],
@@ -131,14 +131,14 @@ describe("Asset Library bindings", () => {
     }
     const first = await t.query(internal.assets.listInternal, {
       userId,
-      scope: "personal",
+      scope: "shared",
       paginationOpts: { numItems: 1, cursor: null },
     });
     expect(first.page).toHaveLength(1);
     expect(first.isDone).toBe(false);
     const second = await t.query(internal.assets.listInternal, {
       userId,
-      scope: "personal",
+      scope: "shared",
       paginationOpts: { numItems: 1, cursor: first.continueCursor },
     });
     expect(second.page).toHaveLength(1);
@@ -155,8 +155,8 @@ describe("Asset Library bindings", () => {
       }),
     );
     const committed = await t.mutation(internal.assets.commitAssetVersion, {
-      scope: "personal",
-      ownerUserId: userId,
+      scope: "shared",
+      createdBy: userId,
       slug: "campaign-cover",
       name: "Campaign cover",
       tags: [" Original "],
@@ -170,12 +170,12 @@ describe("Asset Library bindings", () => {
     });
 
     const updated = await t.mutation(internal.assets.setTagsByRef, {
-      assetRef: "asset://personal/campaign-cover@1",
+      assetRef: "asset://shared/campaign-cover@1",
       userId,
       tags: [" Brand ", "Launch   2026", "brand", ""],
     });
     expect(updated).toEqual({
-      assetRef: "asset://personal/campaign-cover@1",
+      assetRef: "asset://shared/campaign-cover@1",
       revision: 1,
       tags: ["brand", "launch 2026"],
     });
@@ -196,7 +196,7 @@ describe("Asset Library bindings", () => {
       (
         await t.query(internal.assets.listInternal, {
           userId,
-          scope: "personal",
+          scope: "shared",
           query: "launch",
           paginationOpts: { numItems: 10, cursor: null },
         })
@@ -213,7 +213,7 @@ describe("Asset Library bindings", () => {
       (
         await t.query(internal.assets.listInternal, {
           userId,
-          scope: "personal",
+          scope: "shared",
           query: "launch",
           paginationOpts: { numItems: 10, cursor: null },
         })
@@ -232,6 +232,11 @@ describe("Asset Library bindings", () => {
       const workspaceId = await ctx.db.insert("workspaces", {
         slug: "osago",
         name: "OSAGO",
+        createdBy: userId,
+      });
+      const foreignWorkspaceId = await ctx.db.insert("workspaces", {
+        slug: "farq",
+        name: "Farq",
         createdBy: userId,
       });
       const canvasId = await ctx.db.insert("canvases", {
@@ -260,11 +265,11 @@ describe("Asset Library bindings", () => {
         currentVersionId: versionId,
         draftDocStorageId: docStorageId,
       });
-      return { userId, workspaceId, canvasId };
+      return { userId, workspaceId, foreignWorkspaceId, canvasId };
     });
     const asset = await t.mutation(internal.assets.commitAssetVersion, {
       scope: "workspace",
-      ownerUserId: seeded.userId,
+      createdBy: seeded.userId,
       workspaceId: seeded.workspaceId,
       workspaceSlug: "osago",
       slug: "logo",
@@ -278,6 +283,33 @@ describe("Asset Library bindings", () => {
       originalFilename: "logo.svg",
       sourceType: "upload",
     });
+    const foreignAsset = await t.mutation(internal.assets.commitAssetVersion, {
+      scope: "workspace",
+      createdBy: seeded.userId,
+      workspaceId: seeded.foreignWorkspaceId,
+      workspaceSlug: "farq",
+      slug: "foreign-logo",
+      name: "Foreign logo",
+      tags: [],
+      kind: "svg",
+      objectKey: "blobs/foreign-asset",
+      contentHash: "foreign-hash",
+      mimeType: "image/svg+xml",
+      size: 123,
+      originalFilename: "foreign-logo.svg",
+      sourceType: "upload",
+    });
+    await expect(
+      t.mutation(internal.canvases.bindAssetAndVersion, {
+        canvasId: seeded.canvasId,
+        logicalPath: "/assets/foreign-logo.svg",
+        assetId: foreignAsset.assetId,
+        assetVersionId: foreignAsset.versionId,
+        expectedVersion: 1,
+        expectedDraftRevision: 0,
+        createdBy: seeded.userId,
+      }),
+    ).rejects.toThrow(/outside its workspace/i);
     const bound = await t.mutation(internal.canvases.bindAssetAndVersion, {
       canvasId: seeded.canvasId,
       logicalPath: "/assets/logo.svg",
@@ -348,7 +380,7 @@ describe("Asset Library bindings", () => {
     });
     const asset = await t.mutation(internal.assets.commitAssetVersion, {
       scope: "workspace",
-      ownerUserId: seeded.userId,
+      createdBy: seeded.userId,
       workspaceId: seeded.workspaceId,
       workspaceSlug: "archive-ws",
       slug: "logo",
@@ -449,7 +481,7 @@ describe("Asset Library bindings", () => {
     });
     const first = await t.mutation(internal.assets.commitAssetVersion, {
       scope: "workspace",
-      ownerUserId: userId,
+      createdBy: userId,
       workspaceId: sourceWorkspaceId,
       workspaceSlug: "source",
       slug: "mark",
@@ -465,7 +497,7 @@ describe("Asset Library bindings", () => {
     });
     const second = await t.mutation(internal.assets.commitAssetVersion, {
       scope: "workspace",
-      ownerUserId: userId,
+      createdBy: userId,
       workspaceId: sourceWorkspaceId,
       workspaceSlug: "source",
       slug: "photo",
@@ -573,20 +605,20 @@ describe("Asset Library bindings", () => {
     };
     await t.mutation(internal.assets.commitAssetVersion, {
       ...base,
-      scope: "personal",
-      ownerUserId: ids.owner,
+      scope: "shared",
+      createdBy: ids.owner,
     });
     await t.mutation(internal.assets.commitAssetVersion, {
       ...base,
       scope: "workspace",
-      ownerUserId: ids.owner,
+      createdBy: ids.owner,
       workspaceId: ids.workspace,
       workspaceSlug: "one",
     });
     await t.mutation(internal.assets.commitAssetVersion, {
       ...base,
       scope: "workspace",
-      ownerUserId: ids.owner,
+      createdBy: ids.owner,
       workspaceId: ids.destination,
       workspaceSlug: "two",
       objectKey: "assets/logo-two",
@@ -613,16 +645,16 @@ describe("Asset Library bindings", () => {
     ).resolves.toMatchObject({ assetRef: "asset://workspace/one/logo@1" });
     await expect(
       t.mutation(internal.assets.archiveByRef, {
-        assetRef: "asset://personal/logo@1",
+        assetRef: "asset://shared/logo@1",
         userId: ids.other,
       }),
-    ).rejects.toThrow("Asset not found");
+    ).resolves.toMatchObject({ assetRef: "asset://shared/logo@1", mode: "archived" });
     await expect(
       t.mutation(internal.assets.restoreByRef, {
-        assetRef: "asset://personal/logo@1",
+        assetRef: "asset://shared/logo@1",
         userId: ids.other,
       }),
-    ).rejects.toThrow("Asset not found");
+    ).resolves.toEqual({ assetRef: "asset://shared/logo@1", mode: "restored" });
     await expect(
       t.mutation(internal.assets.restoreByRef, {
         assetRef: "asset://workspace/two/missing@1",

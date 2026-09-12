@@ -2047,7 +2047,7 @@ const AssetRecordOutputSchema = z.object({
   asset_id: z.string(),
   revision_id: z.string(),
   asset_ref: z.string(),
-  scope: z.enum(["personal", "workspace"]),
+  scope: z.enum(["shared", "workspace"]),
   workspace_slug: z.string().nullable(),
   slug: z.string(),
   name: z.string(),
@@ -2117,7 +2117,7 @@ async function finalizeUploadedAsset(
   const saved = await persistAsset(ctx, {
     uploadId,
     scope: upload.scope,
-    ownerUserId: principal.userId,
+    createdBy: principal.userId,
     workspaceId: upload.workspaceId,
     workspaceSlug: workspace?.slug,
     slug: slugify(input.slug ?? input.name),
@@ -4252,7 +4252,7 @@ export function registerTools(
       ),
   );
 
-  const assetScopeSchema = z.enum(["personal", "workspace"]);
+  const assetScopeSchema = z.enum(["shared", "workspace"]);
   const assetKindSchema = z.enum(["image", "svg", "font", "video", "audio", "data"]);
 
   server.registerTool(
@@ -4260,8 +4260,10 @@ export function registerTools(
     {
       title: "Find reusable media assets",
       description:
-        "Searches the personal or workspace Asset Library and returns immutable asset:// refs " +
-        "that can be attached to a canvas without uploading the bytes again.",
+        "Searches either the organization-wide Shared Asset Library or one isolated workspace " +
+        "library and returns immutable asset:// refs that can be attached without re-uploading bytes. " +
+        "Use scope=shared for media available to every Canvas user and workspace; scope=workspace " +
+        "requires workspace and never includes Shared results.",
       annotations: { readOnlyHint: true },
       inputSchema: z
         .object({
@@ -4437,7 +4439,7 @@ export function registerTools(
     {
       title: "Restore an archived Asset Library item",
       description:
-        "Restores the asset addressed by asset_ref to its original personal or workspace " +
+        "Restores the asset addressed by asset_ref to its original shared or workspace " +
         "library. No bytes are uploaded and immutable revisions and existing canvas bindings " +
         "remain unchanged. Repeating the same restore is safe.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
@@ -4612,7 +4614,7 @@ export function registerTools(
         if (input.scope === "workspace" && !workspace) throw new Error("Workspace not found");
         const uploadIds = await ctx.runMutation(internal.assets.createUploads, {
           scope: input.scope,
-          ownerUserId: principal.userId,
+          createdBy: principal.userId,
           workspaceId: workspace?.workspaceId,
           uploads: normalized.map((file) => ({
             objectKey: file.objectKey,
@@ -4769,7 +4771,7 @@ export function registerTools(
         const imported = await fetchAssetImport(input.url);
         const saved = await persistAsset(ctx, {
           scope: input.scope,
-          ownerUserId: principal.userId,
+          createdBy: principal.userId,
           workspaceId: workspace?.workspaceId,
           workspaceSlug: workspace?.slug,
           slug: slugify(input.slug ?? input.name),

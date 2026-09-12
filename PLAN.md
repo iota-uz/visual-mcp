@@ -42,7 +42,7 @@ version, never destroys the old one.
 | Route | Host | Auth | Purpose | Status |
 |---|---|---|---|---|
 | `/` · `/w/:wsSlug` · `/c/:canvasId` | SPA | Convex session | workspaces · canvas grid · viewer | ✅ |
-| `/assets` · `/w/:wsSlug` | SPA | Convex session | personal/workspace reusable media | ✅ |
+| `/assets` · `/w/:wsSlug/assets` | SPA | Convex session | global Shared / isolated workspace media | ✅ |
 | `/settings/tokens` | SPA | Convex session | mint/revoke MCP tokens | ✅ |
 | `/mcp` | `canvas.iota.uz` | bearer | Railway MCP endpoint through the web service's private proxy | ✅ |
 | `/s/:slug[/*]` | `*.convex.site` | slug or signed | artifact bytes, separate cookieless origin | ✅ |
@@ -166,7 +166,7 @@ convex/             ✅ database, auth, fixed agent gateway, public artifact end
 apps/mcp/           ✅ stateless MCP SDK transport, tools, resources, Railway service
 apps/worker/        ✅ Hono + Playwright + D2 + Tailwind + run_code + safe asset import
 apps/web/           ✅ Vite + React SPA — routes, viewer/layout editing, publish, tokens,
-                     personal/workspace Asset Library
+                     Shared/workspace Asset Library
 ```
 
 React was the right call once the SPA existed — Convex's client is React-first and reactive
@@ -785,7 +785,7 @@ atomic multi-file patch, and `canvas_doc_patch` edits CanvasDoc entities by stab
 Every successful operation creates an immutable canvas snapshot and uses optimistic
 `expected_version`/content-hash checks.
 
-Reusable media lives in a personal or workspace Asset Library. Supported media saved to a
+Reusable media lives in the organization-wide Shared Asset Library or an isolated workspace Asset Library. Supported media saved to a
 canvas under `/assets/**` is created in that canvas's workspace library automatically and pinned
 back to the requested path; `/src/**` source and `/output/**` artifacts remain canvas-local.
 Convex stores metadata, provenance, permissions, revisions, idempotent upload mappings and canvas

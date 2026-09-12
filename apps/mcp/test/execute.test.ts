@@ -86,9 +86,12 @@ function fixture(mixedAssets = false) {
                       .filter((kind) => !input.kind || input.kind === kind)
                       .map((kind) => ({
                         asset_id: `asset-${kind}`,
-                        asset_ref: `asset://workspace/farq/${kind}@1`,
-                        scope: "workspace",
-                        workspace_slug: "farq",
+                        asset_ref:
+                          input.scope === "shared"
+                            ? `asset://shared/${kind}@1`
+                            : `asset://workspace/farq/${kind}@1`,
+                        scope: input.scope === "shared" ? "shared" : "workspace",
+                        workspace_slug: input.scope === "shared" ? null : "farq",
                         slug: kind,
                         name: kind,
                         description: null,
@@ -328,6 +331,21 @@ test("installed SDK client validates populated asset list/get against published 
       arguments: { scope: "workspace", workspace: "farq", kind: "audio" },
     });
     expect(audio.structuredContent).toMatchObject({ count: 1, assets: [{ kind: "audio" }] });
+    const shared = await client.callTool({
+      name: "asset_list",
+      arguments: { scope: "shared" },
+    });
+    expect(shared.isError).not.toBe(true);
+    expect(shared.structuredContent.assets[0]).toMatchObject({
+      scope: "shared",
+      workspace_slug: null,
+      asset_ref: "asset://shared/image@1",
+    });
+    const personal = await client.callTool({
+      name: "asset_list",
+      arguments: { scope: "personal" },
+    });
+    expect(personal.isError).toBe(true);
     const got = await client.callTool({
       name: "asset_get",
       arguments: { asset_ref: "asset://workspace/farq/audio@1" },

@@ -109,7 +109,7 @@ network effects. Cancel blocks new broker dispatch; it cannot roll back a write.
 `canvas-catalog.ts` captures actual per-request Canvas registration schemas and
 authenticated callbacks; direct and broker calls execute those same closures.
 The unified captured catalog is hash-fenced and workspace-checked. Both Canvas
-and Video domain operations can be composed in one execute run. Personal-library
+and Video domain operations can be composed in one execute run. Shared-library
 or global-discovery Canvas calls require a direct tool; a workspace-scoped run
 cannot silently switch libraries. Recursive execute/canvas_run is unavailable.
 Typed job readers cover every registered job kind, including actual render,

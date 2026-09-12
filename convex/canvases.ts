@@ -1893,6 +1893,9 @@ export const bindAssetAndVersion = internalMutation({
     const assetVersion = await ctx.db.get(args.assetVersionId);
     if (!asset || !assetVersion || assetVersion.assetId !== asset._id)
       throw new Error("Invalid asset revision");
+    if (asset.scope === "workspace" && asset.workspaceId !== canvas.workspaceId) {
+      throw new Error("Workspace asset cannot be attached outside its workspace");
+    }
     const existing = await ctx.db
       .query("canvasAssetBindings")
       .withIndex("by_canvas_path", (q) =>

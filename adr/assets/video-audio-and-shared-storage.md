@@ -1,7 +1,7 @@
 ---
 id: video-audio-and-shared-storage
 title: Видео и аудио используют общую приватную библиотеку assets
-status: accepted
+status: superseded
 date: 2026-09-10
 deciders: [diyorkhaydarov]
 area: assets
@@ -16,7 +16,7 @@ tags: [assets, audio, video, storage]
 refs:
   - ../../docs/VIDEO-PLAN.md
 supersedes: [unified-assets-and-media-boundaries]
-superseded_by: []
+superseded_by: [organization-shared-and-workspace-isolated-assets]
 ---
 
 ## Контекст

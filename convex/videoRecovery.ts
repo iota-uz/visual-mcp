@@ -345,7 +345,7 @@ export const run = internalAction({
         const originalFence = render?.fence ?? artifact.objectKey.split("/")[2];
         const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
           scope: "workspace",
-          ownerUserId: job.principalId,
+          createdBy: job.principalId,
           workspaceId: job.workspaceId,
           slug: processing
             ? `media-${job._id}-${originalFence}-${processing.kind}-${artifact.role}`

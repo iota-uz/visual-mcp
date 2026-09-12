@@ -35,13 +35,15 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## assets
 
+- **Asset Library разделяется на глобальный Shared и изолированные workspace-библиотеки** — [запись](adr/assets/organization-shared-and-workspace-isolated-assets.md) · accepted · 2026-09-12 (запрос пользователя; заменяет video-audio-and-shared-storage)
+
 - **Перенос ассетов пакетный по умолчанию и атомарный** — [запись](adr/assets/atomic-batch-asset-move.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Теги изменяются на уровне ассета без новой медиа-ревизии** — [запись](adr/assets/mutable-asset-tags.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Буферизуемые ответы генерации обрабатываются в доверенном Node action** — [запись](adr/assets/trusted-provider-node-runtime.md) · accepted · 2026-09-10 (Convex limits, video delivery review)
 
-- **Видео и аудио используют общую приватную библиотеку assets** — [запись](adr/assets/video-audio-and-shared-storage.md) · accepted · 2026-09-10 (заменяет unified-assets-and-media-boundaries; история ниже сохранена)
+- **Видео и аудио используют общую приватную библиотеку assets** — [запись](adr/assets/video-audio-and-shared-storage.md) · superseded · 2026-09-10 (заменена organization-shared-and-workspace-isolated-assets; история сохранена)
 
 - **Медиа из `/assets` становится переиспользуемым, SVG доверяется, audio не поддерживается** — [запись](adr/assets/unified-assets-and-media-boundaries.md) · superseded · 2026-08-29 (`4b2b09a`, `bbf7703`)
 

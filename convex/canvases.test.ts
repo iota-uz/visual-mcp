@@ -372,7 +372,7 @@ describe("canvas asset promotion", () => {
     const workspaceId = await seedWorkspace(t, createdBy);
     const explicit = await t.mutation(internal.assets.commitAssetVersion, {
       scope: "workspace",
-      ownerUserId: createdBy,
+      createdBy,
       workspaceId,
       workspaceSlug: "workspace",
       slug: "logo",

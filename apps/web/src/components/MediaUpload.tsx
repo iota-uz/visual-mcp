@@ -74,7 +74,7 @@ export function MediaUpload({
     try {
       const result = await finalize({ uploadId });
       if (result.state === "ready") {
-        setStage("Verified and saved in the shared asset library.");
+        setStage("Verified and saved in this workspace's isolated asset library.");
         remember(null);
         onReady?.();
       } else

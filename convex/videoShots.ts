@@ -221,7 +221,7 @@ export const poll = internalAction({
       });
       const saved = await ctx.runMutation(m("assets:commitAssetVersion"), {
         scope: "workspace",
-        ownerUserId: job.principalId,
+        createdBy: job.principalId,
         workspaceId: job.workspaceId,
         slug: `generated-${job._id}-${objectKey.split("/")[2]}-shot`,
         name: "Generated shot",
