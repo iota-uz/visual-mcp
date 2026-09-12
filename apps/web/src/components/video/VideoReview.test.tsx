@@ -124,11 +124,11 @@ test("successful current and older exports are navigable without implying approv
 test("human confirmation requires loaded media, resets on failure, and binds exact Uzbek historical candidate", async () => {
   state.stale = true;
   mount();
-  const approval = await screen.findByRole("button", { name: "Approve this exact MP4" });
+  const approval = await screen.findByRole("button", { name: "Approve" });
   expect(approval).toBeDisabled();
   const video = await screen.findByLabelText("Video preview");
   fireEvent.loadedData(video);
-  const checkbox = screen.getByRole("checkbox", { name: /I watched this older UZ MP4/ });
+  const checkbox = screen.getByRole("checkbox", { name: /I watched this older UZ cut/ });
   await userEvent.click(checkbox);
   expect(approval).toBeEnabled();
   fireEvent.error(video);
@@ -153,7 +153,7 @@ test("partial preview stays unapprovable after load and saved feedback remains v
   state.partial = true;
   mount();
   fireEvent.loadedData(await screen.findByLabelText("Video preview"));
-  expect(screen.getByRole("button", { name: "Approve this exact MP4" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
   expect(screen.getByLabelText("Your feedback")).toHaveValue("Persisted feedback");
   expect(state.approve).not.toHaveBeenCalled();
 });

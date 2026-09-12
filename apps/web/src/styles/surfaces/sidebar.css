@@ -61,6 +61,19 @@
   box-shadow: inset 2px 0 0 var(--app-accent);
 }
 
+.app-sidebar-count {
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-white);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4rem;
+  text-align: center;
+}
+
 /* The sub-list's heading. It says what the list *is* — asset libraries, not
    a second copy of the workspace list — without putting that word into each
    link's accessible name, which belongs to the workspace. */
@@ -237,6 +250,10 @@
      item; the whole tile reads as selected instead. */
   .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-link.active {
     box-shadow: none;
+  }
+
+  .app-sidebar:not(.app-sidebar-canvas-drawer) .app-sidebar-count {
+    margin-left: 0;
   }
 
   /* Workspace links are text-only. At rail width their names truncate to

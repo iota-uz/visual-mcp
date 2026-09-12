@@ -60,9 +60,7 @@
 
   --app-font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --app-font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
-  /* The cutting-room voice: an editorial serif with optical sizing for
-     mastheads and slate titles. */
-  --app-font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --app-font-display: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --app-text-xs: 11px;
   --app-text-sm: 13px;

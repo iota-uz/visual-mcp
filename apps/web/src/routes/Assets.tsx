@@ -2,14 +2,15 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Archive,
   ArchiveRestore,
-  HardDrive,
+  Copy,
   Image as ImageIcon,
   Link2,
+  Pencil,
   Search,
   Tags,
   Upload,
 } from "lucide-react";
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -24,9 +25,11 @@ import { PageHeader } from "../components/PageHeader";
 import { type PinnedImage, SharedImageStudio } from "../components/SharedImageStudio";
 import { useToast } from "../components/Toast";
 import { Button } from "../components/ui/Button";
-import { CopyableValue } from "../components/ui/CopyableValue";
+import { Drawer } from "../components/ui/Drawer";
+import { Menu, type MenuItem } from "../components/ui/Menu";
 import { TextInput } from "../components/ui/TextInput";
 import { WorkspaceChrome } from "../components/WorkspaceChrome";
+import { writeClipboard } from "../lib/clipboard";
 import { formatBytes } from "../lib/formatBytes";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
@@ -59,29 +62,6 @@ interface AssetLibraryStats {
   complete: boolean;
 }
 
-const MIME_LABELS: Record<string, string> = {
-  "image/png": "PNG",
-  "image/jpeg": "JPEG",
-  "image/webp": "WebP",
-  "image/avif": "AVIF",
-  "image/gif": "GIF",
-  "image/svg+xml": "SVG",
-  "font/woff2": "WOFF2",
-  "font/woff": "WOFF",
-  "font/ttf": "TTF",
-  "font/otf": "OTF",
-  "video/mp4": "MP4",
-  "video/webm": "WebM",
-  "audio/wav": "WAV",
-  "audio/x-wav": "WAV",
-  "audio/mpeg": "MP3",
-  "audio/mp4": "M4A",
-  "audio/ogg": "OGG",
-  "audio/flac": "FLAC",
-  "audio/webm": "WEBM",
-  "application/json": "JSON",
-};
-
 function AssetCard({
   asset,
   onArchive,
@@ -107,6 +87,18 @@ function AssetCard({
   selectionMode: boolean;
   archived: boolean;
 }) {
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const { notify } = useToast();
+
+  async function copyRef() {
+    const failure = await writeClipboard(asset.asset_ref);
+    notify(
+      failure
+        ? { tone: "error", message: `Couldn't copy to the clipboard: ${failure}` }
+        : { message: `Copied “${asset.asset_ref}”.` },
+    );
+  }
+
   return (
     <li
       className="asset-card"
@@ -126,7 +118,6 @@ function AssetCard({
           previewUrl={asset.preview_url}
         />
         <span className="asset-kind">{asset.kind}</span>
-        <span className="asset-revision">r{asset.revision}</span>
       </button>
       <div className="asset-card-body">
         <div className="asset-card-title-row">
@@ -140,69 +131,51 @@ function AssetCard({
             />
           )}
           <strong>{asset.name}</strong>
-          <div className="asset-card-actions">
-            {archived ? (
-              <button
-                type="button"
-                className="asset-card-action asset-restore"
-                onClick={onRestore}
-                title="Restore asset"
-              >
-                <ArchiveRestore size={14} aria-hidden="true" />
-                <span className="visually-hidden">Restore {asset.name}</span>
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="asset-card-action"
-                  onClick={onEditTags}
-                  title="Edit tags"
-                >
-                  <Tags size={14} aria-hidden="true" />
-                  <span className="visually-hidden">Edit tags for {asset.name}</span>
-                </button>
-                <button
-                  type="button"
-                  className="asset-card-action asset-archive"
-                  onClick={onArchive}
-                  title="Archive asset"
-                >
-                  <Archive size={14} aria-hidden="true" />
-                  <span className="visually-hidden">Archive {asset.name}</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        <span className="asset-filename">{asset.original_filename}</span>
-        <div className="asset-card-facts">
-          <span>{MIME_LABELS[asset.mime_type] ?? asset.mime_type}</span>
-          <span>{formatBytes(asset.size_bytes)}</span>
-        </div>
-        <div className="asset-tags">
-          {asset.tags.length > 0 ? (
-            <>
-              {asset.tags.slice(0, 3).map((tag) => (
-                <button type="button" key={tag} onClick={() => onTagSelect(tag)}>
-                  {tag}
-                </button>
-              ))}
-              {asset.tags.length > 3 && <span>+{asset.tags.length - 3}</span>}
-            </>
-          ) : archived ? (
-            <span className="asset-tags-empty">No tags</span>
-          ) : (
-            <button type="button" className="asset-tags-empty" onClick={onEditTags}>
-              Add tags
+          {archived ? (
+            <button
+              type="button"
+              className="asset-card-action asset-restore"
+              onClick={onRestore}
+              title="Restore asset"
+            >
+              <ArchiveRestore size={14} aria-hidden="true" />
+              <span className="visually-hidden">Restore {asset.name}</span>
             </button>
+          ) : (
+            <Menu
+              triggerRef={menuRef}
+              className="card-hit-actions"
+              label={`Actions for ${asset.name}`}
+              items={
+                [
+                  { id: "preview", label: "Open", onSelect: onPreview },
+                  { id: "copy", label: "Copy ref", icon: Copy, onSelect: () => void copyRef() },
+                  { id: "tags", label: "Edit tags", icon: Tags, onSelect: onEditTags },
+                  ...(onEdit
+                    ? [{ id: "edit", label: "Edit image", icon: Pencil, onSelect: onEdit }]
+                    : []),
+                  { id: "sep", separator: true },
+                  {
+                    id: "archive",
+                    label: "Archive…",
+                    icon: Archive,
+                    danger: true,
+                    onSelect: () => onArchive?.(),
+                  },
+                ] satisfies MenuItem[]
+              }
+            />
           )}
         </div>
-        <CopyableValue value={asset.asset_ref} label="Asset ref" copyLabel="Copy asset ref" />
-        {onEdit && (
-          <Button size="sm" onClick={onEdit}>
-            Edit pinned image
-          </Button>
+        {asset.tags.length > 0 && (
+          <div className="asset-tags">
+            {asset.tags.slice(0, 3).map((tag) => (
+              <button type="button" key={tag} onClick={() => onTagSelect(tag)}>
+                {tag}
+              </button>
+            ))}
+            {asset.tags.length > 3 && <span>+{asset.tags.length - 3}</span>}
+          </div>
         )}
       </div>
     </li>
@@ -211,28 +184,11 @@ function AssetCard({
 
 function AssetLibrarySummary({ stats }: { stats: AssetLibraryStats | null }) {
   const prefix = stats && !stats.complete ? "At least " : "";
-  const assetCount = (count: number) => `${count} asset${count === 1 ? "" : "s"}`;
   return (
     <section className="asset-library-summary" aria-label="Asset library size">
-      <div className="asset-library-summary-total">
-        <HardDrive size={18} aria-hidden="true" />
-        <span>
-          <small>Library size</small>
-          <strong>{stats ? `${prefix}${formatBytes(stats.total.size_bytes)}` : "Loading…"}</strong>
-        </span>
-      </div>
-      <dl>
-        <div className="asset-library-summary-item">
-          <dt>Active</dt>
-          <dd>{stats ? `${prefix}${formatBytes(stats.active.size_bytes)}` : "—"}</dd>
-          <small>{stats ? `${prefix}${assetCount(stats.active.asset_count)}` : "Loading"}</small>
-        </div>
-        <div className="asset-library-summary-item">
-          <dt>Archived</dt>
-          <dd>{stats ? `${prefix}${formatBytes(stats.archived.size_bytes)}` : "—"}</dd>
-          <small>{stats ? `${prefix}${assetCount(stats.archived.asset_count)}` : "Loading"}</small>
-        </div>
-      </dl>
+      {stats
+        ? `${prefix}${formatBytes(stats.total.size_bytes)} · ${stats.active.asset_count} active`
+        : "Loading size…"}
     </section>
   );
 }
@@ -501,12 +457,19 @@ export function AssetsPage() {
           )}
         </section>
       )}
-      {importOpen && (
-        <section className="asset-import-panel">
-          <div>
-            <span className="eyebrow">Import from HTTPS</span>
-            <p>The file is copied into private storage; canvases never hotlink the source.</p>
-          </div>
+      <Drawer
+        open={importOpen}
+        onClose={() => {
+          if (!uploading) setImportOpen(false);
+        }}
+        title="Import from HTTPS"
+        closeLabel="Close import"
+        side="right"
+      >
+        <div className="asset-import-form">
+          <p className="muted">
+            The file is copied into private storage; canvases never hotlink the source.
+          </p>
           <TextInput
             id="asset-import-name"
             label="Name"
@@ -524,8 +487,8 @@ export function AssetsPage() {
           <Button onClick={submitImport} disabled={uploading || !importName || !importUrl}>
             Import
           </Button>
-        </section>
-      )}
+        </div>
+      </Drawer>
 
       <div className="asset-toolbar">
         <div className="asset-search">

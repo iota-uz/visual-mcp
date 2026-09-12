@@ -179,8 +179,6 @@ function CreateVideoButton({ workspaceId }: { workspaceId: Id<"workspaces"> }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [topic, setTopic] = useState("");
-  const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const attempt = useRef<{ signature: string; key: string } | null>(null);
@@ -189,7 +187,7 @@ function CreateVideoButton({ workspaceId }: { workspaceId: Id<"workspaces"> }) {
     const input = {
       workspaceId,
       title: title.trim(),
-      brief: { topic: topic.trim(), direction: direction.trim() },
+      brief: { topic: title.trim(), direction: "" },
       languages: ["ru", "uz"] as ("ru" | "uz")[],
       format: { width: 1080, height: 1920, fps: { numerator: 30, denominator: 1 } },
     };
@@ -221,7 +219,7 @@ function CreateVideoButton({ workspaceId }: { workspaceId: Id<"workspaces"> }) {
         onClose={() => {
           if (!busy) setOpen(false);
         }}
-        title="Start with the story"
+        title="New video"
         closeLabel="Close new video"
         side="right"
       >
@@ -242,30 +240,7 @@ function CreateVideoButton({ workspaceId }: { workspaceId: Id<"workspaces"> }) {
             maxLength={200}
             disabled={busy || !!error}
           />
-          <TextInput
-            id="video-topic"
-            label="Topic"
-            labelVisible
-            value={topic}
-            onChange={(event) => setTopic(event.target.value)}
-            required
-            disabled={busy || !!error}
-          />
-          <label className="video-field" htmlFor="video-direction">
-            Direction
-            <textarea
-              id="video-direction"
-              value={direction}
-              onChange={(event) => setDirection(event.target.value)}
-              required
-              rows={4}
-              disabled={busy || !!error}
-              placeholder="What should the viewer understand or feel?"
-            />
-          </label>
-          <p className="video-hint">
-            Creates separate Russian and Uzbek drafts in vertical 1080 × 1920. No generation starts.
-          </p>
+          <p className="video-hint">Opens the story board. No generation starts.</p>
           {error && <p role="alert">{error}</p>}
           <div className="video-actions">
             <Button type="submit" variant="primary" busy={busy}>

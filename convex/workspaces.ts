@@ -12,6 +12,29 @@ import { requireIotaIdentity, requireUserId } from "./lib/auth";
 import { purgeWorkspace } from "./lib/purge";
 import { slugify } from "./lib/slug";
 
+async function latestVideoPoster(ctx: QueryCtx, projectId: Id<"videoProjects">) {
+  const jobs = await ctx.db
+    .query("videoJobs")
+    .withIndex("by_projectId_and_state", (q) =>
+      q.eq("projectId", projectId).eq("state", "succeeded"),
+    )
+    .take(16);
+  const renders = jobs
+    .filter((job) => job.kind === "render" && job.result)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  for (const job of renders) {
+    try {
+      const parsed = JSON.parse(job.result ?? "") as {
+        poster?: { assetId?: string; revisionId?: string };
+      };
+      if (parsed.poster?.assetId && parsed.poster.revisionId) {
+        return { assetId: parsed.poster.assetId, revisionId: parsed.poster.revisionId };
+      }
+    } catch {}
+  }
+  return null;
+}
+
 async function createWorkspace(
   ctx: MutationCtx,
   args: { name: string; slug?: string; description?: string; createdBy: Id<"users"> },
@@ -39,17 +62,12 @@ async function createWorkspace(
 }
 
 /** Thumbnails a workspace lane previews on the home page. */
-const RECENT_PER_WORKSPACE = 4;
+const RECENT_PER_WORKSPACE = 3;
 
 /*
- * Each row carries what the home page's lane actually shows: how many
- * canvases are in it, and a strip of the few an agent touched most recently.
- *
- * This replaces a per-row `listForWorkspace` subscription in the SPA, which
- * fetched every canvas in every workspace — minting a signed
- * `storage.getUrl()` for each one — and then discarded all of it but
- * `.length`. Twenty workspaces of twenty canvases was four hundred signed
- * URLs to print twenty integers.
+ * Each row carries what the home page's card actually shows: how many
+ * canvases and videos are in it, and a strip of the few touched most
+ * recently — mixed, because those collections are peers.
  */
 async function listWorkspaces(ctx: QueryCtx) {
   const rows = (await ctx.db.query("workspaces").take(200)).filter(
@@ -58,9 +76,6 @@ async function listWorkspaces(ctx: QueryCtx) {
 
   return Promise.all(
     rows.map(async (w) => {
-      // `by_workspace_updated` is ordered, so `take` walks only as far as it
-      // needs to; the count still has to see every row, but it reads no
-      // storage and mints nothing.
       const canvases = (
         await ctx.db
           .query("canvases")
@@ -69,16 +84,64 @@ async function listWorkspaces(ctx: QueryCtx) {
           .take(200)
       ).filter((c) => c.archivedAt === undefined);
 
-      const recent = await Promise.all(
-        canvases.slice(0, RECENT_PER_WORKSPACE).map(async (c) => ({
-          canvas_id: c._id,
-          title: c.title,
-          kind: c.kind,
-          thumbnail_url: c.thumbnailId ? await ctx.storage.getUrl(c.thumbnailId) : null,
-          poster: c.poster ?? null,
-          static_render_status: c.staticRenderStatus ?? "ready",
-        })),
-      );
+      const videos = await ctx.db
+        .query("videoProjects")
+        .withIndex("by_workspaceId_and_updatedAt", (q) => q.eq("workspaceId", w._id))
+        .order("desc")
+        .take(200);
+
+      const recent: Array<
+        | {
+            type: "canvas";
+            canvas_id: Id<"canvases">;
+            title: string;
+            kind: string;
+            thumbnail_url: string | null;
+            poster: (typeof canvases)[number]["poster"];
+            static_render_status: string;
+          }
+        | {
+            type: "video";
+            projectId: Id<"videoProjects">;
+            title: string;
+            workspaceId: Id<"workspaces">;
+            poster: { assetId: string; revisionId: string } | null;
+          }
+      > = [];
+      let canvasIndex = 0;
+      let videoIndex = 0;
+      while (
+        recent.length < RECENT_PER_WORKSPACE &&
+        (canvasIndex < canvases.length || videoIndex < videos.length)
+      ) {
+        const canvas = canvases[canvasIndex];
+        const video = videos[videoIndex];
+        const takeCanvas =
+          video === undefined || (canvas !== undefined && canvas.updatedAt >= video.updatedAt);
+        if (takeCanvas && canvas) {
+          recent.push({
+            type: "canvas",
+            canvas_id: canvas._id,
+            title: canvas.title,
+            kind: canvas.kind,
+            thumbnail_url: canvas.thumbnailId ? await ctx.storage.getUrl(canvas.thumbnailId) : null,
+            poster: canvas.poster ?? null,
+            static_render_status: canvas.staticRenderStatus ?? "ready",
+          });
+          canvasIndex += 1;
+        } else if (video) {
+          recent.push({
+            type: "video",
+            projectId: video._id,
+            title: video.title,
+            workspaceId: w._id,
+            poster: await latestVideoPoster(ctx, video._id),
+          });
+          videoIndex += 1;
+        } else {
+          break;
+        }
+      }
 
       return {
         workspace_id: w._id,
@@ -86,6 +149,7 @@ async function listWorkspaces(ctx: QueryCtx) {
         name: w.name,
         description: w.description,
         canvas_count: canvases.length,
+        video_count: videos.length,
         recent,
       };
     }),
@@ -193,6 +257,7 @@ export const deleteMine = mutation({
     return {
       bytes_reclaimed: totals.bytesReclaimed,
       canvases_deleted: totals.canvasesDeleted,
+      videos_deleted: totals.videosDeleted,
     };
   },
 });

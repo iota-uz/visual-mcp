@@ -27,6 +27,7 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { purgeVideoProject } from "./videoPurge";
 
 export interface PurgeTotals {
   /** Bytes removed from the canvas's quota counter (artifacts + canvasFiles). */
@@ -192,11 +193,11 @@ export async function purgeCanvas(ctx: MutationCtx, canvas: Doc<"canvases">): Pr
   return { bytesReclaimed, blobsDeleted };
 }
 
-/** Hard-deletes a workspace and every canvas inside it. */
+/** Hard-deletes a workspace and every canvas and video inside it. */
 export async function purgeWorkspace(
   ctx: MutationCtx,
   workspace: Doc<"workspaces">,
-): Promise<PurgeTotals & { canvasesDeleted: number }> {
+): Promise<PurgeTotals & { canvasesDeleted: number; videosDeleted: number }> {
   const canvases = await ctx.db
     .query("canvases")
     .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspace._id))
@@ -209,6 +210,12 @@ export async function purgeWorkspace(
     bytesReclaimed += totals.bytesReclaimed;
     blobsDeleted += totals.blobsDeleted;
   }
+
+  const videos = await ctx.db
+    .query("videoProjects")
+    .withIndex("by_workspaceId_and_updatedAt", (q) => q.eq("workspaceId", workspace._id))
+    .collect();
+  for (const project of videos) await purgeVideoProject(ctx, project._id);
 
   const components = await ctx.db
     .query("components")
@@ -227,7 +234,12 @@ export async function purgeWorkspace(
   }
 
   await ctx.db.delete(workspace._id);
-  return { bytesReclaimed, blobsDeleted, canvasesDeleted: canvases.length };
+  return {
+    bytesReclaimed,
+    blobsDeleted,
+    canvasesDeleted: canvases.length,
+    videosDeleted: videos.length,
+  };
 }
 
 /**

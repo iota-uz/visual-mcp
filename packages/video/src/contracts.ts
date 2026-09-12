@@ -30,8 +30,8 @@ export const Format = z
   .strict();
 export const Brief = z
   .object({
-    topic: Text.min(1),
-    direction: Text.min(1),
+    topic: Text.default(""),
+    direction: Text.default(""),
     audience: Text.optional(),
     objective: Text.optional(),
     callToAction: Text.optional(),

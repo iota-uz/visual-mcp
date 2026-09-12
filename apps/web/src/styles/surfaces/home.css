@@ -5,6 +5,16 @@
   margin: 0 0 var(--app-space-2);
 }
 
+.home-search-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+}
+
+.home-search-group > .eyebrow {
+  margin: 0;
+}
+
 /*
  * One region, holding either the workspace list or the search results —
  * never both. Stacked, a search left the entire unfiltered list sitting

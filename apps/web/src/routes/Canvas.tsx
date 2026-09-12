@@ -706,7 +706,7 @@ export function VersionHistory({
   if (versions.length === 0) return null;
 
   return (
-    <DrawerSection label="Versions" aside={`${versions.length} kept`}>
+    <Disclosure summary={`Versions · ${versions.length} kept`}>
       <ul className="card-list version-list">
         {versions.map((v) => (
           <li key={v.versionId} className="card-list-item">
@@ -734,7 +734,7 @@ export function VersionHistory({
           </li>
         ))}
       </ul>
-    </DrawerSection>
+    </Disclosure>
   );
 }
 
@@ -1942,7 +1942,7 @@ export function CanvasPage() {
    * belong to what is on screen, and a thread about another Page is noise
    * until you go there.
    */
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const commentsOpen = searchParams.get("comments") === "1";
   /*
    * Overlaid, the two right-hand panels land on the same 300px of a 768px
    * screen — and before this they simply covered each other. Opening one
@@ -1951,16 +1951,24 @@ export function CanvasPage() {
   const showComments = useCallback(
     (open: boolean) => {
       if (open && isOverlayRail()) setEditorMode("design");
-      setCommentsOpen(open);
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (open) next.set("comments", "1");
+          else next.delete("comments");
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [setEditorMode],
+    [setEditorMode, setSearchParams],
   );
   const changeEditorMode = useCallback(
     (mode: "design" | "prototype") => {
-      if (mode === "prototype" && isOverlayRail()) setCommentsOpen(false);
+      if (mode === "prototype" && isOverlayRail()) showComments(false);
       setEditorMode(mode);
     },
-    [setEditorMode],
+    [setEditorMode, showComments],
   );
   const [commentDraft, setCommentDraft] = useState<CommentDraftAnchor | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);

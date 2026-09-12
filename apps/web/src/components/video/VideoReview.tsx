@@ -143,7 +143,7 @@ export function VideoReview({
                   checked={confirmed}
                   disabled={!loaded || !metadata.approvable || busy}
                   onChange={(event) => setConfirmed(event.target.checked)}
-                  label={`I watched this ${metadata.stale ? "older " : ""}${metadata.language.toUpperCase()} MP4, including sound and captions.`}
+                  label={`I watched this${metadata.stale ? " older" : ""} ${metadata.language.toUpperCase()} cut, including sound and captions.`}
                 />
                 <Button
                   variant="primary"
@@ -167,11 +167,8 @@ export function VideoReview({
                       .finally(() => setBusy(false));
                   }}
                 >
-                  {busy ? "Confirming…" : "Approve this exact MP4"}
+                  {busy ? "Confirming…" : "Approve"}
                 </Button>
-                <p className="video-review-integrity">
-                  Approval binds this saved version and exact MP4.
-                </p>
                 {!metadata.approvable && (
                   <p className="video-hint">
                     Partial previews and analysis proxies cannot be approved.

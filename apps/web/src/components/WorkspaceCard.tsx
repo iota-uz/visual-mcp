@@ -10,16 +10,25 @@ import { RenameForm } from "./RenameForm";
 import type { StaticRenderState } from "./StaticRenderStatus";
 import { useToast } from "./Toast";
 import { Menu } from "./ui/Menu";
+import { AssetWell } from "./video/shots/AssetWell";
 
-/** One entry in `workspaces.listMine`'s recent-canvas projection. */
-export interface RecentCanvas {
-  canvas_id: string;
-  title: string;
-  kind: string;
-  thumbnail_url: string | null;
-  poster: CanvasPoster | null;
-  static_render_status: StaticRenderState;
-}
+export type WorkspaceCover =
+  | {
+      type: "canvas";
+      canvas_id: string;
+      title: string;
+      kind: string;
+      thumbnail_url: string | null;
+      poster: CanvasPoster | null;
+      static_render_status: StaticRenderState;
+    }
+  | {
+      type: "video";
+      projectId: string;
+      title: string;
+      workspaceId: Id<"workspaces">;
+      poster: { assetId: string; revisionId: string } | null;
+    };
 
 export interface WorkspaceSummary {
   workspace_id: Id<"workspaces">;
@@ -27,23 +36,19 @@ export interface WorkspaceSummary {
   name: string;
   description?: string;
   canvas_count?: number;
-  recent?: RecentCanvas[];
+  video_count?: number;
+  recent?: WorkspaceCover[];
 }
 
-/** How many covers fit across a card without shrinking to stamps. */
 const COVERS = 3;
 
-/*
- * One workspace, in a grid.
- *
- * It used to be a full-width lane whose only clickable thing was the name,
- * while the whole row grew an accent ring on hover and the four preview
- * thumbnails inside it were each a link. So the contents of a workspace
- * looked more clickable than the workspace, and the row looked clickable
- * where it wasn't. Now the card is one hit area (`.card-hit`), the covers
- * are decoration, and the two destructive actions live behind ⋯ instead of
- * sitting permanently in the row at 55% opacity.
- */
+function countLine(canvases: number | undefined, videos: number | undefined) {
+  const parts: string[] = [];
+  if (canvases !== undefined) parts.push(`${canvases} ${canvases === 1 ? "canvas" : "canvases"}`);
+  if (videos !== undefined) parts.push(`${videos} ${videos === 1 ? "video" : "videos"}`);
+  return parts.join(" · ");
+}
+
 export function WorkspaceCard({
   workspace,
   onRename,
@@ -51,18 +56,20 @@ export function WorkspaceCard({
 }: {
   workspace: WorkspaceSummary;
   onRename: (name: string) => Promise<unknown>;
-  onDelete: () => Promise<{ canvases_deleted: number; bytes_reclaimed: number }>;
+  onDelete: () => Promise<{
+    canvases_deleted: number;
+    videos_deleted?: number;
+    bytes_reclaimed: number;
+  }>;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const menuRef = useRef<HTMLButtonElement>(null);
   const { notify } = useToast();
-
-  // Both come from `listMine`'s own projection. They used to come from a
-  // per-row `listForWorkspace` subscription that fetched every canvas in
-  // every workspace, signed a URL for each thumbnail, and kept `.length`.
-  const count = workspace.canvas_count;
+  const canvases = workspace.canvas_count;
+  const videos = workspace.video_count;
   const recent = (workspace.recent ?? []).slice(0, COVERS);
+  const counts = countLine(canvases, videos);
 
   return (
     <li className="workspace-card card-hit">
@@ -92,9 +99,6 @@ export function WorkspaceCard({
               to: `/w/${workspace.slug}`,
             },
             { id: "videos", label: "Videos", icon: Film, to: `/w/${workspace.slug}/videos` },
-            // The sidebar's workspace links are asset-library shortcuts and
-            // say so nowhere else; this is where that library is findable
-            // from the surface workspaces actually live on.
             { id: "assets", label: "Assets", icon: Images, to: `/w/${workspace.slug}/assets` },
             { id: "rename", label: "Rename", icon: Pencil, onSelect: () => setRenaming(true) },
             { id: "sep", separator: true },
@@ -108,27 +112,31 @@ export function WorkspaceCard({
           ]}
         />
       </div>
-      {count !== undefined && (
-        <span className="eyebrow workspace-card-count">
-          {count} {count === 1 ? "canvas" : "canvases"}
-        </span>
-      )}
+      {counts && <span className="eyebrow workspace-card-count">{counts}</span>}
       {workspace.description && <p className="workspace-card-note">{workspace.description}</p>}
 
-      {/* What is in here, without going in. Decoration, not navigation: as
-          links these were the loudest hover target on the card. */}
       {recent.length > 0 && (
         <div className="workspace-card-covers" aria-hidden="true">
-          {recent.map((canvas) => (
-            <CanvasCover
-              key={canvas.canvas_id}
-              kind={canvas.kind}
-              poster={canvas.poster}
-              thumbnailUrl={canvas.thumbnail_url}
-              size="strip"
-              className={`canvas-card-${canvas.kind}`}
-            />
-          ))}
+          {recent.map((item) =>
+            item.type === "video" ? (
+              <AssetWell
+                key={item.projectId}
+                workspaceId={item.workspaceId}
+                asset={item.poster ?? undefined}
+                className="workspace-card-video"
+                fallback={<Film size={18} />}
+              />
+            ) : (
+              <CanvasCover
+                key={item.canvas_id}
+                kind={item.kind}
+                poster={item.poster}
+                thumbnailUrl={item.thumbnail_url}
+                size="strip"
+                className={`canvas-card-${item.kind}`}
+              />
+            ),
+          )}
         </div>
       )}
 
@@ -139,18 +147,19 @@ export function WorkspaceCard({
           returnFocusRef={menuRef}
           confirmLabel="Delete workspace"
           description={
-            count === undefined
-              ? "Deletes this workspace and every canvas in it. Permanent."
-              : `Deletes this workspace and ${count} ${count === 1 ? "canvas" : "canvases"}. Permanent.`
+            !canvases && !videos
+              ? "Deletes this workspace and every canvas and video in it. Permanent."
+              : `Deletes this workspace, ${canvases ?? 0} ${
+                  canvases === 1 ? "canvas" : "canvases"
+                } and ${videos ?? 0} ${videos === 1 ? "video" : "videos"}. Permanent.`
           }
           onConfirm={async () => {
-            // The mutation has always returned what it destroyed; the row
-            // just vanished and never said so.
             const result = await onDelete();
+            const videoCount = result.videos_deleted ?? 0;
             notify({
               message: `Deleted “${workspace.name}” — ${result.canvases_deleted} ${
                 result.canvases_deleted === 1 ? "canvas" : "canvases"
-              }, ${formatBytes(result.bytes_reclaimed)} freed.`,
+              }, ${videoCount} ${videoCount === 1 ? "video" : "videos"}, ${formatBytes(result.bytes_reclaimed)} freed.`,
             });
           }}
         />

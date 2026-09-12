@@ -57,32 +57,48 @@ describe("HomePage", () => {
     expect(link).toHaveAttribute("href", "/w/osago");
   });
 
-  test("node search box queries canvasNodes as the user types and links results by node id", async () => {
+  test("search finds titles first and still links canvas nodes by id", async () => {
     useQueryMock.mockImplementation((_ref: unknown, args: unknown) => {
       if (args && typeof args === "object" && "query" in args) {
         const q = (args as { query: string }).query;
         if (q === "europrotocol") {
-          return [
-            {
-              canvasId: "c1",
-              canvasTitle: "Fast Settlement",
-              workspaceId: "ws1",
-              nodeId: "checkout",
-              nodeTitle: "Checkout",
-              nodeEyebrow: "Payments",
-            },
-          ];
+          return {
+            workspaces: [{ workspaceId: "ws1", slug: "osago", name: "OSAGO" }],
+            canvases: [
+              { canvasId: "c1", title: "Fast Settlement", kind: "canvas", workspaceId: "ws1" },
+            ],
+            videos: [{ projectId: "p1", title: "Europrotocol reel", workspaceId: "ws1" }],
+            nodes: [
+              {
+                canvasId: "c1",
+                canvasTitle: "Fast Settlement",
+                workspaceId: "ws1",
+                nodeId: "checkout",
+                nodeTitle: "Checkout",
+                nodeEyebrow: "Payments",
+              },
+            ],
+          };
         }
-        return [];
+        return { workspaces: [], canvases: [], videos: [], nodes: [] };
       }
       return [];
     });
     renderHome();
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText("Search canvas nodes…"), "europrotocol");
+    await user.type(
+      screen.getByPlaceholderText("Search workspaces, canvases and videos…"),
+      "europrotocol",
+    );
 
-    const link = await screen.findByRole("link", { name: /Checkout/ });
+    expect(await screen.findByRole("link", { name: "OSAGO" })).toHaveAttribute("href", "/w/osago");
+    expect(screen.getByRole("link", { name: "Fast Settlement" })).toHaveAttribute("href", "/c/c1");
+    expect(screen.getByRole("link", { name: "Europrotocol reel" })).toHaveAttribute(
+      "href",
+      "/v/p1",
+    );
+    const link = screen.getByRole("link", { name: /Checkout/ });
     expect(link).toHaveAttribute("href", "/c/c1?node=checkout");
     expect(screen.getByText(/Payments/)).toBeInTheDocument();
   });
@@ -142,9 +158,26 @@ describe("HomePage", () => {
             name: "OSAGO",
             description: undefined,
             canvas_count: 2,
+            video_count: 0,
             recent: [
-              { canvas_id: "c1", title: "One", kind: "canvas", thumbnail_url: null },
-              { canvas_id: "c2", title: "Two", kind: "canvas", thumbnail_url: null },
+              {
+                type: "canvas" as const,
+                canvas_id: "c1",
+                title: "One",
+                kind: "canvas",
+                thumbnail_url: null,
+                poster: null,
+                static_render_status: "ready" as const,
+              },
+              {
+                type: "canvas" as const,
+                canvas_id: "c2",
+                title: "Two",
+                kind: "canvas",
+                thumbnail_url: null,
+                poster: null,
+                static_render_status: "ready" as const,
+              },
             ],
           },
         ];
@@ -163,7 +196,9 @@ describe("HomePage", () => {
       await user.click(screen.getByRole("button", { name: "Actions for OSAGO" }));
       await user.click(screen.getByRole("menuitem", { name: "Delete workspace…" }));
       expect(mutation).not.toHaveBeenCalled();
-      expect(screen.getByText(/Deletes this workspace and 2 canvases/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Deletes this workspace, 2 canvases and 0 videos/),
+      ).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Delete workspace" }));
       expect(mutation).toHaveBeenCalledWith({ workspaceId: "ws1" });

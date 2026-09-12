@@ -504,6 +504,7 @@ export function TimelineEditor({
         hiddenTracks={hiddenTracks}
         mutedTracks={mutedTracks}
         disabled={disabled}
+        workspaceId={workspaceId}
         viewportRef={viewportRef}
         suppressClipClick={suppressClipClick}
         setPlayhead={setPlayhead}

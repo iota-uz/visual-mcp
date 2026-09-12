@@ -86,6 +86,14 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Один гротеск, пустое создание видео, кадры на Timeline, один inbox** — [запись](adr/product/quiet-chrome-and-needs-you.md) · accepted · 2026-09-12 (запрос пользователя)
+
+- **Карточка ассета — превью и имя; метаданные по запросу** — [запись](adr/product/asset-glance-then-edit.md) · accepted · 2026-09-12 (запрос пользователя)
+
+- **Поиск на Home ищет названия, ноды — вторая группа** — [запись](adr/product/catalog-search.md) · accepted · 2026-09-12 (запрос пользователя)
+
+- **Рейл ведёт в воркспейс, а не в библиотеку ассетов** — [запись](adr/product/workspace-first-navigation.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Shots показывают кадр, Production — jobs first, список видео — постер** — [запись](adr/product/studio-frames-jobs-posters.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Студия — взгляд, потом правка; версия в той же комнате** — [запись](adr/product/studio-glance-then-edit.md) · accepted · 2026-09-12 (запрос пользователя)

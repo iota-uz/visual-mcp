@@ -118,9 +118,7 @@ describe("AssetsPage", () => {
     renderAssets();
 
     const summary = await screen.findByRole("region", { name: "Asset library size" });
-    expect(summary).toHaveTextContent("Library size4.5 MB");
-    expect(summary).toHaveTextContent("Active4.1 MB12 assets");
-    expect(summary).toHaveTextContent("Archived427.2 KB2 assets");
+    expect(summary).toHaveTextContent("4.5 MB · 12 active");
   });
 
   test("opens and closes a fullscreen preview from an asset card", async () => {
@@ -148,7 +146,7 @@ describe("AssetsPage", () => {
     renderAssets();
 
     expect(await screen.findByAltText("Preview of Iota logo")).toHaveAttribute("src", "/logo.svg");
-    expect(screen.getByText("SVG")).toBeInTheDocument();
+    expect(document.querySelector(".asset-kind")).toHaveTextContent("svg");
 
     const trigger = screen.getByRole("button", { name: "Open preview of Iota logo" });
     await user.click(trigger);
@@ -191,7 +189,8 @@ describe("AssetsPage", () => {
     const user = userEvent.setup();
     renderAssets();
 
-    await user.click(await screen.findByRole("button", { name: "Edit tags for Iota logo" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Iota logo" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit tags" }));
     expect(screen.getByRole("dialog", { name: "Edit tags" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Remove brand tag" }));
@@ -238,7 +237,8 @@ describe("AssetsPage", () => {
     const user = userEvent.setup();
     renderSharedAssets();
 
-    await user.click(await screen.findByRole("button", { name: "Archive Iota logo" }));
+    await user.click(await screen.findByRole("button", { name: "Actions for Iota logo" }));
+    await user.click(screen.getByRole("menuitem", { name: "Archive…" }));
     expect(screen.getByRole("dialog")).toHaveAccessibleName("Archive “Iota logo”?");
     expect(screen.getByText(/remain available in Archived/)).toBeInTheDocument();
     expect(archiveAssetMock).not.toHaveBeenCalled();

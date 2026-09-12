@@ -18,9 +18,11 @@ import type {
   PointerEvent as ReactPointerEvent,
   SetStateAction,
 } from "react";
+import type { Id } from "../../../../../../convex/_generated/dataModel";
 import type { TimelineDocument } from "../../../../../../packages/video/src/contracts";
 import { useContextMenuTrigger } from "../../ui/ContextMenu";
 import type { MenuItem } from "../../ui/Menu";
+import { AssetWell } from "../shots/AssetWell";
 import {
   type Clip,
   clipLabel,
@@ -45,6 +47,7 @@ export function TimelineTrackArea({
   hiddenTracks,
   mutedTracks,
   disabled,
+  workspaceId,
   viewportRef,
   suppressClipClick,
   setPlayhead,
@@ -75,6 +78,7 @@ export function TimelineTrackArea({
   hiddenTracks: Set<string>;
   mutedTracks: Set<string>;
   disabled: boolean;
+  workspaceId?: Id<"workspaces">;
   viewportRef: MutableRefObject<HTMLDivElement | null>;
   suppressClipClick: MutableRefObject<boolean>;
   setPlayhead: Dispatch<SetStateAction<number>>;
@@ -344,6 +348,7 @@ export function TimelineTrackArea({
                       <button
                         type="button"
                         className="video-timeline-clip"
+                        data-kind={track.kind}
                         aria-pressed={selected}
                         aria-label={`${meta.label} clip: ${label}`}
                         aria-keyshortcuts="ArrowLeft ArrowRight Alt+ArrowLeft Alt+ArrowRight Shift+ArrowLeft Shift+ArrowRight Delete"
@@ -377,6 +382,14 @@ export function TimelineTrackArea({
                           }
                         }}
                       >
+                        {track.kind === "visual" && clip.source.kind === "asset" && workspaceId ? (
+                          <AssetWell
+                            workspaceId={workspaceId}
+                            asset={clip.source.asset}
+                            className="video-clip-frame"
+                            fallback={<span>{label}</span>}
+                          />
+                        ) : null}
                         <span>{label}</span>
                         <small>{(preview.durationFrames / fps).toFixed(1)}s</small>
                         {clip.startFrame + clip.durationFrames > document.durationFrames && (

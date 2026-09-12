@@ -1,3 +1,7 @@
+.video-production-agent {
+  margin-top: var(--app-space-3);
+}
+
 .video-human-loop,
 .video-jobs {
   display: grid;

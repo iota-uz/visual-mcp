@@ -388,12 +388,12 @@ export function KitchenSinkPage() {
         <Row label="search">
           <TextInput
             id="ks-search"
-            label="Search canvas nodes"
+            label="Search workspaces, canvases and videos"
             className="list-toolbar-search"
             leadingIcon={Search}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search canvas nodes…"
+            placeholder="Search workspaces, canvases and videos…"
             trailingSlot={
               search && (
                 <IconButton
@@ -547,7 +547,9 @@ export function KitchenSinkPage() {
                 name: "OSAGO",
                 description: "Motor third-party liability: intake, adjustment and payout.",
                 canvas_count: 3,
+                video_count: 1,
                 recent: KS_CANVASES.map((canvas) => ({
+                  type: "canvas" as const,
                   canvas_id: canvas.canvas_id,
                   title: canvas.title,
                   kind: canvas.kind,
@@ -572,6 +574,7 @@ export function KitchenSinkPage() {
                 slug: "kasko",
                 name: "KASKO",
                 canvas_count: 0,
+                video_count: 0,
               }}
               onRename={async () => notify({ message: "Renamed." })}
               onDelete={async () => {

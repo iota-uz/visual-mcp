@@ -43,11 +43,20 @@ export function PublicCanvasPage() {
     if (redirectTo) window.location.replace(redirectTo);
   }, [redirectTo]);
 
-  if (redirectTo) {
+  if (redirectTo && canvas) {
     return (
       <div className="canvas-page-full">
+        <header className="canvas-command-bar canvas-command-bar-public">
+          <div className="canvas-command-lead">
+            <span className="public-shell-brand">Visual Canvas</span>
+            <span className="canvas-command-crumb-sep" aria-hidden="true">
+              /
+            </span>
+            <h1 className="canvas-command-name">{canvas.title}</h1>
+          </div>
+        </header>
         <div className="canvas-page-loading">
-          <LoadingState label="Opening…" />
+          <LoadingState label={`Opening ${canvas.title}…`} />
         </div>
       </div>
     );

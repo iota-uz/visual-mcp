@@ -168,6 +168,7 @@ describe("PagesPanel", () => {
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
 
     rerender(<VersionHistory canvasId={"canvas" as never} versions={[version]} dirty />);
+    fireEvent.click(screen.getByText(/Versions · 1 kept/));
     expect(screen.getByRole("button", { name: "Restore" })).toBeVisible();
   });
 });

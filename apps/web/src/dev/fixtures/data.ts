@@ -112,7 +112,9 @@ const WORKSPACES = [
     name: "OSAGO",
     description: "Motor claims.",
     canvas_count: CANVASES.length,
-    recent: CANVASES.slice(0, 4).map((c) => ({
+    video_count: 0,
+    recent: CANVASES.slice(0, 3).map((c) => ({
+      type: "canvas" as const,
       canvas_id: c.canvas_id,
       title: c.title,
       kind: c.kind,
@@ -127,6 +129,7 @@ const WORKSPACES = [
     name: "Sandbox",
     description: "Deliberately empty.",
     canvas_count: 0,
+    video_count: 0,
     recent: [],
   },
 ];

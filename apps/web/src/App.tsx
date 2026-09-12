@@ -1,5 +1,15 @@
 import { useConvexAuth, useQuery } from "convex/react";
-import { Blocks, Film, Images, KeyRound, LayoutGrid, LogOut, Menu, Unplug } from "lucide-react";
+import {
+  Blocks,
+  Film,
+  Images,
+  Inbox,
+  KeyRound,
+  LayoutGrid,
+  LogOut,
+  Menu,
+  Unplug,
+} from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../../../convex/_generated/api";
@@ -15,6 +25,7 @@ import { AssetsPage } from "./routes/Assets";
 import { CanvasPage } from "./routes/Canvas";
 import { DevSignInPage } from "./routes/DevSignIn";
 import { HomePage } from "./routes/Home";
+import { InboxPage } from "./routes/Inbox";
 import { KitchenSinkPage } from "./routes/KitchenSink";
 import { PresentPage } from "./routes/Present";
 import { PublicCanvasPage } from "./routes/PublicCanvas";
@@ -92,15 +103,14 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
   // home → other workspace. This is the same subscription Home already
   // holds, so the list costs nothing extra.
   const workspaces = useQuery(api.workspaces.listMine, {});
+  const inbox = useQuery(api.inbox.needsYou, {});
   const { pathname } = useLocation();
-  // /w/:slug is a canvas gallery; /w/:slug/assets is an asset library. The
-  // rail has one item for each, and the path says which is showing.
-  const onWorkspaces = pathname === "/" || /^\/w\/[^/]+$/.test(pathname);
+  const workspaceMatch = pathname.match(/^\/w\/([^/]+)/);
+  const activeWorkspaceSlug = workspaceMatch?.[1];
+  const onWorkspaces = pathname === "/";
   const onVideos =
-    pathname === "/videos" ||
-    /^\/w\/[^/]+\/videos$/.test(pathname) ||
-    pathname.startsWith("/v/") ||
-    pathname.startsWith("/jobs/");
+    pathname === "/videos" || pathname.startsWith("/v/") || pathname.startsWith("/jobs/");
+  const inboxCount = inbox?.count ?? 0;
 
   function handleSignOut() {
     // Ends the Convex session and drops the stored tokens; the Google
@@ -132,13 +142,23 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           accessible name — and an aria-label that read "Asset Library" over
           a visible "Assets" would be a name the label no longer contains. */}
       <nav className="app-sidebar-nav">
-        {/* `Workspaces` also lights up on /w/:slug: that page is the canvas
-            gallery, reached from this list, and until this predicate existed
-            standing on it left no rail item active at all. */}
         <NavLink to="/" end className={() => sidebarLinkClass({ isActive: onWorkspaces })}>
           <LayoutGrid size={16} aria-hidden="true" />
           <span>Workspaces</span>
         </NavLink>
+        {inboxCount > 0 && (
+          <NavLink
+            to="/inbox"
+            className={sidebarLinkClass}
+            aria-label={`Needs you, ${inboxCount} waiting`}
+          >
+            <Inbox size={16} aria-hidden="true" />
+            <span>Needs you</span>
+            <span className="app-sidebar-count" aria-hidden="true">
+              {inboxCount}
+            </span>
+          </NavLink>
+        )}
         <NavLink to="/assets" className={sidebarLinkClass}>
           <Images size={16} aria-hidden="true" />
           <span>Shared assets</span>
@@ -148,44 +168,32 @@ export function Sidebar({ canvasDrawer = false }: { canvasDrawer?: boolean }) {
           <span>Videos</span>
         </NavLink>
         {workspaces && workspaces.length > 0 && (
-          <>
-            {/* The sub-list is *Assets'* children, and reads as a stray copy
-                of the workspace list without something saying so. The name
-                goes in this heading and never into each link's accessible
-                name, which is the workspace's own. */}
-            <p id="sidebar-asset-libraries" className="app-sidebar-subhead">
-              Workspace asset libraries
-            </p>
-            <ul className="app-sidebar-workspaces" aria-labelledby="sidebar-asset-libraries">
-              {/* Workspace-scoped asset-library shortcuts. Keep the explicit
-                  /assets suffix: /w/:slug is the canvas gallery, and routing
-                  both destinations through that URL previously made this
-                  behavior regress when the gallery was restored. */}
-              {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map(
-                (w) => (
-                  <li key={w.workspace_id}>
-                    <NavLink to={`/w/${w.slug}/assets`} className={sidebarLinkClass} title={w.name}>
-                      <span>{w.name}</span>
-                    </NavLink>
-                  </li>
-                ),
-              )}
-              {/* A long list would otherwise push sign-out off the bottom of
-                  the rail and turn navigation into scrolling. */}
-              {workspaces.length > VISIBLE_WORKSPACES && !showAllWorkspaces && (
-                <li>
-                  <button
-                    type="button"
-                    className="app-sidebar-more"
-                    onClick={() => setShowAllWorkspaces(true)}
-                  >
-                    {workspaces.length - VISIBLE_WORKSPACES} more
-                  </button>
-                </li>
-              )}
-            </ul>
-          </>
+          <ul className="app-sidebar-workspaces" aria-label="Workspace list">
+            {(showAllWorkspaces ? workspaces : workspaces.slice(0, VISIBLE_WORKSPACES)).map((w) => (
+              <li key={w.workspace_id}>
+                <NavLink
+                  to={`/w/${w.slug}`}
+                  className={() => sidebarLinkClass({ isActive: activeWorkspaceSlug === w.slug })}
+                  title={w.name}
+                >
+                  <span>{w.name}</span>
+                </NavLink>
+              </li>
+            ))}
+            {workspaces.length > VISIBLE_WORKSPACES && !showAllWorkspaces && (
+              <li>
+                <button
+                  type="button"
+                  className="app-sidebar-more"
+                  onClick={() => setShowAllWorkspaces(true)}
+                >
+                  {workspaces.length - VISIBLE_WORKSPACES} more
+                </button>
+              </li>
+            )}
+          </ul>
         )}
+
         <div className="app-sidebar-group">
           <NavLink to="/settings/tokens" className={sidebarLinkClass}>
             <KeyRound size={16} aria-hidden="true" />
@@ -384,6 +392,14 @@ function AuthenticatedApp() {
             element={
               <Page label="Workspaces failed to load.">
                 <HomePage />
+              </Page>
+            }
+          />
+          <Route
+            path="/inbox"
+            element={
+              <Page label="Inbox failed to load.">
+                <InboxPage />
               </Page>
             }
           />

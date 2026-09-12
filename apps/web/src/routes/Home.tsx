@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { Compass, Plus, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../../../convex/_generated/api";
 import { ConnectPanel } from "../components/ConnectPanel";
@@ -16,53 +16,105 @@ import { WorkspaceCard } from "../components/WorkspaceCard";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 
-/** Backend cap on `searchNodes` — results are silently truncated at this. */
-const SEARCH_LIMIT = 20;
+type Catalog = {
+  workspaces: Array<{ workspaceId: string; slug: string; name: string }>;
+  canvases: Array<{ canvasId: string; title: string; kind: string; workspaceId: string }>;
+  videos: Array<{ projectId: string; title: string; workspaceId: string }>;
+  nodes: Array<{
+    canvasId: string;
+    canvasTitle: string;
+    workspaceId: string;
+    nodeId: string;
+    nodeTitle: string;
+    nodeEyebrow?: string;
+  }>;
+};
 
-interface SearchResult {
-  canvasId: string;
-  canvasTitle: string;
-  workspaceId: string;
-  nodeId: string;
-  nodeTitle: string;
-  nodeEyebrow?: string;
+function catalogCount(results: Catalog) {
+  return (
+    results.workspaces.length +
+    results.canvases.length +
+    results.videos.length +
+    results.nodes.length
+  );
+}
+
+function SearchGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="home-search-group">
+      <h2 className="eyebrow">{title}</h2>
+      <ul className="card-list">{children}</ul>
+    </section>
+  );
 }
 
 function SearchResults({
   results,
   workspaceNames,
 }: {
-  results: SearchResult[] | undefined;
+  results: Catalog | undefined;
   workspaceNames: Map<string, string>;
 }) {
   if (results === undefined) return <p className="muted">Searching…</p>;
-  if (results.length === 0) {
-    return <EmptyState title="No matches." hint="Search covers node text, not canvas titles." />;
+  if (catalogCount(results) === 0) {
+    return <EmptyState title="No matches." />;
   }
+  const total = catalogCount(results);
   return (
     <>
       <p className="muted node-search-count">
-        {results.length === SEARCH_LIMIT
-          ? `First ${SEARCH_LIMIT} matches`
-          : `${results.length} ${results.length === 1 ? "match" : "matches"}`}
+        {total} {total === 1 ? "match" : "matches"}
       </p>
-      <ul className="card-list">
-        {results.map((r) => (
-          <li key={`${r.canvasId}:${r.nodeId}`} className="card-list-item">
-            {/* `searchNodes` has always returned the workspace id and this
-                page has always held the workspace list; the join is free,
-                and without it two identically-titled nodes in different
-                workspaces were indistinguishable. */}
-            <span className="eyebrow">
-              {workspaceNames.get(r.workspaceId) ?? "workspace"} / {r.canvasTitle}
-            </span>
-            <Link to={`/c/${r.canvasId}?node=${encodeURIComponent(r.nodeId)}`}>
-              <strong>{r.nodeTitle}</strong>
-              {r.nodeEyebrow && <span className="muted"> — {r.nodeEyebrow}</span>}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {results.workspaces.length > 0 && (
+        <SearchGroup title="Workspaces">
+          {results.workspaces.map((row) => (
+            <li key={row.workspaceId} className="card-list-item">
+              <Link to={`/w/${row.slug}`}>
+                <strong>{row.name}</strong>
+              </Link>
+            </li>
+          ))}
+        </SearchGroup>
+      )}
+      {results.canvases.length > 0 && (
+        <SearchGroup title="Canvases">
+          {results.canvases.map((row) => (
+            <li key={row.canvasId} className="card-list-item">
+              <span className="eyebrow">{workspaceNames.get(row.workspaceId) ?? "workspace"}</span>
+              <Link to={`/c/${row.canvasId}`}>
+                <strong>{row.title}</strong>
+              </Link>
+            </li>
+          ))}
+        </SearchGroup>
+      )}
+      {results.videos.length > 0 && (
+        <SearchGroup title="Videos">
+          {results.videos.map((row) => (
+            <li key={row.projectId} className="card-list-item">
+              <span className="eyebrow">{workspaceNames.get(row.workspaceId) ?? "workspace"}</span>
+              <Link to={`/v/${row.projectId}`}>
+                <strong>{row.title}</strong>
+              </Link>
+            </li>
+          ))}
+        </SearchGroup>
+      )}
+      {results.nodes.length > 0 && (
+        <SearchGroup title="Nodes">
+          {results.nodes.map((row) => (
+            <li key={`${row.canvasId}:${row.nodeId}`} className="card-list-item">
+              <span className="eyebrow">
+                {workspaceNames.get(row.workspaceId) ?? "workspace"} / {row.canvasTitle}
+              </span>
+              <Link to={`/c/${row.canvasId}?node=${encodeURIComponent(row.nodeId)}`}>
+                <strong>{row.nodeTitle}</strong>
+                {row.nodeEyebrow && <span className="muted"> — {row.nodeEyebrow}</span>}
+              </Link>
+            </li>
+          ))}
+        </SearchGroup>
+      )}
     </>
   );
 }
@@ -73,7 +125,7 @@ function NodeSearch({
 }: {
   workspaceNames: Map<string, string>;
   /** The workspace list, shown when nothing is being searched for. */
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   // The query lives in the URL so a search survives a reload and Back
   // returns to it instead of dropping the user on a blank Home.
@@ -85,7 +137,7 @@ function NodeSearch({
   // so typing "europrotocol" cost twelve full-text queries and rendered
   // twelve throwaway result sets.
   const query = useDebouncedValue(term.trim(), 250);
-  const results = useQuery(api.canvases.searchNodes, query ? { query } : "skip");
+  const results = useQuery(api.search.searchMine, query ? { query } : "skip");
 
   useEffect(() => {
     // Bail when the URL already says this — otherwise mount alone fires a
@@ -106,8 +158,8 @@ function NodeSearch({
           list pages read as the same kind of page. */}
       <div className="list-toolbar">
         <TextInput
-          id="node-search-input"
-          label="Search canvas nodes"
+          id="catalog-search-input"
+          label="Search workspaces, canvases and videos"
           className="list-toolbar-search"
           inputRef={inputRef}
           leadingIcon={Search}
@@ -116,7 +168,7 @@ function NodeSearch({
           onKeyDown={(e) => {
             if (e.key === "Escape") clear();
           }}
-          placeholder="Search canvas nodes…"
+          placeholder="Search workspaces, canvases and videos…"
           trailingSlot={
             term && (
               <IconButton
@@ -171,7 +223,7 @@ export function HomePage() {
 
   const workspaceNames = new Map((workspaces ?? []).map((w) => [w.workspace_id as string, w.name]));
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreate(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     setCreating(true);
