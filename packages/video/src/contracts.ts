@@ -371,7 +371,7 @@ export class PatchFailure extends Error {
     super(message);
   }
 }
-export function applyPatch<T>(document: T, input: unknown, schema: z.ZodType<T>): T {
+export function applyPatch<T>(document: unknown, input: unknown, schema: z.ZodType<T>): T {
   const result = JSON.parse(JSON.stringify(document)) as Record<string, unknown>;
   for (const op of Patch.parse(input)) {
     if (!op.path.startsWith("/") || /\/(?:__proto__|constructor|prototype)(?:\/|$)/.test(op.path))

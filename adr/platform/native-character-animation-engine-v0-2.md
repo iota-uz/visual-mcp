@@ -9,7 +9,10 @@ applies_to:
   - packages/video/src/character.ts
   - packages/video/src/character-packs.ts
   - packages/video/src/registry.ts
+  - packages/video/src/contracts.ts
   - packages/video/test/registry.test.ts
+  - packages/video/test/contracts.test.ts
+  - convex/video.ts
   - apps/worker/src/video/character-runtime.ts
   - apps/worker/src/video/character-pack-view.tsx
   - apps/worker/src/video/character-scene.tsx
@@ -50,6 +53,11 @@ grip anchor, могут прикрепляться к руке и сохраня
 markup, код и remote URLs не исполняются. Packs передаются внутри immutable
 timeline/checkpoint; отдельный persisted marketplace и GUI загрузки не входят в
 это решение.
+
+Breaking component revisions допускают атомарный repair patch: JSON Patch
+применяется к сохранённому raw document, а строгая schema проверяет уже итог.
+Это позволяет заменить больше не поддерживаемый `@1` на `@2` без временного
+compatibility renderer; частично исправленный документ по-прежнему не сохраняется.
 
 ## Обоснование
 

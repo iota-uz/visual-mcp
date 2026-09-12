@@ -576,8 +576,8 @@ async function patch(
   try {
     next =
       kind === "script"
-        ? applyPatch(Script.parse(JSON.parse(d.script)), args.operations, Script)
-        : applyPatch(Timeline.parse(JSON.parse(d.timeline)), args.operations, Timeline);
+        ? applyPatch(JSON.parse(d.script), args.operations, Script)
+        : applyPatch(JSON.parse(d.timeline), args.operations, Timeline);
   } catch (error) {
     validation(error);
   }
