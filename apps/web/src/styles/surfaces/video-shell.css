@@ -139,11 +139,13 @@
   grid-template-columns: 224px minmax(0, 1fr) 44px;
 }
 
-.video-studio-workspace-timeline {
+.video-studio-workspace-timeline,
+.video-studio-workspace-story {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
 }
 
-.video-studio-workspace-timeline:has(.video-studio-inspector:not([open])) {
+.video-studio-workspace-timeline:has(.video-studio-inspector:not([open])),
+.video-studio-workspace-story:has(.video-studio-inspector:not([open])) {
   grid-template-columns: minmax(0, 1fr) 44px;
 }
 
@@ -575,7 +577,9 @@
   }
 
   .video-studio-workspace-timeline,
-  .video-studio-workspace-timeline:has(.video-studio-inspector:not([open])) {
+  .video-studio-workspace-timeline:has(.video-studio-inspector:not([open])),
+  .video-studio-workspace-story,
+  .video-studio-workspace-story:has(.video-studio-inspector:not([open])) {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -36,7 +36,7 @@ export function CameraDirection({
         <span>Controls how the scene is composed and moves</span>
       </div>
       <Select
-        id="scene-shot"
+        id={`scene-shot-${sceneId}`}
         label="Framing"
         labelVisible
         value={framingValue(framing)}

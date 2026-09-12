@@ -179,19 +179,53 @@ test("scene cards keep the browser menu without handlers", () => {
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });
 
-test("shell can own navigation without duplicating it in the editor", () => {
+test("board shows every scene before any editor opens", () => {
   render(
     <StoryboardEditor
       document={document}
       onChange={vi.fn()}
       disabled={false}
       selectedId="proof"
-      showSceneNavigator={false}
     />,
   );
   expect(screen.queryByRole("navigation", { name: "Scenes" })).not.toBeInTheDocument();
-  expect(screen.getByDisplayValue("Proof")).toBeInTheDocument();
-  expect(screen.getByText(/1\/3 brief fields/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit scene 1/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit scene 2/ })).toBeInTheDocument();
+  expect(screen.getByText("Start with the customer problem.")).toBeInTheDocument();
+  expect(screen.getByLabelText("Scene brief ready")).toBeInTheDocument();
+  expect(screen.getByLabelText("Scene brief incomplete")).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Scene purpose" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/brief fields/)).not.toBeInTheDocument();
+});
+
+test("premise stays a logline until edited", async () => {
+  const user = userEvent.setup();
+  render(<StoryboardEditor document={document} onChange={vi.fn()} disabled={false} />);
+  expect(screen.getByRole("button", { name: "A useful product story" })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Main idea" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "A useful product story" }));
+  expect(screen.getByRole("textbox", { name: "Main idea" })).toHaveValue("A useful product story");
+});
+
+test("clicking a beat opens its editor and Escape collapses it", async () => {
+  const user = userEvent.setup();
+  const onSelect = vi.fn();
+  render(
+    <StoryboardEditor
+      document={document}
+      onChange={vi.fn()}
+      disabled={false}
+      selectedId="opening"
+      onSelect={onSelect}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Edit scene 2/ }));
+  expect(onSelect).toHaveBeenCalledWith("proof");
+  expect(screen.getByRole("textbox", { name: "Scene purpose" })).toHaveValue("Proof");
+  expect(screen.queryByText(/brief fields/)).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("textbox", { name: "Scene purpose" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit scene 2/ })).toBeInTheDocument();
 });
 
 test("uses constrained camera controls and normalizes legacy labels", async () => {
@@ -203,9 +237,9 @@ test("uses constrained camera controls and normalizes legacy labels", async () =
       onChange={onChange}
       disabled={false}
       selectedId="opening"
-      showSceneNavigator={false}
     />,
   );
+  await user.click(screen.getByRole("button", { name: /Edit scene 1/ }));
 
   expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("close-up");
   expect(screen.getByRole("radio", { name: /Push in/ })).toBeChecked();
@@ -222,7 +256,8 @@ test("uses constrained camera controls and normalizes legacy labels", async () =
   );
 });
 
-test("presents imported framing as not set instead of editable provenance", () => {
+test("presents imported framing as not set instead of editable provenance", async () => {
+  const user = userEvent.setup();
   const opening = document.scenesById.opening;
   if (!opening) throw new Error("Expected opening scene fixture");
   const imported = Script.parse({
@@ -236,14 +271,61 @@ test("presents imported framing as not set instead of editable provenance", () =
     },
   });
   render(
-    <StoryboardEditor
-      document={imported}
-      onChange={vi.fn()}
-      disabled={false}
-      selectedId="opening"
-      showSceneNavigator={false}
-    />,
+    <StoryboardEditor document={imported} onChange={vi.fn()} disabled={false} selectedId="opening" />,
   );
+  await user.click(screen.getByRole("button", { name: /Edit scene 1/ }));
   expect(screen.getByRole("combobox", { name: "Framing" })).toHaveValue("");
   expect(screen.queryByDisplayValue("Imported")).not.toBeInTheDocument();
+});
+
+test("disabled snapshot is a board without editors", () => {
+  render(<StoryboardEditor document={document} onChange={vi.fn()} disabled />);
+  expect(screen.getByText("Hook")).toBeInTheDocument();
+  expect(screen.getByText("Proof")).toBeInTheDocument();
+  expect(screen.getByText("Start with the customer problem.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Edit scene/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add scene" })).not.toBeInTheDocument();
+});
+
+function beatItem(name: string): HTMLElement {
+  const handle = screen.getByRole("button", { name });
+  const item = handle.closest(".video-beat");
+  if (!(item instanceof HTMLElement)) throw new Error("Expected a beat wrapper");
+  return item;
+}
+
+test("beats reorder from the index handle", () => {
+  const onReorderScenes = vi.fn();
+  render(
+    <StoryboardEditor
+      document={document}
+      onChange={vi.fn()}
+      disabled={false}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const proof = beatItem("Reorder scene 2");
+  const opening = beatItem("Reorder scene 1");
+  fireEvent.dragStart(screen.getByRole("button", { name: "Reorder scene 2" }));
+  expect(proof).toHaveClass("is-dragging");
+  fireEvent.dragOver(opening);
+  expect(opening).toHaveClass("is-drop-target");
+  fireEvent.drop(opening);
+  expect(onReorderScenes).toHaveBeenCalledWith(["proof", "opening"]);
+});
+
+test("board Alt plus arrows nudges the focused beat", () => {
+  const onReorderScenes = vi.fn();
+  render(
+    <StoryboardEditor
+      document={document}
+      onChange={vi.fn()}
+      disabled={false}
+      onReorderScenes={onReorderScenes}
+    />,
+  );
+  const proof = screen.getByRole("button", { name: "Reorder scene 2" });
+  fireEvent.keyDown(proof, { key: "ArrowUp", altKey: true });
+  expect(onReorderScenes).toHaveBeenCalledWith(["proof", "opening"]);
 });

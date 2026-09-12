@@ -101,6 +101,11 @@ function mount(path = "/v/project") {
   );
 }
 
+function openOpeningBeat() {
+  fireEvent.click(screen.getByRole("button", { name: /Edit scene 1/ }));
+  return screen.getByLabelText("Narration");
+}
+
 test("studio chrome exposes named workflow, language and production controls", () => {
   mount();
   expect(screen.getByRole("navigation", { name: "Studio workflow" })).toBeInTheDocument();
@@ -118,8 +123,7 @@ test("studio chrome exposes named workflow, language and production controls", (
 
 test("document undo is shared across Story, Shots and Timeline and remains available after mode switches", () => {
   mount();
-  const narration = screen.getByLabelText("Narration");
-  fireEvent.change(narration, { target: { value: "Revised narration" } });
+  fireEvent.change(openOpeningBeat(), { target: { value: "Revised narration" } });
   fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
   const addCaption = screen.getAllByRole("button", { name: "Add caption" })[0];
   if (!addCaption) throw new Error("Expected caption action");
@@ -129,8 +133,10 @@ test("document undo is shared across Story, Shots and Timeline and remains avail
   expect(screen.queryByLabelText("Caption text")).not.toBeInTheDocument();
   fireEvent.keyDown(document.body, { key: "z", metaKey: true });
   fireEvent.click(screen.getByRole("button", { name: "Story" }));
-  expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
-  fireEvent.keyDown(screen.getByLabelText("Narration"), {
+  expect(screen.getByText("ru narration")).toBeInTheDocument();
+  const narration = openOpeningBeat();
+  expect(narration).toHaveValue("ru narration");
+  fireEvent.keyDown(narration, {
     key: "Z",
     metaKey: true,
     shiftKey: true,
@@ -140,17 +146,18 @@ test("document undo is shared across Story, Shots and Timeline and remains avail
 
 test("switching draft language resets documents and never carries history into the other language", () => {
   mount();
-  fireEvent.change(screen.getByLabelText("Narration"), { target: { value: "A local edit" } });
+  fireEvent.change(openOpeningBeat(), { target: { value: "A local edit" } });
   fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
   fireEvent.click(screen.getByRole("button", { name: "O‘zbekcha" }));
-  expect(screen.getByLabelText("Narration")).toHaveValue("uz narration");
+  expect(screen.getByText("uz narration")).toBeInTheDocument();
   fireEvent.keyDown(document.body, { key: "z", ctrlKey: true, shiftKey: true });
-  expect(screen.getByLabelText("Narration")).toHaveValue("uz narration");
+  expect(screen.getByText("uz narration")).toBeInTheDocument();
+  expect(openOpeningBeat()).toHaveValue("uz narration");
 });
 
 test("Review hides draft history and its shortcut cannot silently undo a script edit", () => {
   mount();
-  fireEvent.change(screen.getByLabelText("Narration"), {
+  fireEvent.change(openOpeningBeat(), {
     target: { value: "Keep this draft edit" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Review" }));
@@ -158,7 +165,8 @@ test("Review hides draft history and its shortcut cannot silently undo a script 
   expect(screen.queryByRole("list", { name: "Production readiness" })).not.toBeInTheDocument();
   fireEvent.keyDown(document.body, { key: "z", metaKey: true });
   fireEvent.click(screen.getByRole("button", { name: "Story" }));
-  expect(screen.getByLabelText("Narration")).toHaveValue("Keep this draft edit");
+  expect(screen.getByText("Keep this draft edit")).toBeInTheDocument();
+  expect(openOpeningBeat()).toHaveValue("Keep this draft edit");
 });
 
 test("UZ version deep link without language keeps the header and return lane Uzbek", async () => {
@@ -177,7 +185,7 @@ test("UZ version deep link without language keeps the header and return lane Uzb
   mount("/v/project?version=uz-version");
   expect(screen.getByRole("button", { name: "O‘zbekcha" })).toHaveAttribute("aria-pressed", "true");
   await userEvent.click(screen.getByRole("button", { name: "Return to editable draft" }));
-  expect(screen.getByDisplayValue("uz narration")).toBeInTheDocument();
+  expect(screen.getByText("uz narration")).toBeInTheDocument();
 });
 
 test("renders honest empty media state and no human approval shortcut", () => {
@@ -186,10 +194,13 @@ test("renders honest empty media state and no human approval shortcut", () => {
   expect(
     screen.queryByRole("button", { name: /approve|generate|render/i }),
   ).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Main idea").tagName).toBe("TEXTAREA");
-  expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
-  expect(screen.getByRole("navigation", { name: "Scenes" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Opening/ })).toHaveAttribute("aria-current", "true");
+  expect(screen.getByRole("button", { name: "ru premise" })).toBeInTheDocument();
+  expect(screen.getByText("ru narration")).toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "Scenes" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit scene 1/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
 });
 
 test("shots retain selected scene context instead of becoming an unlabelled empty form", async () => {
@@ -224,7 +235,8 @@ test("language switch reads independent draft and blocks while edits are unsaved
   const user = userEvent.setup();
   mount();
   await user.click(screen.getByRole("button", { name: "O‘zbekcha" }));
-  expect(screen.getByLabelText("Narration")).toHaveValue("uz narration");
+  expect(screen.getByText("uz narration")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /Edit scene 1/ }));
   await user.type(screen.getByLabelText("Narration"), " changed");
   expect(screen.getByRole("button", { name: "Русский" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save version" })).toBeDisabled();
@@ -236,7 +248,8 @@ test("readiness pills navigate to the workspace that advances each count", async
   await user.click(screen.getByRole("button", { name: "Shots" }));
   expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Open Story to review scene briefs" }));
-  expect(screen.getByLabelText("Narration")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Edit scene 1/ })).toBeInTheDocument();
+  expect(screen.getByText("ru narration")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Open Shots to plan shots" }));
   expect(screen.getByRole("heading", { name: "Shot production" })).toBeInTheDocument();
 });
@@ -273,8 +286,8 @@ test("language loading preserves the previous workspace as read-only context", a
   mount();
   await userEvent.click(screen.getByRole("button", { name: "O‘zbekcha" }));
   expect(screen.getByText("Loading the Uzbek draft…")).toBeInTheDocument();
-  expect(screen.getByLabelText("Narration")).toHaveValue("ru narration");
-  expect(screen.getByLabelText("Narration")).toHaveAttribute("readonly");
+  expect(screen.getByText("ru narration")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Edit scene/ })).not.toBeInTheDocument();
 });
 
 test("scene context menu stages an armed delete confirmation", async () => {
@@ -305,6 +318,7 @@ test("script writes use exact draft revision and scoped canonical paths", async 
   mutation.mockReturnValue(save);
   const user = userEvent.setup();
   mount();
+  await user.click(screen.getByRole("button", { name: /Edit scene 1/ }));
   await user.type(screen.getByLabelText("Narration"), " corrected");
   await user.click(screen.getByRole("button", { name: "Save script now" }));
   expect(save).toHaveBeenCalledWith(

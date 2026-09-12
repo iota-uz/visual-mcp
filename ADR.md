@@ -78,6 +78,8 @@ or delete history. Full rules: .claude/rules/adr.md
 
 ## product
 
+- **Story — доска битов, форма по запросу** — [запись](adr/product/story-mode-beat-board.md) · accepted · 2026-09-12 (запрос пользователя)
+
 - **Весь Video Studio — тихий инструмент, без костюма монтажной** — [запись](adr/product/video-studio-quiet-workbench.md) · accepted · 2026-09-12 (запрос пользователя)
 
 - **Timeline — единственный источник фактической длительности видео** — [запись](adr/product/timeline-is-actual-duration.md) · accepted · 2026-09-11 (запрос пользователя)

@@ -313,9 +313,9 @@ export function DraftStudio({
         )
       ) : (
         <div
-          className={`video-studio-workspace${mode === "timeline" ? " video-studio-workspace-timeline" : ""}`}
+          className={`video-studio-workspace${mode === "timeline" ? " video-studio-workspace-timeline" : ""}${mode === "story" ? " video-studio-workspace-story" : ""}`}
         >
-          {mode !== "timeline" && (
+          {mode !== "timeline" && mode !== "story" && (
             <aside
               ref={navigatorRef}
               className="video-studio-navigator"
@@ -349,13 +349,24 @@ export function DraftStudio({
             {mode === "story" && (
               <>
                 <EditorNotice editor={script} name="script" />
+                {pendingSceneDelete && (
+                  <ConfirmButton
+                    defaultArmed
+                    confirmLabel="Delete scene"
+                    description="Removes this scene from the draft. Shots planned on it are lost."
+                    onDisarm={() => setPendingSceneDelete(null)}
+                    returnFocusRef={navigatorRef}
+                    onConfirm={async () => deleteScene(pendingSceneDelete)}
+                  />
+                )}
                 <StoryboardEditor
                   document={script.document}
                   onChange={editScript}
                   disabled={script.locked || editorLocked}
                   selectedId={activeSceneId}
                   onSelect={setSceneId}
-                  showSceneNavigator={false}
+                  onReorderScenes={reorderScenes}
+                  onDeleteScene={setPendingSceneDelete}
                   onOpenShot={(nextShotId) => {
                     setShotId(nextShotId);
                     onMode("shots");

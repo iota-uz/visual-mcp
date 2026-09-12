@@ -74,8 +74,7 @@
   font-size: var(--app-text-sm);
 }
 
-.video-form,
-.video-scene-editor {
+.video-form {
   display: grid;
   gap: var(--app-space-4);
 }

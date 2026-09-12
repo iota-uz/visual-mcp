@@ -24,8 +24,10 @@ Child components should receive typed values and intent-level callbacks such as 
 
 ## Folders
 
-- `story/` contains scene-authoring controls. `CameraDirection` uses the canonical camera
-  vocabulary from `packages/video/src/camera.ts`.
+- `story/` contains scene-authoring controls. Story mode is a beat board: every scene
+  is readable at a glance, and the form opens on the selected beat. `CameraDirection`
+  uses the canonical camera vocabulary from `packages/video/src/camera.ts`. The scene
+  rail (`SceneNavigator`) is for Shots, not Story.
 - `shots/` contains the start-image library and generated-candidate workflow. `ShotStudio` owns the
   selected shot and composes these focused panels.
 - `timeline/` separates pure edit calculations (`model.ts`), local editor history and playback
