@@ -33,15 +33,15 @@ test("two-shot layout balances pack bounds without overlap and preserves actor i
   assert.equal(staged.customer!.characterPackId, "customer");
   assert.equal(staged.mascot!.facing, "left");
   assert.equal(original.customer.scale, 0.2, "authoring helper must not mutate input");
-  const customerHeight =
-    staged.customer!.scale * builtInCharacterPacks.customer!.viewBox.height;
-  const mascotHeight =
-    staged.mascot!.scale * builtInCharacterPacks["farq-mascot"]!.viewBox.height;
+  const customerHeight = staged.customer!.scale * builtInCharacterPacks.customer!.viewBox.height;
+  const mascotHeight = staged.mascot!.scale * builtInCharacterPacks["farq-mascot"]!.viewBox.height;
   assert.ok(Math.max(customerHeight, mascotHeight) / Math.min(customerHeight, mascotHeight) < 1.3);
   assert.ok(staged.customer!.x < staged.mascot!.x);
-  const customerRight = staged.customer!.x +
+  const customerRight =
+    staged.customer!.x +
     (staged.customer!.scale * builtInCharacterPacks.customer!.viewBox.width) / 2160;
-  const mascotLeft = staged.mascot!.x -
+  const mascotLeft =
+    staged.mascot!.x -
     (staged.mascot!.scale * builtInCharacterPacks["farq-mascot"]!.viewBox.width) / 2160;
   assert.ok(customerRight < mascotLeft, "two-shot bounds must not overlap");
 });
@@ -94,10 +94,8 @@ test("reaction closeup makes the selected focal actor dominant across pack sizes
     actorsById: actors(),
     characterPacksById: builtInCharacterPacks,
   });
-  const focalHeight =
-    staged.mascot!.scale * builtInCharacterPacks["farq-mascot"]!.viewBox.height;
-  const supportingHeight =
-    staged.customer!.scale * builtInCharacterPacks.customer!.viewBox.height;
+  const focalHeight = staged.mascot!.scale * builtInCharacterPacks["farq-mascot"]!.viewBox.height;
+  const supportingHeight = staged.customer!.scale * builtInCharacterPacks.customer!.viewBox.height;
   assert.ok(focalHeight > supportingHeight * 1.5);
   assert.equal(staged.mascot!.x, 0.5);
 });

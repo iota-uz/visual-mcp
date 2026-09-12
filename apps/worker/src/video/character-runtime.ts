@@ -469,7 +469,10 @@ export function resolvePersistentPropAttachments(
       const releaseFrame =
         action.releaseFrame ??
         (action.acting?.accentFrame !== undefined && action.acting.holdFrames !== undefined
-          ? Math.min(action.durationFrames - 1, action.acting.accentFrame + action.acting.holdFrames)
+          ? Math.min(
+              action.durationFrames - 1,
+              action.acting.accentFrame + action.acting.holdFrames,
+            )
           : action.durationFrames - 1);
       if (local >= releaseFrame) attachments[action.propId] = undefined;
       continue;
