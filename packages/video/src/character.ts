@@ -108,6 +108,13 @@ export const CharacterPack = z
       })
       .strict()
       .optional(),
+    orientation: z
+      .object({
+        canonicalFacing: z.enum(["left", "right"]),
+        mirror: z.enum(["allowed", "fixed"]),
+      })
+      .strict()
+      .optional(),
     viewBox: z
       .object({
         width: z.number().positive().max(4000),
@@ -145,12 +152,23 @@ export const CharacterPack = z
         handColor: Color.optional(),
         handStroke: Color.optional(),
         handStrokeWidth: z.number().min(0).max(100).optional(),
+        handRenderer: z.enum(["circle", "artwork"]).optional(),
         eyeColor: Color,
         eyeWhite: Color,
         eyeRadius: z.number().positive().max(100),
         eyeSpacing: z.number().positive().max(300),
+        eyeAspectRatio: z.number().positive().max(3).optional(),
+        pupilScale: z.number().positive().max(1).optional(),
+        eyeHighlightColor: Color.optional(),
+        eyeHighlightRadius: z.number().positive().max(50).optional(),
+        eyeHighlightX: z.number().min(-100).max(100).optional(),
+        eyeHighlightY: z.number().min(-100).max(100).optional(),
+        browWidth: z.number().positive().max(300).optional(),
+        browStrokeWidth: z.number().positive().max(100).optional(),
         mouthColor: Color,
         mouthWidth: z.number().positive().max(300),
+        mouthRestOpen: Unit.optional(),
+        tongueColor: Color.optional(),
       })
       .strict(),
     expressions: z.record(CharacterEmotion, Expression),

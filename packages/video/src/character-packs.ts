@@ -156,6 +156,7 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
     id: "farq-official",
     label: "Official farq.uz mascot",
     sourceAsset: officialSource,
+    orientation: { canonicalFacing: "right", mirror: "fixed" },
     viewBox: { width: 360, height: 360 },
     rig: {
       root: { x: 0, y: 0 },
@@ -165,7 +166,7 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
       mouth: { x: -40, y: -57 },
       leftShoulder: { x: -58, y: -32 },
       leftElbow: { x: -88, y: -5 },
-      leftHand: { x: -112, y: 18 },
+      leftHand: { x: -112, y: -22 },
       rightShoulder: { x: 58, y: -32 },
       rightElbow: { x: 88, y: -5 },
       rightHand: { x: 112, y: 18 },
@@ -233,6 +234,16 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
           },
           {
             kind: "path",
+            d: officialPath(
+              "M535 95 C551 88 570 90 589 93 C635 100 685 115 728 152 C739 161 744 170 743 178",
+              { x: -34, y: -78 },
+            ),
+            fill: "#00000000",
+            stroke: "#079ea6",
+            strokeWidth: 2.25,
+          },
+          {
+            kind: "path",
             d: officialPath("M505 137 C565 150 649 177 721 221", {
               x: -34,
               y: -78,
@@ -257,8 +268,122 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
             }),
             fill: "#ff5918",
           },
+          {
+            kind: "path",
+            d: officialPath("M728 179 L739 195 L729 212 L717 196 Z", {
+              x: -34,
+              y: -78,
+            }),
+            fill: "#ff5918",
+          },
+          {
+            kind: "path",
+            d: officialPath(
+              "M535 106 C529 122 529 132 541 138 C552 143 562 134 566 120 M549 104 C545 119 545 128 553 133",
+              { x: -34, y: -78 },
+            ),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 2.5,
+          },
+          {
+            kind: "path",
+            d: officialPath(
+              "M613 128 C606 147 606 157 619 163 C631 168 641 157 645 141 M628 128 C623 145 624 154 632 158",
+              { x: -34, y: -78 },
+            ),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 2.5,
+          },
+          {
+            kind: "path",
+            d: officialPath(
+              "M684 155 C677 176 678 185 690 191 C703 196 712 184 717 168 M699 156 C694 173 695 181 703 185",
+              { x: -34, y: -78 },
+            ),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 2.5,
+          },
           sourceEllipse(364, 401, 26, 17, "#ff5b18", { x: -34, y: -78 }),
           sourceEllipse(609, 443, 27, 18, "#ff5b18", { x: -34, y: -78 }),
+        ],
+      },
+      {
+        id: "officialLeftGlove",
+        node: "leftHand",
+        shapes: [
+          {
+            kind: "path",
+            d: officialPath(
+              "M196 423 C191 403 194 383 204 370 C216 354 235 352 249 359 C264 366 269 380 266 399 C263 416 261 430 266 442 C273 458 283 474 282 495 C296 502 306 522 302 541 C299 570 281 596 257 607 C233 617 207 605 199 589 C170 590 148 572 137 546 C123 516 124 484 134 460 C145 435 169 421 196 423 Z",
+              { x: -112, y: -22 },
+            ),
+            fill: "#080808",
+          },
+          {
+            kind: "path",
+            d: officialPath(
+              "M210 426 C206 413 205 400 210 387 C214 375 224 369 235 369 C248 369 256 379 254 392 C251 409 249 422 252 436 C254 450 264 460 267 477 C272 494 268 510 262 524 C269 521 275 514 277 507 C287 516 292 528 288 545 C282 573 262 595 239 598 C228 598 219 595 214 587 C229 584 242 574 248 563 C242 566 237 569 233 570 C245 558 248 546 240 533 L244 525 C249 527 252 532 255 534 C254 525 251 520 247 516 C250 506 247 495 241 488 C252 467 244 447 229 435 C222 430 216 428 210 426 Z",
+              { x: -112, y: -22 },
+            ),
+            fill: "#ffffff",
+          },
+          {
+            kind: "path",
+            d: officialPath(
+              "M183 436 C203 432 222 441 230 453 C236 462 236 470 232 479 C216 471 199 469 185 476 C183 477 181 478 181 481 C200 479 214 480 225 488 C237 497 240 511 232 524 C217 518 202 516 189 523 C187 524 186 526 186 528 C202 525 216 526 225 532 C237 541 235 554 229 563 C220 575 203 579 186 575 C164 570 151 550 145 530 C138 508 139 486 146 467 C152 450 166 439 183 436 Z",
+              { x: -112, y: -22 },
+            ),
+            fill: "#ffffff",
+          },
+        ],
+      },
+      {
+        id: "officialRightGlove",
+        node: "rightHand",
+        shapes: [
+          {
+            kind: "path",
+            d: officialPath(
+              "M941 655 C950 633 970 620 990 623 C1012 626 1027 643 1025 663 C1040 662 1052 671 1055 684 C1058 697 1052 708 1042 715 C1056 720 1063 733 1059 747 C1054 765 1036 775 1018 777 C990 779 967 764 953 744 C939 724 933 684 941 655 Z",
+              { x: 112, y: 18 },
+            ),
+            fill: "#ffffff",
+            stroke: "#050505",
+            strokeWidth: 3.4,
+          },
+          {
+            kind: "path",
+            d: officialPath("M963 648 C949 642 938 648 931 657", {
+              x: 112,
+              y: 18,
+            }),
+            fill: "#00000000",
+            stroke: "#050505",
+            strokeWidth: 2.25,
+          },
+          {
+            kind: "path",
+            d: officialPath("M1025 663 C1019 680 1011 689 1000 696", {
+              x: 112,
+              y: 18,
+            }),
+            fill: "#00000000",
+            stroke: "#050505",
+            strokeWidth: 2.25,
+          },
+          {
+            kind: "path",
+            d: officialPath("M1042 715 C1035 728 1027 736 1017 740", {
+              x: 112,
+              y: 18,
+            }),
+            fill: "#00000000",
+            stroke: "#050505",
+            strokeWidth: 2.25,
+          },
         ],
       },
       {
@@ -311,9 +436,30 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
           {
             kind: "path",
             d: officialPath(
+              "M353 1065 C354 1048 368 1030 379 1021 C410 1022 435 1047 444 1073 C495 1073 555 1063 590 1046 L592 1063 C595 1076 581 1083 562 1088 C511 1102 429 1105 384 1095 C364 1091 351 1083 353 1065 Z",
+            ),
+            fill: "#ffffff",
+          },
+          {
+            kind: "path",
+            d: officialPath(
               "M379 1022 C400 1005 423 995 449 996 C456 989 461 986 470 985 C480 971 496 971 511 978 C524 985 531 995 536 1005 C551 1009 570 1002 571 986 C582 996 586 1020 590 1047 C555 1064 495 1074 443 1074 C434 1047 410 1023 379 1022 Z",
             ),
             fill: "#ff5918",
+          },
+          {
+            kind: "path",
+            d: officialPath("M429 1003 C448 1004 465 1017 475 1032"),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 3.4,
+          },
+          {
+            kind: "path",
+            d: officialPath("M459 991 C476 991 492 1003 502 1014"),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 3.4,
           },
           {
             kind: "path",
@@ -325,9 +471,30 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
           {
             kind: "path",
             d: officialPath(
+              "M785 1057 C811 1072 856 1085 894 1085 C912 1053 943 1029 978 1043 C986 1048 992 1057 995 1067 C999 1078 997 1085 991 1091 C967 1118 882 1119 829 1101 C805 1094 783 1085 784 1071 Z",
+            ),
+            fill: "#ffffff",
+          },
+          {
+            kind: "path",
+            d: officialPath(
               "M795 1006 C800 1017 807 1020 822 1019 C835 997 851 986 870 986 C883 984 894 992 901 999 C910 1001 913 1007 917 1013 C940 1015 963 1028 978 1044 C943 1030 912 1054 894 1086 C856 1086 811 1073 785 1058 C786 1035 788 1019 795 1006 Z",
             ),
             fill: "#ff5918",
+          },
+          {
+            kind: "path",
+            d: officialPath("M851 1026 C865 1012 885 1005 904 1005"),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 3.4,
+          },
+          {
+            kind: "path",
+            d: officialPath("M872 1045 C885 1030 909 1020 929 1020"),
+            fill: "#00000000",
+            stroke: "#ffffff",
+            strokeWidth: 3.4,
           },
         ],
       },
@@ -359,12 +526,23 @@ export const builtInCharacterPacks: Record<string, CharacterPack> = {
       handColor: "#ffffff",
       handStroke: "#050505",
       handStrokeWidth: 4,
+      handRenderer: "artwork",
       eyeColor: "#050505",
       eyeWhite: "#ffffff",
-      eyeRadius: 13,
+      eyeRadius: 14,
       eyeSpacing: 50,
+      eyeAspectRatio: 1.35,
+      pupilScale: 0.64,
+      eyeHighlightColor: "#ffffff",
+      eyeHighlightRadius: 2.8,
+      eyeHighlightX: -2.5,
+      eyeHighlightY: -4,
+      browWidth: 23,
+      browStrokeWidth: 4.2,
       mouthColor: "#050505",
       mouthWidth: 32,
+      mouthRestOpen: 0.8,
+      tongueColor: "#ff5b18",
     },
     expressions,
     motion: {

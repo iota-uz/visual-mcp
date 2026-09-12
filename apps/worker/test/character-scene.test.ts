@@ -7,7 +7,10 @@ import {
 } from "@visual-canvas/video/registry";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CharacterScene, evaluateCharacterActors } from "../src/video/character-scene.js";
+import {
+  CharacterScene,
+  evaluateCharacterActors,
+} from "../src/video/character-scene.js";
 
 function fixture() {
   return CharacterSceneProps.parse({
@@ -140,14 +143,41 @@ test("character state is deterministic and seeded idle is reproducible", () => {
   const props = fixture();
   const first = evaluateCharacterActors(props, 210);
   assert.deepEqual(first, evaluateCharacterActors(props, 210));
-  assert.notDeepEqual(first, evaluateCharacterActors({ ...props, seed: props.seed + 1 }, 210));
+  assert.notDeepEqual(
+    first,
+    evaluateCharacterActors({ ...props, seed: props.seed + 1 }, 210),
+  );
   for (const state of Object.values(first))
     for (const value of [
       state.opacity,
       ...Object.values(state.pose),
-      ...Object.values(state.rig).flatMap((node) => [node.origin.x, node.origin.y]),
+      ...Object.values(state.rig).flatMap((node) => [
+        node.origin.x,
+        node.origin.y,
+      ]),
     ])
       assert.equal(Number.isFinite(value), true);
+});
+
+test("fixed-orientation asymmetric packs ignore actor mirroring", () => {
+  const input = structuredClone(fixture());
+  input.actorsById.mascot.characterPackId = "farq-official";
+  input.actorsById.mascot.facing = "left";
+  const fixed = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    90,
+  ).mascot!;
+  assert.ok(fixed.rig.root.matrix[0] > 0);
+
+  input.characterPacksById["farq-official"]!.orientation = {
+    canonicalFacing: "right",
+    mirror: "allowed",
+  };
+  const mirrored = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    90,
+  ).mascot!;
+  assert.ok(mirrored.rig.root.matrix[0] < 0);
 });
 
 test("enter stays hidden before its start and reaches rest without a reset pop", () => {
@@ -160,8 +190,12 @@ test("enter stays hidden before its start and reaches rest without a reset pop",
   assert.ok(before.pose["root.x"]! > 1080);
   assert.equal(start.opacity, 0);
   assert.equal(settled.opacity, 1);
-  assert.ok(Math.abs(finalEnterFrame.pose["root.x"]! - settled.pose["root.x"]!) < 0.001);
-  assert.ok(Math.abs(finalEnterFrame.pose["root.y"]! - settled.pose["root.y"]!) < 0.01);
+  assert.ok(
+    Math.abs(finalEnterFrame.pose["root.x"]! - settled.pose["root.x"]!) < 0.001,
+  );
+  assert.ok(
+    Math.abs(finalEnterFrame.pose["root.y"]! - settled.pose["root.y"]!) < 0.01,
+  );
 });
 
 test("semantic gaze, blink, gesture and reaction evaluate into distinct rig states", () => {
@@ -172,7 +206,8 @@ test("semantic gaze, blink, gesture and reaction evaluate into distinct rig stat
   const blink = evaluateCharacterActors(props, 64);
   assert.ok(Math.abs(blink.customer!.face.eyeOpen - 0.05) < 1e-9);
 
-  const beforePoint = evaluateCharacterActors(props, 94).mascot!.rig.rightHand.origin;
+  const beforePoint = evaluateCharacterActors(props, 94).mascot!.rig.rightHand
+    .origin;
   const gesture = evaluateCharacterActors(props, 110);
   const pointed = gesture.mascot!.rig.rightHand.origin;
   const price = { x: 540, y: 0.22 * 1920 };
@@ -211,23 +246,33 @@ test("semantic gaze, blink, gesture and reaction evaluate into distinct rig stat
 
 test("character scene renders repository-owned SVG rigs and timed overlays", () => {
   const props = fixture();
-  const before = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 90 }));
-  const during = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 120 }));
+  const before = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 90 }),
+  );
+  const during = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 120 }),
+  );
   assert.match(during, /<svg/);
   assert.match(during, /999 000 сум/);
   assert.doesNotMatch(before, /999 000 сум/);
   assert.doesNotMatch(during, /https?:\/\//);
 
-  const phone = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 120 }));
+  const phone = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 120 }),
+  );
   assert.match(phone, /aria-label="Phone"/);
   assert.match(phone, /data-character-prop="true"/);
 
-  const pointing = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 110 }));
+  const pointing = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 110 }),
+  );
   assert.match(pointing, /data-arm="right"/);
   assert.match(pointing, /data-character-point-arm="right"/);
   assert.match(pointing, /data-character-point-finger="right"/);
 
-  const thinking = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 215 }));
+  const thinking = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 215 }),
+  );
   assert.match(thinking, /data-character-pack="customer"/);
   assert.match(thinking, /data-character-pack="farq-mascot"/);
   assert.match(thinking, /data-character-foreground-arm="right"/);
@@ -240,25 +285,40 @@ test("arm masks include the forearm channel used by IK", () => {
   const before = evaluateCharacterActors(props, 94).mascot!.pose;
   const pointing = evaluateCharacterActors(props, 110).mascot!.pose;
   assert.notEqual(pointing["rightArm.rotation"], before["rightArm.rotation"]);
-  assert.notEqual(pointing["rightForearm.rotation"], before["rightForearm.rotation"]);
+  assert.notEqual(
+    pointing["rightForearm.rotation"],
+    before["rightForearm.rotation"],
+  );
 });
 
 test("gaze-only masks leave the separately owned head channel untouched", () => {
   const input = structuredClone(fixture());
   input.actionsById.look!.mask = ["gaze"];
-  const state = evaluateCharacterActors(CharacterSceneProps.parse(input), 55).customer!;
+  const state = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    55,
+  ).customer!;
   assert.notEqual(state.face.gazeX, 0);
   assert.equal(state.pose["head.rotation"], 0);
 });
 
 test("IK reaches a world target when an imported pack uses a nonzero rig root", () => {
   const input = structuredClone(fixture());
-  for (const point of Object.values(input.characterPacksById["farq-mascot"]!.rig)) {
+  for (const point of Object.values(
+    input.characterPacksById["farq-mascot"]!.rig,
+  )) {
     point.x += 30;
     point.y += 40;
   }
-  input.actionsById.point!.target = { kind: "point", x: 600 / 1080, y: 1340 / 1920 };
-  const state = evaluateCharacterActors(CharacterSceneProps.parse(input), 110).mascot!;
+  input.actionsById.point!.target = {
+    kind: "point",
+    x: 600 / 1080,
+    y: 1340 / 1920,
+  };
+  const state = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    110,
+  ).mascot!;
   const hand = state.rig.rightHand.origin;
   assert.ok(Math.hypot(hand.x - 600, hand.y - 1340) < 2);
 });
@@ -266,7 +326,10 @@ test("IK reaches a world target when an imported pack uses a nonzero rig root", 
 test("zero-weight enter is disabled instead of becoming a permanent offscreen base", () => {
   const input = structuredClone(fixture());
   input.actionsById.enter!.weight = 0;
-  const state = evaluateCharacterActors(CharacterSceneProps.parse(input), 60).mascot!;
+  const state = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    60,
+  ).mascot!;
   assert.equal(state.pose["root.x"], 0.7 * 1080);
   assert.equal(state.opacity, 1);
 });
@@ -291,7 +354,10 @@ test("a faint high-priority viseme blends over rather than silencing lower-prior
     weight: 0.01,
     visemes: [{ frame: 0, shape: "m" }],
   };
-  const state = evaluateCharacterActors(CharacterSceneProps.parse(input), 110).customer!;
+  const state = evaluateCharacterActors(
+    CharacterSceneProps.parse(input),
+    110,
+  ).customer!;
   assert.equal(state.face.viseme, "a");
   assert.ok(state.face.mouthOpen > 0.9);
 });
@@ -311,7 +377,9 @@ test("zero-weight semantic actions cannot reveal props or override speech and em
   };
   const props = CharacterSceneProps.parse(input);
   const state = evaluateCharacterActors(props, 120).customer!;
-  const markup = renderToStaticMarkup(createElement(CharacterScene, { props, frame: 120 }));
+  const markup = renderToStaticMarkup(
+    createElement(CharacterScene, { props, frame: 120 }),
+  );
   assert.equal(state.emotion, "neutral");
   assert.equal(state.face.viseme, "rest");
   assert.doesNotMatch(markup, /aria-label="Phone"/);

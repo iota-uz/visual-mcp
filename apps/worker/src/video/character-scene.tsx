@@ -44,19 +44,32 @@ export type CharacterActorState = {
 };
 const VIEW_WIDTH = 1080,
   VIEW_HEIGHT = 1920;
-const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
+const effectiveFacing = (
+  pack: CharacterPack,
+  requested: "left" | "right",
+) =>
+  pack.orientation?.mirror === "fixed"
+    ? pack.orientation.canonicalFacing
+    : requested;
+const clamp = (value: number, min = 0, max = 1) =>
+  Math.max(min, Math.min(max, value));
 const smooth = (value: number) => {
   const t = clamp(value);
   return t * t * (3 - 2 * t);
 };
 const actionActive = (action: CharacterAction, frame: number) =>
-  frame >= action.startFrame && frame < action.startFrame + action.durationFrames;
+  frame >= action.startFrame &&
+  frame < action.startFrame + action.durationFrames;
 const actionWeight = (action: CharacterAction, frame: number) => {
   if (!actionActive(action, frame)) return 0;
   const local = frame - action.startFrame;
-  const blendIn = action.blendInFrames ? smooth(local / action.blendInFrames) : 1;
+  const blendIn = action.blendInFrames
+    ? smooth(local / action.blendInFrames)
+    : 1;
   const remaining = action.durationFrames - local;
-  const blendOut = action.blendOutFrames ? smooth(remaining / action.blendOutFrames) : 1;
+  const blendOut = action.blendOutFrames
+    ? smooth(remaining / action.blendOutFrames)
+    : 1;
   return action.weight * Math.min(blendIn, blendOut);
 };
 
@@ -67,7 +80,11 @@ function rigNodes(pack: CharacterPack): RigNode[] {
   ): RigNode => {
     const point = pack.rig[id],
       parent = parentId ? pack.rig[parentId] : { x: 0, y: 0 };
-    return { id, parentId, transform: { x: point.x - parent.x, y: point.y - parent.y } };
+    return {
+      id,
+      parentId,
+      transform: { x: point.x - parent.x, y: point.y - parent.y },
+    };
   };
   return [
     relative("root"),
@@ -89,14 +106,18 @@ function bodyMask(action: CharacterAction) {
     if (part === "transform") return ["root"];
     if (part === "gaze") return ["eyes"];
     if (part === "emotion") return ["face"];
-    if (part === "leftArm" || part === "rightArm") return [part, part.replace("Arm", "Forearm")];
+    if (part === "leftArm" || part === "rightArm")
+      return [part, part.replace("Arm", "Forearm")];
     return [part];
   });
 }
 function actionOwns(action: CharacterAction, channel: "mouth" | "emotion") {
   return !action.mask || action.mask.includes(channel);
 }
-function adaptTracks(action: CharacterAction, tracks: AnimationTrack[]): AnimationTrack[] {
+function adaptTracks(
+  action: CharacterAction,
+  tracks: AnimationTrack[],
+): AnimationTrack[] {
   return tracks.map((track) => ({
     ...track,
     priority: action.priority,
@@ -138,8 +159,11 @@ function actorWorldPoint(
     actor = props.actorsById[actorId];
   const pack = actor && props.characterPacksById[actor.characterPackId];
   if (!position || !actor || !pack) return undefined;
+  const facing = effectiveFacing(pack, actor.facing);
   return {
-    x: position.x + pack.rig.head.x * actor.scale * (actor.facing === "left" ? -1 : 1),
+    x:
+      position.x +
+      pack.rig.head.x * actor.scale * (facing === "left" ? -1 : 1),
     y: position.y + pack.rig.head.y * actor.scale,
   };
 }
@@ -149,11 +173,16 @@ function targetPoint(
   positions: Record<string, Vec2>,
   propsAt: Record<string, Vec2>,
 ): Vec2 {
-  if (target.kind === "camera") return { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
-  if (target.kind === "point") return { x: target.x * VIEW_WIDTH, y: target.y * VIEW_HEIGHT };
+  if (target.kind === "camera")
+    return { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
+  if (target.kind === "point")
+    return { x: target.x * VIEW_WIDTH, y: target.y * VIEW_HEIGHT };
   if (target.kind === "actor")
     return (
-      actorWorldPoint(props, target.actorId, positions) ?? { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 }
+      actorWorldPoint(props, target.actorId, positions) ?? {
+        x: VIEW_WIDTH / 2,
+        y: VIEW_HEIGHT / 2,
+      }
     );
   if (target.kind === "prop")
     return propsAt[target.propId] ?? { x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2 };
@@ -190,14 +219,34 @@ function armTracks(
     target: localTarget,
     ...limbLengths(pack, side),
     bend:
-      pack.motion.elbowBend === "outward" ? (side === "left" ? -1 : 1) : side === "left" ? 1 : -1,
+      pack.motion.elbowBend === "outward"
+        ? side === "left"
+          ? -1
+          : 1
+        : side === "left"
+          ? 1
+          : -1,
   });
   const restUpper =
-    (Math.atan2(elbow.y - absoluteShoulder.y, elbow.x - absoluteShoulder.x) * 180) / Math.PI;
-  const restLower = (Math.atan2(hand.y - elbow.y, hand.x - elbow.x) * 180) / Math.PI - restUpper;
+    (Math.atan2(elbow.y - absoluteShoulder.y, elbow.x - absoluteShoulder.x) *
+      180) /
+    Math.PI;
+  const restLower =
+    (Math.atan2(hand.y - elbow.y, hand.x - elbow.x) * 180) / Math.PI -
+    restUpper;
   return [
-    staticTrack(id, action, `${side}Arm.rotation`, solved.shoulderRotation - restUpper),
-    staticTrack(id, action, `${side}Forearm.rotation`, solved.elbowRotation - restLower),
+    staticTrack(
+      id,
+      action,
+      `${side}Arm.rotation`,
+      solved.shoulderRotation - restUpper,
+    ),
+    staticTrack(
+      id,
+      action,
+      `${side}Forearm.rotation`,
+      solved.elbowRotation - restLower,
+    ),
   ];
 }
 function gestureTarget(
@@ -208,9 +257,12 @@ function gestureTarget(
 ): Vec2 {
   const sign = side === "left" ? -1 : 1;
   let point: Vec2;
-  if (preset === "point") point = { x: sign * 135 * intensity, y: 180 * intensity };
-  else if (preset === "explain") point = { x: sign * 175 * intensity, y: -55 * intensity };
-  else if (preset === "shrug") point = { x: sign * 165 * intensity, y: 18 * intensity };
+  if (preset === "point")
+    point = { x: sign * 135 * intensity, y: 180 * intensity };
+  else if (preset === "explain")
+    point = { x: sign * 175 * intensity, y: -55 * intensity };
+  else if (preset === "shrug")
+    point = { x: sign * 165 * intensity, y: 18 * intensity };
   else
     point =
       side === "right"
@@ -219,19 +271,32 @@ function gestureTarget(
   return { x: point.x - pack.rig.body.x, y: point.y - pack.rig.body.y };
 }
 
-function locomotionPose(props: CharacterSceneProps, actorId: string, frame: number): NumericPose {
+function locomotionPose(
+  props: CharacterSceneProps,
+  actorId: string,
+  frame: number,
+): NumericPose {
   const actor = props.actorsById[actorId]!;
   const entrances = props.actionOrder
     .map((id) => [id, props.actionsById[id]] as const)
     .filter(
-      (entry): entry is readonly [string, Extract<CharacterAction, { type: "enter" }>] =>
-        entry[1]?.type === "enter" && entry[1].actorId === actorId && entry[1].weight > 0,
+      (
+        entry,
+      ): entry is readonly [
+        string,
+        Extract<CharacterAction, { type: "enter" }>,
+      ] =>
+        entry[1]?.type === "enter" &&
+        entry[1].actorId === actorId &&
+        entry[1].weight > 0,
     );
   const baseX = actor.x * VIEW_WIDTH,
     baseY = actor.y * VIEW_HEIGHT;
   if (entrances.length === 0) return { "root.x": baseX, "root.y": baseY };
   const [id, enter] =
-      [...entrances].reverse().find(([, candidate]) => candidate.startFrame <= frame) ??
+      [...entrances]
+        .reverse()
+        .find(([, candidate]) => candidate.startFrame <= frame) ??
       entrances[0]!,
     fromX = baseX + (enter.from === "left" ? -0.72 : 0.72) * VIEW_WIDTH;
   const tracks = adaptTracks(
@@ -248,33 +313,55 @@ function locomotionPose(props: CharacterSceneProps, actorId: string, frame: numb
       },
     ]),
   );
-  return mixAnimationTracks({ "root.x": fromX, "root.y": baseY }, tracks, frame);
+  return mixAnimationTracks(
+    { "root.x": fromX, "root.y": baseY },
+    tracks,
+    frame,
+  );
 }
-function actorOpacity(props: CharacterSceneProps, actorId: string, frame: number) {
+function actorOpacity(
+  props: CharacterSceneProps,
+  actorId: string,
+  frame: number,
+) {
   const entrances = props.actionOrder
     .map((id) => props.actionsById[id])
     .filter(
       (action): action is Extract<CharacterAction, { type: "enter" }> =>
-        action?.type === "enter" && action.actorId === actorId && action.weight > 0,
+        action?.type === "enter" &&
+        action.actorId === actorId &&
+        action.weight > 0,
     );
   if (entrances.length === 0) return 1;
   const enter =
-    [...entrances].reverse().find((candidate) => candidate.startFrame <= frame) ?? entrances[0]!;
+    [...entrances]
+      .reverse()
+      .find((candidate) => candidate.startFrame <= frame) ?? entrances[0]!;
   return frame < enter.startFrame
     ? 0
     : smooth((frame - enter.startFrame) / Math.min(12, enter.durationFrames));
 }
-function resolveViseme(props: CharacterSceneProps, actorId: string, frame: number) {
+function resolveViseme(
+  props: CharacterSceneProps,
+  actorId: string,
+  frame: number,
+) {
   const active = props.actionOrder
     .map((id) => ({ id, action: props.actionsById[id] }))
-    .filter((entry): entry is { id: string; action: Extract<CharacterAction, { type: "talk" }> } =>
-      Boolean(
-        entry.action?.type === "talk" &&
+    .filter(
+      (
+        entry,
+      ): entry is {
+        id: string;
+        action: Extract<CharacterAction, { type: "talk" }>;
+      } =>
+        Boolean(
+          entry.action?.type === "talk" &&
           entry.action.actorId === actorId &&
           actionActive(entry.action, frame) &&
           entry.action.weight > 0 &&
           actionOwns(entry.action, "mouth"),
-      ),
+        ),
     );
   if (active.length === 0) return { viseme: "rest" as Viseme, mouthOpen: 0 };
   const samples = active.map(({ id, action }) => {
@@ -288,13 +375,19 @@ function resolveViseme(props: CharacterSceneProps, actorId: string, frame: numbe
       }
       current = candidate;
     }
-    const envelope = Math.min(smooth((local - current.frame) / 2), smooth((nextFrame - local) / 2));
+    const envelope = Math.min(
+      smooth((local - current.frame) / 2),
+      smooth((nextFrame - local) / 2),
+    );
     return {
       id,
       priority: action.priority,
       weight: clamp(actionWeight(action, frame)),
       viseme: current.shape,
-      open: current.shape === "rest" || current.shape === "m" ? 0 : 0.45 + 0.55 * envelope,
+      open:
+        current.shape === "rest" || current.shape === "m"
+          ? 0
+          : 0.45 + 0.55 * envelope,
     };
   });
   const groups = new Map<number, typeof samples>();
@@ -309,7 +402,9 @@ function resolveViseme(props: CharacterSceneProps, actorId: string, frame: numbe
     const total = group.reduce((sum, sample) => sum + sample.weight, 0);
     if (total <= 0) continue;
     const alpha = clamp(total);
-    const groupOpen = group.reduce((sum, sample) => sum + sample.open * sample.weight, 0) / total;
+    const groupOpen =
+      group.reduce((sum, sample) => sum + sample.open * sample.weight, 0) /
+      total;
     mouthOpen = mouthOpen * (1 - alpha) + groupOpen * alpha;
   }
   let remaining = 1;
@@ -346,6 +441,7 @@ function evaluateActor(
 ): CharacterActorState {
   const actor = props.actorsById[actorId]!,
     pack = props.characterPacksById[actor.characterPackId]!;
+  const facing = effectiveFacing(pack, actor.facing);
   const locomotion = locomotionPose(props, actorId, frame);
   const idle = evaluateIdleMotion(frame, props.seed, actorId, {
     amplitude: pack.motion.breathingAmplitude / 100,
@@ -360,7 +456,9 @@ function evaluateActor(
     "body.scaleY": idle["body.scaleY"] ?? 1,
     "eyes.open": pack.capabilities.blink ? (idle["eyes.open"] ?? 1) : 1,
     "eyes.x":
-      actor.facing === "left" ? -pack.motion.gazeLimit * 0.25 : pack.motion.gazeLimit * 0.25,
+      facing === "left"
+        ? -pack.motion.gazeLimit * 0.25
+        : pack.motion.gazeLimit * 0.25,
     "eyes.y": 0,
     "head.rotation": 0,
     "mouth.open": 0,
@@ -376,7 +474,7 @@ function evaluateActor(
     x: locomotion["root.x"]!,
     y: locomotion["root.y"]!,
     rotation: base["root.rotation"]!,
-    scaleX: actor.scale * (actor.facing === "left" ? -1 : 1),
+    scaleX: actor.scale * (facing === "left" ? -1 : 1),
     scaleY: actor.scale,
   });
   const toLocal = inverseMatrix(actorMatrix),
@@ -394,14 +492,16 @@ function evaluateActor(
     emotionPriority = -101;
   for (const id of props.actionOrder) {
     const action = props.actionsById[id];
-    if (!action || action.actorId !== actorId || action.type === "enter") continue;
+    if (!action || action.actorId !== actorId || action.type === "enter")
+      continue;
     if (
       (action.type === "react" || (action.type === "talk" && action.emotion)) &&
       actionActive(action, frame) &&
       action.weight > 0 &&
       actionOwns(action, "emotion")
     ) {
-      const nextEmotion = action.type === "react" ? action.preset : action.emotion!;
+      const nextEmotion =
+        action.type === "react" ? action.preset : action.emotion!;
       if (action.priority >= emotionPriority) {
         emotionPriority = action.priority;
         emotion = nextEmotion;
@@ -423,7 +523,8 @@ function evaluateActor(
                 toLocal,
                 targetPoint(action.target, props, positions, propsAt),
               ),
-              responseDistance: Math.max(pack.viewBox.width, pack.viewBox.height) * 0.5,
+              responseDistance:
+                Math.max(pack.viewBox.width, pack.viewBox.height) * 0.5,
               maxEyeOffsetX: pack.motion.gazeLimit,
               maxEyeOffsetY: pack.motion.gazeLimit * 0.75,
               maxHeadRotation: pack.motion.headTurnDegrees,
@@ -449,7 +550,9 @@ function evaluateActor(
       );
     } else if (action.type === "gesture") {
       const sides =
-        action.hand === "both" ? (["left", "right"] as const) : ([action.hand] as const);
+        action.hand === "both"
+          ? (["left", "right"] as const)
+          : ([action.hand] as const);
       for (const side of sides)
         armRequests.push({
           id,
@@ -480,7 +583,8 @@ function evaluateActor(
       if (
         actionActive(action, frame) &&
         actionWeight(action, frame) > 0 &&
-        action.priority >= (pointingPriority[action.hand] ?? Number.NEGATIVE_INFINITY)
+        action.priority >=
+          (pointingPriority[action.hand] ?? Number.NEGATIVE_INFINITY)
       ) {
         pointing[action.hand] = point;
         pointingPriority[action.hand] = action.priority;
@@ -491,19 +595,24 @@ function evaluateActor(
         action,
         side: action.hand,
         target: action.target
-          ? { space: "world", point: targetPoint(action.target, props, positions, propsAt) }
+          ? {
+              space: "world",
+              point: targetPoint(action.target, props, positions, propsAt),
+            }
           : {
               space: "body",
               point: {
                 x:
-                  (action.hand === "left" ? -1 : 1) * Math.min(145, pack.viewBox.width * 0.4) -
+                  (action.hand === "left" ? -1 : 1) *
+                    Math.min(145, pack.viewBox.width * 0.4) -
                   pack.rig.body.x,
                 y: 24 - pack.rig.body.y,
               },
             },
       });
     } else if (action.type === "react") {
-      const intensity = action.intensity * (action.preset === "shocked" ? 0.18 : 0.07);
+      const intensity =
+        action.intensity * (action.preset === "shocked" ? 0.18 : 0.07);
       tracks.push(
         ...adaptTracks(
           action,
@@ -537,7 +646,9 @@ function evaluateActor(
       request.target.space === "world"
         ? transformPoint(worldToBody, request.target.point)
         : request.target.point;
-    tracks.push(...armTracks(request.id, request.action, pack, request.side, target));
+    tracks.push(
+      ...armTracks(request.id, request.action, pack, request.side, target),
+    );
   }
   const pose = mixAnimationTracks(base, tracks, frame);
   const rig = evaluateRig(
@@ -554,7 +665,7 @@ function evaluateActor(
       x: pose["root.x"]!,
       y: pose["root.y"]!,
       rotation: pose["root.rotation"]!,
-      scaleX: actor.scale * (actor.facing === "left" ? -1 : 1),
+      scaleX: actor.scale * (facing === "left" ? -1 : 1),
       scaleY: actor.scale,
     },
   );
@@ -592,18 +703,28 @@ export function evaluateCharacterActors(
   const propsAt: Record<string, Vec2> = Object.fromEntries(
     props.propOrder.map((id) => [
       id,
-      { x: props.propsById[id]!.x * VIEW_WIDTH, y: props.propsById[id]!.y * VIEW_HEIGHT },
+      {
+        x: props.propsById[id]!.x * VIEW_WIDTH,
+        y: props.propsById[id]!.y * VIEW_HEIGHT,
+      },
     ]),
   );
   let states = Object.fromEntries(
-    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt)]),
+    props.actorOrder.map((id) => [
+      id,
+      evaluateActor(props, id, frame, positions, propsAt),
+    ]),
   );
   for (const [id, attachment] of Object.entries(attached)) {
-    const hand = attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
+    const hand =
+      attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
     if (hand) propsAt[id] = hand.origin;
   }
   states = Object.fromEntries(
-    props.actorOrder.map((id) => [id, evaluateActor(props, id, frame, positions, propsAt)]),
+    props.actorOrder.map((id) => [
+      id,
+      evaluateActor(props, id, frame, positions, propsAt),
+    ]),
   );
   return states;
 }
@@ -623,10 +744,34 @@ function Overlay({
     typeof overlay.style,
     { fill: string; color: string; width: number; height: number; size: number }
   > = {
-    caption: { fill: "#211108", color: "#fff8ee", width: 820, height: 112, size: 48 },
-    "price-old": { fill: "#fff8ee", color: "#8a3d1b", width: 410, height: 140, size: 52 },
-    "price-new": { fill: "#ff7a1a", color: "#211108", width: 410, height: 140, size: 52 },
-    cta: { fill: "#ff7a1a", color: "#211108", width: 760, height: 126, size: 44 },
+    caption: {
+      fill: "#211108",
+      color: "#fff8ee",
+      width: 820,
+      height: 112,
+      size: 48,
+    },
+    "price-old": {
+      fill: "#fff8ee",
+      color: "#8a3d1b",
+      width: 410,
+      height: 140,
+      size: 52,
+    },
+    "price-new": {
+      fill: "#ff7a1a",
+      color: "#211108",
+      width: 410,
+      height: 140,
+      size: 52,
+    },
+    cta: {
+      fill: "#ff7a1a",
+      color: "#211108",
+      width: 760,
+      height: 126,
+      size: 44,
+    },
   };
   const style = styles[overlay.style];
   return (
@@ -656,7 +801,13 @@ function Overlay({
   );
 }
 
-export function CharacterScene({ props, frame }: { props: CharacterSceneProps; frame: number }) {
+export function CharacterScene({
+  props,
+  frame,
+}: {
+  props: CharacterSceneProps;
+  frame: number;
+}) {
   const states = evaluateCharacterActors(props, frame),
     attachments = resolvePersistentPropAttachments(props, frame);
   const actors: ReactNode[] = props.actorOrder.map((id) => {
@@ -677,7 +828,8 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
   const renderedProps = props.propOrder.map((id) => {
     const prop = props.propsById[id]!,
       attachment = attachments[id],
-      hand = attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
+      hand =
+        attachment && states[attachment.actorId]?.rig[`${attachment.hand}Hand`];
     const matrix = hand
       ? resolvePropAttachment(hand.matrix, prop.grip, {
           x: attachment.offset.x,
@@ -694,7 +846,13 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
             scaleX: prop.scale,
             scaleY: prop.scale,
           }),
-          transformMatrix({ x: -prop.grip.x, y: -prop.grip.y, rotation: 0, scaleX: 1, scaleY: 1 }),
+          transformMatrix({
+            x: -prop.grip.x,
+            y: -prop.grip.y,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+          }),
         );
     const revealed = props.actionOrder.some((actionId) => {
       const action = props.actionsById[actionId];
@@ -708,7 +866,12 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
     const visible = Boolean(prop.initiallyVisible || attachment || revealed);
     const opacity = attachment ? (states[attachment.actorId]?.opacity ?? 1) : 1;
     return visible ? (
-      <CharacterPropView key={id} prop={prop} matrix={matrix} opacity={opacity} />
+      <CharacterPropView
+        key={id}
+        prop={prop}
+        matrix={matrix}
+        opacity={opacity}
+      />
     ) : null;
   });
   const hands = props.actorOrder.map((id) => {
@@ -736,13 +899,18 @@ export function CharacterScene({ props, frame }: { props: CharacterSceneProps; f
     >
       <rect width="1080" height="1920" fill={props.background} />
       <circle cx="890" cy="235" r="205" fill="#ff7a1a" opacity="0.12" />
-      <path d="M0 1320 C280 1210 410 1390 670 1280 S920 1240 1080 1350 V1920 H0Z" fill="#2b1710" />
+      <path
+        d="M0 1320 C280 1210 410 1390 670 1280 S920 1240 1080 1350 V1920 H0Z"
+        fill="#2b1710"
+      />
       {actors}
       {renderedProps}
       {hands}
       {props.overlayOrder.map((id) => {
         const overlay = props.overlaysById[id];
-        return overlay ? <Overlay key={id} overlay={overlay} frame={frame} /> : null;
+        return overlay ? (
+          <Overlay key={id} overlay={overlay} frame={frame} />
+        ) : null;
       })}
     </svg>
   );

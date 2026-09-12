@@ -1,7 +1,7 @@
 ---
 id: official-character-pack-from-layered-svg
 title: Официальный маскот хранится как immutable SVG asset и компилируется в Character Pack
-status: accepted
+status: superseded
 date: 2026-09-12
 deciders: [unknown]
 area: platform
@@ -16,7 +16,7 @@ refs:
   - запрос пользователя
   - asset://shared/farq-official-layered-mascot@1
 supersedes: []
-superseded_by: []
+superseded_by: [brand-faithful-asymmetric-character-packs]
 ---
 
 ## Контекст

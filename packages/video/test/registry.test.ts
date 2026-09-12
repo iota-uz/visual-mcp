@@ -224,6 +224,16 @@ test("official farq character pins the immutable layered SVG source and rigged d
     mimeType: "image/svg+xml",
   });
   assert.ok(pack.layers.some((layer) => layer.id === "officialPercent"));
+  assert.deepEqual(pack.orientation, {
+    canonicalFacing: "right",
+    mirror: "fixed",
+  });
+  assert.ok(pack.layers.some((layer) => layer.id === "officialLeftGlove"));
+  assert.ok(pack.layers.some((layer) => layer.id === "officialRightGlove"));
+  assert.ok(pack.layers.flatMap((layer) => layer.shapes).length >= 38);
+  assert.equal(pack.style.handRenderer, "artwork");
+  assert.equal(pack.style.eyeHighlightColor, "#ffffff");
+  assert.equal(pack.style.tongueColor, "#ff5b18");
   assert.equal(pack.style.handColor, "#ffffff");
 });
 

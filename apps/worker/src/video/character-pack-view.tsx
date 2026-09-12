@@ -109,6 +109,7 @@ export function CharacterHandsView({
   opacity?: number;
 }) {
   if (!pack.capabilities.arms) return null;
+  const artworkHands = pack.style.handRenderer === "artwork";
   return (
     <g data-character-part="hands" opacity={opacity}>
       {(["left", "right"] as const).map((side) => {
@@ -140,21 +141,38 @@ export function CharacterHandsView({
                 strokeLinejoin="round"
               />
             ) : null}
-            <circle
-              transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
-              r={pack.style.handRadius}
-              fill={pack.style.handColor ?? pack.style.limbColor}
-              stroke={
-                pack.style.handStroke ??
-                (foreground ? pack.style.eyeColor : undefined)
-              }
-              strokeWidth={
-                pack.style.handStrokeWidth ??
-                (foreground
-                  ? Math.max(2, pack.style.handRadius * 0.25)
-                  : undefined)
-              }
-            />
+            {artworkHands ? (
+              pack.layers
+                .filter((layer) => layer.node === `${side}Hand`)
+                .map((layer) => (
+                  <g
+                    key={layer.id}
+                    data-layer={layer.id}
+                    transform={matrixAttribute(rig[layer.node]!.matrix)}
+                  >
+                    {layer.shapes.map((shape, index) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: Pack shape order is immutable within a checkpoint.
+                      <CharacterVectorShape key={index} shape={shape} />
+                    ))}
+                  </g>
+                ))
+            ) : (
+              <circle
+                transform={matrixAttribute(rig[`${side}Hand`]!.matrix)}
+                r={pack.style.handRadius}
+                fill={pack.style.handColor ?? pack.style.limbColor}
+                stroke={
+                  pack.style.handStroke ??
+                  (foreground ? pack.style.eyeColor : undefined)
+                }
+                strokeWidth={
+                  pack.style.handStrokeWidth ??
+                  (foreground
+                    ? Math.max(2, pack.style.handRadius * 0.25)
+                    : undefined)
+                }
+              />
+            )}
             {tip ? (
               <path
                 data-character-point-finger={side}
@@ -189,6 +207,8 @@ function CharacterFace({
     mouthColor,
     mouthWidth,
   } = pack.style;
+  const eyeAspectRatio = pack.style.eyeAspectRatio ?? 1;
+  const pupilScale = pack.style.pupilScale ?? 0.4;
   // Keep pupils inside their eye whites, even if an unusually shaped pack asks
   // for a gaze offset larger than its eye radius.
   const gazeLength = Math.hypot(face.gazeX, face.gazeY);
@@ -198,10 +218,21 @@ function CharacterFace({
   const eyeOpen = clamp(face.eyeOpen, 0.02, 2);
   const browTilt = clamp(face.browTilt, -1, 1) * radius * 0.55;
   const halfWidth = mouthWidth / 2;
-  const mouthOpen = pack.capabilities.talk ? clamp(face.mouthOpen, 0, 1) : 0;
   const viseme = pack.capabilities.talk ? face.viseme : "rest";
+  const spokenMouthOpen = pack.capabilities.talk
+    ? clamp(face.mouthOpen, 0, 1)
+    : 0;
+  const mouthOpen =
+    viseme === "rest"
+      ? Math.max(pack.style.mouthRestOpen ?? 0, spokenMouthOpen)
+      : spokenMouthOpen;
   const round = viseme === "o" || viseme === "u";
-  const open = mouthOpen > 0.01 && (round || viseme === "a" || viseme === "e");
+  const open =
+    mouthOpen > 0.01 &&
+    ((viseme === "rest" && Boolean(pack.style.mouthRestOpen)) ||
+      round ||
+      viseme === "a" ||
+      viseme === "e");
   const mouthHalfWidth =
     halfWidth *
     (viseme === "u" ? 0.36 : viseme === "o" ? 0.55 : viseme === "e" ? 1 : 0.85);
@@ -218,19 +249,41 @@ function CharacterFace({
         {([-1, 1] as const).map((side) => (
           <g key={side} transform={`translate(${(side * eyeSpacing) / 2} 0)`}>
             <g transform={`scale(1 ${eyeOpen})`}>
-              <circle r={radius} fill={eyeWhite} />
-              <circle
+              <ellipse
+                rx={radius}
+                ry={radius * eyeAspectRatio}
+                fill={eyeWhite}
+              />
+              <ellipse
                 cx={face.gazeX * gazeScale}
                 cy={face.gazeY * gazeScale}
-                r={radius * 0.4}
+                rx={radius * pupilScale}
+                ry={radius * eyeAspectRatio * pupilScale}
                 fill={eyeColor}
               />
+              {pack.style.eyeHighlightColor && pack.style.eyeHighlightRadius ? (
+                <circle
+                  cx={
+                    face.gazeX * gazeScale +
+                    (pack.style.eyeHighlightX ?? -radius * 0.16)
+                  }
+                  cy={
+                    face.gazeY * gazeScale +
+                    (pack.style.eyeHighlightY ??
+                      -radius * eyeAspectRatio * 0.22)
+                  }
+                  r={pack.style.eyeHighlightRadius}
+                  fill={pack.style.eyeHighlightColor}
+                />
+              ) : null}
             </g>
             <path
-              d={`M${-radius * 0.8} ${-radius * 1.45 + side * browTilt} L${radius * 0.8} ${-radius * 1.45 - side * browTilt}`}
+              d={`M${-(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 + side * browTilt} Q0 ${-radius * eyeAspectRatio - radius * 1.25} ${(pack.style.browWidth ?? radius * 1.6) / 2} ${-radius * eyeAspectRatio - radius * 0.8 - side * browTilt}`}
               fill="none"
               stroke={eyeColor}
-              strokeWidth={Math.max(1, radius * 0.16)}
+              strokeWidth={
+                pack.style.browStrokeWidth ?? Math.max(1, radius * 0.16)
+              }
               strokeLinecap="round"
             />
           </g>
@@ -242,11 +295,19 @@ function CharacterFace({
         data-viseme={viseme}
       >
         {open ? (
-          <ellipse
-            rx={mouthHalfWidth}
-            ry={Math.max(0.5, mouthHeight)}
-            fill={mouthColor}
-          />
+          <>
+            <ellipse
+              rx={mouthHalfWidth}
+              ry={Math.max(0.5, mouthHeight)}
+              fill={mouthColor}
+            />
+            {pack.style.tongueColor ? (
+              <path
+                d={`M${-mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Q0 ${mouthHeight * 0.9} ${mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Q0 ${mouthHeight * 0.05} ${-mouthHalfWidth * 0.72} ${mouthHeight * 0.28} Z`}
+                fill={pack.style.tongueColor}
+              />
+            ) : null}
+          </>
         ) : (
           <path
             d={`M${-halfWidth} 0 Q0 ${clamp(face.mouthCurve, -1, 1) * mouthWidth * 0.55} ${halfWidth} 0`}
@@ -282,18 +343,24 @@ export function CharacterPackView({
   return (
     <g aria-label={pack.label} data-character-pack={pack.id} opacity={opacity}>
       <CharacterArms pack={pack} rig={rig} />
-      {pack.layers.map((layer) => (
-        <g
-          key={layer.id}
-          data-layer={layer.id}
-          transform={matrixAttribute(rig[layer.node]!.matrix)}
-        >
-          {layer.shapes.map((shape, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: Pack shape order is immutable within a checkpoint.
-            <CharacterVectorShape key={index} shape={shape} />
-          ))}
-        </g>
-      ))}
+      {pack.layers
+        .filter(
+          (layer) =>
+            pack.style.handRenderer !== "artwork" ||
+            (layer.node !== "leftHand" && layer.node !== "rightHand"),
+        )
+        .map((layer) => (
+          <g
+            key={layer.id}
+            data-layer={layer.id}
+            transform={matrixAttribute(rig[layer.node]!.matrix)}
+          >
+            {layer.shapes.map((shape, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: Pack shape order is immutable within a checkpoint.
+              <CharacterVectorShape key={index} shape={shape} />
+            ))}
+          </g>
+        ))}
       <CharacterFace pack={pack} rig={rig} face={face} />
       {renderHands ? (
         <CharacterHandsView

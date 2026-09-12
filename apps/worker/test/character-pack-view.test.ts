@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type {
-  CharacterPack,
-  CharacterProp,
+import {
+  builtInCharacterPacks,
+  type CharacterPack,
+  type CharacterProp,
 } from "@visual-canvas/video/registry";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -174,6 +175,19 @@ test("a pack may style procedural gloves independently from its limbs", () => {
     markup,
     /data-hand="right"><circle[^>]+fill="#ffffff" stroke="#050505" stroke-width="4"/,
   );
+});
+
+test("authored gloves and detailed facial styling remain generic pack data", () => {
+  const pack = builtInCharacterPacks["farq-official"]!;
+  const markup = renderToStaticMarkup(
+    createElement(CharacterPackView, { pack, rig: evaluated(pack), face }),
+  );
+  assert.match(markup, /data-layer="officialLeftGlove"/);
+  assert.match(markup, /data-layer="officialRightGlove"/);
+  assert.doesNotMatch(markup, /data-hand="left"><circle/);
+  assert.match(markup, /rx="14" ry="18\.9/);
+  assert.match(markup, /r="2\.8" fill="#ffffff"/);
+  assert.match(markup, /fill="#ff5b18"/);
 });
 
 test("continuous mouth envelope affects visemes while disabled capabilities suppress procedural motion", () => {
